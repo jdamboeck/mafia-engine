@@ -11,14 +11,29 @@
 ## 1. What we are building
 
 A fresh Python reimplementation of the 1986 Commodore 64 game **"Mafia" by Igelsoft**,
-built as a **generic, moddable, eventually-networked platform** rather than a
-single-title clone. There is no legacy code to reuse.
+built as the reference title for a **genre engine**, not a single-title clone and not a
+fully generic game engine. There is no legacy code to reuse.
 
-The player is a 1920s Chicago gangster who moves around a city map, visits locations
-(pub, gun shop, bank, casino, loan shark, police station, …) to commit crimes, earn
-money, recruit and train a gang, fight rival gangs on a tactical grid, and climb ten
-criminal ranks — winning either by reaching the top rank with two special deeds done,
-or by having the highest score at the game's end year.
+**The genre we abstract:** *turn-based, board-game-like strategy games with tactical
+combat* — games with a map you move around under a movement economy, locations that
+open menu-driven interactions, RNG-driven outcomes, a progression/score ladder, and a
+separate tactical-grid combat mode. The **reusable core** is those genre mechanics (turn
+loop, movement economy, location/menu handlers, tactical-grid combat, interaction
+protocol, RNG). **Mafia-specific** rules, content, formulas, strings, and assets live in
+a game configuration, not the engine.
+
+**The seam:** genre-level engine ↔ Mafia-specific content. The engine hosts games *of
+this shape*; it does not try to host arbitrary games. A new title in the genre starts by
+**copying `data/game_configs/mafia_1920s`** and editing its data, formulas, strings,
+assets, and Python handlers — the engine itself is untouched. This keeps the abstraction
+honest: we generalize only what a second same-genre game would actually share, and only
+once a second config proves the seam (§8, Phase 8).
+
+The reference game: the player is a 1920s Chicago gangster who moves around a city map,
+visits locations (pub, gun shop, bank, casino, loan shark, police station, …) to commit
+crimes, earn money, recruit and train a gang, fight rival gangs on a tactical grid, and
+climb ten criminal ranks — winning either by reaching the top rank with two special
+deeds done, or by having the highest score at the game's end year.
 
 ### Source of truth
 
@@ -210,18 +225,90 @@ bitfields (contraband `ag`) from global flags.
 
 ## 5. Engine architecture
 
+### 5.0 Top-level state machine
+
+The whole game is one explicit finite state machine; every other lifecycle nests inside
+it. This is the single consistent lifecycle all handlers, turns, and combat flows use.
+
+```
+Title ──▶ Setup ──▶ MainLoop ──▶ Win/Lose ──▶ (restart)
+                       │
+                       ├── Overview        (read-only screen)
+                       ├── Location  ──▶ handler generator (§5.1)
+                       ├── Combat    ──▶ combat sub-FSM (§3.4)
+                       └── NextPlayer (advance sp, run turn upkeep)
+```
+
+**Nesting of lifecycles** (each level is driven by the one above it):
+
+```
+Game FSM
+└─ Player turn            (movement economy: ms; ends on ms<=0 or handler-forced)
+   └─ Location visit / Combat entry
+      └─ Handler generator   (yields interactions §5.1, applies effects §5.2)
+         └─ Interaction       (one prompt/message/combat request ↔ one screen state)
+```
+
+A single **driver** advances whichever level is active by turning `yield`ed
+interactions into screen states and feeding responses back. The Game FSM state, the
+active player's turn, and any in-flight handler generator are all part of `GameState`
+so a save/replay (§5.5) can reconstruct exactly where execution was suspended.
+
 ### 5.1 The interaction protocol (spine)
-- A **handler** is `Generator[Interaction, Response, list[Event]]`.
-- **Interaction variants:** `ShowMessage(key, params)`, `PromptInt`, `PromptChoice`,
-  `Confirm`, `StartCombat(fighters) -> result`, `LoadSubState` (minigames).
-- A **driver** advances the generator: each `yield` becomes a typed, JSON-serializable
-  **screen state**; each client response is `.send()` back into the generator.
-- **Phase 1 driver is in-process and synchronous.** The later WebSocket server is the
-  *same* driver with an async transport — handlers never change.
-- **Shared BASIC subroutines become engine helpers/interactions:** wait, yes/no
-  (`Confirm`), not-enough-money, gangster-picker (`PromptChoice`), score update
-  (effect), combat entry (`StartCombat`). This helper set defines what a modder's
-  Python handler may do.
+
+A **handler** is `Generator[Interaction, Response, list[Event]]`. It `yield`s an
+**Interaction**; the **driver** turns that into a typed, JSON-serializable **screen
+state**, obtains a **Response**, and `.send()`s it back. The Phase 1 driver is
+in-process and synchronous; the later WebSocket server (§7) is the *same* driver over an
+async transport — handlers never change.
+
+**Interactions vs. Effects (a firm distinction).** Interactions control **execution
+flow** (they suspend the handler to ask the client something); Effects (§5.2) mutate
+**game state**. A handler never mutates state directly — it `yield`s interactions and
+calls `ctx.apply(effect)`. Keeping the two categories separate is what makes handlers
+testable (feed scripted Responses, assert emitted Effects) and network-transparent.
+
+**Interaction catalog** — each with its fields and the Response it produces:
+
+| Interaction | Fields | Response | Notes |
+|---|---|---|---|
+| `ShowMessage` | `key`, `params` | `Ack` (none) | Display only; no input. |
+| `PromptInt` | `key`, `min`, `max` | `int` (or Cancel) | Re-prompts on out-of-range/non-numeric input (driver-enforced, not handler). |
+| `PromptChoice` | `key`, `options[]` | chosen `index`/`id` (or Cancel) | Menu/sub-menu, gangster-picker. |
+| `Confirm` | `key` | `bool` (or Cancel) | Yes/no (BASIC sub `1110`). |
+| `StartCombat` | `fighters`, `arena` | `CombatResult` | Suspends the turn; see resume signature below. |
+| `LoadSubState` | `kind`, `params` | sub-state result | Minigames (safe-cracking); a nested driver loop. |
+
+**Error / invalid input handling.** Range and type validation live in the **driver**, so
+a `PromptInt` handler receives only a valid `int` (or Cancel) — handlers never re-loop
+for validation. Protocol/transport errors (malformed response, disconnect) are the
+server's concern (§7: freeze + await reconnect), not the handler's.
+
+**`StartCombat` resume signature.** Combat is a sub-FSM (§3.4) the driver runs to
+completion, then resumes the handler with:
+```python
+CombatResult(outcome: Literal["won","lost","surrendered"],   # maps to BASIC flag `s`
+             survivors: list[FighterId], loot: int | None)
+```
+Handlers branch on `outcome` (e.g. bank robbery: `lost`/`surrendered` → arrest flow).
+
+**Open Phase-0 decision — cancellation.** The original returns to the menu on a `0`
+input at ~12 prompt sites (BASIC 13020, 15020, 15051, 15208, 16015, 21011, plus the
+combat-step aborts 30450–30462). The protocol must support "abort this action cleanly,
+commit no partial effects, return to the menu." Two candidate mechanisms, to be chosen
+when the driver is built:
+- **(a) Raise `Cancelled` into the generator** (`gen.throw`) — handler unwinds via
+  `try/finally`; the driver discards effects buffered for this action. Uniform; no
+  per-handler bookkeeping.
+- **(b) A `CANCEL` sentinel Response** the handler checks after each cancellable prompt —
+  closer to the BASIC `if x=0 then return`, but each handler must remember to check.
+Effect-commit semantics (buffer-then-commit per action, so a cancel is atomic) are part
+of this decision.
+
+**Shared BASIC subroutines become engine helpers/interactions:** wait, yes/no
+(`Confirm`, sub `1110`), not-enough-money (sub `1125`), gangster-picker (`PromptChoice`,
+sub `1130`), score update (Effect, sub `1160`), combat entry (`StartCombat`, sub `5000`).
+This helper set is part of the Handler API contract (§5.2a).
 
 ### 5.2 Location shell (YAML)
 ```yaml
@@ -245,7 +332,30 @@ guard in `location-handlers.yaml`.
 
 **Effect API (consequences & `ctx.apply`):** `money_change`, `stat_change`,
 `score_change`, `wanted_change`, `flag_set`, `ms_change`, `energy_change`, `jail`,
-`teleport`, `spawn_fighter`.
+`teleport`, `spawn_fighter`. Effects are **pure data** (typed, serializable) — they are
+also the replay events (§5.5).
+
+### 5.2a Handler API contract — the only programming interface
+
+A game configuration's handlers are the **sole** place config code runs, and they may
+touch **only** the surface below. Everything else in `engine/` is internal and off-limits
+— this is what keeps configs portable across engine versions (paired with `engine_api`
+versioning, §6a).
+
+A handler is a generator `def handler(ctx): ...` and may:
+
+| May use | What it is |
+|---|---|
+| `ctx.state` | **Read-only** view of `GameState` (current player, roster, cash, position, flags, …). Never mutated directly. |
+| `ctx.rng` | The seedable, logged RNG (`hit(a,b)`, `range(n)`). **The only source of nondeterminism** (§5.5). |
+| `yield <Interaction>` | The §5.1 catalog — the only way to reach the client. |
+| `ctx.apply(<Effect>)` | The §5.2 Effect API — the only way to mutate state. |
+| engine **helpers** | The named shared-subroutine set (§5.1): not-enough-money guard, gangster-picker, score update, combat entry, etc. |
+
+A handler **may not**: import from `server/` or `clients/`, touch a transport/socket, read
+wall-clock time or the OS RNG, mutate `GameState` in place, or reach into engine internals
+not listed above. Handlers must be **deterministic given `(ctx.state, ctx.rng, Responses)`**
+so replay (§5.5) is exact. Violations are the boundary bugs this contract exists to prevent.
 
 ### 5.3 Strings
 - **Zero hardcoded *display* strings** in the engine (handler *branching logic* stays
@@ -261,10 +371,29 @@ guard in `location-handlers.yaml`.
 - A **seedable, loggable RNG** from day one: `rng.hit(a, b)`, `rng.range(n)`, every call
   recordable. Behavioral fidelity ⇒ we match probabilities, not the original draw order.
 
-### 5.5 Event sourcing & saves (added later, additive)
-- The original has **no save game**. We add one: an append-only **JSONL event log** plus
-  a per-turn snapshot; replay = re-run events (RNG is already loggable). This is bolted
-  on in a later phase without disturbing handlers.
+### 5.5 Event sourcing, replay & saves
+
+The original has **no save game**; we add one. The design splits into a **schema fixed in
+Phase 0** and a **store built in Phase 5** — so handlers emit replay-safe events from day
+one and nothing has to be retrofitted later.
+
+**Fixed in Phase 0 (design):**
+- **Typed, versioned Event schema.** Every state change is a pure-data Event (the §5.2
+  Effects are the event vocabulary), tagged with a schema `version` so old logs stay
+  readable as the schema evolves.
+- **Determinism contract:**
+  1. *All* nondeterminism flows through `ctx.rng` (seedable + logged); no wall-clock, no
+     OS RNG, no ambient state (enforced by §5.2a).
+  2. Events are pure data; applying an event to a state is a pure function.
+  3. A game = `initial seed + setup + ordered Event log`. **Replay = load snapshot, then
+     re-apply the event log**; it must reproduce the exact `GameState`, including a
+     suspended handler generator's position (§5.0).
+  4. RNG draws are themselves logged events, so replay does not re-roll.
+
+**Built in Phase 5 (store):** an append-only **JSONL event log** + per-turn snapshots;
+`SaveGame` writes log + latest snapshot; load restores the snapshot and (optionally)
+fast-forwards remaining events. Additive — handlers are untouched because the schema and
+contract already held.
 
 ---
 
@@ -288,6 +417,30 @@ Relationship: each config declares a default theme; themes live inside the confi
 player selects a theme per client at runtime, and the server re-resolves strings on
 switch.
 
+### 6a. Engine ↔ Game-Config contract (the engine's public API)
+
+The boundary is a contract: the engine provides the genre runtime; a config provides the
+game. Neither reaches across it except through the surfaces below.
+
+| The **engine** provides | The **game config** must provide |
+|---|---|
+| Game FSM + turn loop + movement economy (§5.0) | Locations as YAML menu/guard shells (§5.2) |
+| Interaction driver + protocol (§5.1) | Handlers registered by id (Python generators, §5.2a) |
+| Effect application + `GameState` (§5.2) | Entities: weapons/vehicles/gangsters/ranks (stats, prices) |
+| Combat system (grid, AI, damage/energy) (§3.4) | Formula parameters & win conditions |
+| Seedable logged RNG (§5.4) | Strings as parameterized templates + assets/sounds (theme) |
+| Persistence / replay (schema + store) (§5.5) | `default_theme` declaration |
+| String/theme resolution + networking (§7) | `engine_api:` version it targets |
+
+**Interface versioning.** `config.yaml` declares `engine_api: N`. The engine refuses (or
+adapts) configs whose targeted version it can't satisfy, so the engine can evolve while
+older configs keep working. Bump `N` only on a breaking change to the handler API (§5.2a),
+the Effect/Interaction catalogs, or the config schema.
+
+**Layering rule (enforced structurally).** The `engine/` package **imports nothing** from
+`server/`, `clients/`, or any transport/render library. Simulation is fully headless and
+testable in isolation; presentation and transport depend on the engine, never the reverse.
+
 ---
 
 ## 7. Server & clients (later phases)
@@ -309,8 +462,12 @@ switch.
 Just enough shared foundation, then a playable single-player slice; networking, event
 store, codegen, and pygame are adapters over a proven core.
 
-- **Phase 0 — Core.** GameState dataclasses; seedable loggable RNG; runtime YAML loader;
-  the interaction protocol + in-process synchronous driver; the effect API.
+- **Phase 0 — Core + contracts.** GameState dataclasses; seedable loggable RNG; runtime
+  YAML loader; the interaction protocol + in-process synchronous driver; the effect API.
+  Also **finalize the design contracts** here: the formal interaction protocol spec
+  (§5.1) including the **cancellation decision**; the handler API contract (§5.2a); the
+  Engine↔Config contract + `engine_api` version (§6a); and the **Event schema +
+  determinism contract** (§5.5) — even though the event *store* is deferred to Phase 5.
 - **Phase 1 — Playable slice (terminal, single-player).** Map movement, `ms` economy
   with handler-forced turn-end, location entry, guard evaluation, string keys. First
   location: **slw** (rent input loop, money; no combat).
