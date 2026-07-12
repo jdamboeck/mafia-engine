@@ -107,12 +107,22 @@ the authoritative implementation.
 
 ### 3.1 Map & movement
 - **City map:** 40×25 grid, 1000 cells, row-major `index = row*40 + col`.
-- **Walkable:** only onto cell code **156** (a door); everything else blocks.
+- **Walkable:** only onto **street** cell code **156** (`peek(p)=156`, BASIC 2035);
+  everything else blocks. Location **door** tiles carry a *distinct* code **160** — the
+  `lc` routine (BASIC 2050) matches a door by address and yields `(la, ln)`. Do not
+  conflate the two: you walk along 156 and *enter* at a 160 door adjacent to it.
 - **Moves:** deltas `-1 / +1 / -40 / +40` (left/right/up/down). Leaving costs `ms -= 5`.
 - **Special cells:** **569** = cash-transport robbery (event flow `la=13`), **861** =
   mayor hit (event flow `la=14`), **911** = jail cell (set after arrest).
 - The city map (40×25) and the combat grid (40×13) are **different coordinate spaces**
   — never conflate them.
+- **Map data source:** the cell array is *not* stored as plain data in the original — it
+  comes from the reversed binary `../research/src/karte` (2003 bytes: 1000 screen codes +
+  1000 color + 3 tail, streamed reversed per `screen[999-k]=file[k]`). This decode is
+  **already solved and reusable**: `../research/tools/render_c64_assets.py::parse_screen_file`
+  returns the row-major 40×25 code array. The door→`(la, ln)` placement table is decoded in
+  `data-structures.yaml:789–890`. Build step: reuse that reversal to emit a committed
+  `city.yaml`; the runtime needs no binary parsing.
 
 ### 3.2 Turn system & movement points (`ms`)
 - Each player takes a complete turn, then the next player begins; `sp` cycles `0..sz-1`.
@@ -178,7 +188,9 @@ Twelve menu-driven locations, plus two map-triggered event flows:
 ### 3.6 Score, rank & winning
 - **Score `gf`** (0–100): updated at ~25 sites via `gf += x * x8` where `x` is a
   hand-tuned per-event delta (+4 bank heist, −10 arrest, −5 safe caught, …) and `x8` is
-  the game's difficulty multiplier (0.1–2, chosen at setup).
+  the **score-gain weighting** (0.1–2, chosen at setup via `punktewertigkeit`, BASIC 175).
+  It is *not* a difficulty multiplier and there is no ×8 factor — the only setup knobs are
+  `x8` (score weight) and `x9` (end year).
 - **Rank `ra`** (1–10): `nr = int(gf/11.1) + 1`; promotes when it changes.
 - **Win flags:** `x5%` (cash-transport success), `x6%` (mayor hit).
 - **Early win:** rank **10** AND `x5%` AND `x6%`.
@@ -470,7 +482,14 @@ store, codegen, and pygame are adapters over a proven core.
   determinism contract** (§5.5) — even though the event *store* is deferred to Phase 5.
 - **Phase 1 — Playable slice (terminal, single-player).** Map movement, `ms` economy
   with handler-forced turn-end, location entry, guard evaluation, string keys. First
-  location: **slw** (rent input loop, money; no combat).
+  location: **slw** — a full 3-option menu (rent room / pay rent / leave, BASIC
+  10005–10105), not a bare input loop. It exercises the *real* machinery: two per-option
+  guards (`uk(ln)=0`, `uk(ln)=sp`), the shared rent block (10020), the shared
+  not-enough-money helper (1125), tenancy state (`uk(ln)`, `um(sp)`), and the cancel path
+  (`x=0 → return`). Rent formula `fnm(ln)=50-50*(ln=3or4)-100*(ln=1)` — note `fnm(1)=-50`
+  is a *reachable* negative-rent quirk (slw has a real ln=1 tile) to port verbatim. Also
+  reach one guarded neighbor (**pub** recruit, denied at rank 1) to prove the guard DSL +
+  denial path. No combat.
 - **Phase 2 — Protocol proven on hard cases.** **sph** (gambling: input loop + RNG
   payout) and **waf** (buy/train: stat mutation + gangster picker).
 - **Phase 3 — Combat + `StartCombat`.** Hardwire original AI/damage/energy; wire the
