@@ -5,6 +5,18 @@ first. It captures **how** the work runs; **what** to build lives in the plan
 (`docs/plans/2026-07-12-001-design-first-vertical-slice-deepening-plan.md`,
 § Execution Workflow) and the authoritative design in `PLAN.md`.
 
+## Environment setup (get to a green tree first)
+
+```bash
+pip install -e '.[dev]'   # pytest (+ ruff for lint); pyyaml is a runtime dep
+make check                # → pytest + soft lint; must be green before any work
+```
+
+`make check` runs `pytest` plus a **soft** lint (`ruff` only if installed, so the
+gate stays green on a machine without dev extras). The research knowledge base is
+a sibling checkout at `../research/` — handlers port from the BASIC line blocks
+it cites; confirm it is present before starting a handler unit.
+
 ## Execution model — one orchestrator, one subagent at a time
 
 A single **orchestrator** agent holds the architecture in context and owns the

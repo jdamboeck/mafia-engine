@@ -4,15 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-**Pre-implementation.** The repository contains only `PLAN.md` — the single,
-self-contained design & build document. There is no code, build system, or tests yet.
-When you start implementing, follow the phased build order in `PLAN.md` §8 and create
-tooling as you go (the project is Python; expect `pytest` for tests and a `pyproject.toml`
-once `mafia/` exists).
+**Implementation in progress — first vertical slice.** The project bootstrap (U0) is
+done: there is a Python skeleton, a `pytest` + `Makefile` toolchain, and a durable
+per-unit tracking board. Implementation runs unit-by-unit against a plan.
 
-`PLAN.md` is the authoritative spec for *how to build* the engine. Read it before making
-architectural decisions — the decisions below were made deliberately and are easy to
-violate accidentally.
+**If you are starting a work session, read `docs/AGENTS.md` first** — it is the
+operating manual: the one-orchestrator/one-subagent execution model, the green-tree rule,
+commit + branch conventions, and how to pick up the next unit. Then:
+
+1. **The active plan** is `docs/plans/2026-07-12-001-design-first-vertical-slice-deepening-plan.md`
+   (`ce-unified-plan/v1`, implementation-ready). Its § Execution Workflow and § Implementation
+   Units (U0–U12) are the source of *what to build next*. Do not edit the plan body during
+   execution — progress lives in git and the board, not the doc.
+2. **The tracking board** is GitHub Issues on the `origin` remote (one open issue per
+   unfinished unit, `dep:U<N>` labels). `gh issue list` shows the board; the next unit is the
+   earliest in the serial order (`U0 → U3 → U2 → U1 → U4 → U5 → U6 → U8 → U7 → U9 → U11 → U12 → U10`)
+   whose dependency issues are all closed. Close a unit's issue when its commit lands green.
+   (If there is no remote, the board is `docs/PROGRESS.md` instead.)
+3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).
+4. **Setup / green-tree gate:** `pip install -e '.[dev]'` then `make check` (→ `pytest` +
+   soft lint). Never dispatch a subagent or commit on a red tree.
+
+`PLAN.md` remains the authoritative spec for *how to build* the engine (architecture,
+phasing). Read it before making architectural decisions — the decisions below were made
+deliberately and are easy to violate accidentally. The plan in `docs/plans/` is the
+execution-level enrichment of `PLAN.md` for this slice.
 
 ## Two sources of truth (do not confuse them)
 
