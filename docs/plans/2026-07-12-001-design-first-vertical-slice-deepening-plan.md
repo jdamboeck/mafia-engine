@@ -281,10 +281,12 @@ one validator so no layer double-validates:
 
 ### Sequencing
 
-Foundation (U1–U6) → slice behavior (U7–U9) → headless integration proof (U11) → client
-(U10) and save/load (U12). U1 (map data) and U2 (RNG) have no deps and can start in
-parallel; U12 (save/load) needs only U3/U4/U5 and can land any time after the effect
-buffer. The interaction driver (U4) is the critical-path spine everything else depends on.
+Bootstrap (U0) → foundation (U1–U6) → slice behavior (U7–U9) → headless integration proof
+(U11) → client (U10) and save/load (U12). U0 sets up the workspace, CI-lite runner, and
+tracking board and gates everything after it. U1 (map data) and U2 (RNG) then have no deps
+beyond U0 and could run in parallel (they run serially here per § Execution Workflow); U12
+(save/load) needs only U3/U4/U5 and can land any time after the effect buffer. The
+interaction driver (U4) is the critical-path spine everything else depends on.
 **Playability is headless:** U11 proves the full slice through the driver with no client, so
 U10 is a renderer over a proven protocol, never a gate on the slice working.
 
@@ -319,9 +321,10 @@ runtime path flows through. Unit dependency and the runtime nesting:
 
 ```mermaid
 graph TD
+    U0[U0 bootstrap: skeleton, CI-lite, issue board] --> U1 & U2 & U3
     U1[U1 map data] --> U9
     U2[U2 RNG] --> U11
-    U3[U3 GameState + tooling] --> U4 & U5 & U6 & U8 & U9 & U12
+    U3[U3 GameState] --> U4 & U5 & U6 & U8 & U9 & U12
     U4[U4 driver + protocol] --> U5 & U7 & U10 & U12
     U5[U5 effects + buffer] --> U7 & U9 & U12
     U6[U6 guard DSL + loader] --> U7 & U9
@@ -349,9 +352,10 @@ Game FSM  (setup → main loop, sp cycle, ms replenish)          U3, U8, U9
 
 | U-ID | Title | Key files | Depends on |
 |---|---|---|---|
-| U1 | Decode + commit city map | `tools/decode_city_map.py`, `content/map/city.yaml` | — |
-| U2 | Seedable logged RNG | `engine/rng.py` | — |
-| U3 | GameState + tooling | `engine/state/`, `pyproject.toml` | — |
+| U0 | Project bootstrap — skeleton, CI-lite, issue board, agent conventions | `pyproject.toml`, `Makefile`, `docs/AGENTS.md`, skeleton | — |
+| U1 | Decode + commit city map | `tools/decode_city_map.py`, `content/map/city.yaml` | U0 |
+| U2 | Seedable logged RNG | `engine/rng.py` | U0 |
+| U3 | GameState dataclasses | `engine/state/` | U0 |
 | U4 | Interaction driver + protocol | `engine/interactions.py` | U3 |
 | U5 | Effect API + buffer | `engine/effects.py` | U3, U4 |
 | U6 | Guard DSL + shell loader | `engine/conditions.py`, `engine/locations.py` | U3 |
@@ -382,8 +386,12 @@ implementation detail.
   and must not be delegated.
 - The dependency order and which unit is next (see Serial order below).
 - Integrating each subagent's returned diff: review against the unit's `Files:` and scope,
-  run the relevant tests, fix on a green tree, and commit (conventional message from the
-  unit Goal). The orchestrator owns all commits; subagents never commit.
+  run the relevant tests (`make check`), fix on a green tree, and commit (conventional message
+  from the unit Goal). The orchestrator owns all commits; subagents never commit.
+- The tracking board (stood up in **U0**): the orchestrator reads `gh issue list` to pick the
+  next unit (earliest in the serial order whose dependency issues are all closed), and closes
+  a unit's issue when its commit lands green. If the remote was declined at U0, the same
+  bookkeeping happens in `docs/PROGRESS.md`.
 - Reconciling anything that touches a shared contract. If a subagent's work would change an
   Interaction/Effect type, the handler-API surface, `GameState` shape, or the event schema,
   the orchestrator makes that call itself and re-briefs — it does not accept a contract
@@ -411,10 +419,13 @@ Respects every dependency in the Unit Index; the headless slice (U11) lands as s
 inputs exist so the done-signal fires early, then save/load and the client follow:
 
 ```
-U3 → U2 → U1 → U4 → U5 → U6 → U8 → U7 → U9 → U11 → U12 → U10
+U0 → U3 → U2 → U1 → U4 → U5 → U6 → U8 → U7 → U9 → U11 → U12 → U10
 ```
 
-- **U3 first** — `GameState` + tooling unblock almost everything.
+- **U0 first** — bootstrap the workspace, CI-lite runner, and issue board so the loop below
+  has a place to run and a durable board to track against. Nothing else starts until `make
+  check` is green on the skeleton and U1–U12 exist as issues.
+- **U3 next** — `GameState` unblocks almost everything.
 - **U4 before U5/U7** — the driver and its effect buffer are the spine; the orchestrator
   should personally settle the cancellation mechanism (KTD-2) when U4 is briefed, since U5
   and U7 inherit it.
@@ -426,12 +437,15 @@ U3 → U2 → U1 → U4 → U5 → U6 → U8 → U7 → U9 → U11 → U12 → U
 ### Loop
 
 ```
+orchestrator: run U0 (skeleton, make check green, remote+issue board, docs/AGENTS.md)
+
 for unit in [U3,U2,U1,U4,U5,U6,U8,U7,U9,U11,U12,U10]:
+    orchestrator: pick next unit = earliest in order whose dep issues are all closed (gh issue list)
     orchestrator: assemble bounded packet (unit section + cited KTDs + research refs)
     dispatch ONE subagent  →  implement + self-test, return diff + evidence
-    orchestrator: review against Files/scope → run relevant tests → fix on green
-    orchestrator: commit (message from unit Goal); update task tracker
-    # next unit only after the tree is green and committed
+    orchestrator: review against Files/scope → run `make check` → fix on green
+    orchestrator: commit (message from unit Goal); close the unit's issue
+    # next unit only after the tree is green, committed, and the issue is closed
 ```
 
 Abort/adjust criteria: if a subagent's diff spills beyond its `Files:` into a shared
@@ -471,15 +485,92 @@ data/game_configs/mafia_1920s/
 └── themes/classic/strings/   # U8  German string templates
 tools/
 └── decode_city_map.py        # U1  one-shot: src/karte -> city.yaml
-tests/                        # U2–U11 (pytest)
-pyproject.toml                # U3
+tests/                        # U0–U12 (pytest); test_bootstrap.py from U0
+pyproject.toml                # U0  Python ≥3.11, pytest config
+Makefile                      # U0  make test / lint / check (CI-lite)
+docs/
+└── AGENTS.md                 # U0  orchestrator/subagent protocol + conventions
 ```
+
+U0 also creates the `origin` GitHub remote (private, gated on user confirm) and one tracking
+issue per unit U1–U12; those are workflow state, not files in the tree.
 
 Per-unit `**Files:**` remain authoritative; the implementer may adjust layout.
 
 ---
 
 ## Implementation Units
+
+### U0. Project bootstrap — workspace, tracking board, and agent conventions
+
+**Goal.** Put the greenfield repo and the *repeating* execution workflow into a known,
+self-onboarding state **before any feature unit runs**, so every later orchestrator/subagent
+session starts from the same ground: a buildable skeleton, a uniform green-tree check, a
+durable per-unit tracking board, and a written protocol a fresh agent can read to pick up the
+next unit. This is a one-time setup unit; it ships no game behavior.
+
+**Why first.** The Execution Workflow assumes a place to run (`pytest` target, package tree)
+and a durable record of which of U1–U12 is done/blocked/in-progress that survives context
+resets. Neither exists yet (the repo is docs-only, no `pyproject.toml`, no git remote). U0
+creates both so the loop in § Execution Workflow can reference a live board instead of
+re-deriving state from `git log` each session.
+
+**Dependencies.** None. Runs before U1.
+
+**Files.**
+- `pyproject.toml` — Python ≥3.11, `pytest` config (test path `tests/`), package metadata.
+  *(Moved here from U3, which now owns only `GameState`.)*
+- Directory skeleton with package markers: `engine/__init__.py`, `engine/state/__init__.py`,
+  `engine/handlers/__init__.py`, `clients/__init__.py`, `clients/terminal/__init__.py`,
+  `tests/__init__.py`, and the config tree `data/game_configs/mafia_1920s/{content/{map,locations},entities,themes/classic/strings}/`
+  (`.gitkeep` where a dir is otherwise empty). Matches the § Output Structure tree.
+- `Makefile` (or `justfile`) — one-command **CI-lite** targets the orchestrator uses uniformly
+  across every unit: `make test` (→ `pytest`), `make lint` (ruff or equivalent, if adopted),
+  `make check` (test + lint = the green-tree gate).
+- `docs/AGENTS.md` — the **agent working-conventions doc**: the one-orchestrator/one-subagent
+  protocol (cross-referenced to § Execution Workflow), commit-message convention, "how to pick
+  up the next unit" (read the issue board → next unblocked unit in serial order), the
+  green-tree rule (never dispatch on a red tree), and the branch/worktree convention chosen
+  below. A fresh session reads this file first and is oriented.
+- `tests/test_bootstrap.py` — a smoke test that imports each top-level package and asserts
+  `make test` has a real target to run (proves the skeleton is import-clean and the runner
+  works before any real unit lands).
+
+**Approach.**
+1. **Skeleton + tooling.** Create the tree and `pyproject.toml`; confirm the exact Python
+   minor (A5). `make test` must go green on the empty skeleton via `tests/test_bootstrap.py`.
+2. **Branch/worktree convention.** Record it in `docs/AGENTS.md` and follow it from U1 on:
+   feature branch `feat/vertical-slice` off `main` is the default; per-unit worktrees are the
+   escalation if units are ever parallelized (they are serial per § Execution Workflow, so a
+   single feature branch is the baseline). The orchestrator commits each unit to this branch.
+3. **GitHub remote + issue board (durable tracking).** `gh` is authenticated but **no remote
+   exists yet** — creating and pushing a repo is an outward-facing action.
+   - **Execution-time gate (required):** pause and get explicit user confirmation before
+     `gh repo create`. Default to a **private** repo (`--private`); do not publish public
+     without a yes. If the user declines a remote at execution time, fall back to a committed
+     `docs/PROGRESS.md` checkbox board (same unit list, same status semantics) so tracking is
+     still durable — the rest of U0 is unchanged.
+   - On confirm: `gh repo create <name> --private --source=. --remote=origin --push`.
+   - Open **one issue per unit U1–U12** (title = the unit's U-ID + Goal one-liner). Apply
+     dependency labels from the Unit Index (`dep:U3`, `dep:U4`, …) and a `unit` label. The
+     issue body links to the unit's plan section. This is the orchestrator's live board:
+     `gh issue list` shows what's open; the orchestrator closes an issue when that unit's
+     commit lands green.
+4. **Wire the loop to the board.** `docs/AGENTS.md` states the ordering rule explicitly: the
+   next unit is the earliest unit in the serial order whose dependency issues are all closed.
+
+**Test scenarios.**
+- `make test` (→ `pytest`) exits green on the bare skeleton (`tests/test_bootstrap.py`).
+- Every top-level package (`engine`, `engine.state`, `engine.handlers`, `clients.terminal`)
+  imports without error — the skeleton is import-clean.
+- `Test expectation: setup/scaffolding unit` — the GitHub-remote + issue-board steps are
+  infrastructure actions verified by inspection (`git remote -v` shows `origin`;
+  `gh issue list` shows 12 unit issues), not by pytest.
+
+**Verification.** `make check` is green on the skeleton; `git remote -v` shows `origin` (or,
+if the remote was declined, `docs/PROGRESS.md` holds the 12-unit board); `gh issue list`
+enumerates U1–U12 with dependency labels; `docs/AGENTS.md` documents the protocol, commit
+convention, branch convention, and next-unit rule.
 
 ### U1. Decode and commit the city map
 
@@ -521,12 +612,13 @@ in-memory log (list of draws) so replay is additive later. Match the original's
 - The draw log records every call in order.
 **Verification.** Seeded determinism test passes; log length equals call count.
 
-### U3. GameState dataclasses + project tooling
+### U3. GameState dataclasses
 
-**Goal.** The modular `GameState` subset the slice touches, plus `pyproject.toml`/pytest.
+**Goal.** The modular `GameState` subset the slice touches. *(Project tooling —
+`pyproject.toml`, pytest, the package skeleton — is stood up in **U0**, not here.)*
 **Requirements.** `PLAN.md` §4 GameState; slice setup + movement + slw.
-**Dependencies.** None (U2 imported later).
-**Files.** `pyproject.toml`, `engine/state/__init__.py`, `tests/test_state.py`.
+**Dependencies.** U0 (skeleton + tooling exist). U2 imported later.
+**Files.** `engine/state/__init__.py`, `tests/test_state.py`.
 **Approach.** Dataclasses for `Player` (ka, gf, rank/nr, po, vehicle, ms), `Gangster`
 (stats), `map` (grid, tenancy `uk` per tile, `um` per player), `clock` (ja, x9, sp, sz),
 `config` (x8, action costs, formula params). Apply the naming gotchas from `CLAUDE.md`:
@@ -743,8 +835,9 @@ GameState`) before writing the store.
 
 ## Verification Contract
 
-- **Test command:** `pytest` from the engine repo root (tooling stood up in U3;
-  `pyproject.toml` defines the test path).
+- **Test command:** `make check` (→ `pytest` + lint) from the engine repo root; tooling and
+  the `pyproject.toml` test path are stood up in **U0**, and `make check` green on the bare
+  skeleton is U0's own gate.
 - **Gates that prove the plan:**
   - Formula tests: `fnm` incl. `fnm(1)==-50`; setup roll distributions; rent charge/tenancy
     (U7, U8).
@@ -777,6 +870,9 @@ GameState`) before writing the store.
 ## Definition of Done
 
 **Global.**
+- The workspace is bootstrapped (U0): `make check` is green on the skeleton, `docs/AGENTS.md`
+  documents the workflow, and the durable tracking board exists (GitHub issues U1–U12, or
+  `docs/PROGRESS.md` if the remote was declined).
 - The vertical-slice integration test (U11) passes on a fixed seed **headless** — no
   `clients/` import; the slice is fully playable without the terminal UI.
 - The terminal client plays setup → walk → slw (all four paths + cancel) → denied guard.
@@ -793,4 +889,5 @@ GameState`) before writing the store.
 
 **Per-unit.** Each U-ID is done when its listed test scenarios pass and its verification
 line holds. Feature-bearing units (U1, U2, U4–U9, U11, U12) require real test scenarios;
-scaffolding-only fields (U3 stubs, U10 IO) use the stated `Test expectation` annotations.
+scaffolding-only units (U0 bootstrap, U3 stubs, U10 IO) use the stated `Test expectation`
+annotations.

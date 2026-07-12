@@ -1,0 +1,5 @@
+# Compound Engineering machine-local config (never committed)
+.compound-engineering/*.local.yaml
+
+# Local Claude Code plugin-enablement state (machine-specific)
+.claude/settings.json
