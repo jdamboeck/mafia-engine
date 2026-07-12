@@ -35,6 +35,8 @@ Key research files (all under `../research/`):
 | `research-data/pass-2/game-logic.yaml` | RNG outcome tables, combat AI (`ri()` direction memory), score/rank formulas. |
 | `research-data/pass-2/systems-analysis.yaml`, `data-structures.yaml` | Combat/economy/wanted rules, the ~108 variables, grid dimensions. |
 | `research-data/pass-1/location-extraction.yaml` | Menu trees + option→handler mapping. |
+| `research-data/pass-2/location-dialogue.yaml` | **Dialogue source of truth** — each location's complete verbatim script (entry prompt + every option + the game's printed responses, each cited to `mf-prg.bas:<line>`). Port the exact strings from here. |
+| `research-data/pass-1/game-text.yaml` | The full verbatim text corpus (all print/input/data/assign strings + SEQ menus). The authority for any on-screen string (narration, prompts, weapon/rank/vehicle/opponent names). |
 | `docs/systems/*.md` | Human-readable system summaries. |
 
 **Fidelity bar is behavioral, not bit-exact:** match the original's formulas,
