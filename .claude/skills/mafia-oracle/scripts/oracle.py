@@ -15,13 +15,20 @@ Subcommands:
   node   <id-or-name>     Show a knowledge-graph node with its source-backed evidence.
   verify <text>           Find the KG evidence that confirms/refutes a claim (source refs).
   quote  <n>              Print the raw BASIC source line n verbatim (no interpretation).
+  conclude <lines> <claim>  GATE a conclusion behind its verbatim source. <lines> is
+                          a number, a-b range, or comma list (e.g. 12103,12105). Prints
+                          the raw code, then forces a citation-first answer. USE THIS
+                          before stating any rule, cap, or number.
   status                  Coverage + final-state metrics (how much is known, how verified).
 
 Every answer cites `mf-prg.bas:<line>` or a byte/`$addr` — never an unsourced claim.
+Rule: never conclude from a `search` snippet (that's interpretation). Read the raw
+line with `quote`/`line`, or gate the claim through `conclude`, FIRST.
 
 Usage:
   python scripts/oracle.py line 30255
   python scripts/oracle.py search "jail"
+  python scripts/oracle.py conclude 12103,12105 "a player can own at most 5 gangsters"
   python scripts/oracle.py verify "damage is at least 1 on a hit"
 """
 from __future__ import annotations
@@ -162,9 +169,11 @@ def cmd_search(text: str) -> int:
     ld_hits = [(n, d) for n, d in docs.items()
                if t in str(d.get("description", "")).lower() or t in src.get(n, "").lower()]
     if ld_hits:
-        print(f"## BASIC lines ({len(ld_hits)})")
+        print(f"## BASIC lines ({len(ld_hits)})  — line numbers only; NOT the source")
         for n, d in sorted(ld_hits)[:25]:
-            print(f"  {n:>6}  {d.get('description','')[:100]}")
+            # Deliberately short: a snippet of the INTERPRETATION, not the source.
+            # Do not conclude from this — run `quote <n>` / `line <n>` to read the code.
+            print(f"  {n:>6}  {str(d.get('description',''))[:72]}…")
         if len(ld_hits) > 25:
             print(f"  … {len(ld_hits)-25} more (narrow the search)")
         hits += len(ld_hits)
@@ -179,7 +188,13 @@ def cmd_search(text: str) -> int:
     if not hits:
         print(f"(no matches for '{text}')")
         return 1
-    print(f"\nDrill in with:  oracle.py line <n>   |   oracle.py node <id>")
+    print("\n" + "!" * 70)
+    print("STOP — these are search snippets (interpretation), NOT the source code.")
+    print("Do NOT draw a conclusion, cap, number, or rule from a snippet above.")
+    print("Read the actual line first:  oracle.py quote <n>   (verbatim BASIC)")
+    print("                             oracle.py line  <n>   (source + meaning)")
+    print("                             oracle.py conclude <n> \"<your claim>\"")
+    print("!" * 70)
     return 0
 
 
@@ -249,6 +264,60 @@ def cmd_verify(text: str) -> int:
     return 0
 
 
+def _parse_line_spec(spec: str) -> list[int]:
+    """Parse '30255' | '30100-30160' | '12103,12105' into a sorted line list."""
+    nums: set[int] = set()
+    for part in spec.split(","):
+        part = part.strip()
+        if "-" in part:
+            a, b = part.split("-", 1)
+            nums.update(range(int(a), int(b) + 1))
+        elif part:
+            nums.add(int(part))
+    return sorted(nums)
+
+
+def cmd_conclude(spec: str, claim: str) -> int:
+    """Gate a conclusion behind its verbatim source.
+
+    You may not state a rule/cap/number about the game without the exact BASIC
+    line(s) in front of you. This prints the raw source for the cited line(s),
+    then a template that forces the answer to quote code, not a summary. It exists
+    because the failure mode is concluding from a search snippet (interpretation)
+    instead of the source — e.g. reading '5 apartment slots' and guessing a cap of 5
+    when the code (12105) actually caps at 10 and 12103 is a boolean any-check."""
+    src, docs = bas_lines(), line_docs()
+    lines = _parse_line_spec(spec)
+    present = [n for n in lines if n in src]
+    if not present:
+        print(f"REFUSED: none of the cited line(s) {spec} exist in the program. "
+              "You cannot conclude from lines that aren't there — re-check with "
+              "`oracle.py search <keyword>` and cite real lines.", file=sys.stderr)
+        return 1
+    print(f'# Claim under test:\n  "{claim}"\n')
+    print("## Verbatim source (this — not a summary — is what you must cite):\n")
+    for n in present:
+        print(f"  {n:>6}  {src[n]}")
+        d = docs.get(n, {})
+        if d.get("description"):
+            prov = d.get("provenance", "?")
+            print(f"         ↳ interpretation ({prov}, conf {d.get('confidence','?')}): "
+                  f"{d['description']}")
+    missing = [n for n in lines if n not in src]
+    if missing:
+        print(f"\n  (requested but absent — sparse numbering: {missing})")
+    print("\n" + "=" * 70)
+    print("Now write the conclusion in THIS form — every clause tied to a line above:")
+    print('  - "According to mf-prg.bas:<line> (`<verbatim code fragment>`), <what it does>."')
+    print("  - The final rule/number MUST appear in the quoted code (a literal, a")
+    print("    comparison, a loop bound). If it does not, you have NOT proven it —")
+    print("    quote more lines or say UNVERIFIED. Do not infer a number from prose.")
+    print("  - If two lines look like they conflict (e.g. a `for i=1 to 5` next to a")
+    print("    `=10` check), state what EACH does separately; don't average or guess.")
+    print("=" * 70)
+    return 0
+
+
 def cmd_status() -> int:
     cov = _find_key(_load("research-data/source-coverage.yaml"), "source_coverage")
     if not cov:
@@ -291,6 +360,8 @@ def main() -> int:
             return cmd_node(" ".join(rest))
         if cmd == "verify":
             return cmd_verify(" ".join(rest))
+        if cmd == "conclude":
+            return cmd_conclude(rest[0], " ".join(rest[1:]))
         if cmd == "status":
             return cmd_status()
     except (IndexError, ValueError):

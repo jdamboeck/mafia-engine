@@ -42,6 +42,7 @@ Run it with the research project's venv (it has pyyaml). From anywhere in the en
 | `search <text>` | Find lines / KG nodes matching a keyword (e.g. `search jail`). |
 | `node <id-or-name>` | A knowledge-graph node with its **source-backed evidence**. |
 | `verify <claim>` | Surface the cited evidence that confirms/refutes a claim. |
+| `conclude <lines> <claim>` | **Gate a rule/cap/number behind its verbatim source** before you state it. |
 | `status` | Coverage + final-state metrics (what's known, how it's verified). |
 
 Example — the combat damage formula:
@@ -54,17 +55,30 @@ MEANING : combat damage: roll y = int(rnd(1)*tg(w) + bt/10) + 1 damage; …
 
 ## How to answer a question (the protocol)
 
-1. **Locate it.** Use `search <keyword>` to find the relevant BASIC lines and KG nodes,
-   or go straight to `line <n>` if you know the line.
-2. **Read the source + meaning.** `line`/`lines` give you both. For a whole mechanic,
-   read the KG node (`node <id>`) — it names the system, the formula, and the evidence.
-3. **Cite, always.** Quote the exact `mf-prg.bas:<line>` (or byte range) in your answer,
+**The iron rule: quote source before you conclude.** A `search` result is a snippet of
+the *interpretation*, not the code. Never state a rule, cap, number, or outcome from a
+snippet — read the actual line(s) with `quote`/`line` first, or gate the claim through
+`conclude`. (This is the exact failure to avoid: reading "5 apartment slots" in a summary
+and guessing a cap of 5, when the code at `12105` caps at 10 and `12103`'s `for i=1 to 5`
+is just a "do you own *any* apartment?" check.)
+
+1. **Locate it.** Use `search <keyword>` to find candidate lines and KG nodes. Treat the
+   snippets as *pointers to read*, never as the answer.
+2. **Read the actual source.** `quote <n>` (verbatim) or `line <n>` (source + meaning).
+   For a whole mechanic, also read the KG node (`node <id>`). You must have the raw code
+   in front of you before drawing any conclusion.
+3. **Before stating any rule/cap/number, run `conclude <lines> "<claim>"`.** It prints the
+   verbatim source and forces a citation-first answer where the number must appear *in the
+   quoted code* (a literal, a comparison, a loop bound). If it isn't there, you haven't
+   proven it — quote more lines or say UNVERIFIED. If two lines look like they conflict
+   (e.g. `for i=1 to 5` next to `=10`), state what **each** does; never average or guess.
+4. **Cite, always.** Quote the exact `mf-prg.bas:<line>` (or byte range) in your answer,
    then explain the interpretation. A Mafia answer without a source citation is incomplete.
-4. **State confidence & provenance.** The docs mark each line `extracted` (a byte-level
-   fact) vs `interpreted` (meaning on top of it) with a confidence. Pass that through —
-   don't upgrade an interpretation to a certainty.
-5. **If it's not covered, say so.** "The research doesn't document this" is a valid,
-   honest answer. Do not fill the gap with plausible-sounding invention.
+5. **State confidence & provenance.** Lines are marked `extracted` (byte-level fact) vs
+   `interpreted` (meaning on top) with a confidence. Pass that through — don't upgrade an
+   interpretation to a certainty.
+6. **If it's not covered, say so.** "The research doesn't document this" is a valid answer.
+   Do not fill the gap with plausible-sounding invention.
 
 ## How to verify a claim
 
