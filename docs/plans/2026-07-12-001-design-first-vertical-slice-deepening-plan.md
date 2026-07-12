@@ -364,6 +364,82 @@ Game FSM  (setup → main loop, sp cycle, ms replenish)          U3, U8, U9
 
 ---
 
+## Execution Workflow
+
+**Shape: one orchestrator, one subagent at a time (serial).** A single orchestrator agent
+owns the architecture and the whole run; it implements nothing large itself. For each unit
+it dispatches **one** implementation subagent, integrates the result, then dispatches the
+next. Never more than one subagent in flight. This keeps the orchestrator's context spent on
+the cross-cutting decisions (the interaction protocol, the effect buffer / cancellation
+semantics, the handler-API boundary, the event schema) rather than on per-unit
+implementation detail.
+
+### Orchestrator responsibilities (keeps in its own context)
+
+- The KTDs and the contracts they encode — **KTD-2** (atomic effect buffer + cancellation),
+  **KTD-3** (Interactions vs. Effects), **KTD-6** (event schema/store), **KTD-7** (handler-API
+  boundary), **KTD-8** (validation ownership). These are the "important architectural stuff"
+  and must not be delegated.
+- The dependency order and which unit is next (see Serial order below).
+- Integrating each subagent's returned diff: review against the unit's `Files:` and scope,
+  run the relevant tests, fix on a green tree, and commit (conventional message from the
+  unit Goal). The orchestrator owns all commits; subagents never commit.
+- Reconciling anything that touches a shared contract. If a subagent's work would change an
+  Interaction/Effect type, the handler-API surface, `GameState` shape, or the event schema,
+  the orchestrator makes that call itself and re-briefs — it does not accept a contract
+  change blind.
+
+### Subagent responsibilities (fresh context per unit)
+
+- Receives a **bounded packet**, not the whole plan: the Goal Capsule, the target unit's
+  full section (Goal/Files/Approach/Execution note/Patterns/Test scenarios/Verification),
+  the KTDs that unit cites, and the relevant Verification-Contract lines. Plus the specific
+  research citations the unit names (e.g. the `mf-prg.bas` line block, `parse_screen_file`
+  for U1).
+- Implements the unit following the plan's conventions, honoring its `Execution note`
+  (proof-first where stated), writing the enumerated test scenarios plus any missing
+  category coverage.
+- Runs its **own** unit tests as a self-check; must **not** `git add`/commit or run the full
+  suite (the orchestrator owns those).
+- Returns: the file paths it changed, its verification evidence (tests added, red-before-green
+  observed where applicable, run results), and any contract friction it hit so the
+  orchestrator can reconcile.
+
+### Serial order
+
+Respects every dependency in the Unit Index; the headless slice (U11) lands as soon as its
+inputs exist so the done-signal fires early, then save/load and the client follow:
+
+```
+U3 → U2 → U1 → U4 → U5 → U6 → U8 → U7 → U9 → U11 → U12 → U10
+```
+
+- **U3 first** — `GameState` + tooling unblock almost everything.
+- **U4 before U5/U7** — the driver and its effect buffer are the spine; the orchestrator
+  should personally settle the cancellation mechanism (KTD-2) when U4 is briefed, since U5
+  and U7 inherit it.
+- **U11 right after U9** — the headless vertical slice proves the loop end-to-end; treat a
+  green U11 as the slice's acceptance gate.
+- **U12 and U10 last** — save/load and the terminal client are additive over a proven core
+  (U10 is a renderer, not a gate on playability).
+
+### Loop
+
+```
+for unit in [U3,U2,U1,U4,U5,U6,U8,U7,U9,U11,U12,U10]:
+    orchestrator: assemble bounded packet (unit section + cited KTDs + research refs)
+    dispatch ONE subagent  →  implement + self-test, return diff + evidence
+    orchestrator: review against Files/scope → run relevant tests → fix on green
+    orchestrator: commit (message from unit Goal); update task tracker
+    # next unit only after the tree is green and committed
+```
+
+Abort/adjust criteria: if a subagent's diff spills beyond its `Files:` into a shared
+contract, the orchestrator stops, makes the architectural decision itself, and re-dispatches
+a tightened packet rather than accepting the drift.
+
+---
+
 ## Output Structure
 
 Greenfield. Expected layout after the slice (per `PLAN.md` §9, scoped to what these units
