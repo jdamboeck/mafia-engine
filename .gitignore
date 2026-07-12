@@ -3,3 +3,10 @@
 
 # Local Claude Code plugin-enablement state (machine-specific)
 .claude/settings.json
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
