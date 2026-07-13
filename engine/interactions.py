@@ -1,13 +1,13 @@
-"""The interaction protocol + in-process synchronous driver — THE SPINE (PLAN.md §5.1).
+"""The interaction protocol + in-process synchronous driver — THE SPINE (docs/design/engine-architecture.md).
 
 A **handler** is a factory ``(ctx) -> Generator[Interaction, Response, list[Event]]``.
 It ``yield``s a typed **Interaction**; the **driver** (:func:`run`) turns that into an
 obtained **Response** and ``.send()``s it back. This same request/response protocol is,
-unchanged, the eventual network message protocol — the WebSocket server (PLAN.md §7) is
+unchanged, the eventual network message protocol — the WebSocket server (docs/design/engine-architecture.md) is
 merely an async transport driving the identical generators. This module builds ONLY the
 in-process synchronous driver; it imports nothing from ``server``/``clients``/transport.
 
-Two firmly separated categories (PLAN.md §5.1):
+Two firmly separated categories (docs/design/engine-architecture.md):
 
 - **Interactions** control *execution flow* — they suspend the handler to ask the client
   something. A handler reaches the client *only* by ``yield``ing one of these.
@@ -50,7 +50,7 @@ __all__ = [
 
 
 # --------------------------------------------------------------------------- #
-# Interaction catalog (PLAN.md §5.1)                                          #
+# Interaction catalog (docs/design/engine-architecture.md)                                          #
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class ShowMessage:
@@ -255,7 +255,7 @@ def run(
 
     Note:
         Synchronous by construction. The SAME protocol is later driven by an async
-        server (PLAN.md §7); that transport is deliberately NOT built here.
+        server (docs/design/engine-architecture.md); that transport is deliberately NOT built here.
     """
     ctx = Ctx(state=state, rng=rng)
     gen = handler(ctx)

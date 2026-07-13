@@ -3,7 +3,7 @@
 This file orients a fresh agent session working on the Mafia engine. Read it
 first. It captures **how** the work runs; **what** to build lives in the plan
 (`docs/plans/2026-07-12-001-design-first-vertical-slice-deepening-plan.md`,
-§ Execution Workflow) and the authoritative design in `PLAN.md`.
+§ Execution Workflow) and the authoritative design in `docs/design/`.
 
 ## Environment setup (get to a green tree first)
 
@@ -76,7 +76,7 @@ the next unit.
 
 ## Sources of truth (do not confuse them)
 
-- `PLAN.md` — engine design (architecture, phasing). Genre engine, not a clone.
+- `docs/design/` — engine design (architecture, phasing). Genre engine, not a clone.
 - `../research/` — authoritative game *knowledge* (the reverse-engineered 1986
   game). **Never invent game behavior**; port from the cited BASIC line blocks.
 - Before porting any formula, gate the claim through the `mafia-oracle` skill.

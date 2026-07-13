@@ -5,7 +5,7 @@
 # core simulation. This file declares the Engine<->Config contract version and
 # the numeric params the engine reads at new-game setup and in the slw handler.
 
-# Engine<->Config API version (PLAN.md §6a). The engine's load_config accepts
+# Engine<->Config API version (docs/design/config-and-content-contract.md). The engine's load_config accepts
 # ONLY version 1 and rejects anything else with a clear error.
 engine_api: 1
 

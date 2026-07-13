@@ -4,7 +4,7 @@ Proof-first: these tests were written and observed RED (module missing) before
 ``engine/conditions.py`` existed.
 
 The guard DSL is the declarative precondition layer for menu options
-(PLAN.md §5.2). Constraints under test: seven operators, and/or connectives,
+(docs/design/config-and-content-contract.md). Constraints under test: seven operators, and/or connectives,
 nesting depth ≤ 2, NO NOT, a fixed resolvable-variable set, and the three real
 guards (slw rent, slw lease, pub recruit) from the research.
 """
@@ -12,7 +12,7 @@ guards (slw rent, slw lease, pub recruit) from the research.
 import pytest
 
 from engine.conditions import build_context, evaluate, validate
-from engine.state import Clock, Gangster, GameState, MapState, Player
+from engine.state import Clock, Gangster, GameState, Player
 
 
 def _state(*, rank=1, ka=0, gf=0.0, ms=0, po=18, roster=0, active=0, players=1):
@@ -206,7 +206,7 @@ def test_tenancy_requires_ln():
         evaluate({"var": "tenancy", "op": "=", "value": 0}, ctx)
 
 
-# --- The three REAL guards (PLAN.md §10 cross-check gate) -------------------
+# --- The three REAL guards (docs/design/product-and-scope.md0 cross-check gate) -------------------
 
 def test_slw_rent_guard():
     """slw option 1 (rent): available when unit is free — tenancy==0.

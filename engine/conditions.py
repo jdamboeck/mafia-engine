@@ -1,4 +1,4 @@
-"""The **guard DSL** evaluator for menu-option preconditions (PLAN.md §5.2).
+"""The **guard DSL** evaluator for menu-option preconditions (docs/design/config-and-content-contract.md).
 
 A guard is a small, nested dict — pure data — that decides whether a menu option
 is *available*. This is the logic half of the **declarative shell layer**: the
@@ -7,7 +7,7 @@ The engine holds no display text; a denied guard's message key lives on the
 option (``on_denied``), never here (KTD-5).
 
 The DSL is deliberately tiny and its constraints are a *contract* (CLAUDE.md,
-PLAN.md §5.2) — enforced here at evaluation time:
+docs/design/config-and-content-contract.md) — enforced here at evaluation time:
 
 * **Two node kinds.**
   - *Leaf*: ``{"var": <name>, "op": <operator>, "value": <literal>}`` — a
@@ -62,7 +62,7 @@ _CONNECTIVES = ("and", "or")
 #: extra branch (and any NOT hidden in it) past the DSL's depth/no-NOT contract.
 _LEAF_KEYS = frozenset({"var", "op", "value"})
 
-#: Maximum allowed nesting depth of connectives (contract from PLAN.md §5.2).
+#: Maximum allowed nesting depth of connectives (contract from docs/design/config-and-content-contract.md).
 _MAX_DEPTH = 2
 
 

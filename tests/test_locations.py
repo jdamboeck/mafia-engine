@@ -3,7 +3,7 @@
 Proof-first: written and observed RED (module missing) before
 ``engine/locations.py`` existed.
 
-The loader is the declarative shell layer (PLAN.md §5.2): it parses menu
+The loader is the declarative shell layer (docs/design/config-and-content-contract.md): it parses menu
 structure, resolves handler ids against a registry, evaluates guards, and owns
 denial (KTD-8) — a denied option is never entered and its ``on_denied`` key is
 returned instead. It holds no display text (KTD-5).
@@ -12,7 +12,6 @@ returned instead. It holds no display text (KTD-5).
 import pytest
 import yaml
 
-from engine.conditions import build_context
 from engine.locations import (
     HANDLERS,
     Location,
@@ -21,7 +20,7 @@ from engine.locations import (
     load_location,
     register,
 )
-from engine.state import Clock, Gangster, GameState, MapState, Player
+from engine.state import Clock, Gangster, GameState, Player
 
 
 def _state(*, rank=1, roster=0, active=0, players=1):
