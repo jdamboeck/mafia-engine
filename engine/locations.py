@@ -37,7 +37,13 @@ __all__ = ["HANDLERS", "register", "Option", "Location", "load_location", "avail
 #: its handler factory callable. A game config populates this — directly or via
 #: :func:`register`. The loader resolves an option's ``handler`` string against
 #: it; an unregistered id is a load-time :class:`ValueError`. No real handlers
-#: live here (U7 registers slw's).
+#: live here.
+#:
+#: **Handlers are registered by game configs at load time** (see
+#: :func:`engine.config_loader.load_game_config`), **not defined in** ``engine/``.
+#: The ``@register`` decorator and this registry are the engine's generic
+#: registration mechanism; the handler generator functions themselves are
+#: config-owned code (e.g. ``data/game_configs/mafia_1920s/handlers/``).
 HANDLERS: dict[str, Callable] = {}
 
 

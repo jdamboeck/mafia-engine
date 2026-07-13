@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-import engine.handlers.slw  # noqa: F401 — registers the "slw.rent" handler
+from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.interactions import PromptInt, ShowMessage, run
 from engine.locations import HANDLERS, available_options, load_location
@@ -33,6 +33,10 @@ _CONFIG_DIR = (
     / "game_configs"
     / "mafia_1920s"
 )
+
+# Load the mafia_1920s config BY PATH so its "slw.rent" handler registers (the
+# config is not a pip-installed package — see engine.config_loader).
+load_game_config(_CONFIG_DIR)
 _SLW_SHELL = _CONFIG_DIR / "content" / "locations" / "slw.yaml"
 _SLW_STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "slw.yaml"
 

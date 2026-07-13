@@ -18,9 +18,20 @@ from pathlib import Path
 
 import pytest
 
-from engine.setup import new_game, load_config, load_vehicles, load_ranks, fnm
+from engine.config_loader import load_config, load_game_config
 
 CONFIG_ROOT = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
+
+# new_game / fnm / load_vehicles / load_ranks are now CONFIG-owned code (they moved
+# out of engine/ into the config, per PLAN.md §1/§6a). Reach them through the config
+# package, loaded BY PATH via the engine loader — the config is deliberately not a
+# pip-installed package (see engine.config_loader). load_config / engine_api
+# validation remain the engine's generic responsibility.
+_MAFIA = load_game_config(CONFIG_ROOT).module
+new_game = _MAFIA.new_game
+fnm = _MAFIA.fnm
+load_vehicles = _MAFIA.setup.load_vehicles
+load_ranks = _MAFIA.setup.load_ranks
 CONFIG_PATH = CONFIG_ROOT / "config.yaml"
 VEHICLES_PATH = CONFIG_ROOT / "entities" / "vehicles.yaml"
 RANKS_PATH = CONFIG_ROOT / "entities" / "ranks.yaml"

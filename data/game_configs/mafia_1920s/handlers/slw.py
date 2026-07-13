@@ -14,6 +14,11 @@ KTD-7 conformance: this handler touches ONLY ``ctx.state`` (read-only),
 ``yield <Interaction>``, ``ctx.apply(<Effect>)``, and the named ``fnm`` helper —
 nothing else in ``engine/``. It never mutates state directly.
 
+This handler is **config-owned game code**: it registers against the engine's
+generic ``@register`` decorator (an engine API) but imports ``fnm`` from its OWN
+config's setup module (``..setup``) — a handler depends on its own config, not on
+the engine (decision 14c).
+
 The ``ln`` seam (U7)
 --------------------
 The handler needs the within-location tile index ``ln`` (it changes the rent
@@ -27,7 +32,8 @@ from __future__ import annotations
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.interactions import PromptInt, ShowMessage
 from engine.locations import register
-from engine.setup import fnm
+
+from ..setup import fnm
 
 __all__ = ["slw_rent"]
 

@@ -449,9 +449,22 @@ adapts) configs whose targeted version it can't satisfy, so the engine can evolv
 older configs keep working. Bump `N` only on a breaking change to the handler API (§5.2a),
 the Effect/Interaction catalogs, or the config schema.
 
+**Where config code physically lives (enforced structurally).** Everything in the
+*config-provides* column above is **code and data under `data/game_configs/<game>/`, never in
+`engine/`** — this is what makes §1's "copy the directory" real. Concretely: the game's
+**handlers** (`handlers/*.py`, registered via `engine.locations`'s `@register`) and its
+**setup/formulas** (`setup.py`: `new_game`, `fnm`, entity loaders) are config code and live in
+the config directory. The engine loads a config **by path** (`engine/config_loader.py`,
+`importlib.util.spec_from_file_location`) so a copied or third-party config works without being
+installed into the engine package; `engine/` therefore imports nothing from `data/`. The engine
+keeps only the *mechanism* (the `HANDLERS` registry + `@register` decorator in
+`engine/locations.py`) and the abstract contracts a config is validated against
+(`engine/types/`). See the §9 tree.
+
 **Layering rule (enforced structurally).** The `engine/` package **imports nothing** from
-`server/`, `clients/`, or any transport/render library. Simulation is fully headless and
-testable in isolation; presentation and transport depend on the engine, never the reverse.
+`server/`, `clients/`, or any transport/render library — nor from `data/` (configs load by
+path at runtime). Simulation is fully headless and testable in isolation; presentation and
+transport depend on the engine, never the reverse.
 
 ---
 
@@ -509,14 +522,15 @@ store, codegen, and pygame are adapters over a proven core.
 
 ```
 mafia/
-├── engine/     # pure Python simulation (no rendering, no transport)
+├── engine/     # pure Python simulation — GENERIC framework only (no game-specific code)
 │   ├── state/          # GameState + subsystem dataclasses
 │   ├── rng.py          # seedable, loggable RNG
 │   ├── interactions.py # Interaction/Response types + the driver
 │   ├── effects.py      # typed effect API
 │   ├── conditions.py   # guard DSL evaluator
-│   ├── locations.py    # YAML shell loader + HANDLERS registry
-│   ├── handlers/       # one module per location; generator functions
+│   ├── locations.py    # YAML shell loader + HANDLERS registry (registration mechanism)
+│   ├── types/          # abstract config contracts (GameConfigSchema, LocationDef, …)
+│   ├── config_loader.py # loads a config dir by path, validates it, imports its package
 │   └── combat/         # grid, AI, damage/energy
 ├── server/     # (Phase 6) async transport adapter over the interaction protocol
 ├── clients/
@@ -524,11 +538,23 @@ mafia/
 │   └── pygame/         # (Phase 7)
 └── data/
     └── game_configs/
-        └── mafia_1920s/
+        └── mafia_1920s/    # ← game-specific CODE + data (copyable per §1/§6a)
+            ├── __init__.py     # config package entry (imports handlers → @register; exposes setup)
+            ├── setup.py        # Mafia setup flow: new_game, fnm formula, entity loaders
+            ├── handlers/       # one module per location; generator functions (config code)
+            │   └── slw.py
             ├── config.yaml
-            ├── content/  { locations/*.yaml, entities/*.yaml }
+            ├── content/  { map/city.yaml, locations/*.yaml, entities/*.yaml }
             └── themes/classic/ { strings/, assets/, sounds/, renderer/ }
 ```
+
+**Where game-specific code lives (Engine↔Config boundary, §6a).** Handlers *and* the
+config's setup flow (`new_game`, `fnm`, entity loaders) are **config code** — they live under
+`data/game_configs/<game>/`, not in `engine/`, so a new title is a self-contained copy of
+that directory (§1). The engine imports a config **by path** at load time
+(`engine/config_loader.py`); it never statically imports `data/`. `engine/` keeps only the
+generic registration mechanism (`locations.py`'s `HANDLERS` + `@register`) and the abstract
+contracts (`engine/types/`) that a config is validated against.
 
 ---
 

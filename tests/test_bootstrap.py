@@ -17,7 +17,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TOP_LEVEL_PACKAGES = [
     "engine",
     "engine.state",
-    "engine.handlers",
     "clients",
     "clients.terminal",
 ]
