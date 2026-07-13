@@ -206,7 +206,7 @@ def test_tenancy_requires_ln():
         evaluate({"var": "tenancy", "op": "=", "value": 0}, ctx)
 
 
-# --- The three REAL guards (docs/design/product-and-scope.md0 cross-check gate) -------------------
+# --- The three REAL guards (docs/design/engine-architecture.md § Testing and verification) --------
 
 def test_slw_rent_guard():
     """slw option 1 (rent): available when unit is free — tenancy==0.

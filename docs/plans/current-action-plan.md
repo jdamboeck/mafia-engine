@@ -35,6 +35,15 @@ Events may exist without effects. For example, a blocked move or denied option e
 
 Effects are the only things applied by `commit()`.
 
+**Replay semantics (binding for the future save/load unit, U12):** the replay/event-store
+vocabulary remains **effects + logged RNG draws** — exactly as
+`docs/design/engine-architecture.md` § Save/replay defines (`initial seed + setup +
+ordered event log = game`). Semantic events are audit/UI-facing records only; they are
+**never** applied to state and are **not** part of the replay log. Where
+`engine-architecture.md` § Events-vs-effects says effects are "committed as events", read
+that as this plan's *effects* stream — the design doc predates this plan's events/effects
+naming split and gets a wording alignment pass after this plan lands.
+
 ### Error semantics
 
 Programmer, config, and unexpected handler errors should raise exceptions.
@@ -146,9 +155,14 @@ Refactor application:
 ### Target files
 
 - `engine/effects.py`
+- `engine/state/__init__.py`
 - tests for effects
 
 ### Implementation
+
+`Player` currently has `last_location` but **no `last_la` field** — add
+`last_la: int = 0` to the `Player` dataclass in `engine/state/__init__.py`
+(next to `last_location`) before wiring `SetEntryContext`.
 
 Add:
 
