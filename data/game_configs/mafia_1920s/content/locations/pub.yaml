@@ -1,0 +1,20 @@
+# pub (Kneipe) — location shell (U6 declarative layer).
+#
+# Ports the pub recruit gate from mf-prg.bas:12100/12105. ONE guarded option this
+# unit (recruit); the pub handler BODY is a later unit (the shell only needs a
+# registered stub handler so it loads — see handlers/pub.py).
+#
+#   recruit — guard: rank>4 AND gang has room (<10);   on_denied -> rank_too_low
+#
+# At rank 1 the guard fails (rank>4 is false), so the option is EXCLUDED by
+# available_options — the denial reached by WALKING to the pub is this slice's
+# headline. The recruit body itself is out of scope this unit.
+key: pub
+options:
+  - id: recruit
+    guard:
+      and:
+        - {var: rank, op: '>', value: 4}       # ra(sp)>4 (mf-prg.bas:12100)
+        - {var: gang_size, op: '<', value: 10} # gz(sp)<10, room for more (mf-prg.bas:12105)
+    on_denied: "locations.pub.rank_too_low"
+    handler: "pub.recruit"

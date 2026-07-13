@@ -1,0 +1,18 @@
+# pub (Kneipe) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.pub.rank_too_low")
+# and the theme resolves them to these strings. Ported from the research
+# (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:12100-12102) — verbatim.
+#
+# rank_too_low: the pub recruit refusal when ra(sp)<=4. In the original this is a
+# two-line print (mf-prg.bas:12101-12102):
+#     print"als "ra$(ra(sp))" kannst du noch"
+#     print"keine eigenen leute haben!"
+# joined here as one templated string; {rank} is the player's current rank NAME,
+# filled by the theme at render time (ra$(ra(sp))).
+locations:
+  pub:
+    entry_prompt: "'EH, AMIGO, WILLST DU ''NE MILCH? ODER   SUCHST DU WAS ANDERES?'"
+    menu:
+      recruit: "'ICH SUCHE EIN PAAR JUNGS FUER MEINE    GANG. MAL SEHEN, WER DA IST...'"
+    rank_too_low: "'als {rank} kannst du noch keine eigenen leute haben!'"
