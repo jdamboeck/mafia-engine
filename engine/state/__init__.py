@@ -1,6 +1,6 @@
 """Modular ``GameState`` dataclasses for the first vertical slice.
 
-Each subsystem owns its own data (PLAN.md §4). This is scaffolding only:
+Each subsystem owns its own data (docs/design/engine-architecture.md). This is scaffolding only:
 happy-path construction with sensible defaults, no game logic or formulas.
 Combat and wanted subsystems are empty stubs. Source-variable names from the
 decompiled BASIC (``mf-prg.bas``) are noted in comments where helpful.

@@ -4,7 +4,7 @@ Ports the BASIC new-game setup (``mf-prg.bas:220,300-315,350``): it rolls each
 player's starting gangster stats and cash, seats them at the start position on
 foot, and assembles a :class:`~engine.state.GameState`.
 
-This is **config-owned game code** (PLAN.md §1, §6a): it lives with the config so a
+This is **config-owned game code** (docs/design/product-and-scope.md and docs/design/config-and-content-contract.md): it lives with the config so a
 new game = copy this directory. It imports engine *APIs* (``engine.rng.Rng``,
 ``engine.state.*``, and the engine's generic ``load_config``) — those are the
 engine's public surface; the config depends on the engine, never the reverse.

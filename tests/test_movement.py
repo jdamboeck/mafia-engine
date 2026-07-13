@@ -27,11 +27,9 @@ import yaml
 
 from engine.locations import available_options, load_location
 from engine.movement import (
-    LEFT,
     RIGHT,
     UP,
     DOWN,
-    MoveResult,
     advance_turn,
     load_city,
     try_move,

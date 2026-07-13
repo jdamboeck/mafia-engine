@@ -1,4 +1,4 @@
-"""Typed, serializable **Effects** + a pure ``apply`` (PLAN.md §5.5; KTD-3, KTD-6).
+"""Typed, serializable **Effects** + a pure ``apply`` (docs/design/engine-architecture.md; KTD-3, KTD-6).
 
 An **Effect** is the only way a handler mutates game state: a handler never touches
 ``GameState`` directly — it calls ``ctx.apply(effect)``, which *buffers* the effect

@@ -23,7 +23,7 @@ from engine.config_loader import load_config, load_game_config
 CONFIG_ROOT = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 # new_game / fnm / load_vehicles / load_ranks are now CONFIG-owned code (they moved
-# out of engine/ into the config, per PLAN.md §1/§6a). Reach them through the config
+# out of engine/ into the config, per docs/design/product-and-scope.md/§6a). Reach them through the config
 # package, loaded BY PATH via the engine loader — the config is deliberately not a
 # pip-installed package (see engine.config_loader). load_config / engine_api
 # validation remain the engine's generic responsibility.

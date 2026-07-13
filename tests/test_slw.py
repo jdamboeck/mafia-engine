@@ -23,7 +23,7 @@ import yaml
 
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
-from engine.interactions import PromptInt, ShowMessage, run
+from engine.interactions import run
 from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, Gangster, GameState, MapState, Player
 

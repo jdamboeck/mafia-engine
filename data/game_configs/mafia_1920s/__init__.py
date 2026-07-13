@@ -10,7 +10,7 @@ This is the top-level package the engine loads BY PATH (via
 
 A new game in this genre is a *copy of this directory* — its data (``config.yaml``,
 ``content/``, ``entities/``, ``themes/``), its Python handlers, and this setup code
-travel together; the engine is untouched (PLAN.md §1, §6a).
+travel together; the engine is untouched (docs/design/product-and-scope.md and docs/design/config-and-content-contract.md).
 """
 
 from __future__ import annotations

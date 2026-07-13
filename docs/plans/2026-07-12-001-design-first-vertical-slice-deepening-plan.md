@@ -18,7 +18,7 @@ title: First Vertical Slice - Plan
 
 ## Goal Capsule
 
-**Objective.** Deepen `PLAN.md` from a design that is "ready to build" in the large to
+**Objective.** Deepen `docs/design/` from a design that is "ready to build" in the large to
 one that is *fully specced for the first vertical slice* — Phase 0 (core engine
 contracts) + Phase 1 (playable terminal single-player slice). The slice's concrete target
 is: new-game setup → map movement under the `ms` economy → enter the **slw**
@@ -28,8 +28,8 @@ that slice, so implementation does not have to re-derive game behavior or re-lit
 scope.
 
 **Product authority.** `../research/` is the single source of truth for all game behavior
-(formulas, values, decompiled BASIC). Where `PLAN.md` prose disagrees with the research,
-**the research wins** and `PLAN.md` prose is treated as non-authoritative (see the
+(formulas, values, decompiled BASIC). Where `docs/design/` prose disagrees with the research,
+**the research wins** and `docs/design/` prose is treated as non-authoritative (see the
 Corrections section). Every behavioral claim below is cited to `mf-prg.bas` line numbers.
 
 **Open blockers.** None launch-blocking. The map-decode task the brainstorm flagged is
@@ -42,7 +42,7 @@ door/street adjacency exactness).
 
 **Stop conditions.** The slice is done when the seeded vertical-slice integration test
 (Definition of Done) passes and the terminal client plays the loop end to end. Authority
-order when sources conflict: `../research` (behavior) > this plan (how) > `PLAN.md` prose.
+order when sources conflict: `../research` (behavior) > this plan (how) > `docs/design/` prose.
 
 ---
 
@@ -97,18 +97,18 @@ order when sources conflict: `../research` (behavior) > this plan (how) > `PLAN.
    composes with the tenancy slw establishes and needs no new location machinery. Only the
    *denied-guard render* is in scope; the option's handler body is Phase 2.
 
-5. **Phase-0 contracts finalized** per `PLAN.md` §8: interaction protocol + in-process
+5. **Phase-0 contracts finalized** per `docs/design/` §8: interaction protocol + in-process
    synchronous driver; handler API contract (§5.2a); Engine↔Config contract + `engine_api`
    version (§6a); Event schema + determinism contract (§5.5).
 
-6. **Save / load (event store), pulled into the slice** (`PLAN.md` §5.5). `SaveGame`
+6. **Save / load (event store), pulled into the slice** (`docs/design/` §5.5). `SaveGame`
    writes an append-only JSONL event log + latest per-turn snapshot; `LoadGame` restores the
    snapshot and fast-forwards remaining events to the exact `GameState` — including a
    suspended handler generator's position. This proves GameState + event serialization early,
    mid-slice, rather than retrofitting it in Phase 5. (Supersedes the earlier deferral; the
    determinism contract KTD-6 already made this additive.)
 
-**Out of scope (deferred, unchanged from PLAN.md):** combat and `StartCombat`; gambling
+**Out of scope (deferred, unchanged from docs/design/):** combat and `StartCombat`; gambling
 (sph) and gun shop (waf); wanted/police/jail; the remaining 9 locations and 2 map events;
 WebSocket server; pygame client; codegen; second game-config.
 
@@ -132,7 +132,7 @@ WebSocket server; pygame client; codegen; second game-config.
 - **Cancellation mechanism: decide at driver-build time**, not now. slw's `x<=0 → nm=1:
   return` path (`:10030`) is the first concrete cancel site, so the decision is real and
   near — but it is best made with the buffer-then-commit effect semantics in front of you.
-  The two candidates stand as in `PLAN.md` §5.1: (a) raise `Cancelled` into the generator
+  The two candidates stand as in `docs/design/` §5.1: (a) raise `Cancelled` into the generator
   (`gen.throw`) with try/finally unwind + effect-buffer discard — recommended for
   uniformity; (b) a `CANCEL` sentinel Response the handler checks. The slice's effect model
   **must buffer per action so a cancel is atomic** regardless of which mechanism wins.
@@ -144,22 +144,22 @@ WebSocket server; pygame client; codegen; second game-config.
   machine-code `sys lc` lookup (`:2050`) with plain config data. (A hand-authored stub map
   was rejected — the slice should walk the authentic city.)
 
-- **Research is authoritative over PLAN.md prose.** Build behavior from `../research`;
-  where `PLAN.md` text conflicts, ignore the prose. The known conflicts are listed below
-  so implementers recognize them; correcting `PLAN.md` itself is a **separate later pass**,
+- **Research is authoritative over design-doc prose.** Build behavior from `../research`;
+  where `docs/design/` text conflicts, ignore the prose. The known conflicts are listed below
+  so implementers recognize them; correcting the design docs is a **separate later pass**,
   not part of the slice.
 
-### Corrections — PLAN.md prose that contradicts the research
+### Corrections — design-doc prose that contradicts the research
 
 These are **known** discrepancies. Research wins; do not implement the plan's wording.
 
 1. **`x8` is a score-gain weighting (0.1–2.0), not a "difficulty multiplier" and not
-   "×8".** `PLAN.md` §3.6 calls it "the game's difficulty multiplier (0.1–2)"; it is
+   "×8".** `docs/design/` §3.6 calls it "the game's difficulty multiplier (0.1–2)"; it is
    applied only as `gf(sp) = gf(sp) + x*x8` (`:1160`). There is no separate difficulty
    input and no ×8 factor. Setup takes exactly `x9` (end year) and `x8` (score weight).
 
 2. **slw is a 3-option menu with tenancy state, not "rent input loop, money; no combat"
-   alone.** `PLAN.md` §8's one-line framing undersells it: options are rent / pay-rent /
+   alone.** `docs/design/` §8's one-line framing undersells it: options are rent / pay-rent /
    leave, with a room-free guard, a live-here guard, shared rent subroutine, the shared
    not-enough-money sub, tenancy ownership `uk(ln)`, and months-accrued `um(sp)`.
 
@@ -175,7 +175,7 @@ These are **known** discrepancies. Research wins; do not implement the plan's wo
   (cash deducted, `uk`/`um` updated) → attempt pay-rent and rent-when-occupied guards →
   cancel with `0` months (no effects committed) → leave → walk to pub → recruit denied at
   rank 1** — asserting the full state trajectory and the exact interaction sequence
-  (mirrors `PLAN.md` §10's vertical-slice test, scoped to the slw slice).
+  (mirrors `docs/design/` §10's vertical-slice test, scoped to the slw slice).
 - `fnm` unit test includes `fnm(1) == -50` as an asserted, documented value.
 - Setup unit test asserts starting cash ∈ {5000,5500,6000,6500,7000}, `en=5`, stats ∈
   {10,15,…,50}, `po=18`, `ra=1`, on-foot `ms=25`.
@@ -212,7 +212,7 @@ Non-blocking; recorded so the implementer resolves them at the right unit, not n
 ## Planning Contract
 
 This plan builds the engine spine (Phase 0) and the first playable slice (Phase 1) per
-`PLAN.md` §8. The engine is genre-generic; all Mafia specifics live in
+`docs/design/` §8. The engine is genre-generic; all Mafia specifics live in
 `data/game_configs/mafia_1920s`. Every behavioral value ports from `../research` with a
 cited `mf-prg.bas` line; the oracle skill gates any claim before porting.
 
@@ -235,7 +235,7 @@ lands. This buffer exists regardless of mechanism (a) `gen.throw(Cancelled)` or 
 `CANCEL` sentinel. Recommend (a) for uniformity; U4 finalizes. This is the single design
 fact that must be right before slw's rent handler (U7) is written.
 
-**KTD-3 — Interactions vs. Effects are separate types (`PLAN.md` §5.1/§5.2).**
+**KTD-3 — Interactions vs. Effects are separate types (`docs/design/` §5.1/§5.2).**
 Interactions (`ShowMessage`, `PromptInt`, `PromptChoice`, `Confirm`) suspend the handler to
 ask the client; Effects (`money_change`, `stat_change`, `flag_set`, `ms_change`, `teleport`,
 …) mutate state and double as replay events. Handlers never mutate state directly. The slice
@@ -252,7 +252,7 @@ values, not a byte-for-byte C64 trace.
 them from `themes/classic/strings/`. Zero display strings in `engine/`. German source
 strings from `location-dialogue.yaml` seed the classic theme verbatim.
 
-**KTD-6 — Event schema + store both in-slice (`PLAN.md` §5.5).** Effects carry a schema
+**KTD-6 — Event schema + store both in-slice (`docs/design/` §5.5).** Effects carry a schema
 `version` and are pure data; a game is `initial seed + setup + ordered Event log`. The
 event store (JSONL log + snapshot) is **built in this slice** at U12, not deferred — so
 GameState/event serialization is proven early. Replay = load snapshot, re-apply the log,
@@ -297,7 +297,7 @@ U10 is a renderer over a proven protocol, never a gate on the slice working.
   666(ln4), 811(ln5). Movement gates on street `156`; entry fires when the player steps onto
   a street cell adjacent to a door the table knows (confirm adjacency at `mf-prg.bas:2035`
   and `:2050` — the Open Question).
-- **Shared BASIC subroutines → engine helpers (U4/U7)** (`PLAN.md` §5.1): not-enough-money
+- **Shared BASIC subroutines → engine helpers (U4/U7)** (`docs/design/` §5.1): not-enough-money
   `1125`, `Confirm` `1110`, gangster-picker `1130`, score update `1160`, key-press pause
   `1100`. The slice needs at least `1125` and `1100`.
 - **Map binary format** (`data-structures.yaml:17–33`): 2003 bytes = 1000 screen codes +
@@ -316,7 +316,7 @@ U10 is a renderer over a proven protocol, never a gate on the slice working.
 
 ## High-Level Technical Design
 
-The engine is one nested lifecycle (`PLAN.md` §5.0); the driver (U4) is the spine every
+The engine is one nested lifecycle (`docs/design/` §5.0); the driver (U4) is the spine every
 runtime path flows through. Unit dependency and the runtime nesting:
 
 ```mermaid
@@ -456,7 +456,7 @@ a tightened packet rather than accepting the drift.
 
 ## Output Structure
 
-Greenfield. Expected layout after the slice (per `PLAN.md` §9, scoped to what these units
+Greenfield. Expected layout after the slice (per `docs/design/` §9, scoped to what these units
 create):
 
 ```
@@ -616,7 +616,7 @@ in-memory log (list of draws) so replay is additive later. Match the original's
 
 **Goal.** The modular `GameState` subset the slice touches. *(Project tooling —
 `pyproject.toml`, pytest, the package skeleton — is stood up in **U0**, not here.)*
-**Requirements.** `PLAN.md` §4 GameState; slice setup + movement + slw.
+**Requirements.** `docs/design/` §4 GameState; slice setup + movement + slw.
 **Dependencies.** U0 (skeleton + tooling exist). U2 imported later.
 **Files.** `engine/state/__init__.py`, `tests/test_state.py`.
 **Approach.** Dataclasses for `Player` (ka, gf, rank/nr, po, vehicle, ms), `Gangster`
@@ -635,7 +635,7 @@ from global flags. `x8` is the **score-gain weight (0.1–2.0)**, not a difficul
 
 **Goal.** The spine: Interaction/Response types and the driver that turns `yield`s into
 screen states and `.send()`s responses back. Finalize the cancellation mechanism (KTD-2).
-**Requirements.** `PLAN.md` §5.1; KTD-2, KTD-3.
+**Requirements.** `docs/design/` §5.1; KTD-2, KTD-3.
 **Dependencies.** U3.
 **Files.** `engine/interactions.py`, `tests/test_driver.py`.
 **Approach.** Types `ShowMessage`, `PromptInt` (driver-enforced range/type re-prompt),
@@ -659,7 +659,7 @@ contract before implementing advance/send.
 ### U5. Effect API + buffered application
 
 **Goal.** Typed, serializable Effects that mutate `GameState` and double as replay events.
-**Requirements.** `PLAN.md` §5.2/§5.5; KTD-3, KTD-6.
+**Requirements.** `docs/design/` §5.2/§5.5; KTD-3, KTD-6.
 **Dependencies.** U3, U4.
 **Files.** `engine/effects.py`, `tests/test_effects.py`.
 **Approach.** Implement the slice subset: `money_change`, `stat_change`, `score_change`,
@@ -677,7 +677,7 @@ defined but exercised later.
 ### U6. Guard DSL evaluator + YAML location-shell loader
 
 **Goal.** Evaluate menu guards and load location shells + the HANDLERS registry.
-**Requirements.** `PLAN.md` §5.2 guard DSL; R-scope items 3/4 (slw + guarded neighbor).
+**Requirements.** `docs/design/` §5.2 guard DSL; R-scope items 3/4 (slw + guarded neighbor).
 **Dependencies.** U3.
 **Files.** `engine/conditions.py`, `engine/locations.py`, `tests/test_conditions.py`,
 `tests/test_locations.py`.
@@ -689,7 +689,7 @@ render, guard eval, denial message, and `ms` bookkeeping.
 - Each operator and both connectives evaluate correctly at depth 1 and 2.
 - A denied guard returns the `on_denied` key and commits no effects.
 - slw's two guards (`uk(ln)=0`, `uk(ln)=sp`) and pub-recruit's guard (`ra>4` and room and
-  gang<10) all express in the DSL (the cross-check gate from `PLAN.md` §10).
+  gang<10) all express in the DSL (the cross-check gate from `docs/design/` §10).
 - A flat `consequences[]` option (leave: `ms_change -5`) resolves without a handler.
 **Verification.** Guard + loader suites pass; the three real guards parse and evaluate.
 
@@ -724,7 +724,7 @@ value proven.
 
 **Goal.** The `mafia_1920s` config that new-game setup and slw read: starting values,
 vehicles, ranks, `fnm` params, `engine_api` version.
-**Requirements.** R-scope item 1 (setup); Engine↔Config contract (`PLAN.md` §6a).
+**Requirements.** R-scope item 1 (setup); Engine↔Config contract (`docs/design/` §6a).
 **Dependencies.** U3.
 **Files.** `data/game_configs/mafia_1920s/config.yaml`,
 `data/game_configs/mafia_1920s/entities/*.yaml`, `tests/test_setup.py`.
@@ -770,7 +770,7 @@ forced turn-end) and `2000–2060` (deltas `-1/+1/-40/+40`, walkable gate on `15
 
 **Goal.** A thin renderer that drives the driver, renders screen states, resolves string
 keys via the classic theme, and collects input.
-**Requirements.** `PLAN.md` §7 (thin client); KTD-5.
+**Requirements.** `docs/design/` §7 (thin client); KTD-5.
 **Dependencies.** U4, U7, U8, U9.
 **Files.** `clients/terminal/__init__.py`, `tests/test_terminal_client.py`.
 **Approach.** No game logic, no local state. Loop: receive screen state → resolve
@@ -789,7 +789,7 @@ Enforces nothing the driver already enforces. Imports from `engine/` only (layer
 driving the engine through the interaction driver with scripted Responses and **no terminal
 client**. The slice must be completable without any UI; U10 is a renderer over this same
 protocol, never a dependency of playability.
-**Requirements.** Success criteria; `PLAN.md` §10 vertical-slice gate.
+**Requirements.** Success criteria; `docs/design/` §10 vertical-slice gate.
 **Dependencies.** U1–U9 (not U10 — the client is explicitly excluded so headlessness is
 enforced, not incidental).
 **Files.** `tests/test_slice_integration.py`.
@@ -811,7 +811,7 @@ signal.
 
 **Goal.** `SaveGame`/`LoadGame` over the event log + snapshot, restoring the exact
 `GameState` mid-slice (including a suspended handler generator's position).
-**Requirements.** In-scope item 6; `PLAN.md` §5.5; KTD-6.
+**Requirements.** In-scope item 6; `docs/design/` §5.5; KTD-6.
 **Dependencies.** U3, U4, U5.
 **Files.** `engine/persistence.py`, `tests/test_persistence.py`.
 **Approach.** Append-only JSONL event log (the U5 Effects are the event vocabulary) +
@@ -884,7 +884,7 @@ GameState`) before writing the store.
 - Every ported formula cites its `mf-prg.bas` line and matches the research value; the
   negative-rent quirk is recorded in `config.yaml` formula params.
 - The three plan-vs-research corrections (x8, slw scope, door/street) are respected in code;
-  correcting `PLAN.md` prose itself is out of scope (a separate follow-up).
+  correcting the design docs is out of scope (a separate follow-up).
 - Abandoned/experimental code from approaches that did not pan out is removed from the diff.
 
 **Per-unit.** Each U-ID is done when its listed test scenarios pass and its verification

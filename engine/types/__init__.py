@@ -1,9 +1,9 @@
-"""Abstract Engine<->Config contracts (PLAN.md §6a).
+"""Abstract Engine<->Config contracts (docs/design/config-and-content-contract.md).
 
 These are the *type contracts* the engine expects a game config to satisfy. The
 engine is a **genre engine**, not a single-title clone: a new game is a *copy of a
 config directory* supplying its own data, formulas, strings and Python handlers
-(PLAN.md §1). This module names what such a config must provide and gives the
+(docs/design/product-and-scope.md). This module names what such a config must provide and gives the
 engine a real, *exercised* validation layer for it — these are not
 declared-and-unused: :mod:`engine.config_loader` calls every validator here at
 config-load time.

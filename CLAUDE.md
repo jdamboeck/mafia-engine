@@ -25,18 +25,18 @@ commit + branch conventions, and how to pick up the next unit. Then:
 4. **Setup / green-tree gate:** `pip install -e '.[dev]'` then `make check` (→ `pytest` +
    soft lint). Never dispatch a subagent or commit on a red tree.
 
-`PLAN.md` remains the authoritative spec for *how to build* the engine (architecture,
+`docs/design/` contains the authoritative spec for *how to build* the engine (architecture,
 phasing). Read it before making architectural decisions — the decisions below were made
 deliberately and are easy to violate accidentally. The plan in `docs/plans/` is the
-execution-level enrichment of `PLAN.md` for this slice.
+execution-level enrichment of the design docs for this slice.
 
 ## Two sources of truth (do not confuse them)
 
-- **`PLAN.md`** — the engine design (architecture, phasing, what to build). The engine
+- **`docs/design/`** — the engine design (architecture, phasing, what to build). The engine
   is a **genre engine** — turn-based, board-game-like strategy games with tactical combat
   — with the 1986 "Mafia" as its reference title. It is *not* a generic game engine and
   *not* a single-title clone. A new game in the genre = copy `data/game_configs/mafia_1920s`
-  and edit its data/handlers; the engine is untouched (`PLAN.md` §1, §6a).
+  and edit its data/handlers; the engine is untouched (`docs/design/product-and-scope.md` and `docs/design/config-and-content-contract.md`).
 - **`../research/`** — the authoritative game *knowledge* (the reverse-engineered rules
   of the original 1986 C64 game "Mafia" by Igelsoft). **Never invent game behavior.**
   When a mechanic is unclear, read the decompiled BASIC line block it maps to; every
@@ -88,14 +88,14 @@ Other cross-cutting invariants:
 
 - **Layering:** the `engine/` package **imports nothing** from `server/`, `clients/`, or
   any transport/render library. Simulation is fully headless; presentation and transport
-  depend on the engine, never the reverse (`PLAN.md` §6a).
+  depend on the engine, never the reverse (`docs/design/` §6a).
 - **Handler API is the only config interface:** a config's handlers may touch only
   `ctx.state` (read-only), `ctx.rng`, `yield <Interaction>`, `ctx.apply(<Effect>)`, and
-  the named engine helpers — nothing else in `engine/` (`PLAN.md` §5.2a). This is what
+  the named engine helpers — nothing else in `engine/` (`docs/design/` §5.2a). This is what
   keeps configs portable across `engine_api` versions.
 - **Interactions vs. Effects:** interactions drive execution flow (suspend to ask the
   client); effects mutate state. A handler never mutates state directly. Effects are pure
-  data and double as the replay events (`PLAN.md` §5.5).
+  data and double as the replay events (`docs/design/` §5.5).
 - **Guard DSL:** operators `= != >= <= > < in`; connectives `and`/`or`; nesting depth ≤2;
   **no NOT** (restructure to avoid). Verified sufficient for every real guard.
 - **Strings:** zero hardcoded *display* text in the engine. The engine emits

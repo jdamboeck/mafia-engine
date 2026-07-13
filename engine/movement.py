@@ -1,6 +1,6 @@
 """The turn loop + city-map movement economy — ENGINE mechanism (U9).
 
-This is generic engine machinery, not game-specific content (PLAN.md §6a: "Game
+This is generic engine machinery, not game-specific content (docs/design/config-and-content-contract.md: "Game
 FSM + turn loop + movement economy" is engine-provided). It ports the original's
 turn/movement layer from the decompiled BASIC:
 

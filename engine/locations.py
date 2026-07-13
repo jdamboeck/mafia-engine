@@ -1,4 +1,4 @@
-"""The YAML **location-shell loader** + ``HANDLERS`` registry (PLAN.md §5.2).
+"""The YAML **location-shell loader** + ``HANDLERS`` registry (docs/design/config-and-content-contract.md).
 
 This is the *declarative shell layer*: it parses a location's menu structure
 (pure data) and resolves each option's handler id against a registry. It owns
@@ -27,7 +27,7 @@ Neither, or both, is a load-time :class:`ValueError`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Callable
 
 from engine.conditions import build_context, evaluate, validate
 

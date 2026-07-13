@@ -6,7 +6,7 @@ runtime loads plain config data and has no binary-parsing dependency. These
 tests assert the committed artifact, not the decode tool — they are what proves
 the map data is correct and stays correct.
 
-Ground truth (research, which wins over PLAN.md prose where they differ):
+Ground truth (research, which wins over design-doc prose where they differ):
 - The 40x25 map is ``../research/src/karte`` reversed (``data[:1000][::-1]``),
   ``render_c64_assets.py:113-119``. The reversal yields the correct C64 screen-
   code vocabulary (160/156/32/163/224/147 dominant), matching the research's

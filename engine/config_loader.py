@@ -2,7 +2,7 @@
 
 A game config is a **directory** (e.g. ``data/game_configs/mafia_1920s``) that the
 engine loads **by filesystem path** — NOT a pip-installed package. This is what keeps
-a config *copyable*: a new game is a copy of a config dir (PLAN.md §1), and a
+a config *copyable*: a new game is a copy of a config dir (docs/design/product-and-scope.md), and a
 copied/third-party config loads without editing ``pyproject.toml`` or reinstalling.
 
 :func:`load_game_config` reads ``config.yaml``, validates it against the type
@@ -36,14 +36,14 @@ __all__ = [
     "load_game_config",
 ]
 
-#: The Engine<->Config API version this engine speaks (PLAN.md §6a).
+#: The Engine<->Config API version this engine speaks (docs/design/config-and-content-contract.md).
 ENGINE_API = 1
 
 
 def load_config(path: str | Path) -> dict:
     """Load and validate a game ``config.yaml`` (generic, no game specifics).
 
-    Enforces the Engine<->Config contract (PLAN.md §6a) via
+    Enforces the Engine<->Config contract (docs/design/config-and-content-contract.md) via
     :func:`engine.types.validate_config`: the config MUST declare ``engine_api: 1``
     and carry every required top-level key. Any violation raises ``ValueError``
     (a :class:`~engine.types.ConfigValidationError`).
