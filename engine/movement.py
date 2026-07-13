@@ -17,10 +17,10 @@ turn/movement layer from the decompiled BASIC:
   unit.
 
 **The ``ln`` seam (formalized here).** When a move enters a location with resolved
-``(la, ln)``, :func:`enter_location` (in :mod:`engine.locations`) sets the active
-player's ``last_location = ln`` **before** that location's handler runs. This is
-the seam U7's slw handler reads (it keys ``fnm(ln)`` off ``last_location``); U7
-set it by hand, and U9 is what sets it for real on door entry.
+``(la, ln)``, a :class:`~engine.effects.SetEntryContext` effect sets the active
+player's ``last_location = ln`` (and ``last_la = la``) **before** that location's
+handler runs. This is the seam U7's slw handler reads (it keys ``fnm(ln)`` off
+``last_location``); U7 set it by hand, and door entry is what sets it for real.
 
 ``engine/`` imports nothing from ``server``/``clients``/transport, and this module
 holds no display text. City data (the grid + door table) is CONFIG data, passed in
@@ -33,7 +33,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from engine.locations import enter_location
+from engine.actions import EngineResult
+from engine.effects import MsChange, SetEntryContext, SetPosition, commit
+from engine.events import EnterLocation, MoveBlocked, MoveStep
 
 __all__ = [
     "LEFT",
@@ -135,6 +137,10 @@ class MoveResult:
 
     ``turn_over`` is ``True`` once the active player's ``ms <= 0`` after the move
     (or was already ``<= 0``) — the movement loop should return to the turn loop.
+
+    ``from_cell`` is the active player's origin cell (``po`` before the move) and
+    ``delta`` is the signed step attempted — semantic movement context that mirrors
+    the emitted event fields.
     """
 
     kind: str
@@ -142,65 +148,142 @@ class MoveResult:
     la: int | None = None
     ln: int | None = None
     target: int | None = None
+    from_cell: int | None = None
+    delta: int | None = None
 
 
-def try_move(state, city: City, delta: int) -> MoveResult:
+def try_move(state, city: City, delta: int) -> EngineResult:
     """Attempt one directional move for the active player (mf-prg.bas:2000-2065).
 
     ``delta`` is one of :data:`LEFT`/:data:`RIGHT`/:data:`UP`/:data:`DOWN`. The
-    move targets ``p = po + delta`` and resolves per the source:
+    move targets ``p = po + delta`` and resolves per the source, producing exactly
+    one :class:`~engine.actions.EngineResult`. **This function is pure**: the input
+    ``state`` is NEVER mutated — mutating outcomes go through
+    :func:`engine.effects.commit` (one deep copy), and non-mutating outcomes return
+    the input ``state`` object untouched.
+
+    Semantic **events** are audit/UI records only; the primitive **effects** are the
+    sole mutations. The two are kept distinct: a blocked move emits an event with an
+    empty effects list and an unchanged state.
 
     1. Turn-end gate first (:2005): if ``ms <= 0`` the turn is already over — no
-       move happens (``kind="turn_over"``).
-    2. Bounds (:2030): ``p`` outside ``[0, 999]`` rejects the move (``kind="oob"``).
-    3. Walkable street (:2035/2040): ``code(p) == 156`` -> STEP: ``po = p``,
-       ``ms -= 1`` (``kind="step"``).
+       move happens. Emits :class:`~engine.events.MoveBlocked` (reason ``"turn_over"``),
+       no effects, ``status="turn_over"``, ``kind="turn_over"``.
+    2. Bounds (:2030): ``p`` outside ``[0, 999]`` rejects the move. Emits
+       :class:`~engine.events.MoveBlocked` (reason ``"oob"``), no effects,
+       ``status="blocked"``, ``kind="oob"``.
+    3. Walkable street (:2035/2040): ``code(p) == 156`` -> STEP: commits
+       ``SetPosition(p)`` + ``MsChange(-1)``, emits :class:`~engine.events.MoveStep`,
+       ``status="completed"``, ``kind="step"``.
     4. Else try to ENTER (:2045-2060): if ``p`` is a door-table cell -> ENTER that
-       location: set the entry context via :func:`enter_location` (the ``ln`` seam),
-       charge ``ms -= 5``; ``po`` stays put (``kind="enter"``, ``la``/``ln`` set).
-    5. Special cell (la=13/14): detected and skipped this unit (``kind="special"``).
-    6. Otherwise a WALL (:2050): reject the move (``kind="wall"``).
+       location: commits ``SetEntryContext(la, ln)`` (the ``ln`` seam) +
+       ``MsChange(-5)``, emits :class:`~engine.events.EnterLocation`; ``po`` stays put
+       (``kind="enter"``, ``la``/``ln`` set), ``status="completed"``.
+    5. Special cell (la=13/14): detected and skipped this unit — no events, no
+       effects, ``status="not_implemented"``, ``kind="special"``.
+    6. Otherwise a WALL (:2050): reject the move. Emits
+       :class:`~engine.events.MoveBlocked` (reason ``"wall"``), no effects,
+       ``status="blocked"``, ``kind="wall"``.
 
-    After any step/entry the turn-end gate is re-checked: ``turn_over`` is ``True``
-    when ``ms <= 0``.
+    After any step/entry the turn-end gate is re-checked: the payload's ``turn_over``
+    is ``True`` when the resulting ``ms <= 0``.
     """
     player = state.players[state.clock.active_player]
+    active = state.clock.active_player
+    from_cell = player.po
+    target = from_cell + delta
 
     # :2005 — the turn ends when ms <= 0. If already over, no move happens.
     if player.ms <= 0:
-        return MoveResult(kind="turn_over", turn_over=True)
+        event = MoveBlocked(
+            player=active, from_cell=from_cell, target=target, delta=delta,
+            reason="turn_over",
+        )
+        payload = MoveResult(
+            kind="turn_over", turn_over=True, from_cell=from_cell, delta=delta
+        )
+        return EngineResult(
+            state=state, events=[event], effects=[], status="turn_over",
+            payload=payload,
+        )
 
-    target = player.po + delta
-
-    # :2030 — bounds.
+    # :2030 — bounds. An out-of-bounds step has no valid target (event target None).
     if target < _MIN_CELL or target > _MAX_CELL:
-        return MoveResult(kind="oob", turn_over=player.ms <= 0)
+        event = MoveBlocked(
+            player=active, from_cell=from_cell, target=None, delta=delta,
+            reason="oob",
+        )
+        payload = MoveResult(
+            kind="oob", turn_over=player.ms <= 0, from_cell=from_cell, delta=delta
+        )
+        return EngineResult(
+            state=state, events=[event], effects=[], status="blocked",
+            payload=payload,
+        )
 
-    # :2035/2040 — walkable street: STEP (1 ms).
+    # :2035/2040 — walkable street: STEP (1 ms). po = target, ms -= 1.
     if city.code(target) == STREET_CODE:
-        player.po = target
-        player.ms -= STEP_COST
-        return MoveResult(kind="step", turn_over=player.ms <= 0, target=target)
+        result = commit(state, [SetPosition(target), MsChange(-STEP_COST)])
+        new_player = result.state.players[active]
+        event = MoveStep(
+            player=active, from_cell=from_cell, to_cell=target, delta=delta
+        )
+        payload = MoveResult(
+            kind="step", turn_over=new_player.ms <= 0, target=target,
+            from_cell=from_cell, delta=delta,
+        )
+        return EngineResult(
+            state=result.state, events=[event], effects=result.effects,
+            status="completed", payload=payload,
+        )
 
     # :2045-2060 — otherwise try to ENTER a location via the door table.
     door = city.door(target)
     if door is not None:
         la, ln = door
-        # The ln seam: set the entry context (last_location = ln) BEFORE the
-        # location's handler runs. po does NOT move onto the door — entering is
-        # the action (mf-prg.bas:2060).
-        enter_location(state, la, ln)
-        player.ms -= ENTER_COST
-        return MoveResult(
-            kind="enter", turn_over=player.ms <= 0, la=la, ln=ln, target=target
+        # The ln seam: SetEntryContext records last_la/last_location BEFORE the
+        # location's handler runs. po does NOT move onto the door — entering is the
+        # action (mf-prg.bas:2060). ms -= 5 unconditionally (may go negative).
+        result = commit(
+            state, [SetEntryContext(la=la, ln=ln), MsChange(-ENTER_COST)]
+        )
+        new_player = result.state.players[active]
+        event = EnterLocation(
+            player=active, from_cell=from_cell, door_cell=target, delta=delta,
+            la=la, ln=ln,
+        )
+        payload = MoveResult(
+            kind="enter", turn_over=new_player.ms <= 0, la=la, ln=ln, target=target,
+            from_cell=from_cell, delta=delta,
+        )
+        return EngineResult(
+            state=result.state, events=[event], effects=result.effects,
+            status="completed", payload=payload,
         )
 
     # la=13/14 event cells — OUT OF SCOPE this unit: detect and skip (no-op).
     if city.is_special(target):
-        return MoveResult(kind="special", turn_over=player.ms <= 0, target=target)
+        payload = MoveResult(
+            kind="special", turn_over=player.ms <= 0, target=target,
+            from_cell=from_cell, delta=delta,
+        )
+        return EngineResult(
+            state=state, events=[], effects=[], status="not_implemented",
+            payload=payload,
+        )
 
     # :2050 — not 156, not a door, not special -> a WALL: reject the move.
-    return MoveResult(kind="wall", turn_over=player.ms <= 0, target=target)
+    event = MoveBlocked(
+        player=active, from_cell=from_cell, target=target, delta=delta,
+        reason="wall",
+    )
+    payload = MoveResult(
+        kind="wall", turn_over=player.ms <= 0, target=target,
+        from_cell=from_cell, delta=delta,
+    )
+    return EngineResult(
+        state=state, events=[event], effects=[], status="blocked", payload=payload,
+    )
 
 
 def advance_turn(state, vehicles: list[dict]) -> bool:

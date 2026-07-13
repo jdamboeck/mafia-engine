@@ -21,9 +21,12 @@ Responses are fed to ``engine.interactions.run`` and the driver's returned
 
 The composition it proves (the "how you play a turn" the orchestrator owns):
 
-* Movement (``try_move``) mutates ``state`` IN PLACE and, on ``enter``, sets the
-  active player's ``last_location = ln`` (the U7/U9 ln seam) — so the slw handler
-  keys ``fnm(ln)`` off the tile actually walked into.
+* Movement (``try_move``) is PURE: it returns an ``EngineResult`` carrying a NEW
+  state (the input is never mutated) and, on ``enter``, commits a ``SetEntryContext``
+  effect that sets the active player's ``last_location = ln`` (the U7/U9 ln seam) —
+  so the slw handler keys ``fnm(ln)`` off the tile actually walked into. Effects
+  persist across the trajectory ONLY by adopting ``state = result.state`` after each
+  move.
 * The driver (``run``) is PURE: it returns a NEW ``GameState`` with the handler's
   effects folded in on clean completion (or the ORIGINAL, unchanged state on a
   quiet cancel). Effects persist across the trajectory ONLY by adopting
@@ -183,9 +186,14 @@ def _play_trajectory():
     # ================================================================= #
     p.po = 141
     r_step = try_move(state, city, DOWN)
-    assert r_step.kind == "step" and p.po == 181 and p.ms == 24  # ms -= 1
+    state = r_step.state  # adopt the returned state (movement is pure)
+    p = state.players[0]
+    assert r_step.payload.kind == "step" and p.po == 181 and p.ms == 24  # ms -= 1
     r_enter = try_move(state, city, LEFT)
-    assert r_enter.kind == "enter" and r_enter.la == 1 and r_enter.ln == 2
+    state = r_enter.state
+    p = state.players[0]
+    assert r_enter.payload.kind == "enter"
+    assert r_enter.payload.la == 1 and r_enter.payload.ln == 2
     assert p.po == 181  # po does NOT move onto the door
     assert p.ms == 19  # ms -= 5 on entry
     assert p.last_location == 2  # the ln seam populated by real entry
@@ -273,9 +281,15 @@ def _play_trajectory():
     p.po = 474
     ms_before_pub = p.ms
     r_step2 = try_move(state, city, LEFT)
-    assert r_step2.kind == "step" and p.po == 473 and p.ms == ms_before_pub - 1
+    state = r_step2.state
+    p = state.players[0]
+    assert r_step2.payload.kind == "step" and p.po == 473
+    assert p.ms == ms_before_pub - 1
     r_enter2 = try_move(state, city, UP)
-    assert r_enter2.kind == "enter" and r_enter2.la == 2 and r_enter2.ln == 1
+    state = r_enter2.state
+    p = state.players[0]
+    assert r_enter2.payload.kind == "enter"
+    assert r_enter2.payload.la == 2 and r_enter2.payload.ln == 1
     assert p.po == 473  # po unchanged on entry
     obs["po_after_pub_walk"] = p.po
     obs["ms_after_pub_walk"] = p.ms

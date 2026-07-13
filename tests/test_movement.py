@@ -25,8 +25,15 @@ from pathlib import Path
 
 import yaml
 
+import copy
+
+from engine.effects import MsChange, SetEntryContext, SetPosition
+from engine.events import EnterLocation, MoveBlocked, MoveStep
 from engine.locations import available_options, load_location
 from engine.movement import (
+    ENTER_COST,
+    STEP_COST,
+    STREET_CODE,
     RIGHT,
     UP,
     DOWN,
@@ -91,9 +98,18 @@ def test_step_onto_street_costs_one_ms():
     # From 162, RIGHT (+1) -> 163. Confirm 163 is walkable first.
     assert city.code(163) == 156
     res = try_move(st, city, RIGHT)
-    assert res.kind == "step"
-    assert st.players[0].po == 163  # moved by +1
-    assert st.players[0].ms == 24  # spent exactly 1
+    assert res.payload.kind == "step"
+    assert res.status == "completed"
+    # Purity: the INPUT state is untouched (a new state object is returned).
+    assert st.players[0].po == 162
+    assert st.players[0].ms == 25
+    assert res.state is not st
+    # The move committed onto the RETURNED state: moved by +1, spent exactly 1.
+    assert res.state.players[0].po == 163
+    assert res.state.players[0].ms == 24
+    # Events (audit) + effects (mutations) emitted for the step.
+    assert res.events == [MoveStep(player=0, from_cell=162, to_cell=163, delta=RIGHT)]
+    assert res.effects == [SetPosition(163), MsChange(-STEP_COST)]
 
 
 # --------------------------------------------------------------------------- #
@@ -106,11 +122,69 @@ def test_blocked_cell_does_not_move_or_spend():
     # not a door, not special.
     assert city.code(202) != 156 and city.door(202) is None
     assert not city.is_special(202)
-    before_po, before_ms = st.players[0].po, st.players[0].ms
+    before = copy.deepcopy(st)
     res = try_move(st, city, DOWN)
-    assert res.kind == "wall"
-    assert st.players[0].po == before_po  # unchanged
-    assert st.players[0].ms == before_ms  # nothing spent
+    assert res.payload.kind == "wall"
+    assert res.status == "blocked"
+    # A blocked move mutates NOTHING: input unchanged AND the returned state is the
+    # same input object (no commit happened).
+    assert st.players[0].po == before.players[0].po  # unchanged
+    assert st.players[0].ms == before.players[0].ms  # nothing spent
+    assert res.state is st
+    # An event with NO matching effect (a wall blocks with zero effects).
+    assert res.events == [
+        MoveBlocked(player=0, from_cell=162, target=202, delta=DOWN, reason="wall")
+    ]
+    assert res.effects == []
+
+
+# --------------------------------------------------------------------------- #
+# Out of bounds: a target off the 40×25 grid rejects the move (no mutation).  #
+# --------------------------------------------------------------------------- #
+def test_out_of_bounds_rejects_move():
+    from engine.movement import LEFT
+
+    st = _state(po=0, ms=25)
+    city = _city()
+    before = copy.deepcopy(st)
+    res = try_move(st, city, LEFT)  # target -1: off the grid
+    assert res.payload.kind == "oob"
+    assert res.status == "blocked"
+    # Nothing mutated: input unchanged, returned state IS the input object.
+    assert st.players[0].po == before.players[0].po
+    assert st.players[0].ms == before.players[0].ms
+    assert res.state is st
+    # oob has no valid target cell -> the event's target is None.
+    assert res.events == [
+        MoveBlocked(player=0, from_cell=0, target=None, delta=LEFT, reason="oob")
+    ]
+    assert res.effects == []
+
+
+# --------------------------------------------------------------------------- #
+# Special cell (la=13/14 event flows): detected, but OUT OF SCOPE this slice. #
+# --------------------------------------------------------------------------- #
+def test_special_cell_is_not_implemented():
+    # On the real map both la=13/14 special cells (569, 861) happen to be code-156
+    # street, so the STEP branch wins before the special branch is ever reached
+    # (branch order preserved from the source). To exercise the special branch we
+    # build a minimal City whose special target is neither street nor a door.
+    from engine.movement import City
+
+    grid = [[0] * 40 for _ in range(25)]  # all code 0: not street, not a door
+    city = City(grid=grid, doors={}, special_cells={1: 13})
+    st = _state(po=0, ms=25)
+    assert city.is_special(1) and city.code(1) != STREET_CODE and city.door(1) is None
+    before = copy.deepcopy(st)
+    res = try_move(st, city, RIGHT)  # 0 --RIGHT--> 1 (special)
+    assert res.payload.kind == "special"
+    assert res.status == "not_implemented"
+    # No events, no effects, state untouched (the event flow is a later unit).
+    assert res.events == []
+    assert res.effects == []
+    assert res.state is st
+    assert st.players[0].po == before.players[0].po
+    assert st.players[0].ms == before.players[0].ms
 
 
 # --------------------------------------------------------------------------- #
@@ -122,14 +196,27 @@ def test_enter_slw_via_door_target():
     st = _state(po=162, ms=25, active=0)
     city = _city()
     res = try_move(st, city, UP)
-    assert res.kind == "enter"
-    assert res.la == 1 and res.ln == 1
-    # You do NOT stand on the door cell — po is unchanged.
-    assert st.players[0].po == 162
+    assert res.payload.kind == "enter"
+    assert res.status == "completed"
+    assert res.payload.la == 1 and res.payload.ln == 1
+    # Purity: the input state is untouched; entry commits onto the returned state.
+    assert st.players[0].ms == 25
+    assert st.players[0].last_location == 0  # default; entry did not touch input
+    assert res.state is not st
+    # You do NOT stand on the door cell — po is unchanged (no SetPosition on entry).
+    assert res.state.players[0].po == 162
     # Location-visit cost is 5 ms (mf-prg.bas:2060).
-    assert st.players[0].ms == 20
-    # The ln seam: entering set the active player's last_location = ln.
-    assert st.players[0].last_location == 1
+    assert res.state.players[0].ms == 20
+    # The ln seam: entering set the active player's last_location = ln (and last_la).
+    assert res.state.players[0].last_location == 1
+    assert res.state.players[0].last_la == 1
+    # Events + effects: EnterLocation event, SetEntryContext + MsChange effects.
+    assert res.events == [
+        EnterLocation(
+            player=0, from_cell=162, door_cell=122, delta=UP, la=1, ln=1
+        )
+    ]
+    assert res.effects == [SetEntryContext(la=1, ln=1), MsChange(-ENTER_COST)]
 
 
 def test_enter_charges_5ms_unconditionally_and_can_go_negative():
@@ -138,9 +225,10 @@ def test_enter_charges_5ms_unconditionally_and_can_go_negative():
     # NOT blocked for lack of budget).
     st = _state(po=162, ms=3, active=0)
     res = try_move(st, _city(), UP)  # target 122 = slw door
-    assert res.kind == "enter"
-    assert st.players[0].ms == -2  # 3 - 5, not clamped, not blocked
-    assert res.turn_over is True   # ms <= 0 ends the turn
+    assert res.payload.kind == "enter"
+    assert res.state.players[0].ms == -2  # 3 - 5, not clamped, not blocked
+    assert res.payload.turn_over is True   # ms <= 0 ends the turn
+    assert st.players[0].ms == 3  # input untouched
 
 
 # --------------------------------------------------------------------------- #
@@ -151,9 +239,10 @@ def test_ms_zero_ends_turn():
     st = _state(po=162, ms=1)
     city = _city()
     res = try_move(st, city, RIGHT)  # 162 -> 163, ms 1 -> 0
-    assert res.kind == "step"
-    assert st.players[0].ms == 0
-    assert res.turn_over is True  # ms<=0 -> turn ends (mf-prg.bas:2005)
+    assert res.payload.kind == "step"
+    assert res.state.players[0].ms == 0
+    assert res.payload.turn_over is True  # ms<=0 -> turn ends (mf-prg.bas:2005)
+    assert st.players[0].ms == 1  # input untouched
 
 
 def test_handler_forced_ms_zero_ends_turn():
@@ -162,9 +251,18 @@ def test_handler_forced_ms_zero_ends_turn():
     st = _state(po=162, ms=0)
     city = _city()
     res = try_move(st, city, RIGHT)
-    assert res.turn_over is True
-    assert res.kind == "turn_over"  # no move happens; turn already ended
+    assert res.payload.turn_over is True
+    assert res.payload.kind == "turn_over"  # no move happens; turn already ended
+    assert res.status == "turn_over"
+    assert res.state is st  # no commit — the input state is returned untouched
     assert st.players[0].po == 162  # unchanged
+    # A blocked move emits an event with zero effects.
+    assert res.events == [
+        MoveBlocked(
+            player=0, from_cell=162, target=163, delta=RIGHT, reason="turn_over"
+        )
+    ]
+    assert res.effects == []
 
 
 # --------------------------------------------------------------------------- #
@@ -233,19 +331,20 @@ def test_walk_to_pub_recruit_denied_at_rank_1():
     assert city.door(433) == (2, 1)
     st = _state(po=473, ms=25, rank=1, active=0)
     res = try_move(st, city, UP)
-    assert res.kind == "enter"
-    assert res.la == 2 and res.ln == 1
-    assert st.players[0].po == 473  # did not stand on the door
-    assert st.players[0].last_location == 1  # ln seam set
+    assert res.payload.kind == "enter"
+    assert res.payload.la == 2 and res.payload.ln == 1
+    state = res.state  # adopt the returned state (fold effects forward)
+    assert state.players[0].po == 473  # did not stand on the door
+    assert state.players[0].last_location == 1  # ln seam set
 
     # available_options at rank 1 EXCLUDES recruit (guard rank>4 fails).
-    avail = available_options(pub, st, ln=res.ln)
+    avail = available_options(pub, state, ln=res.payload.ln)
     ids = [o.id for o in avail]
     assert "recruit" not in ids
     recruit = next(o for o in pub.options if o.id == "recruit")
     assert recruit.on_denied == "locations.pub.rank_too_low"
     # No effects committed — denial is a shell exclusion, nothing mutated.
-    assert st.players[0].ka == 5000
+    assert state.players[0].ka == 5000
 
 
 def test_pub_recruit_available_when_rank_high_and_room():
