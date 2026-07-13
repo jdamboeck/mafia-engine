@@ -1,0 +1,62 @@
+# mafia_1920s — game config assembly (U8).
+#
+# Rules & world params for the "1920s Mafia" game running on this engine.
+# Build-time, frozen per game: it may add content/handlers but may not change
+# core simulation. This file declares the Engine<->Config contract version and
+# the numeric params the engine reads at new-game setup and in the slw handler.
+
+# Engine<->Config API version (PLAN.md §6a). The engine's load_config accepts
+# ONLY version 1 and rejects anything else with a clear error.
+engine_api: 1
+
+name: "mafia_1920s"
+description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
+
+# Entity tables live in sibling files under entities/.
+entities:
+  vehicles: "entities/vehicles.yaml"
+  ranks: "entities/ranks.yaml"
+
+# Formula parameters. Values sufficient for the engine to COMPUTE the formula;
+# the Python handlers hold the branching logic, the config holds the numbers.
+formula_params:
+
+  # fnm — the per-tile rent formula (mf-prg.bas:115):
+  #   deffnm(ln) = 50 - 50*(ln=3 or ln=4) - 100*(ln=1)
+  # Evaluated to results:
+  #   fnm(1)      = -50   <-- NEGATIVE-RENT QUIRK: tile ln=1 is a premium unit
+  #                            that PAYS the player (negative rent). Faithful to
+  #                            the original; must be preserved exactly.
+  #   fnm(3)=fnm(4) = 0
+  #   fnm(ln)     = 50    for all other ln (2, 5, 6, 7, 8, 9)
+  #
+  # Encoded as a base plus explicit per-ln overrides. The engine's fnm(ln,
+  # params) helper returns overrides[ln] if present, else base.
+  fnm:
+    base: 50
+    overrides:
+      1: -50   # negative-rent quirk
+      3: 0
+      4: 0
+
+# New-game setup constants (mf-prg.bas:220,300-315,350). These mirror the
+# BASIC setup; engine/setup.py is the authoritative porting site. Kept here so
+# the values are visible/tunable as config data.
+setup:
+  start_position: 18   # po — start map position (mf-prg.bas:220)
+  start_rank: 1        # ra — "anfaenger"
+  start_nr: 1          # nr — next-rank counter
+  start_vehicle: 0     # vehicle index 0 == "fuesse" (on foot)
+  start_energy: 5      # en — fixed at 5 (mf-prg.bas:313), NOT rolled
+  # Stat roll: rng.range(9)*5 + 10  -> {10,15,...,50}  (mf-prg.bas:350)
+  stat_roll: {choices: 9, step: 5, base: 10}
+  # intelligenz quirk: raw stat roll bitwise-OR 30 (mf-prg.bas:311) -> {30,31,62,63}
+  intelligenz_or: 30
+  # Cash roll: rng.range(5)*500 + 5000 -> {5000,...,7000}  (mf-prg.bas:315)
+  cash_roll: {choices: 5, step: 500, base: 5000}
+
+# Validated setup input ranges (mf-prg.bas:170/172/176/206).
+input_ranges:
+  end_year: {min: 1928, max: 1978}   # x9
+  score_weight: {min: 0.1, max: 2.0} # x8
+  player_count: {min: 1, max: 4}     # sz
