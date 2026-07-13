@@ -18,6 +18,7 @@ import pytest
 
 from engine.effects import (
     SCHEMA_VERSION,
+    CommitResult,
     EnergyChange,
     FlagSet,
     Jail,
@@ -29,6 +30,7 @@ from engine.effects import (
     Teleport,
     WantedChange,
     apply,
+    commit,
 )
 from engine.interactions import CANCEL, PromptInt, run
 from engine.state import Clock, Flags, Gangster, GameState, Player
@@ -232,6 +234,62 @@ def test_unknown_effect_type_raises_type_error():
     state = make_state()
     with pytest.raises(TypeError):
         apply(state, object())
+
+
+# --------------------------------------------------------------------------- #
+# commit — one deep copy, many effects, ordered committed list                #
+# --------------------------------------------------------------------------- #
+def test_commit_applies_multiple_effects_cumulatively():
+    state = make_state()  # active player 0: ms=3, ka=5000
+    result = commit(state, [MsChange(-1), MoneyChange(-500), MsChange(-2)])
+
+    assert isinstance(result, CommitResult)
+    assert result.state.players[0].ms == 0  # 3 - 1 - 2
+    assert result.state.players[0].ka == 4500  # 5000 - 500
+
+
+def test_commit_does_not_mutate_input_state():
+    state = make_state()
+    commit(state, [MoneyChange(-500), MsChange(-3)])
+
+    assert state.players[0].ka == 5000  # ORIGINAL untouched
+    assert state.players[0].ms == 3
+
+
+def test_commit_returns_a_distinct_state_object():
+    state = make_state()
+    result = commit(state, [MoneyChange(-1)])
+    assert result.state is not state
+    assert result.state.players[0] is not state.players[0]
+
+
+def test_commit_returns_committed_effects_in_order():
+    state = make_state()
+    effects = [MsChange(-1), MoneyChange(-500), MsChange(-2)]
+    result = commit(state, effects)
+    assert result.effects == effects  # same objects, same order
+
+
+def test_commit_empty_effects_returns_equal_but_distinct_state():
+    state = make_state()
+    result = commit(state, [])
+
+    assert result.effects == []
+    assert result.state is not state  # a distinct copy, not the original
+    assert result.state.players[0].ka == state.players[0].ka  # equal content
+    assert result.state.players[0].ms == state.players[0].ms
+
+
+def test_commit_unknown_effect_raises_type_error():
+    state = make_state()
+    with pytest.raises(TypeError):
+        commit(state, [MoneyChange(-1), object()])
+
+
+def test_commit_deferred_effect_raises_not_implemented():
+    state = make_state()
+    with pytest.raises(NotImplementedError):
+        commit(state, [WantedChange(1)])
 
 
 # --------------------------------------------------------------------------- #

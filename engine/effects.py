@@ -60,6 +60,8 @@ __all__ = [
     "SpawnFighter",
     # Application
     "apply",
+    "commit",
+    "CommitResult",
 ]
 
 
@@ -233,51 +235,47 @@ def _target_index(state: GameState, player: int | None) -> int:
     return idx
 
 
-def apply(state: GameState, effect: Any) -> GameState:
-    """Return a NEW :class:`GameState` with ``effect`` applied; never mutate ``state``.
+def _apply_in_place(state: GameState, effect: Any) -> None:
+    """Mutate ``state`` in place by ``effect``. NOT pure — callers own the copy.
 
-    Purity: the input ``state`` is deep-copied and only the copy is mutated and returned.
-    This makes the driver's atomic commit/discard hold at the state level — a discarded
-    buffer leaves the caller's state untouched by construction.
-
-    Dispatch is on the concrete effect type. An unknown/unregistered effect type raises
-    ``TypeError``. The target player index is resolved once (explicit ``player`` else the
-    active player); an out-of-range index surfaces as ``IndexError``.
+    This holds the raw mutation/dispatch logic shared by :func:`apply` (one effect, one
+    copy) and :func:`commit` (many effects, one copy). Dispatch is on the concrete effect
+    type. An unknown/unregistered effect type raises ``TypeError``. The target player
+    index is resolved once (explicit ``player`` else the active player); an out-of-range
+    index surfaces as ``IndexError``.
 
     Deferred effects (:class:`WantedChange`, :class:`EnergyChange`, :class:`Jail`,
     :class:`SpawnFighter`) raise ``NotImplementedError`` — they are exercised in a later
     unit but exist now so logs stay type-complete and serializable.
     """
-    new_state = copy.deepcopy(state)
-
     if isinstance(effect, MoneyChange):
-        p = new_state.players[_target_index(new_state, effect.player)]
+        p = state.players[_target_index(state, effect.player)]
         p.ka += effect.amount
-        return new_state
+        return
 
     if isinstance(effect, ScoreChange):
-        p = new_state.players[_target_index(new_state, effect.player)]
+        p = state.players[_target_index(state, effect.player)]
         # Clamp intrinsic to gf: cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
         p.gf = max(0.0, min(100.0, p.gf + effect.amount))
-        return new_state
+        return
 
     if isinstance(effect, MsChange):
-        p = new_state.players[_target_index(new_state, effect.player)]
+        p = state.players[_target_index(state, effect.player)]
         # ms is NOT clamped — it may reach 0 (or below) to force turn end.
         p.ms += effect.amount
-        return new_state
+        return
 
     if isinstance(effect, Teleport):
-        p = new_state.players[_target_index(new_state, effect.player)]
+        p = state.players[_target_index(state, effect.player)]
         p.po = effect.cell  # absolute city-map cell
-        return new_state
+        return
 
     if isinstance(effect, StatChange):
         if effect.stat not in _STAT_NAMES:
             raise ValueError(
                 f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
             )
-        p = new_state.players[_target_index(new_state, effect.player)]
+        p = state.players[_target_index(state, effect.player)]
         if effect.gangster < 0 or effect.gangster >= len(p.roster):
             raise IndexError(
                 f"gangster index {effect.gangster} out of range "
@@ -285,7 +283,7 @@ def apply(state: GameState, effect: Any) -> GameState:
             )
         g = p.roster[effect.gangster]
         setattr(g, effect.stat, getattr(g, effect.stat) + effect.amount)
-        return new_state
+        return
 
     if isinstance(effect, FlagSet):
         if effect.scope != "global":
@@ -293,20 +291,20 @@ def apply(state: GameState, effect: Any) -> GameState:
                 f"FlagSet scope {effect.scope!r} is not implemented this slice; only "
                 "'global' flags are supported (per-player bitfields come in a later unit)."
             )
-        if not hasattr(new_state.flags, effect.name):
+        if not hasattr(state.flags, effect.name):
             raise ValueError(f"unknown global flag {effect.name!r} on Flags")
-        setattr(new_state.flags, effect.name, effect.value)
-        return new_state
+        setattr(state.flags, effect.name, effect.value)
+        return
 
     if isinstance(effect, SetTenancy):
-        idx = _target_index(new_state, effect.player)
-        new_state.map.tenancy[effect.ln] = idx  # uk(ln) = sp (mf-prg.bas:10040)
-        return new_state
+        idx = _target_index(state, effect.player)
+        state.map.tenancy[effect.ln] = idx  # uk(ln) = sp (mf-prg.bas:10040)
+        return
 
     if isinstance(effect, RentAccrue):
-        p = new_state.players[_target_index(new_state, effect.player)]
+        p = state.players[_target_index(state, effect.player)]
         p.rented_months += effect.months  # um(sp) += x (mf-prg.bas:10040)
-        return new_state
+        return
 
     if isinstance(effect, (WantedChange, EnergyChange, Jail, SpawnFighter)):
         raise NotImplementedError(
@@ -315,3 +313,47 @@ def apply(state: GameState, effect: Any) -> GameState:
         )
 
     raise TypeError(f"Unknown effect type: {type(effect).__name__!r}")
+
+
+def apply(state: GameState, effect: Any) -> GameState:
+    """Return a NEW :class:`GameState` with ``effect`` applied; never mutate ``state``.
+
+    Purity: the input ``state`` is deep-copied and only the copy is mutated and returned.
+    This makes the driver's atomic commit/discard hold at the state level — a discarded
+    buffer leaves the caller's state untouched by construction.
+
+    Errors surface exactly as in :func:`_apply_in_place`: ``TypeError`` for an unknown
+    effect, ``IndexError`` for an out-of-range target, ``ValueError`` for a bad stat/flag
+    name, ``NotImplementedError`` for a deferred effect.
+    """
+    new_state = copy.deepcopy(state)
+    _apply_in_place(new_state, effect)
+    return new_state
+
+
+@dataclass(frozen=True)
+class CommitResult:
+    """The outcome of :func:`commit`: the new state plus the effects committed, in order.
+
+    ``state`` is a fresh copy (the caller's input is never mutated). ``effects`` is the
+    list of committed effects in application order — the replay record for this commit.
+    """
+
+    state: GameState
+    effects: list
+
+
+def commit(state: GameState, effects: list) -> CommitResult:
+    """Apply ``effects`` in order against a SINGLE deep copy of ``state``.
+
+    Purity: ``state`` is deep-copied ONCE up front; every effect folds into that one copy
+    via :func:`_apply_in_place`, so the caller's ``state`` is never mutated. Returns a
+    :class:`CommitResult` bundling the new state and the committed effects in order. An
+    empty ``effects`` list yields an equal-but-distinct state copy. Any effect that would
+    raise in :func:`apply` (unknown type, out-of-range target, deferred effect, bad name)
+    raises here too, at the offending effect.
+    """
+    new_state = copy.deepcopy(state)
+    for effect in effects:
+        _apply_in_place(new_state, effect)
+    return CommitResult(state=new_state, effects=list(effects))
