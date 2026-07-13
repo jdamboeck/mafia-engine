@@ -208,11 +208,18 @@ class DriverResult:
         cancelled: ``True`` iff the handler unwound via a :class:`Cancelled` throw.
         returned: The handler's returned value (its ``list[Event]``) on clean
             completion, or ``None`` when cancelled.
+        state: The post-commit :class:`~engine.state.GameState` — the original state with
+            every committed effect folded in via ``engine.effects.apply`` (U5). On cancel
+            it is the ORIGINAL, unchanged state (atomic discard, proven at the state
+            level). ``None`` when no state was passed to :func:`run`; the ORIGINAL state
+            object when the effect buffer was empty. Defaults to ``None`` so existing U4
+            construction sites/tests that omit it stay valid.
     """
 
     committed_effects: list
     cancelled: bool
     returned: Any
+    state: Any = None
 
 
 # --------------------------------------------------------------------------- #
@@ -271,14 +278,29 @@ def run(
                 )
             interaction = gen.send(response)
     except Cancelled:
-        # Expected control flow: the handler unwound on the cancel throw.
-        return DriverResult(committed_effects=[], cancelled=True, returned=None)
-    except StopIteration as stop:
-        # Clean completion: commit the buffer in order; expose the handler's return value.
+        # Expected control flow: the handler unwound on the cancel throw. Atomic discard:
+        # NO effects apply — the committed state is the ORIGINAL, unchanged state.
         return DriverResult(
-            committed_effects=list(ctx._buffer),
+            committed_effects=[], cancelled=True, returned=None, state=state
+        )
+    except StopIteration as stop:
+        # Clean completion: commit the buffer in order and fold effect application over it
+        # to produce the post-commit state (U5). Import apply lazily HERE so this module
+        # never imports engine.effects at module load — engine.effects imports GameState
+        # from engine.state, so a top-level import would risk a cycle; the lazy local
+        # import keeps engine.effects free of any dependency on this module.
+        buffer = list(ctx._buffer)
+        final_state = state
+        if state is not None and buffer:
+            from engine.effects import apply
+
+            for effect in buffer:
+                final_state = apply(final_state, effect)
+        return DriverResult(
+            committed_effects=buffer,
             cancelled=False,
             returned=stop.value,
+            state=final_state,
         )
 
 
