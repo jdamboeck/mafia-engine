@@ -37,6 +37,8 @@ def test_player_defaults():
     assert p.ms == 0
     assert p.gf == 0.0
     assert p.roster == []
+    assert p.last_location == 0
+    assert p.last_la == 0
 
 
 def test_gangster_defaults():

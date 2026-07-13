@@ -48,6 +48,8 @@ __all__ = [
     "MoneyChange",
     "ScoreChange",
     "MsChange",
+    "SetPosition",
+    "SetEntryContext",
     "Teleport",
     "StatChange",
     "FlagSet",
@@ -101,6 +103,37 @@ class MsChange:
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class SetPosition:
+    """Set the target player's map position ``po`` to the absolute ``cell``.
+
+    The primitive movement effect: ordinary map movement commits its destination
+    through this (``po(sp)`` in the original). ``cell`` is a city-map cell on the
+    40×25 grid — an absolute set, not a delta. Distinct from :class:`Teleport`,
+    which is reserved for forced/special relocation.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    cell: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class SetEntryContext:
+    """Record the target player's location-entry context: ``la`` and ``ln``.
+
+    Sets ``player.last_la = la`` (the location id) and ``player.last_location = ln``
+    (the within-location tile index 1..9). ``ln`` is a first-class handler input in
+    the original (it changes rent price, which pub serves alcohol, racket outcomes —
+    CLAUDE.md state gotchas), so entering a location commits both as one effect.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    la: int
+    ln: int
     player: int | None = None
 
 
@@ -263,6 +296,17 @@ def _apply_in_place(state: GameState, effect: Any) -> None:
         p = state.players[_target_index(state, effect.player)]
         # ms is NOT clamped — it may reach 0 (or below) to force turn end.
         p.ms += effect.amount
+        return
+
+    if isinstance(effect, SetPosition):
+        p = state.players[_target_index(state, effect.player)]
+        p.po = effect.cell  # absolute city-map cell (po(sp))
+        return
+
+    if isinstance(effect, SetEntryContext):
+        p = state.players[_target_index(state, effect.player)]
+        p.last_la = effect.la  # location id (la)
+        p.last_location = effect.ln  # within-location tile index 1..9 (ln)
         return
 
     if isinstance(effect, Teleport):

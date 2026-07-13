@@ -114,7 +114,8 @@ class Player:
     wanted: Wanted = field(default_factory=Wanted)
     tip_target: int = 0
     safe_skill: int = 0
-    last_location: int = 0
+    last_location: int = 0  # ln — within-location tile index 1..9 of the last entry
+    last_la: int = 0  # la — location id of the last entry (0 = none)
     rented_months: int = 0  # um(sp) — prepaid rented months accumulator (mf-prg.bas:10040)
 
 

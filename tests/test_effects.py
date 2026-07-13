@@ -25,6 +25,8 @@ from engine.effects import (
     MoneyChange,
     MsChange,
     ScoreChange,
+    SetEntryContext,
+    SetPosition,
     SpawnFighter,
     StatChange,
     Teleport,
@@ -124,6 +126,81 @@ def test_teleport_sets_absolute_cell():
     state = make_state()
     out = apply(state, Teleport(569))
     assert out.players[0].po == 569
+
+
+# --------------------------------------------------------------------------- #
+# set_position / set_entry_context — primitive movement effects (T2)          #
+# --------------------------------------------------------------------------- #
+def test_set_position_sets_absolute_cell():
+    state = make_state()
+    out = apply(state, SetPosition(569))
+    assert out.players[0].po == 569
+
+
+def test_set_position_does_not_mutate_input_state():
+    state = make_state()  # po starts at 18
+    apply(state, SetPosition(569))
+    assert state.players[0].po == 18  # ORIGINAL untouched (purity)
+
+
+def test_set_position_explicit_player_targeting():
+    state = make_state()  # active is 0; p1 po=100
+    out = apply(state, SetPosition(861, player=1))
+    assert out.players[1].po == 861  # players[1] targeted
+    assert out.players[0].po == 18  # active player untouched
+
+
+def test_set_position_default_targets_active_player():
+    state = make_state()
+    state.clock.active_player = 1
+    out = apply(state, SetPosition(861))
+    assert out.players[1].po == 861
+    assert out.players[0].po == 18
+
+
+def test_set_entry_context_sets_both_fields():
+    state = make_state()
+    out = apply(state, SetEntryContext(la=7, ln=3))
+    assert out.players[0].last_la == 7
+    assert out.players[0].last_location == 3
+
+
+def test_set_entry_context_does_not_mutate_input_state():
+    state = make_state()
+    apply(state, SetEntryContext(la=7, ln=3))
+    assert state.players[0].last_la == 0  # ORIGINAL untouched (purity)
+    assert state.players[0].last_location == 0
+
+
+def test_set_entry_context_explicit_player_targeting():
+    state = make_state()  # active is 0
+    out = apply(state, SetEntryContext(la=12, ln=9, player=1))
+    assert out.players[1].last_la == 12
+    assert out.players[1].last_location == 9
+    assert out.players[0].last_la == 0  # active player untouched
+    assert out.players[0].last_location == 0
+
+
+def test_set_entry_context_default_targets_active_player():
+    state = make_state()
+    state.clock.active_player = 1
+    out = apply(state, SetEntryContext(la=12, ln=9))
+    assert out.players[1].last_la == 12
+    assert out.players[1].last_location == 9
+    assert out.players[0].last_la == 0
+
+
+def test_movement_effects_work_through_commit():
+    state = make_state()
+    result = commit(state, [SetPosition(569), SetEntryContext(la=5, ln=2)])
+
+    assert result.state.players[0].po == 569
+    assert result.state.players[0].last_la == 5
+    assert result.state.players[0].last_location == 2
+    # input state untouched
+    assert state.players[0].po == 18
+    assert state.players[0].last_la == 0
+    assert state.players[0].last_location == 0
 
 
 # --------------------------------------------------------------------------- #
