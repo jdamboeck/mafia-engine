@@ -17,7 +17,7 @@ HEADLESSNESS IS THE POINT. This file imports **nothing** from ``clients/`` (U10,
 terminal client, is a renderer over this identical protocol — never a dependency of
 playability). The compose contract is exercised directly against the driver:
 Responses are fed to ``engine.interactions.run`` and the driver's returned
-``DriverResult.state`` is adopted to carry committed effects forward.
+``EngineResult.state`` is adopted to carry committed effects forward.
 
 The composition it proves (the "how you play a turn" the orchestrator owns):
 
@@ -27,10 +27,11 @@ The composition it proves (the "how you play a turn" the orchestrator owns):
   so the slw handler keys ``fnm(ln)`` off the tile actually walked into. Effects
   persist across the trajectory ONLY by adopting ``state = result.state`` after each
   move.
-* The driver (``run``) is PURE: it returns a NEW ``GameState`` with the handler's
-  effects folded in on clean completion (or the ORIGINAL, unchanged state on a
-  quiet cancel). Effects persist across the trajectory ONLY by adopting
-  ``state = result.state`` after each driven handler.
+* The driver (``run``) is PURE: on clean completion it returns a NEW ``GameState``
+  with the handler's effects committed (an empty buffer yields an equal-but-distinct
+  copy); on a driver-cancel it returns the ORIGINAL, unchanged state. Effects persist
+  across the trajectory ONLY by adopting ``state = result.state`` after each driven
+  handler.
 * The shell (``available_options``) owns guard denial (KTD-8): a denied option is
   EXCLUDED and its handler never runs / commits zero effects; the caller reads the
   excluded option's ``on_denied`` key.
@@ -209,7 +210,7 @@ def _play_trajectory():
 
     rent_rec = _Recorder(2)  # rent for 2 months
     result = _drive_option(slw, "rent", state, ln=2, recorder=rent_rec)
-    assert not result.cancelled
+    assert result.status == "completed"
     state = result.state  # ADOPT the driver's returned state (fold effects forward)
     p = state.players[0]
     # fnm(2) == base == 50 -> 2 months cost 100; cash drops by exactly 100.
@@ -232,7 +233,7 @@ def _play_trajectory():
     ka_before_neg = neg_state.players[0].ka
     neg_rec = _Recorder(2)  # rent 2 months at the premium (paying) unit
     neg_result = _drive_option(slw, "rent", neg_state, ln=1, recorder=neg_rec)
-    assert not neg_result.cancelled
+    assert neg_result.status == "completed"
     neg_state = neg_result.state
     # MoneyChange(-(x*p)) = -(2 * -50) = +100 -> cash INCREASES. Faithful quirk.
     assert neg_state.players[0].ka == ka_before_neg + 100
@@ -268,8 +269,8 @@ def _play_trajectory():
     ka_before_cancel = cancel_state.players[0].ka
     cancel_rec = _Recorder(0)  # 0 months -> x<=0 -> quiet return
     cancel_result = _drive_option(slw, "rent", cancel_state, ln=2, recorder=cancel_rec)
-    assert not cancel_result.cancelled  # a quiet return, not a driver-cancel
-    assert cancel_result.committed_effects == []  # atomic: nothing applied
+    assert cancel_result.status == "completed"  # a quiet return, not a driver-cancel
+    assert cancel_result.effects == []  # atomic: nothing applied
     assert cancel_result.state.players[0].ka == ka_before_cancel  # unchanged
     assert 2 not in cancel_result.state.map.tenancy  # no tenancy set
 

@@ -74,9 +74,9 @@ def test_happy_path_sequence_responses_and_effects():
     # ShowMessage does not consult input_source: only the two real prompts do.
     assert [type(i).__name__ for i in src.seen] == ["PromptInt", "Confirm"]
     assert received == {"n": 3, "ok": True}
-    assert result.cancelled is False
-    assert result.committed_effects == [("bought", 3)]
-    assert result.returned == ["event_done"]
+    assert result.status == "completed"
+    assert result.effects == [("bought", 3)]
+    assert result.payload.returned == ["event_done"]
 
 
 # --------------------------------------------------------------------------- #
@@ -99,7 +99,7 @@ def test_promptint_reprompts_in_driver_only():
     assert entries["value"] == 4  # only the final valid int reaches the handler
     assert len(src.seen) == 3  # driver consulted the source three times
     assert all(type(i).__name__ == "PromptInt" for i in src.seen)
-    assert result.cancelled is False
+    assert result.status == "completed"
 
 
 # --------------------------------------------------------------------------- #
@@ -120,10 +120,10 @@ def test_cancel_discards_effects_and_runs_finally():
     src = scripted(CANCEL)
     result = run(handler, src)
 
-    assert result.cancelled is True
-    assert result.committed_effects == []  # atomic discard: zero effects commit
+    assert result.status == "cancelled"
+    assert result.effects == []  # atomic discard: zero effects commit
     assert flags["finally_ran"] is True  # try/finally cleanup ran
-    assert result.returned is None
+    assert result.payload.returned is None
 
 
 def test_cancel_does_not_swallow_via_finally_only():
@@ -136,8 +136,8 @@ def test_cancel_does_not_swallow_via_finally_only():
         return ["x"]
 
     result = run(handler, scripted(CANCEL))
-    assert result.cancelled is True
-    assert result.committed_effects == []
+    assert result.status == "cancelled"
+    assert result.effects == []
 
 
 # --------------------------------------------------------------------------- #
@@ -214,7 +214,7 @@ def test_effects_commit_in_order():
         return []
 
     result = run(handler, scripted())
-    assert result.committed_effects == ["first", "second", "third"]
+    assert result.effects == ["first", "second", "third"]
 
 
 # --------------------------------------------------------------------------- #
@@ -293,5 +293,36 @@ def test_cancel_at_non_cancellable_prompt_is_treated_as_invalid_and_reprompts():
     src = scripted(CANCEL, 7)
     result = run(handler, src)
     assert got["v"] == 7
-    assert result.cancelled is False
+    assert result.status == "completed"
     assert len(src.seen) == 2
+
+
+# --------------------------------------------------------------------------- #
+# Scenario 7 — semantic events: ctx.record buffers; surfaced on completion,   #
+#              discarded on cancel (atomic, like effects).                     #
+# --------------------------------------------------------------------------- #
+def test_recorded_events_surface_on_clean_completion():
+    def handler(ctx):
+        ctx.record(("rented", 2))
+        yield ShowMessage("mid")
+        ctx.record(("charged", 100))
+        return ["ret"]
+
+    result = run(handler, scripted())
+    assert result.status == "completed"
+    assert result.events == [("rented", 2), ("charged", 100)]
+    # Events are audit-only records — never mixed into the committed effects.
+    assert result.effects == []
+
+
+def test_recorded_events_discarded_on_cancel():
+    def handler(ctx):
+        ctx.record(("rented", 2))  # a partial event BEFORE the cancel
+        yield PromptInt("confirm", min=1, max=9, cancellable=True)
+        ctx.record(("should_not_record", 1))  # unreachable
+        return ["never"]
+
+    result = run(handler, scripted(CANCEL))
+    assert result.status == "cancelled"
+    assert result.events == []  # atomic discard: zero events surface
+    assert result.effects == []

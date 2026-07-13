@@ -30,6 +30,8 @@ from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
 from typing import Any
 
+from engine.actions import EngineResult, HandlerResult
+
 __all__ = [
     # Interactions
     "ShowMessage",
@@ -44,7 +46,6 @@ __all__ = [
     "Cancelled",
     # Driver
     "Ctx",
-    "DriverResult",
     "run",
 ]
 
@@ -175,6 +176,7 @@ class Ctx:
         self._state = state
         self._rng = rng
         self._buffer: list = []
+        self._events: list = []
 
     @property
     def state(self) -> Any:
@@ -194,32 +196,14 @@ class Ctx:
         """
         self._buffer.append(effect)
 
+    def record(self, event: Any) -> None:
+        """Append a semantic ``event`` (audit/UI record) to the per-action event buffer.
 
-# --------------------------------------------------------------------------- #
-# Driver result                                                               #
-# --------------------------------------------------------------------------- #
-@dataclass(frozen=True)
-class DriverResult:
-    """Outcome of a single handler run driven by :func:`run`.
-
-    Attributes:
-        committed_effects: The buffered effects in apply-order on clean completion;
-            ``[]`` when the action was cancelled (atomic discard).
-        cancelled: ``True`` iff the handler unwound via a :class:`Cancelled` throw.
-        returned: The handler's returned value (its ``list[Event]``) on clean
-            completion, or ``None`` when cancelled.
-        state: The post-commit :class:`~engine.state.GameState` — the original state with
-            every committed effect folded in via ``engine.effects.apply`` (U5). On cancel
-            it is the ORIGINAL, unchanged state (atomic discard, proven at the state
-            level). ``None`` when no state was passed to :func:`run`; the ORIGINAL state
-            object when the effect buffer was empty. Defaults to ``None`` so existing U4
-            construction sites/tests that omit it stay valid.
-    """
-
-    committed_effects: list
-    cancelled: bool
-    returned: Any
-    state: Any = None
+        Events are pure records — they are NEVER applied to state (that is ``apply``'s
+        job for effects). The driver surfaces the buffered events on ``EngineResult.events``
+        on clean completion and discards them (like effects) on cancel.
+        """
+        self._events.append(event)
 
 
 # --------------------------------------------------------------------------- #
@@ -231,7 +215,7 @@ def run(
     *,
     state: Any = None,
     rng: Any = None,
-) -> DriverResult:
+) -> EngineResult:
     """Advance a handler generator to completion, mediating its interactions.
 
     Args:
@@ -247,7 +231,13 @@ def run(
         rng: Opaque rng handle exposed as ``ctx.rng``.
 
     Returns:
-        A :class:`DriverResult`.
+        An :class:`~engine.actions.EngineResult`. On clean completion its ``status`` is
+        ``"completed"``, ``effects`` are the committed effects in apply-order, ``events``
+        are the semantic events buffered via ``ctx.record``, ``state`` is the post-commit
+        state, and ``payload`` is a :class:`~engine.actions.HandlerResult` carrying the
+        handler's return value. On cancel its ``status`` is ``"cancelled"`` with empty
+        ``events``/``effects``, the ORIGINAL unchanged ``state``, and a
+        ``HandlerResult(returned=None)`` payload.
 
     Raises:
         NotImplementedError: if the handler yields ``StartCombat`` or ``LoadSubState``
@@ -279,28 +269,39 @@ def run(
             interaction = gen.send(response)
     except Cancelled:
         # Expected control flow: the handler unwound on the cancel throw. Atomic discard:
-        # NO effects apply — the committed state is the ORIGINAL, unchanged state.
-        return DriverResult(
-            committed_effects=[], cancelled=True, returned=None, state=state
+        # NO effects apply AND NO events surface — the returned state is the ORIGINAL,
+        # unchanged state object (atomicity proven at the state level).
+        return EngineResult(
+            state=state,
+            events=[],
+            effects=[],
+            status="cancelled",
+            payload=HandlerResult(returned=None),
         )
     except StopIteration as stop:
-        # Clean completion: commit the buffer in order and fold effect application over it
-        # to produce the post-commit state (U5). Import apply lazily HERE so this module
-        # never imports engine.effects at module load — engine.effects imports GameState
-        # from engine.state, so a top-level import would risk a cycle; the lazy local
-        # import keeps engine.effects free of any dependency on this module.
+        # Clean completion: commit the buffer atomically against a SINGLE deep copy of the
+        # state and surface the buffered semantic events. Import commit lazily HERE so this
+        # module never imports engine.effects at module load — engine.effects imports
+        # GameState from engine.state, so a top-level import would risk a cycle; the lazy
+        # local import keeps engine.effects free of any dependency on this module.
         buffer = list(ctx._buffer)
-        final_state = state
-        if state is not None and buffer:
-            from engine.effects import apply
+        if state is None:
+            # No state to commit against: the buffered items pass through as the effect
+            # record unchanged (they are never applied — there is nothing to apply to).
+            final_state = None
+            effects = buffer
+        else:
+            from engine.effects import commit
 
-            for effect in buffer:
-                final_state = apply(final_state, effect)
-        return DriverResult(
-            committed_effects=buffer,
-            cancelled=False,
-            returned=stop.value,
+            commit_result = commit(state, buffer)
+            final_state = commit_result.state
+            effects = commit_result.effects
+        return EngineResult(
             state=final_state,
+            events=list(ctx._events),
+            effects=effects,
+            status="completed",
+            payload=HandlerResult(returned=stop.value),
         )
 
 

@@ -340,7 +340,7 @@ def test_commit_returns_a_distinct_state_object():
     assert result.state.players[0] is not state.players[0]
 
 
-def test_commit_returns_committed_effects_in_order():
+def test_commit_returns_effects_in_order():
     state = make_state()
     effects = [MsChange(-1), MoneyChange(-500), MsChange(-2)]
     result = commit(state, effects)
@@ -385,8 +385,8 @@ def test_driver_commit_applies_effects_and_is_pure():
 
     result = run(handler, src, state=state)
 
-    assert result.cancelled is False
-    assert result.committed_effects == [MoneyChange(-100)]
+    assert result.status == "completed"
+    assert result.effects == [MoneyChange(-100)]
     assert result.state.players[0].ka == 4900  # effect applied at state level
     assert state.players[0].ka == 5000  # ORIGINAL unchanged (purity through driver)
 
@@ -405,8 +405,8 @@ def test_driver_cancel_discards_effects_at_state_level():
 
     result = run(handler, src, state=state)
 
-    assert result.cancelled is True
-    assert result.committed_effects == []  # atomic discard
+    assert result.status == "cancelled"
+    assert result.effects == []  # atomic discard
     assert result.state is state  # ORIGINAL state, unchanged
     assert result.state.players[0].ka == 5000  # ka NOT reduced
 
@@ -424,7 +424,7 @@ def test_driver_state_none_when_no_state_passed():
     assert result.state is None  # no state → nothing to apply against
 
 
-def test_driver_empty_buffer_returns_original_state():
+def test_driver_empty_buffer_returns_equal_but_distinct_state():
     state = make_state()
 
     def handler(ctx):
@@ -435,4 +435,7 @@ def test_driver_empty_buffer_returns_original_state():
         raise AssertionError
 
     result = run(handler, src, state=state)
-    assert result.state is state  # empty buffer → original state passed through
+    # Clean completion always commits (one deep copy), so even an empty buffer yields a
+    # distinct-but-equal copy — the driver-cancel path is the one that returns the original.
+    assert result.state is not state
+    assert result.state.players[0].ka == state.players[0].ka

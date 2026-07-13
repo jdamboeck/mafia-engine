@@ -83,9 +83,9 @@ def test_rent_two_months_positive_tile():
     st = _state(ka=5000, ln=2, active=0)
     result = run(HANDLERS["slw.rent"], _scripted(2), state=st, rng=None)
 
-    assert not result.cancelled
+    assert result.status == "completed"
     # Three effects: deduct 100, set tenancy[2]=0 (sp), accrue 2 months.
-    assert result.committed_effects == [
+    assert result.effects == [
         MoneyChange(-100),
         SetTenancy(2),
         RentAccrue(2),
@@ -105,8 +105,8 @@ def test_negative_rent_tile_credits_player():
     st = _state(ka=5000, ln=1, active=0)
     result = run(HANDLERS["slw.rent"], _scripted(2), state=st, rng=None)
 
-    assert not result.cancelled
-    assert MoneyChange(+100) in result.committed_effects  # credit, not debit
+    assert result.status == "completed"
+    assert MoneyChange(+100) in result.effects  # credit, not debit
     assert result.state.players[0].ka == 5100  # ka went UP by 100
     assert result.state.map.tenancy[1] == 0
     assert result.state.players[0].rented_months == 2
@@ -119,8 +119,8 @@ def test_zero_months_cancels_with_no_effects():
     st = _state(ka=5000, ln=2, active=0)
     result = run(HANDLERS["slw.rent"], _scripted(0), state=st, rng=None)
 
-    assert not result.cancelled  # quiet return, not a driver-cancel
-    assert result.committed_effects == []  # atomic: nothing applied
+    assert result.status == "completed"  # quiet return, not a driver-cancel
+    assert result.effects == []  # atomic: nothing applied
     assert result.state.players[0].ka == 5000  # unchanged
     assert 2 not in result.state.map.tenancy  # no tenancy set
     assert result.state.players[0].rented_months == 0
@@ -140,8 +140,8 @@ def test_insufficient_cash_no_deduction():
 
     result = run(HANDLERS["slw.rent"], source, state=st, rng=None)
 
-    assert not result.cancelled
-    assert result.committed_effects == []  # nothing deducted / no tenancy
+    assert result.status == "completed"
+    assert result.effects == []  # nothing deducted / no tenancy
     assert result.state.players[0].ka == 10
     assert 2 not in result.state.map.tenancy
     # The not-enough-money message is emitted (auto-acked ShowMessage).
