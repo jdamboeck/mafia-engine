@@ -25,6 +25,8 @@ from engine.interactions import (
     StartCombat,
     run,
 )
+from engine.state import Clock, Gangster, GameState, Player
+from tests.helpers import run_pure
 
 
 # --------------------------------------------------------------------------- #
@@ -325,4 +327,67 @@ def test_recorded_events_discarded_on_cancel():
     result = run(handler, scripted(CANCEL))
     assert result.status == "cancelled"
     assert result.events == []  # atomic discard: zero events surface
+    assert result.effects == []
+
+
+# --------------------------------------------------------------------------- #
+# Scenario 8 — purity harness (tests/helpers.run_pure) SELF-PROOF             #
+#                                                                             #
+# The harness is test infrastructure; prove it WORKS by showing it CATCHES a  #
+# handler that mutates ctx.state directly instead of buffering an effect.     #
+# --------------------------------------------------------------------------- #
+def _harness_state(ka=5000):
+    """A minimal one-player GameState the purity harness can compare against."""
+    return GameState(
+        players=[Player(ka=ka, roster=[Gangster()])],
+        clock=Clock(active_player=0, player_count=1),
+    )
+
+
+def test_run_pure_catches_direct_state_mutation():
+    # RED-PROOF: a rigged handler that mutates ctx.state directly (no ctx.apply)
+    # produces a result.state that result.effects (empty here) cannot explain, so
+    # the harness's "explained by effects" assertion MUST fire.
+    def rigged_handler(ctx):
+        ctx.state.players[0].ka += 1  # illegal direct mutation, no effect buffered
+        return []
+        yield  # pragma: no cover - make this a generator
+
+    st = _harness_state(ka=5000)
+    with pytest.raises(AssertionError):
+        run_pure(rigged_handler, scripted(), state=st)
+
+
+def test_run_pure_passes_a_well_behaved_handler():
+    # A handler that changes state ONLY through effects passes the harness cleanly,
+    # and the harness returns the EngineResult for further assertions.
+    from engine.effects import MoneyChange
+
+    def good_handler(ctx):
+        ctx.apply(MoneyChange(-100))
+        return []
+        yield  # pragma: no cover - make this a generator
+
+    st = _harness_state(ka=5000)
+    result = run_pure(good_handler, scripted(), state=st)
+    assert result.status == "completed"
+    assert result.effects == [MoneyChange(-100)]
+    assert result.state.players[0].ka == 4900
+    assert st.players[0].ka == 5000  # input state untouched
+
+
+def test_run_pure_holds_on_cancel_identity():
+    # On cancel the driver returns the ORIGINAL state object with empty effects;
+    # both harness assertions hold and the cancel-identity check passes.
+    from engine.effects import MoneyChange
+
+    def cancelling_handler(ctx):
+        ctx.apply(MoneyChange(-100))  # buffered but discarded on the cancel below
+        yield PromptInt("amount", min=1, max=9, cancellable=True)
+        return []
+
+    st = _harness_state(ka=5000)
+    result = run_pure(cancelling_handler, scripted(CANCEL), state=st)
+    assert result.status == "cancelled"
+    assert result.state is st  # original object handed back unchanged
     assert result.effects == []

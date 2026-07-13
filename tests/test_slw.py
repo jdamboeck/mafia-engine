@@ -26,6 +26,7 @@ from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.interactions import run
 from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, Gangster, GameState, MapState, Player
+from tests.helpers import run_pure
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[1]
@@ -81,7 +82,8 @@ def _load_shell():
 def test_rent_two_months_positive_tile():
     # ln=2 -> fnm(2) == base == 50; rent 2 months -> cost 100.
     st = _state(ka=5000, ln=2, active=0)
-    result = run(HANDLERS["slw.rent"], _scripted(2), state=st, rng=None)
+    # run_pure additionally asserts the handler mutated NO state directly (purity harness).
+    result = run_pure(HANDLERS["slw.rent"], _scripted(2), state=st, rng=None)
 
     assert result.status == "completed"
     # Three effects: deduct 100, set tenancy[2]=0 (sp), accrue 2 months.
@@ -103,7 +105,7 @@ def test_negative_rent_tile_credits_player():
     # ln=1 -> fnm(1) == -50 (premium unit that PAYS you). Renting 2 months:
     # MoneyChange(-x*p) = -(2*-50) = +100 -> ka INCREASES. Faithful quirk.
     st = _state(ka=5000, ln=1, active=0)
-    result = run(HANDLERS["slw.rent"], _scripted(2), state=st, rng=None)
+    result = run_pure(HANDLERS["slw.rent"], _scripted(2), state=st, rng=None)
 
     assert result.status == "completed"
     assert MoneyChange(+100) in result.effects  # credit, not debit
@@ -117,7 +119,7 @@ def test_negative_rent_tile_credits_player():
 # --------------------------------------------------------------------------- #
 def test_zero_months_cancels_with_no_effects():
     st = _state(ka=5000, ln=2, active=0)
-    result = run(HANDLERS["slw.rent"], _scripted(0), state=st, rng=None)
+    result = run_pure(HANDLERS["slw.rent"], _scripted(0), state=st, rng=None)
 
     assert result.status == "completed"  # quiet return, not a driver-cancel
     assert result.effects == []  # atomic: nothing applied
@@ -138,7 +140,7 @@ def test_insufficient_cash_no_deduction():
         seen.append(interaction)
         return 5
 
-    result = run(HANDLERS["slw.rent"], source, state=st, rng=None)
+    result = run_pure(HANDLERS["slw.rent"], source, state=st, rng=None)
 
     assert result.status == "completed"
     assert result.effects == []  # nothing deducted / no tenancy
