@@ -51,6 +51,8 @@ __all__ = [
     "Teleport",
     "StatChange",
     "FlagSet",
+    "SetTenancy",
+    "RentAccrue",
     # Declared-but-deferred effects
     "WantedChange",
     "EnergyChange",
@@ -142,6 +144,34 @@ class FlagSet:
     name: str
     value: Any
     scope: str = "global"
+
+
+@dataclass(frozen=True)
+class SetTenancy:
+    """Set tenancy of within-location tile ``ln`` to the target player: ``uk(ln)=sp``.
+
+    Ports the tenancy assignment at ``mf-prg.bas:10040`` (the slw rent block). ``ln``
+    is the within-location tile index (1..9); the stored value is the resolved TARGET
+    player index (explicit ``player`` else the active player, per the module's targeting
+    convention). Writes ``state.map.tenancy[ln] = <idx>``.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    ln: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class RentAccrue:
+    """Add ``months`` to the target player's prepaid rented-months ``um``: ``um(sp)+=x``.
+
+    Ports the rented-months accrual at ``mf-prg.bas:10040`` — the player prepays ``x``
+    months of rent. Adds to ``state.players[target].rented_months``.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    months: int
+    player: int | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -266,6 +296,16 @@ def apply(state: GameState, effect: Any) -> GameState:
         if not hasattr(new_state.flags, effect.name):
             raise ValueError(f"unknown global flag {effect.name!r} on Flags")
         setattr(new_state.flags, effect.name, effect.value)
+        return new_state
+
+    if isinstance(effect, SetTenancy):
+        idx = _target_index(new_state, effect.player)
+        new_state.map.tenancy[effect.ln] = idx  # uk(ln) = sp (mf-prg.bas:10040)
+        return new_state
+
+    if isinstance(effect, RentAccrue):
+        p = new_state.players[_target_index(new_state, effect.player)]
+        p.rented_months += effect.months  # um(sp) += x (mf-prg.bas:10040)
         return new_state
 
     if isinstance(effect, (WantedChange, EnergyChange, Jail, SpawnFighter)):

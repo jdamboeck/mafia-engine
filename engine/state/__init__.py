@@ -115,6 +115,7 @@ class Player:
     tip_target: int = 0
     safe_skill: int = 0
     last_location: int = 0
+    rented_months: int = 0  # um(sp) — prepaid rented months accumulator (mf-prg.bas:10040)
 
 
 @dataclass
