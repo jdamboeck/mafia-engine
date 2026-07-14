@@ -27,11 +27,14 @@ from __future__ import annotations
 from dataclasses import MISSING, fields
 
 from engine.effects import (
+    AssignWeapon,
     MoneyChange,
     MsChange,
+    ScoreAndRank,
     ScoreChange,
     SetEntryContext,
     SetPosition,
+    StatChangeCapped,
     Teleport,
 )
 
@@ -46,6 +49,9 @@ EFFECT_TYPES: dict[str, type] = {
     "teleport": Teleport,
     "set_position": SetPosition,
     "set_entry_context": SetEntryContext,
+    "stat_change_capped": StatChangeCapped,
+    "assign_weapon": AssignWeapon,
+    "score_and_rank": ScoreAndRank,
 }
 
 

@@ -18,6 +18,7 @@ import pytest
 
 from engine.effects import (
     SCHEMA_VERSION,
+    AssignWeapon,
     CommitResult,
     EnergyChange,
     FlagSet,
@@ -29,6 +30,7 @@ from engine.effects import (
     SetPosition,
     SpawnFighter,
     StatChange,
+    StatChangeCapped,
     Teleport,
     WantedChange,
     apply,
@@ -224,6 +226,82 @@ def test_stat_change_targets_the_right_gangster_index():
     out = apply(state, StatChange("brutalitaet", 7, gangster=1))
     assert out.players[0].roster[1].brutalitaet == 8
     assert out.players[0].roster[0].brutalitaet == 10  # index 0 untouched
+
+
+# --------------------------------------------------------------------------- #
+# stat_change_capped (U3) — a StatChange variant clamping to [floor, cap]      #
+# --------------------------------------------------------------------------- #
+def test_stat_change_capped_clamps_at_cap():
+    state = make_state()  # g0 kraft starts at 20
+    out = apply(state, StatChangeCapped("kraft", 90, cap=99))
+    assert out.players[0].roster[0].kraft == 99  # 20+90=110 -> clamped to 99
+
+
+def test_stat_change_capped_normal_raise_unclamped():
+    state = make_state()  # g0 kraft starts at 20
+    out = apply(state, StatChangeCapped("kraft", 5, cap=99))
+    assert out.players[0].roster[0].kraft == 25  # under cap -> unclamped
+
+
+def test_stat_change_capped_floors_at_zero_by_default():
+    state = make_state()  # g0 kraft starts at 20
+    out = apply(state, StatChangeCapped("kraft", -50, cap=99))
+    assert out.players[0].roster[0].kraft == 0  # 20-50=-30 -> floored at 0
+
+
+def test_stat_change_capped_cap_is_a_parameter_not_hardcoded():
+    # Config-boundary (KTD-10): pass cap=50 -> clamps at 50, proving no hardcoded 99.
+    state = make_state()  # g0 kraft starts at 20
+    out = apply(state, StatChangeCapped("kraft", 90, cap=50))
+    assert out.players[0].roster[0].kraft == 50
+
+
+def test_stat_change_capped_unknown_stat_raises_value_error():
+    state = make_state()
+    with pytest.raises(ValueError):
+        apply(state, StatChangeCapped("charisma", 5, cap=99))
+
+
+def test_stat_change_capped_bad_gangster_index_raises_indexerror():
+    state = make_state()
+    with pytest.raises(IndexError):
+        apply(state, StatChangeCapped("kraft", 5, cap=99, gangster=9))
+
+
+# --------------------------------------------------------------------------- #
+# assign_weapon (U3) — the R9 purchase-persist primitive                      #
+# --------------------------------------------------------------------------- #
+def test_assign_weapon_sets_gangster_weapon():
+    state = make_state()  # g0 weapon starts at 0
+    out = apply(state, AssignWeapon(weapon=5))
+    assert out.players[0].roster[0].weapon == 5
+
+
+def test_assign_weapon_targets_the_right_gangster_index():
+    state = make_state()
+    state.players[0].roster.append(Gangster(name="g0b", weapon=0))
+    out = apply(state, AssignWeapon(weapon=3, gangster=1))
+    assert out.players[0].roster[1].weapon == 3
+    assert out.players[0].roster[0].weapon == 0  # index 0 untouched
+
+
+def test_assign_weapon_explicit_player_targeting():
+    state = make_state()  # active is 0
+    out = apply(state, AssignWeapon(weapon=7, player=1))
+    assert out.players[1].roster[0].weapon == 7
+    assert out.players[0].roster[0].weapon == 0  # active untouched
+
+
+def test_assign_weapon_bad_gangster_index_raises_indexerror():
+    state = make_state()
+    with pytest.raises(IndexError):
+        apply(state, AssignWeapon(weapon=1, gangster=9))
+
+
+def test_assign_weapon_purity():
+    state = make_state()
+    apply(state, AssignWeapon(weapon=5))
+    assert state.players[0].roster[0].weapon == 0  # ORIGINAL untouched
 
 
 # --------------------------------------------------------------------------- #

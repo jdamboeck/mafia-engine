@@ -14,11 +14,14 @@ import pytest
 
 from engine.consequences import effect_from_dict, effects_from_dicts
 from engine.effects import (
+    AssignWeapon,
     MoneyChange,
     MsChange,
+    ScoreAndRank,
     ScoreChange,
     SetEntryContext,
     SetPosition,
+    StatChangeCapped,
     Teleport,
 )
 
@@ -40,6 +43,34 @@ def test_score_change_converts():
     assert effect_from_dict({"type": "score_change", "amount": 3}) == ScoreChange(
         amount=3
     )
+
+
+def test_stat_change_capped_converts():
+    assert effect_from_dict(
+        {"type": "stat_change_capped", "stat": "kraft", "amount": 5, "cap": 99}
+    ) == StatChangeCapped(stat="kraft", amount=5, cap=99)
+
+
+def test_stat_change_capped_missing_required_cap_raises():
+    with pytest.raises(ValueError):
+        effect_from_dict({"type": "stat_change_capped", "stat": "kraft", "amount": 5})
+
+
+def test_assign_weapon_converts():
+    assert effect_from_dict(
+        {"type": "assign_weapon", "weapon": 5}
+    ) == AssignWeapon(weapon=5)
+
+
+def test_score_and_rank_converts():
+    assert effect_from_dict(
+        {"type": "score_and_rank", "amount": 2, "rank_divisor": 11.1}
+    ) == ScoreAndRank(amount=2, rank_divisor=11.1)
+
+
+def test_score_and_rank_missing_required_divisor_raises():
+    with pytest.raises(ValueError):
+        effect_from_dict({"type": "score_and_rank", "amount": 2})
 
 
 def test_teleport_converts():

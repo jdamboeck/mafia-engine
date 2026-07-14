@@ -40,6 +40,26 @@ formula_params:
       3: 0
       4: 0
 
+  # Game-balance numbers for the sph (casino) and waf (weapon shop) handlers
+  # (KTD-10). Every tunable the new engine effects consume as a PARAMETER lives
+  # here, not in engine code or handler literals — so a second genre title
+  # changes behavior by editing config alone.
+  stat_cap: 99          # gangster stat ceiling (mf-prg.bas:13125 etc. "ifkr>99thenkr=99")
+  rank_divisor: 11.1    # nr = int(gf/11.1)+1 (mf-prg.bas:1165)
+  # waf training prices: schiesstand (range) 800+200*rank, trainingscamp 2500+500*rank
+  range_base: 800       # mf-prg.bas:13110
+  range_per_rank: 200
+  camp_base: 2500       # mf-prg.bas:13150
+  camp_per_rank: 500
+  camp_gain_min: 8      # fnr(0) = int(rnd(1)*8)+8 -> 8..15 (mf-prg.bas:117)
+  camp_gain_max: 15
+  trade_in_divisor: 1.5 # q = int(old_price/1.5) (mf-prg.bas:13070)
+  # waf grenade stock roll: 1-in-3 AND rank>5 at ln=1 (mf-prg.bas:13011)
+  grenade_roll: 3
+  grenade_rank_gate: 5
+  # sph casino payout: gross = int(stake*(0.5+x)); win iff rng.range(1+x)==0 (mf-prg.bas:16026-16040)
+  casino_payout_offset: 0.5
+
 # New-game setup constants (mf-prg.bas:220,300-315,350). These mirror the
 # BASIC setup; engine/setup.py is the authoritative porting site. Kept here so
 # the values are visible/tunable as config data.

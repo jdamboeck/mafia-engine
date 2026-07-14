@@ -27,6 +27,7 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_config
+from engine.effects import ScoreAndRank
 from engine.rng import Rng
 from engine.state import Clock, Config, Gangster, GameState, Player
 from engine.types import validate_rank, validate_vehicle, validate_weapon
@@ -37,6 +38,7 @@ __all__ = [
     "load_ranks",
     "load_weapons",
     "fnm",
+    "score_and_rank",
 ]
 
 # Default config location: this config's own directory.
@@ -110,6 +112,22 @@ def fnm(ln: int, params: dict) -> int:
     if str(ln) in overrides:
         return overrides[str(ln)]
     return params["base"]
+
+
+# --- score / rank helper ---------------------------------------------------
+
+
+def score_and_rank(x: float, params: dict) -> ScoreAndRank:
+    """Build the :class:`ScoreAndRank` effect for reward ``x`` — ports ``gosub 1160/1165``.
+
+    ``params`` is the config's ``formula_params`` block; the ``rank_divisor`` (11.1) is
+    read from it and passed into the effect (KTD-10 — the engine hardcodes no game
+    number). ``x`` is the raw reward (1 for range training, 2 for camp, or a buy-score
+    delta); the effect weights it by ``Config.score_mult`` (``x8``) at apply time.
+    Every score-awarding waf path routes through this helper so rank never drifts from
+    the original (KTD-5).
+    """
+    return ScoreAndRank(amount=x, rank_divisor=params["rank_divisor"])
 
 
 # --- new-game setup --------------------------------------------------------

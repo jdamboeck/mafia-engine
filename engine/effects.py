@@ -52,6 +52,9 @@ __all__ = [
     "SetEntryContext",
     "Teleport",
     "StatChange",
+    "StatChangeCapped",
+    "AssignWeapon",
+    "ScoreAndRank",
     "FlagSet",
     "SetTenancy",
     "RentAccrue",
@@ -165,6 +168,61 @@ class StatChange:
     stat: str
     amount: int
     gangster: int = 0
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class StatChangeCapped:
+    """Add ``amount`` to ``roster[gangster].<stat>``, then clamp to ``[floor, cap]``.
+
+    A :class:`StatChange` variant for stat gains that must respect a ceiling. ``cap``
+    is a REQUIRED field the handler passes from config (``formula_params.stat_cap`` —
+    the 99 stat ceiling is config-owned game data, KTD-10, NOT hardcoded in the engine).
+    ``floor`` defaults to 0. ``stat`` is validated like :class:`StatChange` (unknown name
+    raises ``ValueError``). Subsumes the original's ``gosub 1365`` repack (KTD-4) — the
+    engine stores unpacked stat fields, so applying the effect IS the write-back.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    stat: str
+    amount: int
+    cap: int
+    floor: int = 0
+    gangster: int = 0
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class AssignWeapon:
+    """Set ``roster[gangster].weapon`` of the target player to ``weapon``.
+
+    The R9 purchase-persist primitive (``mf-prg.bas:13075``): no existing effect mutates
+    ``Gangster.weapon`` (``StatChange`` only accepts the four stat names), so a weapon
+    buy cannot complete without this. ``weapon`` is a weapon index (0..8).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    weapon: int
+    gangster: int = 0
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class ScoreAndRank:
+    """Award score and recompute rank in one effect — the port of ``gosub 1160/1165``.
+
+    ``gf = clamp(gf + amount*score_mult, 0, 100)`` then ``nr = int(gf/rank_divisor)+1``,
+    computed from the CLAMPED ``gf`` (KTD-5). Fusing the two avoids the ordering hazard a
+    separate score-then-rank pair would face (rank must see the post-clamp ``gf``). The
+    ``[0, 100]`` clamp is the intrinsic ``gf`` domain, reused from :class:`ScoreChange`
+    (KTD-10 exception). ``amount`` is the raw reward ``x``; ``score_mult`` is ``x8``
+    (``Config.score_mult``). ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded.
+    Targets ``Player.nr`` (per ``:1165``).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    amount: float
+    rank_divisor: float
     player: int | None = None
 
 
@@ -330,6 +388,42 @@ def _apply_in_place(state: GameState, effect: Any) -> None:
             )
         g = p.roster[effect.gangster]
         setattr(g, effect.stat, getattr(g, effect.stat) + effect.amount)
+        return
+
+    if isinstance(effect, StatChangeCapped):
+        if effect.stat not in _STAT_NAMES:
+            raise ValueError(
+                f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
+            )
+        p = state.players[_target_index(state, effect.player)]
+        if effect.gangster < 0 or effect.gangster >= len(p.roster):
+            raise IndexError(
+                f"gangster index {effect.gangster} out of range "
+                f"(player has {len(p.roster)} gangsters)"
+            )
+        g = p.roster[effect.gangster]
+        raised = getattr(g, effect.stat) + effect.amount
+        # cap/floor are config-supplied (KTD-10) — the engine hardcodes no 99.
+        setattr(g, effect.stat, max(effect.floor, min(effect.cap, raised)))
+        return
+
+    if isinstance(effect, AssignWeapon):
+        p = state.players[_target_index(state, effect.player)]
+        if effect.gangster < 0 or effect.gangster >= len(p.roster):
+            raise IndexError(
+                f"gangster index {effect.gangster} out of range "
+                f"(player has {len(p.roster)} gangsters)"
+            )
+        p.roster[effect.gangster].weapon = effect.weapon  # roster[g].weapon = w (13075)
+        return
+
+    if isinstance(effect, ScoreAndRank):
+        p = state.players[_target_index(state, effect.player)]
+        # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
+        gf = max(0.0, min(100.0, p.gf + effect.amount * state.config.score_mult))
+        p.gf = gf
+        # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
+        p.nr = int(gf / effect.rank_divisor) + 1
         return
 
     if isinstance(effect, FlagSet):
