@@ -49,6 +49,14 @@ execution-level enrichment of the design docs for this slice.
   When a mechanic is unclear, read the decompiled BASIC line block it maps to; every
   research file cites BASIC line numbers.
 
+Supporting knowledge stores (not sources of truth):
+
+- `docs/solutions/` — documented learnings from past work (bugs, architecture patterns,
+  conventions), organized by category with YAML frontmatter (`module`, `tags`,
+  `problem_type`). Relevant when implementing or debugging in documented areas.
+- `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts).
+  Relevant when orienting to the codebase or discussing domain concepts.
+
 Key research files (all under `../research/`):
 
 | File | Contains |
