@@ -112,8 +112,9 @@ class SetPosition:
 
     The primitive movement effect: ordinary map movement commits its destination
     through this (``po(sp)`` in the original). ``cell`` is a city-map cell on the
-    40×25 grid — an absolute set, not a delta. Distinct from :class:`Teleport`,
-    which is reserved for forced/special relocation.
+    40×25 grid — an absolute set, not a delta. Deliberately identical in shape and
+    mutation to :class:`Teleport` (reserved for forced/special relocation): the two
+    names let the effects stream record *why* the player moved — do not merge them.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -142,6 +143,8 @@ class Teleport:
     """Set the target player's map position ``po`` to the absolute ``cell``.
 
     ``cell`` is a city-map cell on the 40×25 grid (0..999) — an absolute set, not a delta.
+    Reserved for forced/special relocation; the deliberately identical
+    :class:`SetPosition` covers ordinary movement (see its docstring — do not merge).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION

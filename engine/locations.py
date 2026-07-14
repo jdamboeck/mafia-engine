@@ -38,7 +38,6 @@ __all__ = [
     "Location",
     "load_location",
     "available_options",
-    "enter_location",
 ]
 
 #: Module-level registry mapping a handler-id string (e.g. ``"pub.recruit"``) to
@@ -155,25 +154,6 @@ def load_location(raw: dict) -> Location:
         raise ValueError(f"location 'options' must be a list: {options_raw!r}")
     options = [_parse_option(o) for o in options_raw]
     return Location(key=raw["key"], options=options)
-
-
-def enter_location(state, la: int, ln: int) -> None:
-    """Set the entry context for a location the active player just entered — the **ln seam**.
-
-    This is the formalized seam U7 stubbed. When movement (:func:`engine.movement.try_move`)
-    resolves a door to ``(la, ln)``, it calls this **before** the location's handler runs,
-    so the handler reads the correct within-location tile index. A handler keys on ``ln``
-    via the active player's ``last_location`` (U7's slw handler reads ``fnm(ln)`` off it),
-    so this writes ``last_location = ln`` — preserving U7's contract exactly.
-
-    ``la`` (the location id) is also recorded on the player (``last_la``) for callers that
-    want it, without disturbing the ``last_location``-reads U7 depends on.
-    """
-    active = state.players[state.clock.active_player]
-    active.last_location = ln  # the U7-read seam — set on real entry (U9)
-    # Record la too, for callers that want the resolved location id (does not
-    # affect the last_location contract U7 reads).
-    setattr(active, "last_la", la)
 
 
 def available_options(location: Location, state, ln: int | None = None) -> list[Option]:
