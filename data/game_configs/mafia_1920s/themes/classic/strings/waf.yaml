@@ -1,0 +1,54 @@
+# waf (Waffengeschaeft / weapon shop) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the engine emits KEYS and the theme resolves them.
+# Ported byte-for-byte from the research (research-data/pass-2/location-dialogue.yaml
+# + mf-prg.bas:13005-13175, 13500-13525). {name}/{price}/{amount} are template params.
+locations:
+  waf:
+    # Entry + shell menu (dialogue block, at the WAFFENLADEN door).
+    entry_prompt: "'TAG, MISTER. EIN PAAR GUTE HANDBOELLER  GEFAELLIG? SIND IM HINTERZIMMER...'"
+    menu:
+      buy: "'YEAH, MAL SEHEN, WAS DA IST.'"
+      train: "'KANNST DU MEINE JUNGS IM SCHIESSEN     AUSBILDEN? SIND EINFACH ZU SCHLAPP!'"
+      leave: "'DANKE, DANKE! KEIN BEDARF. BYE!'"
+
+    # --- buy (13010-13091) ---
+    weapon_prompt: "ihre wahl:"           # 13020
+    grenades_in: "...brandheiss! eine ladung army-handgranaten ist gerade eingetroffen!"  # 13090-13091
+    gangster_prompt: "fuer welchen gangster:"  # 13035
+    too_dumb: "zu wenig intelligenz!"     # 13050
+    too_weak: "zu wenig kraft!"           # 13055
+    not_brutal: "nicht brutal genug!"     # 13060
+    trade_in_offer: "der haendler bietet dir {amount}$ fuer deine alte waffe."  # 13070-13071
+    trade_in_confirm: "ok (j/n)?"         # 1110
+    bought: "du hast nun die neue waffe!" # 13080
+
+    # --- weapon spec sheet (13500-13525) ---
+    # The accuracy/effect labels are BUCKETED lookups: the handler emits the 1-based
+    # bucket index (accuracy_bucket = int(ts/2) in 1..3; effect_bucket = int(tg/4)+1 in
+    # 1..5) and the theme resolves it to a label from the arrays below (A2). ts$/tg$ DATA
+    # from mf-prg.bas:50500-50505, read at :125.
+    spec_sheet: "waffe: {name}  preis: {price}$  treffgenauigkeit: {accuracy_bucket}  wirkung: {effect_bucket}"
+    accuracy_labels:   # ts$(1..3), read at :125 from data at :50500
+      1: "mies"
+      2: "ganz gut"
+      3: "todsicher"
+    effect_labels:     # tg$(1..5), read at :125 from data at :50500-50505
+      1: "laecherlich"
+      2: "maessig"
+      3: "schlimm!"
+      4: "brutal"
+      5: "erschreckend!"
+
+    # --- train (13100-13175) ---
+    no_gangster: "leider hast du nicht einen gangster!"  # 13100
+    train_prompt: "wen soll ich trainieren:"             # 13101
+    venue_prompt: "(s)chiesstand oder (t)rainingscamp ?" # 13105
+    venue_range: "(s)chiesstand"
+    venue_camp: "(t)rainingscamp"
+    range_cost: "das kostet dich {price}$. "             # 13110
+    range_enter: "'dein gangster uebt an meinem schiess-stand...'"  # 13120-13121
+    confirm: "ok (j/n)?"                                 # 1110
+    camp_cost: "das kostet dich {price}$. "              # 13150
+    camp_enter: "{name} ist im trainingscamp..."         # 13165
+    camp_done: "...da ist er wieder!"                    # 13175

@@ -262,8 +262,10 @@ def waf_train(ctx):
         for stat in ("intelligenz", "brutalitaet", "kraft"):
             gain = ctx.rng.hit(params["camp_gain_min"], params["camp_gain_max"])
             ctx.apply(StatChangeCapped(stat, gain, cap=cap, gangster=y))
-        # 13175 — score training reward x=2 (stat effects apply BEFORE the score effect).
+        # 13175 — score training reward x=2 (stat effects apply BEFORE the score effect),
+        # then the "...da ist er wieder!" flourish.
         ctx.apply(score_and_rank(2, params))
+        yield ShowMessage("locations.waf.camp_done")
     else:
         # 13110-13130 — schiesstand (range).
         p = params["range_base"] + params["range_per_rank"] * active.rank
