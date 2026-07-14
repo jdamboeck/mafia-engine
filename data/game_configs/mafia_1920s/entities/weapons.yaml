@@ -1,0 +1,32 @@
+# Weapon table — verbatim from the original game (mf-prg.bas:50100-50115).
+#
+# Each entry is ENTITY-NAME/stat data owned by the game config (KTD-5), not
+# engine display text: the German names are the weapon identities in the 1920s
+# Mafia world.
+#
+# Fields per entry (order read at mf-prg.bas:121 — `wa$(i),wp(i),ts(i),tg(i),ws(i)`):
+#   name   — weapon name (German, verbatim)
+#   price  — purchase price (wp)
+#   ts     — accuracy / treffgenauigkeit (used by the spec-sheet accuracy bucket)
+#   tg     — damage / durchschlagskraft (used by the spec-sheet effect bucket)
+#   ws     — weapon sound index
+#
+# Stat-requirement metadata (req_int / req_kraft / req_brut) is DERIVED from the
+# buy-guard lines 13050-13060, NOT from the DATA table. It is the minimum stat a
+# gangster needs to be armed with this weapon (0 = no requirement):
+#   in<40 and x>5          -> req_int   = 40 for index > 5          (13050)
+#   kr<20 and (x=2 or x=3) -> req_kraft = 20 for index in {2, 3}    (13055)
+#   bt<40 and (x=3 or x>6) -> req_brut  = 40 for index 3 or > 6     (13060)
+#
+# Order is significant: list index == in-game weapon index (0..8).
+weapons:
+  # idx  name                price   ts  tg   ws   req_int req_kraft req_brut
+  - {name: "haende",           price: 0,     ts: 2, tg: 2,  ws: 1,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 0 — bare hands, unarmed
+  - {name: "messer",           price: 50,    ts: 3, tg: 5,  ws: 0,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 1
+  - {name: "knueppel",         price: 100,   ts: 4, tg: 3,  ws: 1,  req_int: 0,  req_kraft: 20, req_brut: 0}   # 2 — x in {2,3}: kraft
+  - {name: "schlagkette",      price: 500,   ts: 4, tg: 4,  ws: 4,  req_int: 0,  req_kraft: 20, req_brut: 40}  # 3 — x=3: kraft + brut
+  - {name: "wurfsterne",       price: 3000,  ts: 2, tg: 7,  ws: 0,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 4
+  - {name: "revolver",         price: 4000,  ts: 5, tg: 10, ws: 2,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 5
+  - {name: "gewehr",           price: 4500,  ts: 5, tg: 12, ws: 2,  req_int: 40, req_kraft: 0,  req_brut: 0}   # 6 — x>5: int
+  - {name: "maschinenpistole", price: 8000,  ts: 6, tg: 15, ws: 10, req_int: 40, req_kraft: 0,  req_brut: 0}   # 7 — x>5: int
+  - {name: "handgranaten",     price: 10000, ts: 7, tg: 18, ws: 3,  req_int: 40, req_kraft: 0,  req_brut: 40}  # 8 — x>5 & x>6: int + brut

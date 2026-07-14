@@ -29,12 +29,13 @@ import yaml
 from engine.config_loader import load_config
 from engine.rng import Rng
 from engine.state import Clock, Config, Gangster, GameState, Player
-from engine.types import validate_rank, validate_vehicle
+from engine.types import validate_rank, validate_vehicle, validate_weapon
 
 __all__ = [
     "new_game",
     "load_vehicles",
     "load_ranks",
+    "load_weapons",
     "fnm",
 ]
 
@@ -73,6 +74,21 @@ def load_ranks(path: str | Path) -> list[str]:
     for i, r in enumerate(ranks):
         validate_rank(r, index=i)
     return ranks
+
+
+def load_weapons(path: str | Path) -> list[dict]:
+    """Load the weapon table (list of ``{name, price, ts, tg, ws, req_*}``), index == weapon index.
+
+    Ports the DATA table (``mf-prg.bas:50100-50115``); ``req_int``/``req_kraft``/
+    ``req_brut`` are the per-weapon stat minimums derived from the buy-guard lines
+    (``13050-13060``). Each entry is validated against the engine's
+    :func:`~engine.types.validate_weapon` contract at load time. Returned 0-based
+    (``weapons[i]`` == in-game weapon index ``i``, 0..8).
+    """
+    weapons = list(_load_yaml(path)["weapons"])
+    for i, w in enumerate(weapons):
+        validate_weapon(w, index=i)
+    return weapons
 
 
 # --- fnm rent formula ------------------------------------------------------

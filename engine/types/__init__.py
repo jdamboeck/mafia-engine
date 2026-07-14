@@ -42,9 +42,11 @@ __all__ = [
     "Option",
     "VehicleInstance",
     "RankInstance",
+    "WeaponInstance",
     "GameConfigSchema",
     "validate_vehicle",
     "validate_rank",
+    "validate_weapon",
     "validate_config",
     "ConfigValidationError",
 ]
@@ -120,6 +122,56 @@ def validate_rank(entry: Any, index: int | None = None) -> str:
         raise ConfigValidationError(
             f"{where} must be a string name, got {type(entry).__name__}"
         )
+    return entry
+
+
+class WeaponInstance(Protocol):
+    """Required fields of one weapon entity the config supplies.
+
+    ``name/price/ts/tg/ws`` are the DATA-table fields (``mf-prg.bas:50100-50115``);
+    ``req_int/req_kraft/req_brut`` are the per-weapon stat minimums DERIVED from the
+    buy-guard lines (``13050-13060``) that the ``waf`` handler enforces at arm time.
+    """
+
+    name: str
+    price: int
+    ts: int
+    tg: int
+    ws: int
+    req_int: int
+    req_kraft: int
+    req_brut: int
+
+
+_WEAPON_FIELDS: dict[str, type] = {
+    "name": str,
+    "price": int,
+    "ts": int,
+    "tg": int,
+    "ws": int,
+    "req_int": int,
+    "req_kraft": int,
+    "req_brut": int,
+}
+
+
+def validate_weapon(entry: Any, index: int | None = None) -> dict:
+    """Validate one weapon dict has every :class:`WeaponInstance` field with its type.
+
+    Raises :class:`ConfigValidationError` on a missing or wrong-typed field.
+    Returns the entry unchanged on success.
+    """
+    where = f"weapon[{index}]" if index is not None else "weapon"
+    if not isinstance(entry, dict):
+        raise ConfigValidationError(f"{where} must be a mapping, got {type(entry).__name__}")
+    for field_name, field_type in _WEAPON_FIELDS.items():
+        if field_name not in entry:
+            raise ConfigValidationError(f"{where} missing required field {field_name!r}")
+        if not isinstance(entry[field_name], field_type):
+            raise ConfigValidationError(
+                f"{where} field {field_name!r} must be {field_type.__name__}, "
+                f"got {type(entry[field_name]).__name__}"
+            )
     return entry
 
 

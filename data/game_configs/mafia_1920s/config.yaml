@@ -16,6 +16,7 @@ description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 entities:
   vehicles: "entities/vehicles.yaml"
   ranks: "entities/ranks.yaml"
+  weapons: "entities/weapons.yaml"
 
 # Formula parameters. Values sufficient for the engine to COMPUTE the formula;
 # the Python handlers hold the branching logic, the config holds the numbers.
