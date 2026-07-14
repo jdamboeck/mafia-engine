@@ -11,5 +11,6 @@ from __future__ import annotations
 from . import pub  # noqa: F401 — imported for its @register("pub.recruit") side effect
 from . import slw  # noqa: F401 — imported for its @register("slw.rent") side effect
 from . import sph  # noqa: F401 — imported for its @register("sph") side effect
+from . import waf  # noqa: F401 — registers waf.buy / waf.train + the weapon_spec sub-state
 
-__all__ = ["pub", "slw", "sph"]
+__all__ = ["pub", "slw", "sph", "waf"]
