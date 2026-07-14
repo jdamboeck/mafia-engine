@@ -1,0 +1,24 @@
+# sph (Spielhoelle / casino) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.sph.won") and the
+# theme resolves them to these strings. Ported byte-for-byte from the research
+# (research-data/pass-2/location-dialogue.yaml + mf-prg.bas:16000-16040).
+# {cash} / {amount} are template params the theme fills at render time.
+locations:
+  sph:
+    # Entry + shell menu (dialogue block, at the SPIELHOELLE door).
+    entry_prompt: "'NA FREUND, WIE WAER'S MIT 'NEM SPIEL-  CHEN? KARTENSPIELE? ROULETTE? WAS?'"
+    menu:
+      play: "'OK, CHEF, WAS KANNST DU MIR            EMPFEHLEN?'"
+      leave: "'NEIN, NEIN! ICH SPIELE NUR MAU-MAU!'"
+    # Game menu (inside the handler, mf-prg.bas:16010-16011).
+    game_menu: "waehle, mein freund:"
+    poker: "1 - poker"
+    blackjack: "2 - black jack"
+    roulette: "3 - roulette"
+    # Wager + resolve (16020, 16026, 16035, 16040).
+    cash: "du hast {cash}$. dein einsatz:"
+    wager_prompt: "dein einsatz"
+    at_the_table: "du begibst dich an den spieltisch..."
+    won: "du hast {amount}$ gewonnen!"
+    lost: "leider verloren!"
