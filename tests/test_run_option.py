@@ -180,7 +180,7 @@ def _rent_like_handler(ctx):
 
 
 def _cancellable_handler(ctx):
-    ok = yield Confirm("sure?")
+    yield Confirm("sure?")
     x = yield PromptInt("n", min=0, max=9, cancellable=True)
     ctx.apply(MoneyChange(-x))
     return []
