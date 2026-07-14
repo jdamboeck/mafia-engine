@@ -10,5 +10,6 @@ from __future__ import annotations
 
 from . import pub  # noqa: F401 — imported for its @register("pub.recruit") side effect
 from . import slw  # noqa: F401 — imported for its @register("slw.rent") side effect
+from . import sph  # noqa: F401 — imported for its @register("sph") side effect
 
-__all__ = ["pub", "slw"]
+__all__ = ["pub", "slw", "sph"]
