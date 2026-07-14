@@ -106,7 +106,15 @@ class StartCombat:
 
 @dataclass(frozen=True)
 class LoadSubState:
-    """Minigame / nested sub-state (out of scope; the driver raises NotImplementedError)."""
+    """Run a nested sub-state (minigame / spec sheet) as a child generator (U1, KTD-1).
+
+    When a parent handler yields this, the driver looks up the sub-state handler
+    registered under ``kind`` in :data:`engine.substates.SUBSTATES`, drives it to
+    completion sharing the parent's :class:`Ctx` (its effects/events merge into the
+    parent action — one atomic boundary), and ``.send()``s its return value back
+    into the parent as this interaction's response. An unknown ``kind`` is a config
+    bug and raises :class:`ValueError`.
+    """
 
     kind: Any
     params: dict = field(default_factory=dict)
@@ -240,8 +248,10 @@ def run(
         ``HandlerResult(returned=None)`` payload.
 
     Raises:
-        NotImplementedError: if the handler yields ``StartCombat`` or ``LoadSubState``
-            (combat / minigames are out of scope for this slice).
+        NotImplementedError: if the handler yields ``StartCombat`` (combat is out of
+            scope for this slice).
+        ValueError: if the handler yields ``LoadSubState`` with a ``kind`` that is not
+            registered in :data:`engine.substates.SUBSTATES` (a config bug).
 
     Note:
         Synchronous by construction. The SAME protocol is later driven by an async
@@ -253,6 +263,16 @@ def run(
     try:
         interaction = next(gen)  # prime the generator to its first yield
         while True:
+            if isinstance(interaction, LoadSubState):
+                # KTD-1: run the nested sub-state HERE (not in _resolve, which has no
+                # handle to ctx or the parent generator). The child shares this ctx —
+                # its ctx.apply/ctx.record append into the parent's buffers, so the
+                # whole nesting commits or discards as ONE atomic action. A Cancelled
+                # thrown at a child prompt propagates out of _run_substate up to the
+                # `except Cancelled` below, unwinding the whole action.
+                response = _run_substate(interaction, input_source, ctx)
+                interaction = gen.send(response)
+                continue
             response = _resolve(interaction, input_source)
             if response is _CANCEL_SIGNAL:
                 # A cancellable prompt was cancelled: unwind the handler. The throw
@@ -325,10 +345,10 @@ def _resolve(
         # Display-only: auto-ack without consulting the input source.
         return Ack
 
-    if isinstance(interaction, (StartCombat, LoadSubState)):
+    if isinstance(interaction, StartCombat):
         raise NotImplementedError(
-            f"{type(interaction).__name__} is out of scope for this slice; "
-            "the driver does not run combat / sub-state minigames yet."
+            "StartCombat is out of scope for this slice; "
+            "the driver does not run combat yet."
         )
 
     if isinstance(interaction, PromptInt):
@@ -366,6 +386,58 @@ def _resolve(
         return bool(raw)
 
     raise TypeError(f"Unknown interaction type: {type(interaction).__name__!r}")
+
+
+def _run_substate(
+    load: "LoadSubState",
+    input_source: Callable[[Any], Any],
+    ctx: "Ctx",
+) -> Any:
+    """Drive a nested sub-state generator to completion and return its value (KTD-1).
+
+    Looks up the sub-state factory registered under ``load.kind`` in
+    :data:`engine.substates.SUBSTATES`, builds the child generator sharing the
+    parent's ``ctx`` (shared-buffer model — child ``ctx.apply``/``ctx.record`` append
+    into the parent's buffers), and drives it with an INLINE loop reusing
+    :func:`_resolve` for its interactions. This is deliberately NOT a nested
+    :func:`run` call: a nested ``run`` would commit/discard the child's effects
+    independently and break cross-boundary atomicity.
+
+    On the child's clean completion, returns its ``StopIteration.value`` (the value
+    :func:`run` then ``.send()``s into the parent). A ``Cancelled`` thrown at a
+    cancellable child prompt is raised INTO the child (so its ``try/finally``
+    unwinds) and then **propagates out of this function** to :func:`run`'s
+    ``except Cancelled`` handler — one discard unwinds the whole nesting.
+
+    Raises:
+        ValueError: if ``load.kind`` is not registered (a config bug).
+        NotImplementedError: if the child yields ``StartCombat`` (unchanged).
+    """
+    from engine.substates import SUBSTATES
+
+    factory = SUBSTATES.get(load.kind)
+    if factory is None:
+        raise ValueError(
+            f"unknown sub-state kind {load.kind!r}; "
+            f"registered: {sorted(SUBSTATES)}"
+        )
+
+    child = factory(ctx, load.params)
+    interaction = next(child)  # prime the child to its first yield
+    while True:
+        response = _resolve(interaction, input_source)
+        if response is _CANCEL_SIGNAL:
+            # Cancel INSIDE the sub-state: unwind the child, then let Cancelled
+            # propagate up to run()'s handler so the whole action discards atomically.
+            child.throw(Cancelled())
+            raise RuntimeError(
+                "sub-state handler caught Cancelled and continued; cancellation "
+                "must unwind the handler (do not catch Cancelled and keep yielding)"
+            )
+        try:
+            interaction = child.send(response)
+        except StopIteration as stop:
+            return stop.value
 
 
 def _coerce_int(raw: Any) -> int | None:

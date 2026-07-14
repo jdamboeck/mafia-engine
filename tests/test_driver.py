@@ -184,7 +184,8 @@ def test_promptchoice_reprompts_on_out_of_range_index():
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 5 — StartCombat / LoadSubState raise NotImplementedError           #
+# Scenario 5 — StartCombat still raises; LoadSubState now runs sub-states      #
+# (the LoadSubState nested-runner contract lives in tests/test_substate.py)    #
 # --------------------------------------------------------------------------- #
 def test_startcombat_raises_not_implemented():
     def handler(ctx):
@@ -195,12 +196,13 @@ def test_startcombat_raises_not_implemented():
         run(handler, scripted())
 
 
-def test_loadsubstate_raises_not_implemented():
+def test_loadsubstate_unknown_kind_raises_value_error():
+    # LoadSubState is implemented (U1); an UNREGISTERED kind is a config bug → ValueError.
     def handler(ctx):
         yield LoadSubState(kind="safecrack", params={})
         return []
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(ValueError):
         run(handler, scripted())
 
 
