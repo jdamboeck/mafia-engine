@@ -164,29 +164,45 @@ def _run_location(
     ``available_options`` (KTD-8) and never listed. ``leave`` (and an empty choice)
     returns to the map without running anything.
     """
+    from clients.terminal import hide_cursor, show_cursor
+    from clients.terminal.renderers import (
+        render_header,
+        render_body,
+        render_menu_option,
+        render_prompt,
+        render_screen_clear,
+    )
+
     shell = _load_shell(location_key)
     options = available_options(shell, state, ln)
     if not options:
         out.write("(nothing to do here)\n")
         return state
 
-    # The entry prompt sets the scene (resolve best-effort — some shells may omit it).
+    # Entry prompt sets the scene
     try:
-        out.write("\n" + resolver.resolve(f"locations.{location_key}.entry_prompt") + "\n")
+        entry_text = resolver.resolve(f"locations.{location_key}.entry_prompt")
     except Exception:
-        out.write(f"\n-- {location_key} --\n")
+        entry_text = f"-- {location_key} --"
 
+    # --- render location screen ---
+    out.write(render_screen_clear())
+    out.write(render_header(location_key))
+    out.write(render_body(entry_text))
+    out.write("\n")
     for i, opt in enumerate(options):
-        # Prefer a themed menu label; fall back to the raw option id.
         try:
             label = resolver.resolve(f"locations.{location_key}.menu.{opt.id}")
         except Exception:
             label = opt.id
-        out.write(f"  {i}) {label}\n")
-    out.write("> ")
+        out.write(render_menu_option(i, label))
+    out.write(render_prompt())
     out.flush()
 
+    show_cursor(out)
     raw = sys.stdin.readline().strip()
+    hide_cursor(out)
+
     if not raw.isdigit() or not (0 <= int(raw) < len(options)):
         return state  # invalid / empty -> back to the map, no action run
     chosen = options[int(raw)]
@@ -202,6 +218,9 @@ def _run_location(
 
 def play(seed: int) -> None:
     """Play one turn of the default config from ``seed`` over real stdin/stdout."""
+    from clients.terminal import hide_cursor, show_cursor
+    from clients.terminal.ascii_art import title_screen
+
     out = sys.stdout
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cfg = load_game_config(_CONFIG_DIR)
@@ -216,6 +235,14 @@ def play(seed: int) -> None:
         seed=seed, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
     )
     inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out)
+
+    # Title screen
+    out.write(CLEAR)
+    out.write(title_screen())
+    out.flush()
+    show_cursor(out)
+    sys.stdin.readline()
+    hide_cursor(out)
 
     note = "move: W/A/S/D into a door to enter. Q quits."
     while True:
@@ -246,7 +273,27 @@ def play(seed: int) -> None:
             if key_for_la is not None:
                 state = _run_location(key_for_la, payload.ln, state, resolver, inp, out)
         if getattr(payload, "turn_over", False):
-            out.write("turn over (out of movement points).\n")
+            from clients.terminal import hide_cursor, show_cursor
+            from clients.terminal.renderers import (
+                render_header,
+                render_body,
+                render_screen_clear,
+            )
+            p = state.players[state.clock.active_player]
+            out.write(render_screen_clear())
+            out.write(render_header("turn_over"))
+            out.write(render_body(
+                f"cash: {p.ka}$\n"
+                f"position: {p.po}\n"
+                f"movement: {p.ms}\n"
+                f"rank: {p.rank}\n"
+                f"wanted: {p.wanted}"
+            ))
+            out.write("\n")
+            out.flush()
+            show_cursor(out)
+            sys.stdin.readline()
+            hide_cursor(out)
             return
 
 
