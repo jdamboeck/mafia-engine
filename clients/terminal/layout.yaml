@@ -1,0 +1,32 @@
+# Terminal-specific rendering layout.
+# This file lives in the client, not the theme — box-drawing chars and Unicode
+# symbols are terminal-specific and would not apply to pygame/web clients.
+
+map:
+  cols: 40
+  rows: 25
+  border: true
+  player_char: "@"
+  player_color: red
+  street_char: "\u00b7"        # · middle dot
+  street_color: dark_grey
+  wall_color: black            # transparent — shows through to bg
+  door_chars:
+    slw: { char: "\u2660", color: white }      # ♠ spade
+    pub: { char: "\u2666", color: light_green } # ♦ diamond
+    sph: { char: "\u2663", color: yellow }      # ♣ club
+    waf: { char: "\u2605", color: light_red }   # ★ star
+  special_cells:
+    569: { char: "\u2693", color: blue }   # ⚓ transport
+    861: { char: "\u265b", color: red }     # ♛ mayor
+
+status_bar:
+  style: reverse
+  bg: brown
+  fg: light_grey
+  width: full
+
+header:
+  style: double_line_box
+  fg: light_grey
+  bg: black
