@@ -110,6 +110,21 @@ def test_roundtrip_preserves_int_keyed_dicts(tmp_path: Path):
     assert loaded.state == state
 
 
+def test_string_keyed_config_dict_survives_roundtrip(tmp_path: Path):
+    """action_costs is dict[str,int] with SEMANTIC string keys — even numeric-looking ones
+    must NOT be coerced to int by the config restorer (formula_params-only restoration)."""
+    state = _fresh_state()
+    # A numeric-looking string key is the adversarial case for a blanket int-key restore.
+    state.config.action_costs = {"bribe": 100, "42": 7}
+
+    save_path = tmp_path / "game.jsonl"
+    persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
+    loaded = persistence.load_game(save_path)
+
+    assert loaded.state.config.action_costs == {"bribe": 100, "42": 7}  # keys stay str
+    assert loaded.state == state
+
+
 # --------------------------------------------------------------------------- #
 # Scenario 2 — replay from snapshot + effect log reproduces final state.        #
 # --------------------------------------------------------------------------- #

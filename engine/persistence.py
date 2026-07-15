@@ -163,6 +163,20 @@ def _map_from_dict(raw: dict) -> MapState:
     )
 
 
+def _config_from_dict(raw: dict) -> Config:
+    """Reconstruct ``Config``, restoring int dict keys only where they legitimately occur.
+
+    ``formula_params`` holds opaque nested game data whose sub-dicts may be int-keyed
+    (e.g. ``fnm.overrides``) — restore those. ``action_costs`` is declared ``dict[str, int]``
+    with *semantic string* keys, so it is left untouched: a blanket numeric-key restore
+    would corrupt a legitimately string-keyed dict whose keys happened to look numeric.
+    """
+    restored = dict(raw)
+    if "formula_params" in restored:
+        restored["formula_params"] = _restore_numeric_keys(restored["formula_params"])
+    return Config(**restored)
+
+
 def _state_from_dict(raw: dict) -> GameState:
     """Reconstruct a ``GameState`` from its serialized nested dict."""
     return GameState(
@@ -170,9 +184,7 @@ def _state_from_dict(raw: dict) -> GameState:
         map=_map_from_dict(raw["map"]),
         combat=CombatState(**raw["combat"]),
         clock=Clock(**raw["clock"]),
-        # config holds opaque nested game data (formula_params, action_costs) whose dict
-        # keys may be ints — restore them generally so the frozen config round-trips exactly.
-        config=Config(**_restore_numeric_keys(raw["config"])),
+        config=_config_from_dict(raw["config"]),
         flags=Flags(**raw["flags"]),
     )
 
