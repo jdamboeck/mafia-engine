@@ -186,17 +186,17 @@ def _run_location(
         entry_text = f"-- {location_key} --"
 
     # --- render location screen ---
-    out.write(render_screen_clear())
-    out.write(render_header(location_key))
-    out.write(render_body(entry_text))
+    render_screen_clear(out)
+    render_header(location_key, out)
+    render_body(entry_text, out)
     out.write("\n")
     for i, opt in enumerate(options):
         try:
             label = resolver.resolve(f"locations.{location_key}.menu.{opt.id}")
         except Exception:
             label = opt.id
-        out.write(render_menu_option(i, label))
-    out.write(render_prompt())
+        render_menu_option(i, label, out)
+    render_prompt(out)
     out.flush()
 
     show_cursor(out)
@@ -280,15 +280,16 @@ def play(seed: int) -> None:
                 render_screen_clear,
             )
             p = state.players[state.clock.active_player]
-            out.write(render_screen_clear())
-            out.write(render_header("turn_over"))
-            out.write(render_body(
+            render_screen_clear(out)
+            render_header("turn_over", out)
+            render_body(
                 f"cash: {p.ka}$\n"
                 f"position: {p.po}\n"
                 f"movement: {p.ms}\n"
                 f"rank: {p.rank}\n"
-                f"wanted: {p.wanted}"
-            ))
+                f"wanted: {p.wanted}",
+                out,
+            )
             out.write("\n")
             out.flush()
             show_cursor(out)
