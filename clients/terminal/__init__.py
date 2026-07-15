@@ -21,6 +21,7 @@ docs/plans/u10-terminal-client-notes.md). The package imports from ``engine/`` o
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 from typing import Any, TextIO
 
 from engine.interactions import (
@@ -31,6 +32,10 @@ from engine.interactions import (
     ShowMessage,
 )
 from engine.strings import Resolver
+
+_DEFAULT_CONFIG_DIR = (
+    Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+)
 
 __all__ = [
     "TerminalInput",
