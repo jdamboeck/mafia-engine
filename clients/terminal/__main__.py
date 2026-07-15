@@ -39,6 +39,8 @@ from clients.terminal import (
     TerminalInput,
     render_result,
 )
+from clients.terminal.palette import fg, load_palette
+from clients.terminal.renderers import render_status_bar_from_state
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
@@ -46,6 +48,16 @@ _CONFIG_DIR = (
 
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+
+# Layout config loaded once at import time.
+_LAYOUT_PATH = Path(__file__).parent / "layout.yaml"
+try:
+    _LAYOUT = yaml.safe_load(_LAYOUT_PATH.read_text(encoding="utf-8")) or {}
+except (OSError, yaml.YAMLError):
+    _LAYOUT = {}
+
+_MAP_CFG = _LAYOUT.get("map", {})
+_PAL = load_palette(_CONFIG_DIR)
 
 
 def _load_shell(location_key: str):
@@ -69,8 +81,8 @@ def _door_location_map(city_raw: dict) -> dict[int, str]:
 
 
 def render_map(city, city_raw: dict, state, out) -> None:
-    """Draw the 40x25 city as ASCII: ``@`` the player, a location's initial for each
-    door, ``.`` walkable street (code 156), space for everything else.
+    """Draw the 40x25 city with Unicode block characters, colored cells, and
+    a box-drawing border, wrapped in a full-width light_blue background band.
 
     Read-only view built straight off ``City`` + the door table — no rules, no mutation.
     Cell index is row-major (``cell = row*cols + col``), matching ``try_move``'s math.
@@ -78,28 +90,64 @@ def render_map(city, city_raw: dict, state, out) -> None:
     cols = city.cols
     rows = len(city.grid)
     po = state.players[state.clock.active_player].po
-    # cell -> single glyph for every door (first letter of its location key).
-    door_glyph = {
-        door["cell"]: door["location"][:1].upper()
-        for door in city_raw.get("doors", [])
-        if "cell" in door and door.get("location")
-    }
-    lines = []
+
+    # Build door lookup: cell -> (location_key, char, color)
+    door_info: dict[int, tuple[str, str, str]] = {}
+    door_chars_cfg = _MAP_CFG.get("door_chars", {})
+    for door in city_raw.get("doors", []):
+        if "cell" in door and door.get("location"):
+            loc_key = door["location"]
+            char_cfg = door_chars_cfg.get(loc_key, {})
+            char = char_cfg.get("char", loc_key[:1].upper())
+            color = char_cfg.get("color", "white")
+            door_info[door["cell"]] = (loc_key, char, color)
+
+    # Special cell lookup: cell -> (char, color)
+    special_cfg = _MAP_CFG.get("special_cells", {})
+
+    player_char = _MAP_CFG.get("player_char", "@")
+    player_color = _MAP_CFG.get("player_color", "red")
+    street_char = _MAP_CFG.get("street_char", "·")
+    street_color = _MAP_CFG.get("street_color", "dark_grey")
+    border_color = "dark_grey"
+
+    lines: list[str] = []
     for r in range(rows):
-        chars = []
+        chars: list[str] = []
         for c in range(cols):
             cell = r * cols + c
             if cell == po:
-                chars.append("@")
-            elif cell in door_glyph:
-                chars.append(door_glyph[cell])
+                chars.append(f"{fg(player_color, _PAL)}{player_char}{RESET}")
+            elif cell in door_info:
+                _, dchar, dcolor = door_info[cell]
+                chars.append(f"{fg(dcolor, _PAL)}{dchar}{RESET}")
+            elif cell in city.special_cells and cell in special_cfg:
+                scfg = special_cfg[cell]
+                chars.append(f"{fg(scfg.get('color', 'white'), _PAL)}{scfg['char']}{RESET}")
             elif city.code(cell) == 156:  # walkable street
-                chars.append(".")
+                chars.append(f"{fg(street_color, _PAL)}{street_char}{RESET}")
             else:
                 chars.append(" ")
         lines.append("".join(chars))
-    out.write("\n".join(lines) + "\n")
-    out.write(f"{DIM}@ you   S/P/H/W doors (Schlupfwinkel/Pub/Spielhoelle/Waffen)   . street{RESET}\n")
+
+    # Draw box-drawing border
+    border_h = "═" * cols
+    out.write(f"{fg(border_color, _PAL)}╔{border_h}╗{RESET}\n")
+    for line in lines:
+        out.write(f"{fg(border_color, _PAL)}║{RESET}{line}{fg(border_color, _PAL)}║{RESET}\n")
+    out.write(f"{fg(border_color, _PAL)}╚{border_h}╝{RESET}\n")
+
+    # Legend
+    legend_parts = [f"{player_char} you"]
+    for loc_key, lchar, lcolor in sorted(
+        {v for v in door_info.values()}, key=lambda x: x[0]
+    ):
+        legend_parts.append(f"{fg(lcolor, _PAL)}{lchar}{RESET} {loc_key}")
+    legend_parts.append(f"{fg(street_color, _PAL)}{street_char}{RESET} street")
+    out.write("   ".join(legend_parts) + "\n")
+
+    # Status bar at bottom
+    render_status_bar_from_state(state, out)
 
 
 def _run_location(
@@ -171,10 +219,9 @@ def play(seed: int) -> None:
 
     note = "move: W/A/S/D into a door to enter. Q quits."
     while True:
-        p = state.players[state.clock.active_player]
         out.write(CLEAR)
         render_map(city, city_raw, state, out)
-        out.write(f"{DIM}[cash {p.ka}$ | pos {p.po} | ms {p.ms}]  {note}{RESET}\n> ")
+        out.write(f"{DIM}{note}{RESET}\n> ")
         out.flush()
         key = sys.stdin.readline().strip().lower()
         if key in ("q", "quit", ""):
