@@ -40,6 +40,26 @@ _PEPTO_FALLBACK: dict[str, tuple[int, int, int]] = {
     "light_grey":  (178, 178, 178),
 }
 
+# C64 color RAM index (0-15) → Pepto palette name.
+C64_COLOR_NAMES: list[str] = [
+    "black",       # 0
+    "white",       # 1
+    "red",         # 2
+    "cyan",        # 3
+    "purple",      # 4
+    "green",       # 5
+    "blue",        # 6
+    "yellow",      # 7
+    "brown",       # 8
+    "light_brown", # 9
+    "light_red",   # 10
+    "dark_grey",   # 11
+    "grey",        # 12
+    "light_green", # 13
+    "light_blue",  # 14
+    "light_grey",  # 15
+]
+
 
 def load_palette(config_dir: Path | None = None, theme: str = "classic") -> dict[str, tuple[int, int, int]]:
     """Load the C64 palette from ``themes/<theme>/renderer/palette.yaml``.

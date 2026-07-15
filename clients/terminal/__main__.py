@@ -39,7 +39,7 @@ from clients.terminal import (
     TerminalInput,
     render_result,
 )
-from clients.terminal.palette import RESET_FG, fg, load_palette
+from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, fg, load_palette
 from clients.terminal.renderers import render_status_bar_from_state
 
 _CONFIG_DIR = (
@@ -81,8 +81,11 @@ def _door_location_map(city_raw: dict) -> dict[int, str]:
 
 
 def render_map(city, city_raw: dict, state, out) -> None:
-    """Draw the 40x25 city matching the original C64 visual:
-    light grey background, red building blocks, grey street dots.
+    """Draw the 40x25 city with per-cell colors from the C64 color RAM.
+
+    Uses ``city.color(cell)`` for each cell's foreground color, giving the full
+    16-color variety of the original: grey streets, red buildings, green parks,
+    blue water, brown rail, etc.
 
     Read-only view built straight off ``City`` + the door table — no rules, no mutation.
     Cell index is row-major (``cell = row*cols + col``), matching ``try_move``'s math.
@@ -109,13 +112,6 @@ def render_map(city, city_raw: dict, state, out) -> None:
 
     # Config values
     player_char = _MAP_CFG.get("player_char", "@")
-    player_color = _MAP_CFG.get("player_color", "red")
-    street_char = _MAP_CFG.get("street_char", "·")
-    street_color = _MAP_CFG.get("street_color", "grey")
-    wall_char = _MAP_CFG.get("wall_char", "█")
-    wall_color = _MAP_CFG.get("wall_color", "light_red")
-    other_wall_char = _MAP_CFG.get("other_wall_char", "·")
-    other_wall_color = _MAP_CFG.get("other_wall_color", "dark_grey")
     bg_color = _MAP_CFG.get("bg_color", "light_grey")
     border_color = "dark_grey"
 
@@ -128,19 +124,26 @@ def render_map(city, city_raw: dict, state, out) -> None:
         for c in range(cols):
             cell = r * cols + c
             if cell == po:
-                chars.append(f"{fg(player_color, _PAL)}{player_char}")
+                chars.append(f"{fg('red', _PAL)}{player_char}")
             elif cell in door_info:
                 _, dchar, dcolor = door_info[cell]
                 chars.append(f"{fg(dcolor, _PAL)}{dchar}")
             elif cell in city.special_cells and cell in special_cfg:
                 scfg = special_cfg[cell]
                 chars.append(f"{fg(scfg.get('color', 'white'), _PAL)}{scfg['char']}")
-            elif city.code(cell) == 156:  # walkable street
-                chars.append(f"{fg(street_color, _PAL)}{street_char}")
-            elif city.code(cell) == 160:  # building (dominant wall type)
-                chars.append(f"{fg(wall_color, _PAL)}{wall_char}")
-            else:  # other wall/texture
-                chars.append(f"{fg(other_wall_color, _PAL)}{other_wall_char}")
+            else:
+                # Use C64 color RAM for foreground color
+                c64_color_idx = city.color(cell)
+                color_name = C64_COLOR_NAMES[c64_color_idx]
+                # Streets (156) = · , buildings (160) = █ , others = ·
+                code = city.code(cell)
+                if code == 156:
+                    char = "\u00b7"  # · middle dot
+                elif code == 160:
+                    char = "\u2588"  # █ full block
+                else:
+                    char = "\u00b7"  # · middle dot for texture
+                chars.append(f"{fg(color_name, _PAL)}{char}")
         lines.append("".join(chars) + RESET_FG)
 
     # Draw box-drawing border with light grey bg
@@ -156,8 +159,6 @@ def render_map(city, city_raw: dict, state, out) -> None:
         {v for v in door_info.values()}, key=lambda x: x[0]
     ):
         legend_parts.append(f"{fg(lcolor, _PAL)}{lchar}{RESET} {loc_key}")
-    legend_parts.append(f"{fg(wall_color, _PAL)}{wall_char}{RESET} building")
-    legend_parts.append(f"{fg(street_color, _PAL)}{street_char}{RESET} street")
     out.write("   ".join(legend_parts) + "\n")
 
     # Status bar at bottom

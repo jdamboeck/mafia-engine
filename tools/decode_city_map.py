@@ -71,6 +71,19 @@ def decode_screen_codes(karte: Path) -> list[int]:
     return list(data[:SCREEN_CODES][::-1])
 
 
+def decode_color_ram(karte: Path) -> list[int]:
+    """Return the 1000 row-major color RAM values (bytes 1000-1999, reversed).
+
+    Each byte's low nibble is the C64 color index (0-15).
+    """
+    data = karte.read_bytes()
+    if len(data) != SCREEN_FILE_SIZE:
+        raise ValueError(
+            f"{karte.name}: {len(data)} bytes, expected {SCREEN_FILE_SIZE}"
+        )
+    return [b & 0x0F for b in data[SCREEN_CODES:SCREEN_CODES * 2][::-1]]
+
+
 def to_grid(codes: list[int]) -> list[list[int]]:
     """Fold 1000 row-major codes into a 25-row x 40-col grid."""
     if len(codes) != SCREEN_CODES:
@@ -147,7 +160,9 @@ def build_doors(entries: list[dict], grid: list[list[int]]) -> list[dict]:
 
 def main() -> None:
     codes = decode_screen_codes(KARTE)
+    colors = decode_color_ram(KARTE)
     grid = to_grid(codes)
+    color_grid = to_grid(colors)
     doors = build_doors(load_door_entries(), grid)
 
     payload = {
@@ -159,6 +174,7 @@ def main() -> None:
         ],
         "dims": {"cols": GRID_COLS, "rows": GRID_ROWS},
         "grid": grid,
+        "color_grid": color_grid,
         "doors": doors,
         "special_cells": SPECIAL_CELLS,
     }
@@ -171,7 +187,7 @@ def main() -> None:
         )
         yaml.safe_dump(payload, fh, sort_keys=False, default_flow_style=None)
 
-    print(f"wrote {OUT} ({len(doors)} doors, {len(SPECIAL_CELLS)} special cells)")
+    print(f"wrote {OUT} ({len(doors)} doors, {len(SPECIAL_CELLS)} special cells, color_grid included)")
 
 
 if __name__ == "__main__":

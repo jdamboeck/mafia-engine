@@ -79,21 +79,28 @@ _MAX_CELL = 999
 class City:
     """The parsed city map: the 40×25 grid + the door table.
 
-    ``grid`` is ``rows`` lists of ``cols`` int codes (25×40). ``doors`` maps a
-    cell index to its ``(la, ln)`` — the RESOLVED door mechanic (``syslc(p)``):
-    a move whose TARGET cell is a door entry ENTERS that location, it is NOT
-    adjacency. ``special_cells`` maps a cell to its event ``la`` (13/14) — the
-    la=13/14 event flows are OUT OF SCOPE this unit (detected, then skipped).
+    ``grid`` is ``rows`` lists of ``cols`` int codes (25×40). ``color_grid`` is
+    the per-cell C64 color RAM index (0-15) — same dimensions as ``grid``.
+    ``doors`` maps a cell index to its ``(la, ln)`` — the RESOLVED door mechanic
+    (``syslc(p)``): a move whose TARGET cell is a door entry ENTERS that location,
+    it is NOT adjacency. ``special_cells`` maps a cell to its event ``la`` (13/14).
     """
 
     grid: list[list[int]]
     doors: dict[int, tuple[int, int]]
     special_cells: dict[int, int]
     cols: int = GRID_WIDTH
+    color_grid: list[list[int]] | None = None
 
     def code(self, cell: int) -> int:
         """The grid code at absolute cell index ``cell`` (row-major, 40 wide)."""
         return self.grid[cell // self.cols][cell % self.cols]
+
+    def color(self, cell: int) -> int:
+        """The C64 color RAM index (0-15) at absolute cell index ``cell``."""
+        if self.color_grid is None:
+            return 12  # default grey
+        return self.color_grid[cell // self.cols][cell % self.cols]
 
     def door(self, cell: int) -> tuple[int, int] | None:
         """``(la, ln)`` if ``cell`` is a door-table entry, else ``None`` (``syslc(p)``)."""
@@ -107,11 +114,16 @@ class City:
 def load_city(raw: dict) -> City:
     """Parse a ``city.yaml`` dict (from ``yaml.safe_load``) into a :class:`City`.
 
-    Reads ``grid`` (25×40 int codes), ``doors`` (list of ``{cell, la, ln, ...}``),
-    and ``special_cells`` (list of ``{cell, la, ...}``). City data is CONFIG-owned;
-    the engine takes it as plain data, never importing it.
+    Reads ``grid`` (25×40 int codes), ``color_grid`` (25×40 C64 color indices),
+    ``doors`` (list of ``{cell, la, ln, ...}``), and ``special_cells`` (list of
+    ``{cell, la, ...}``). City data is CONFIG-owned; the engine takes it as plain
+    data, never importing it.
     """
     grid = [list(row) for row in raw["grid"]]
+    color_grid = [list(row) for row in raw.get("color_grid") or []]
+    # If no color_grid in config, default to all grey (12)
+    if not color_grid or len(color_grid) != len(grid):
+        color_grid = [[12] * len(row) for row in grid]
     doors: dict[int, tuple[int, int]] = {}
     for d in raw.get("doors", []) or []:
         doors[d["cell"]] = (d["la"], d["ln"])
@@ -119,7 +131,7 @@ def load_city(raw: dict) -> City:
     for s in raw.get("special_cells", []) or []:
         special[s["cell"]] = s.get("la", 0)
     cols = (raw.get("dims") or {}).get("cols", GRID_WIDTH)
-    return City(grid=grid, doors=doors, special_cells=special, cols=cols)
+    return City(grid=grid, color_grid=color_grid, doors=doors, special_cells=special, cols=cols)
 
 
 @dataclass
