@@ -1,0 +1,214 @@
+"""Runnable entry point: ``python -m clients.terminal`` (U10 follow-up).
+
+Composes the U10 building blocks (:class:`TerminalInput`, the render helpers, and the
+movement primitives) into a real, playable single-turn loop over the mafia_1920s config —
+a thin harness, NOT new engine behavior. It holds no rules: movement goes through
+``engine.movement.try_move`` and location actions through ``engine.actions.run_option``,
+and it adopts the returned ``EngineResult.state`` after every action (both are pure).
+
+    walk the map with W/A/S/D  ->  press into a door to ENTER a location
+      ->  pick a menu option (the driver drives the handler via TerminalInput)
+      ->  return to the map  ->  Q quits, or the turn ends when ms hits 0.
+
+Run:  ``python -m clients.terminal``            (plays the default seed)
+      ``python -m clients.terminal --seed 7``   (any int seed)
+
+This is deliberately minimal: one player, one turn, the four wired locations. It exists so
+the client can be exercised live; the authoritative end-to-end proof is still the headless
+slice test (``tests/test_slice_integration.py``), which drives the same protocol.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import yaml
+
+from engine.actions import run_option
+from engine.config_loader import load_game_config
+from engine.locations import available_options, load_location
+from engine.movement import DOWN, LEFT, RIGHT, UP, load_city, try_move
+from engine.strings import Resolver
+
+from clients.terminal import (
+    CLEAR,
+    DIM,
+    RESET,
+    TerminalInput,
+    render_result,
+)
+
+_CONFIG_DIR = (
+    Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+)
+
+#: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
+_MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+
+
+def _load_shell(location_key: str):
+    """Load a location shell by its key (``slw``/``pub``/``sph``/``waf``)."""
+    path = _CONFIG_DIR / "content" / "locations" / f"{location_key}.yaml"
+    return load_location(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
+def _door_location_map(city_raw: dict) -> dict[int, str]:
+    """Map ``la`` (numeric location id from the door table) -> shell key.
+
+    The decoded city carries ``location`` (the shell key) alongside ``la`` for every door,
+    so a single pass builds the id->key lookup the REPL needs when ``try_move`` reports an
+    ``enter`` with a numeric ``la``.
+    """
+    out: dict[int, str] = {}
+    for door in city_raw.get("doors", []):
+        if "la" in door and "location" in door:
+            out[door["la"]] = door["location"]
+    return out
+
+
+def render_map(city, city_raw: dict, state, out) -> None:
+    """Draw the 40x25 city as ASCII: ``@`` the player, a location's initial for each
+    door, ``.`` walkable street (code 156), space for everything else.
+
+    Read-only view built straight off ``City`` + the door table — no rules, no mutation.
+    Cell index is row-major (``cell = row*cols + col``), matching ``try_move``'s math.
+    """
+    cols = city.cols
+    rows = len(city.grid)
+    po = state.players[state.clock.active_player].po
+    # cell -> single glyph for every door (first letter of its location key).
+    door_glyph = {
+        door["cell"]: door["location"][:1].upper()
+        for door in city_raw.get("doors", [])
+        if "cell" in door and door.get("location")
+    }
+    lines = []
+    for r in range(rows):
+        chars = []
+        for c in range(cols):
+            cell = r * cols + c
+            if cell == po:
+                chars.append("@")
+            elif cell in door_glyph:
+                chars.append(door_glyph[cell])
+            elif city.code(cell) == 156:  # walkable street
+                chars.append(".")
+            else:
+                chars.append(" ")
+        lines.append("".join(chars))
+    out.write("\n".join(lines) + "\n")
+    out.write(f"{DIM}@ you   S/P/H/W doors (Schlupfwinkel/Pub/Spielhoelle/Waffen)   . street{RESET}\n")
+
+
+def _run_location(
+    location_key: str,
+    ln: int,
+    state,
+    resolver: Resolver,
+    inp: TerminalInput,
+    out,
+):
+    """Show a location's available options and run the one the player picks.
+
+    Returns the (possibly new) state. Guard-denied options are excluded by
+    ``available_options`` (KTD-8) and never listed. ``leave`` (and an empty choice)
+    returns to the map without running anything.
+    """
+    shell = _load_shell(location_key)
+    options = available_options(shell, state, ln)
+    if not options:
+        out.write("(nothing to do here)\n")
+        return state
+
+    # The entry prompt sets the scene (resolve best-effort — some shells may omit it).
+    try:
+        out.write("\n" + resolver.resolve(f"locations.{location_key}.entry_prompt") + "\n")
+    except Exception:
+        out.write(f"\n-- {location_key} --\n")
+
+    for i, opt in enumerate(options):
+        # Prefer a themed menu label; fall back to the raw option id.
+        try:
+            label = resolver.resolve(f"locations.{location_key}.menu.{opt.id}")
+        except Exception:
+            label = opt.id
+        out.write(f"  {i}) {label}\n")
+    out.write("> ")
+    out.flush()
+
+    raw = sys.stdin.readline().strip()
+    if not raw.isdigit() or not (0 <= int(raw) < len(options)):
+        return state  # invalid / empty -> back to the map, no action run
+    chosen = options[int(raw)]
+    if chosen.id == "leave":
+        return state
+
+    result = run_option(
+        shell, chosen.id, state, ln=ln, input_source=inp, rng=None
+    )
+    render_result(result, out)
+    return result.state  # adopt (run_option is pure)
+
+
+def play(seed: int) -> None:
+    """Play one turn of the default config from ``seed`` over real stdin/stdout."""
+    out = sys.stdout
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    cfg = load_game_config(_CONFIG_DIR)
+
+    city_raw = yaml.safe_load(
+        (_CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
+    )
+    city = load_city(city_raw)
+    la_to_key = _door_location_map(city_raw)
+
+    state = cfg.module.new_game(
+        seed=seed, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+    )
+    inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out)
+
+    note = "move: W/A/S/D into a door to enter. Q quits."
+    while True:
+        p = state.players[state.clock.active_player]
+        out.write(CLEAR)
+        render_map(city, city_raw, state, out)
+        out.write(f"{DIM}[cash {p.ka}$ | pos {p.po} | ms {p.ms}]  {note}{RESET}\n> ")
+        out.flush()
+        key = sys.stdin.readline().strip().lower()
+        if key in ("q", "quit", ""):
+            out.write("bye.\n")
+            return
+
+        delta = _MOVE_KEYS.get(key)
+        if delta is None:
+            note = "(use W/A/S/D or Q)"
+            continue
+
+        result = try_move(state, city, delta)
+        state = result.state
+        payload = result.payload
+        kind = getattr(payload, "kind", None)
+        note = {
+            "wall": "(a wall)",
+            "oob": "(edge of the city)",
+        }.get(kind or "", "move: W/A/S/D into a door to enter. Q quits.")
+        if kind == "enter":
+            key_for_la = la_to_key.get(payload.la)
+            if key_for_la is not None:
+                state = _run_location(key_for_la, payload.ln, state, resolver, inp, out)
+        if getattr(payload, "turn_over", False):
+            out.write("turn over (out of movement points).\n")
+            return
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(prog="clients.terminal", description="Play the mafia slice.")
+    parser.add_argument("--seed", type=int, default=42, help="RNG seed (default 42).")
+    args = parser.parse_args(argv)
+    play(args.seed)
+
+
+if __name__ == "__main__":  # pragma: no cover - manual entry point
+    main()
