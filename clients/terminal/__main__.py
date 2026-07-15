@@ -39,7 +39,7 @@ from clients.terminal import (
     TerminalInput,
     render_result,
 )
-from clients.terminal.palette import fg, load_palette
+from clients.terminal.palette import RESET_FG, fg, load_palette
 from clients.terminal.renderers import render_status_bar_from_state
 
 _CONFIG_DIR = (
@@ -117,26 +117,26 @@ def render_map(city, city_raw: dict, state, out) -> None:
         for c in range(cols):
             cell = r * cols + c
             if cell == po:
-                chars.append(f"{fg(player_color, _PAL)}{player_char}{RESET}")
+                chars.append(f"{fg(player_color, _PAL)}{player_char}")
             elif cell in door_info:
                 _, dchar, dcolor = door_info[cell]
-                chars.append(f"{fg(dcolor, _PAL)}{dchar}{RESET}")
+                chars.append(f"{fg(dcolor, _PAL)}{dchar}")
             elif cell in city.special_cells and cell in special_cfg:
                 scfg = special_cfg[cell]
-                chars.append(f"{fg(scfg.get('color', 'white'), _PAL)}{scfg['char']}{RESET}")
+                chars.append(f"{fg(scfg.get('color', 'white'), _PAL)}{scfg['char']}")
             elif city.code(cell) == 156:  # walkable street
-                chars.append(f"{fg(street_color, _PAL)}{street_char}{RESET}")
+                chars.append(f"{fg(street_color, _PAL)}{street_char}")
             else:
                 chars.append(" ")
-        lines.append("".join(chars))
+        lines.append("".join(chars) + RESET_FG)
 
-    # Draw box-drawing border
+    # Draw box-drawing border (no RESET inside — render_map_frame handles bg)
     border_h = "═" * cols
     framed: list[str] = []
-    framed.append(f"{fg(border_color, _PAL)}╔{border_h}╗{RESET}")
+    framed.append(f"{fg(border_color, _PAL)}╔{border_h}╗{RESET_FG}")
     for line in lines:
-        framed.append(f"{fg(border_color, _PAL)}║{RESET}{line}{fg(border_color, _PAL)}║{RESET}")
-    framed.append(f"{fg(border_color, _PAL)}╚{border_h}╝{RESET}")
+        framed.append(f"{fg(border_color, _PAL)}║{RESET_FG}{line}{fg(border_color, _PAL)}║{RESET_FG}")
+    framed.append(f"{fg(border_color, _PAL)}╚{border_h}╝{RESET_FG}")
 
     # Wrap in full-width light_blue background band
     from clients.terminal.renderers import render_map_frame
