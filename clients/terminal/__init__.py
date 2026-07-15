@@ -255,10 +255,8 @@ def render_result(result: Any, out: TextIO) -> None:
     """
     if result.status == "cancelled":
         return
-    state = result.state
-    if state is not None and state.players:
-        p = state.players[state.clock.active_player]
-        out.write(f"{DIM}[cash {p.ka}$ | pos {p.po} | ms {p.ms}]{RESET}\n")
+    from clients.terminal.renderers import render_status_bar_from_state
+    render_status_bar_from_state(result.state, out)
 
 
 def map_repl(
