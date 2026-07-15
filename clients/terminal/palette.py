@@ -5,12 +5,14 @@ Loads the palette from the game config's ``themes/<theme>/renderer/palette.yaml`
 ``bg(name)`` functions that return ANSI escape sequences for foreground and
 background colors.
 
-Terminal capability detection and 256/8-color fallback is in this module too
-(T10). For now, only 24-bit truecolor is implemented.
+Terminal capability detection: 24-bit truecolor, 256-color, or 8-color
+fallback based on ``$COLORTERM`` / ``$TERM`` environment variables.
 """
 
 from __future__ import annotations
 
+import os
+from enum import Enum
 from pathlib import Path
 
 import yaml
@@ -39,12 +41,14 @@ _PEPTO_FALLBACK: dict[str, tuple[int, int, int]] = {
 }
 
 
-def load_palette(config_dir: Path, theme: str = "classic") -> dict[str, tuple[int, int, int]]:
+def load_palette(config_dir: Path | None = None, theme: str = "classic") -> dict[str, tuple[int, int, int]]:
     """Load the C64 palette from ``themes/<theme>/renderer/palette.yaml``.
 
     Falls back to the hardcoded Pepto values if the YAML is missing or
-    malformed.
+    malformed. If ``config_dir`` is None, uses the hardcoded fallback.
     """
+    if config_dir is None:
+        return dict(_PEPTO_FALLBACK)
     palette_path = config_dir / "themes" / theme / "renderer" / "palette.yaml"
     try:
         raw = yaml.safe_load(palette_path.read_text(encoding="utf-8"))
@@ -63,19 +67,83 @@ def load_palette(config_dir: Path, theme: str = "classic") -> dict[str, tuple[in
 
 
 # ---------------------------------------------------------------------------
-# ANSI escape generators (24-bit truecolor)
+# Terminal color capability detection
 # ---------------------------------------------------------------------------
 
-def fg(color_name: str, palette: dict[str, tuple[int, int, int]]) -> str:
+class ColorSupport(Enum):
+    TRUECOLOR = "24bit"
+    COLOR256 = "256"
+    COLOR8 = "8"
+
+
+def term_color_support() -> ColorSupport:
+    """Detect terminal color support from ``$COLORTERM`` and ``$TERM``.
+
+    Returns the best supported mode. Defaults to TRUECOLOR if unknown.
+    """
+    ct = os.environ.get("COLORTERM", "").lower()
+    if ct in ("truecolor", "24bit"):
+        return ColorSupport.TRUECOLOR
+    term = os.environ.get("TERM", "").lower()
+    if "256color" in term:
+        return ColorSupport.COLOR256
+    if term in ("dumb", ""):
+        return ColorSupport.COLOR8
+    return ColorSupport.TRUECOLOR
+
+
+# Closest-xterm-256 index for each C64 color name.
+_XTERM_256: dict[str, int] = {
+    "black": 0, "white": 15, "red": 124, "cyan": 44, "purple": 133,
+    "green": 70, "blue": 57, "yellow": 148, "brown": 130, "light_brown": 100,
+    "light_red": 209, "dark_grey": 240, "grey": 245, "light_green": 149,
+    "light_blue": 153, "light_grey": 250,
+}
+
+# Basic 8-color ANSI codes (names map to 0-7).
+_BASIC_8: dict[str, int] = {
+    "black": 0, "red": 1, "green": 2, "brown": 3,
+    "blue": 4, "purple": 5, "cyan": 6, "light_grey": 7,
+    "dark_grey": 0, "grey": 7, "white": 7,
+    "light_red": 1, "light_green": 2, "light_blue": 4,
+    "yellow": 3, "light_brown": 3,
+}
+
+
+# ---------------------------------------------------------------------------
+# ANSI escape generators
+# ---------------------------------------------------------------------------
+
+def fg(color_name: str, palette: dict[str, tuple[int, int, int]],
+       support: ColorSupport | None = None) -> str:
     """Return the ANSI foreground escape sequence for *color_name*."""
+    if support is None:
+        support = term_color_support()
     r, g, b = palette[color_name]
-    return f"\033[38;2;{r};{g};{b}m"
+    if support == ColorSupport.TRUECOLOR:
+        return f"\033[38;2;{r};{g};{b}m"
+    if support == ColorSupport.COLOR256:
+        code = _XTERM_256.get(color_name, 0)
+        return f"\033[38;5;{code}m"
+    # 8-color fallback
+    code = _BASIC_8.get(color_name, 7)
+    return f"\033[{30 + code}m"
 
 
-def bg(color_name: str, palette: dict[str, tuple[int, int, int]]) -> str:
+def bg(color_name: str, palette: dict[str, tuple[int, int, int]],
+       support: ColorSupport | None = None) -> str:
     """Return the ANSI background escape sequence for *color_name*."""
+    if support is None:
+        support = term_color_support()
     r, g, b = palette[color_name]
-    return f"\033[48;2;{r};{g};{b}m"
+    if support == ColorSupport.TRUECOLOR:
+        return f"\033[48;2;{r};{g};{b}m"
+    if support == ColorSupport.COLOR256:
+        code = _XTERM_256.get(color_name, 0)
+        return f"\033[48;5;{code}m"
+    # 8-color fallback
+    code = _BASIC_8.get(color_name, 7)
+    return f"\033[{40 + code}m"
 
 
 # ---------------------------------------------------------------------------
