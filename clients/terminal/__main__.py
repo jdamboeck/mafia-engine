@@ -130,17 +130,12 @@ def render_map(city, city_raw: dict, state, out) -> None:
                 chars.append(" ")
         lines.append("".join(chars) + RESET_FG)
 
-    # Draw box-drawing border (no RESET inside — render_map_frame handles bg)
+    # Draw box-drawing border
     border_h = "═" * cols
-    framed: list[str] = []
-    framed.append(f"{fg(border_color, _PAL)}╔{border_h}╗{RESET_FG}")
+    out.write(f"{fg(border_color, _PAL)}╔{border_h}╗{RESET_FG}\n")
     for line in lines:
-        framed.append(f"{fg(border_color, _PAL)}║{RESET_FG}{line}{fg(border_color, _PAL)}║{RESET_FG}")
-    framed.append(f"{fg(border_color, _PAL)}╚{border_h}╝{RESET_FG}")
-
-    # Wrap in full-width light_blue background band
-    from clients.terminal.renderers import render_map_frame
-    render_map_frame(framed, out)
+        out.write(f"{fg(border_color, _PAL)}║{RESET_FG}{line}{fg(border_color, _PAL)}║{RESET_FG}\n")
+    out.write(f"{fg(border_color, _PAL)}╚{border_h}╝{RESET_FG}\n")
 
     # Legend
     legend_parts = [f"{player_char} you"]
