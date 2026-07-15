@@ -20,6 +20,7 @@ docs/plans/u10-terminal-client-notes.md). The package imports from ``engine/`` o
 
 from __future__ import annotations
 
+import signal
 import sys
 from pathlib import Path
 from typing import Any, TextIO
@@ -39,23 +40,147 @@ _DEFAULT_CONFIG_DIR = (
 
 __all__ = [
     "TerminalInput",
+    "ScreenContext",
     "render_message",
     "render_result",
     "map_repl",
     "CLEAR",
     "DIM",
     "RESET",
+    "CURSOR_HIDE",
+    "CURSOR_SHOW",
+    "hide_cursor",
+    "show_cursor",
 ]
 
 # --- ANSI (stdlib-only; ~a handful of constants, keeps stdout assertable) ---- #
 CLEAR = "\033[2J\033[H"  # clear screen + home cursor (never os.system('clear'))
 DIM = "\033[2m"
 RESET = "\033[0m"
+CURSOR_HIDE = "\033[?25l"
+CURSOR_SHOW = "\033[?25h"
 
 #: Inputs that mean "cancel" at a cancellable prompt (blank line or an explicit token).
 _CANCEL_TOKENS = {"", "q", "quit", "cancel"}
 #: Inputs that read as truthy for a Confirm prompt.
 _YES_TOKENS = {"y", "yes", "j", "ja", "1", "true"}
+
+
+# ---------------------------------------------------------------------------
+# Cursor visibility helpers
+# ---------------------------------------------------------------------------
+
+
+def hide_cursor(out: TextIO) -> None:
+    """Hide the terminal cursor."""
+    out.write(CURSOR_HIDE)
+    out.flush()
+
+
+def show_cursor(out: TextIO) -> None:
+    """Show the terminal cursor."""
+    out.write(CURSOR_SHOW)
+    out.flush()
+
+
+# ---------------------------------------------------------------------------
+# Screen context — tracks current color scheme per game screen
+# ---------------------------------------------------------------------------
+
+
+class ScreenContext:
+    """Tracks the active color scheme (bg, fg) and applies it on transitions.
+
+    Context names map to entries in ``themes/<theme>/renderer/contexts.yaml``.
+    When switching, the context writes the appropriate ANSI background/foreground
+    escape sequences to the output stream.
+    """
+
+    def __init__(
+        self,
+        contexts: dict[str, dict[str, str]],
+        out: TextIO,
+    ) -> None:
+        self._contexts = contexts
+        self._out = out
+        self._current_name: str | None = None
+        self._current: dict[str, str] | None = None
+
+    @classmethod
+    def from_config(cls, config_dir: Path, out: TextIO, theme: str = "classic") -> ScreenContext:
+        """Load contexts from ``themes/<theme>/renderer/contexts.yaml``."""
+        import yaml
+
+        ctx_path = config_dir / "themes" / theme / "renderer" / "contexts.yaml"
+        try:
+            raw = yaml.safe_load(ctx_path.read_text(encoding="utf-8"))
+            contexts = raw if isinstance(raw, dict) else {}
+        except (OSError, yaml.YAMLError):
+            contexts = {}
+        return cls(contexts, out)
+
+    def switch(self, context_name: str) -> None:
+        """Switch to a named context, applying its colors."""
+        ctx = self._contexts.get(context_name)
+        if ctx is None:
+            return
+        self._current_name = context_name
+        self._current = ctx
+        self.apply()
+
+    def apply(self) -> None:
+        """Re-apply the current context's colors to the output stream."""
+        if self._current is None:
+            return
+        from clients.terminal.palette import bg as bg_ansi, fg as fg_ansi, load_palette
+
+        pal = load_palette(_DEFAULT_CONFIG_DIR)
+        bg_name = self._current.get("bg")
+        fg_name = self._current.get("fg")
+        if bg_name:
+            self._out.write(bg_ansi(bg_name, pal))
+        if fg_name:
+            self._out.write(fg_ansi(fg_name, pal))
+        self._out.flush()
+
+    def reset(self) -> None:
+        """Reset to default colors (no bg/fg override)."""
+        self._current_name = None
+        self._current = None
+        self._out.write("\033[39m\033[49m")  # reset fg + bg
+        self._out.flush()
+
+    @property
+    def name(self) -> str | None:
+        return self._current_name
+
+
+# ---------------------------------------------------------------------------
+# SIGWINCH handling
+# ---------------------------------------------------------------------------
+
+# Module-level flag checked by main loops after each key read.
+_resize_pending = False
+
+
+def _sigwinch_handler(signum: int, frame: Any) -> None:
+    global _resize_pending
+    _resize_pending = True
+
+
+def check_resize() -> bool:
+    """Check (and clear) the resize flag.  Returns True if a resize happened."""
+    global _resize_pending
+    if _resize_pending:
+        _resize_pending = False
+        return True
+    return False
+
+
+def install_sigwinch_handler() -> None:
+    """Install the SIGWINCH handler (no-op if signal.SIGWINCH is unavailable)."""
+    if hasattr(signal, "SIGWINCH"):
+        signal.signal(signal.SIGWINCH, _sigwinch_handler)
 
 
 def render_message(resolver: Resolver, message: ShowMessage, out: TextIO) -> None:
