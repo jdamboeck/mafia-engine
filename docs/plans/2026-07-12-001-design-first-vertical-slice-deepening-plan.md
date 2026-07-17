@@ -255,9 +255,12 @@ strings from `location-dialogue.yaml` seed the classic theme verbatim.
 **KTD-6 — Event schema + store both in-slice (`docs/design/` §5.5).** Effects carry a schema
 `version` and are pure data; a game is `initial seed + setup + ordered Event log`. The
 event store (JSONL log + snapshot) is **built in this slice** at U12, not deferred — so
-GameState/event serialization is proven early. Replay = load snapshot, re-apply the log,
-reproduce the exact `GameState` including a suspended handler generator's position. RNG
-draws are themselves logged events, so replay does not re-roll.
+GameState/effect serialization is proven early. Replay = load snapshot, re-apply the effect
+log, reproduce the exact `GameState`; a suspended handler position is reconstructed **by
+replaying the action's recorded input responses** (generators are not serializable and none
+lives in `GameState` — see U12's design correction), not by freezing a generator. RNG draws
+are themselves logged, so replay does not re-roll. The replay log is **effects + RNG draws
+only**; semantic events are audit/UI records and are never in it (see U12).
 
 **KTD-7 — Shared helpers must go through the handler API (§5.2a).** The ported BASIC
 subroutines (not-enough-money `1125`, `Confirm` `1110`, key-press pause `1100`, gangster-
@@ -362,7 +365,7 @@ Game FSM  (setup → main loop, sp cycle, ms replenish)          U3, U8, U9
 | U7 | slw handler + shell + strings | `engine/handlers/slw.py`, `content/locations/slw.yaml` | U4, U5, U6 |
 | U8 | Config: setup/entities/api | `config.yaml`, `entities/` | U3 |
 | U9 | Movement + turn + pub denial | `engine/state/`, `content/locations/pub.yaml` | U1, U3, U5, U6, U8 |
-| U10 | Terminal client + strings | `clients/terminal/` | U4, U7, U8, U9 |
+| U10 | Terminal client + shared string resolver | `engine/strings.py`, `clients/terminal/` | U4, U7, U8, U9 |
 | U11 | Vertical-slice integration test (headless) | `tests/test_slice_integration.py` | U1–U9 |
 | U12 | Save/load — event store + snapshot | `engine/persistence.py` | U3, U4, U5 |
 
@@ -469,6 +472,7 @@ engine/
 ├── interactions.py           # U4  Interaction/Response types + driver
 ├── conditions.py             # U6  guard DSL evaluator
 ├── locations.py              # U6  YAML shell loader + HANDLERS registry
+├── strings.py                # U10 shared headless (key,params)->text resolver
 ├── persistence.py            # U12 event store (JSONL log + snapshot) + save/load
 └── handlers/
     └── slw.py                # U7  slw generator handlers
@@ -768,20 +772,80 @@ forced turn-end) and `2000–2060` (deltas `-1/+1/-40/+40`, walkable gate on `15
 
 ### U10. Terminal client + theme string resolution
 
-**Goal.** A thin renderer that drives the driver, renders screen states, resolves string
-keys via the classic theme, and collects input.
+**Goal.** A thin terminal client — **two callables plus a map REPL, holding no game logic
+and no local simulation state** — that drives the engine over the frozen `input_source`
+protocol, renders `EngineResult`s, and resolves `(key, params)` string keys through a
+**shared headless resolver**. The slice is already fully playable headless (U11); U10 is a
+renderer over that same protocol, never a dependency of playability.
 **Requirements.** `docs/design/` §7 (thin client); KTD-5.
 **Dependencies.** U4, U7, U8, U9.
-**Files.** `clients/terminal/__init__.py`, `tests/test_terminal_client.py`.
-**Approach.** No game logic, no local state. Loop: receive screen state → resolve
-`(key, params)` against `themes/classic/strings/` → print → read input → send Response.
-Enforces nothing the driver already enforces. Imports from `engine/` only (layering rule).
+**Files.** `engine/strings.py` (shared resolver — headless, config-owned themes),
+`clients/terminal/__init__.py`, `tests/test_strings.py`, `tests/test_terminal_client.py`.
+
+**Design correction (verified against source this session — do not build from the prior
+one-liner).** The prior U10 sketch ("receive screen state → print → read input → send
+Response") describes a control flow the frozen driver does not have. The real driver
+`engine.interactions.run(handler, input_source, *, state, rng)` is **synchronous with
+inverted control**: it owns the loop, validation, re-prompt, and cancel-throw, and *pulls*
+from an `input_source(interaction) -> response` callable (`engine/interactions.py:220-289`).
+The client therefore never advances a generator; it supplies callables the driver calls.
+This shape is forced — there is exactly one client structure that respects the frozen
+`input_source` + `EngineResult` contracts. Full rationale in
+`docs/plans/u10-terminal-client-notes.md`.
+
+**Approach.**
+1. **Shared resolver first (`engine/strings.py`).** Client-agnostic
+   `resolve(key, params) -> str` over the config's `themes/<name>/strings/*.yaml`,
+   **deep-merged** (config default theme, then any runtime override — the modding model's
+   runtime-swappable theme axis). Nothing loads theme strings today (`config_loader.py`
+   does not touch `themes/`), so this is genuinely new. It stays **headless** (imports
+   nothing from `clients/`) so the eventual server and pygame clients reuse it. Templates
+   fill `{price}`-style params (`str.format`-style), matching the verbatim strings already
+   in `themes/classic/strings/slw.yaml`.
+2. **`input_source(interaction) -> response`** — the client's *only* coupling to the
+   handler protocol. Resolve the prompt via the resolver, read one `input()`, return the
+   typed response: an `int` for `PromptInt`/`PromptChoice`, a `bool` for `Confirm`, or the
+   `CANCEL` sentinel at a cancellable prompt. **Never** prompt on `ShowMessage` (the driver
+   auto-acks it without consulting the input source — `engine/interactions.py:344-346`), and
+   **never** send `Cancelled` (the client sends the `CANCEL` *input*; the driver throws
+   `Cancelled` *into* the handler — `engine/interactions.py:277-282`). This is the test
+   `recorder` (`tests/test_slice_integration.py:76`) promoted to real stdin/stdout I/O.
+3. **`render(result: EngineResult)`** — between actions, print the resolved status/events
+   off `result.state` plus a status bar (cash/pos/ms). Debug mode dumps the raw
+   `status`/`events`/`effects`/`payload`.
+4. **Map REPL** — read a key, call `engine.movement.try_move` / `engine.actions.run_option`,
+   **adopt `result.state`**, render, loop until `ms <= 0` / turn end. No local rules.
+5. **ANSI, no new dependency.** Screen clear via raw `\033[2J` (not `os.system('clear')`);
+   ~15 lines of ANSI constants for color. Assessed and rejected `rich` (adds a dep, pollutes
+   stdout capture) and `curses` (fights the `input_source` model, untestable under piped
+   stdin) — see the notes file.
+
+Imports from `engine/` only (layering rule), enforced by the existing
+`test_headless_no_clients_import` (`tests/test_slice_integration.py`).
+**Execution note.** Build and test the shared resolver (`engine/strings.py`) first — it
+unblocks the client and the eventual server. Then the client, driven by **mocked stdin**.
+
 **Test scenarios.**
-- A `ShowMessage(key, params)` renders the resolved template with params substituted.
-- `PromptInt` input is passed through as the Response; the driver (not the client) handles
-  re-prompt.
-- `Test expectation: rendering + IO only` — no game-rule assertions here.
-**Verification.** Client renders each interaction type; manual run reaches slw and pub.
+Resolver (`tests/test_strings.py`):
+- `resolve("locations.slw.rent_quote", {"price": 500})` returns the classic-theme template
+  with `{price}` substituted (exact verbatim German string).
+- A runtime override theme deep-merges over the config default: an overridden key resolves
+  to the override, a non-overridden sibling still resolves to the default.
+- A missing key is a config error surfaced loudly (not a silent empty string), so a theme
+  gap fails fast rather than rendering blank.
+- The resolver imports nothing from `clients/` (headless — asserted structurally).
+Client (`tests/test_terminal_client.py`, mocked stdin/stdout):
+- A `ShowMessage(key, params)` renders the resolved template with params substituted and
+  does **not** consult the input source (no stdin read).
+- At a `PromptInt`, the client returns the entered int as the response; an invalid entry is
+  re-prompted **by the driver, not the client** (the client returns the raw value each time
+  the driver calls it).
+- At a cancellable prompt, an empty/quit entry returns the `CANCEL` sentinel; the resulting
+  `EngineResult.status == "cancelled"` renders as a no-op (zero effects).
+- The map REPL adopts `result.state` after a `try_move` and re-renders the new position.
+**Verification.** Resolver round-trips slw/pub **and the sph/waf content** keys; client
+renders each interaction type under mocked stdin; a manual run reaches slw and a guarded
+pub neighbor. `make check` green.
 
 ### U11. Vertical-slice integration test
 
@@ -809,27 +873,70 @@ signal.
 
 ### U12. Save / load — event store + snapshot round-trip
 
-**Goal.** `SaveGame`/`LoadGame` over the event log + snapshot, restoring the exact
-`GameState` mid-slice (including a suspended handler generator's position).
+**Goal.** `SaveGame`/`LoadGame` over an append-only effects+RNG log plus per-turn snapshot,
+restoring the exact `GameState` mid-slice. A save taken *inside* slw's rent prompt restores
+to the identical suspended prompt — achieved by **replay reconstruction**, not by
+serializing a generator (see the design correction below).
 **Requirements.** In-scope item 6; `docs/design/` §5.5; KTD-6.
 **Dependencies.** U3, U4, U5.
 **Files.** `engine/persistence.py`, `tests/test_persistence.py`.
-**Approach.** Append-only JSONL event log (the U5 Effects are the event vocabulary) +
-per-turn snapshot. `SaveGame` writes log + latest snapshot; `LoadGame` restores the snapshot
-and fast-forwards remaining events. Serialize/deserialize `GameState` and the suspended
-generator position so a save taken *inside* slw's rent prompt restores mid-handler. Events
-carry the schema `version`; RNG draws are logged events so replay does not re-roll.
+
+**Design correction (verified against source this session — the prior wording is
+unbuildable as literally stated).** The prior U12 said "serialize/deserialize the suspended
+generator position." **Python generators are not serializable, and no generator lives in
+`GameState`** — the driver holds it as a bare local (`gen = handler(ctx)`,
+`engine/interactions.py:261`) that vanishes when `run()` returns. The design contract
+(`engine-architecture.md:127-143`) never asks for generator serialization; it defines a game
+as **`initial seed + setup + ordered event log`** and says saves occur *at interaction
+boundaries where the suspended handler position is explicit*. "Suspended handler position"
+is therefore something to **reconstruct by replay**, not an object to freeze. This unit
+implements that, and stays **purely additive** — it changes nothing in the frozen U3/U4/U5
+contracts and lives entirely inside `engine/persistence.py`.
+
+**Approach.**
+- **Store.** Append-only **JSONL** log + a per-turn `GameState` snapshot. The **U5 Effects**
+  are the log's mutation vocabulary; **RNG draws** (the `("range"|"hit", args, value)` tuples
+  from `engine/rng.py`) are logged alongside so replay **does not re-roll**. Semantic
+  **events are audit/UI records — NOT in the replay log** (binding replay-semantics note in
+  `docs/plans/current-action-plan.md`). Every record carries a schema `version`.
+- **Turn-boundary save (`SaveGame`).** Writes the latest snapshot + the effect/RNG log tail.
+  `LoadGame` restores the snapshot and fast-forwards the remaining log. `GameState` is plain
+  dataclasses (`engine/state/__init__.py`), so serialize via `dataclasses.asdict` +
+  round-trip reconstruction; the map grid and `dict` fields (`tenancy`, `special_cells`,
+  keyed by int) need explicit key handling across JSON.
+- **Mid-handler save (replay reconstruction — the hard case, chosen approach 1A).** When a
+  save is taken while a handler is suspended at a prompt, additionally record a small
+  **partial-action record**: `{location_key, option_id, ln, responses_so_far: [...]}` — the
+  responses supplied for this action so far. The frozen driver does **not** expose the
+  responses it has pulled (they live in the generator's stack), so this record is captured
+  at the **input-source seam**, not inside the driver: the caller wraps its `input_source`
+  in a recording decorator (the test `recorder` already does exactly this) whose tape *is*
+  `responses_so_far`. No change to `engine/interactions.py` is required. `LoadGame`
+  restores the pre-action snapshot, then re-runs `run_option` with a **replay `input_source`**
+  that returns `responses_so_far` in order; the handler deterministically re-suspends at the
+  *same* `PromptInt`, at which point the live client's `input_source` takes over. This reuses
+  the exact `input_source` shape the test `recorder` already exercises
+  (`tests/test_slice_integration.py:76`). Determinism holds because handlers are pure
+  functions of `(ctx.state, ctx.rng, responses)` and the RNG replays from the log.
 **Execution note.** Start from a failing round-trip test (`save → load → assert identical
-GameState`) before writing the store.
+GameState`) before writing the store. Write the mid-handler resume test second — it is the
+capability that proves the replay-reconstruction design.
+
 **Test scenarios.**
 - Save after setup, load into a fresh process → identical `GameState` (cash, stats, pos,
-  tenancy, clock).
-- Save *mid-slw-rent* (handler suspended at the month `PromptInt`), load, then send the
-  response → the handler resumes and commits the same effects as an uninterrupted run.
-- Replay (snapshot + event log) reproduces the seeded run's final state without re-rolling
-  RNG (draws replay from the log).
-- Event log is append-only and each record carries a schema `version`.
-**Verification.** Round-trip and mid-handler resume tests pass; replay matches a live run.
+  tenancy, clock). Covers the JSON key-handling for int-keyed dicts and the map grid.
+- Replay (snapshot + effect/RNG log) reproduces the seeded run's final state **without
+  re-rolling RNG** — draws replay from the log; assert the live `rng.log` and the replayed
+  draws match.
+- Semantic events are **excluded** from the replay log: a run that emits events replays to
+  the identical `GameState` whether or not the events were persisted.
+- Save *mid-slw-rent* (handler suspended at the month `PromptInt`), load, then send the next
+  response → the handler resumes at the same prompt and commits the **same effects** as an
+  uninterrupted run (atomic buffer commits once, on the resumed completion).
+- Event log is append-only and each record carries a schema `version`; an unknown/newer
+  `version` on load is surfaced as an error, not silently mis-applied.
+**Verification.** Round-trip, RNG-no-reroll, event-exclusion, and mid-handler resume tests
+pass; replay matches a live run. `make check` green.
 
 ---
 
