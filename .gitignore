@@ -4,6 +4,9 @@
 # Local Claude Code plugin-enablement state (machine-specific)
 .claude/settings.json
 
+# Local agent-tool scratch dirs (machine-specific working copies)
+.opencode/
+
 # Python build artifacts
 __pycache__/
 *.py[cod]
