@@ -49,6 +49,36 @@ _CONFIG_DIR = (
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
 
+
+def _read_key() -> str:
+    """Read a single keypress without Enter (raw terminal mode).
+
+    Falls back to line-buffered ``readline`` when stdin is not a TTY (piped input,
+    CI, redirected files) — raw mode via ``termios``/``tty`` requires a real
+    terminal and would otherwise crash with ``termios.error``. The fallback keeps
+    the client scriptable (one key per input line).
+    """
+    try:
+        import termios
+        import tty
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)  # raises termios.error on a non-TTY
+    except Exception:
+        # Not a real terminal (piped input, CI, redirected file, or no termios):
+        # fall back to line-buffered reads so the client stays scriptable.
+        line = sys.stdin.readline()
+        if not line:  # EOF -> treat as quit
+            return "q"
+        return line.strip()[:1].lower()
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    if ch == "\x03":
+        raise KeyboardInterrupt
+    return ch.lower()
+
 # Layout config loaded once at import time.
 _LAYOUT_PATH = Path(__file__).parent / "layout.yaml"
 try:
@@ -58,6 +88,39 @@ except (OSError, yaml.YAMLError):
 
 _MAP_CFG = _LAYOUT.get("map", {})
 _PAL = load_palette(_CONFIG_DIR)
+
+# Screen-code -> Unicode character (shape only; color from C64 color RAM).
+# 23 non-door, non-special codes.  Verified all East Asian Width != Wide.
+_CODE_TO_CHAR: dict[int, str] = {
+    # --- major terrain ---
+    160: "\u2588",  # █  full block          — building (432 cells)
+    224: "\u2588",  # █  full block          — building secondary (19 cells)
+    156: "\u2591",  # ░  light shade         — street textured (359 cells)
+     32: " ",       #    space               — open / background (92 cells)
+    163: "\u2592",  # ▒  medium shade        — park / vegetation (28 cells)
+    # --- water (10 cells) ---
+    229: "\u2590",  # ▐  right half block
+    244: "\u2590",  # ▐  right half block
+    234: "\u258c",  # ▌  left half block
+    247: "\u2584",  # ▄  lower half block
+    248: "\u2583",  # ▃  lower 3/8 block
+    249: "\u2585",  # ▅  upper 3/8 block
+    # --- rail tracks (10 cells) ---
+    101: "\u2502",  # │  box vertical
+    106: "\u258e",  # ▎  left 1/4 block
+    118: "\u258e",  # ▎  left 1/4 block
+    124: "\u2598",  # ▘  quadrant upper left
+    # --- building details (5 cells) ---
+    192: "\u2550",  # ═  double horizontal
+    237: "\u2514",  # └  corner
+    238: "\u2510",  # ┐  corner
+    240: "\u2554",  # ╔  double corner
+    253: "\u2518",  # ┘  corner
+    # --- diagonal transitions (4 cells) ---
+    205: "\u2571",  # ╱  diagonal
+    206: "\u2572",  # ╲  diagonal
+    208: "\u2590",  # ▐  right half block
+}
 
 
 def _load_shell(location_key: str):
@@ -135,14 +198,8 @@ def render_map(city, city_raw: dict, state, out) -> None:
                 # Use C64 color RAM for foreground color
                 c64_color_idx = city.color(cell)
                 color_name = C64_COLOR_NAMES[c64_color_idx]
-                # Streets (156) = · , buildings (160) = █ , others = ·
                 code = city.code(cell)
-                if code == 156:
-                    char = "\u00b7"  # · middle dot
-                elif code == 160:
-                    char = "\u2588"  # █ full block
-                else:
-                    char = "\u00b7"  # · middle dot for texture
+                char = _CODE_TO_CHAR.get(code, "\u00b7")
                 chars.append(f"{fg(color_name, _PAL)}{char}")
         lines.append("".join(chars) + RESET_FG)
 
@@ -172,6 +229,7 @@ def _run_location(
     resolver: Resolver,
     inp: TerminalInput,
     out,
+    stdin=None,
 ):
     """Show a location's available options and run the one the player picks.
 
@@ -179,7 +237,11 @@ def _run_location(
     ``available_options`` (KTD-8) and never listed. ``leave`` (and an empty choice)
     returns to the map without running anything.
     """
+    import sys as _sys
+    if stdin is None:
+        stdin = _sys.stdin
     from clients.terminal import hide_cursor, show_cursor
+    from clients.terminal.ascii_art import location_art
     from clients.terminal.renderers import (
         render_header,
         render_body,
@@ -202,6 +264,19 @@ def _run_location(
 
     # --- render location screen ---
     render_screen_clear(out)
+    # Location ASCII art splash (if available)
+    art = location_art(location_key)
+    if art is not None:
+        for line in art:
+            out.write(f"{RESET}\n" if not line.strip() else f"{line}\n")
+        out.write("\n  ENTER druecken...\n")
+        out.flush()
+        show_cursor(out)
+        try:
+            stdin.readline()
+        finally:
+            hide_cursor(out)
+        render_screen_clear(out)
     render_header(location_key, out)
     render_body(entry_text, out)
     out.write("\n")
@@ -215,8 +290,10 @@ def _run_location(
     out.flush()
 
     show_cursor(out)
-    raw = sys.stdin.readline().strip()
-    hide_cursor(out)
+    try:
+        raw = stdin.readline().strip()
+    finally:
+        hide_cursor(out)
 
     if not raw.isdigit() or not (0 <= int(raw) < len(options)):
         return state  # invalid / empty -> back to the map, no action run
@@ -234,7 +311,9 @@ def _run_location(
 def play(seed: int) -> None:
     """Play one turn of the default config from ``seed`` over real stdin/stdout."""
     from clients.terminal import hide_cursor, show_cursor
+    from clients.terminal import check_resize, install_sigwinch_handler
     from clients.terminal.ascii_art import title_screen
+    from engine.movement import advance_turn
 
     out = sys.stdout
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
@@ -246,71 +325,87 @@ def play(seed: int) -> None:
     city = load_city(city_raw)
     la_to_key = _door_location_map(city_raw)
 
+    vehicles = cfg.module.load_vehicles(
+        _CONFIG_DIR / cfg.config["entities"]["vehicles"]
+    )
+
     state = cfg.module.new_game(
         seed=seed, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
     )
     inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out)
 
-    # Title screen
-    out.write(CLEAR)
-    out.write(title_screen())
-    out.flush()
-    show_cursor(out)
-    sys.stdin.readline()
     hide_cursor(out)
-
-    note = "move: W/A/S/D into a door to enter. Q quits."
-    while True:
+    try:
+        install_sigwinch_handler()
+        # Title screen
         out.write(CLEAR)
-        render_map(city, city_raw, state, out)
-        out.write(f"{DIM}{note}{RESET}\n> ")
+        out.write(title_screen())
         out.flush()
-        key = sys.stdin.readline().strip().lower()
-        if key in ("q", "quit", ""):
-            out.write("bye.\n")
-            return
-
-        delta = _MOVE_KEYS.get(key)
-        if delta is None:
-            note = "(use W/A/S/D or Q)"
-            continue
-
-        result = try_move(state, city, delta)
-        state = result.state
-        payload = result.payload
-        kind = getattr(payload, "kind", None)
-        note = {
-            "wall": "(a wall)",
-            "oob": "(edge of the city)",
-        }.get(kind or "", "move: W/A/S/D into a door to enter. Q quits.")
-        if kind == "enter":
-            key_for_la = la_to_key.get(payload.la)
-            if key_for_la is not None:
-                state = _run_location(key_for_la, payload.ln, state, resolver, inp, out)
-        if getattr(payload, "turn_over", False):
-            from clients.terminal import hide_cursor, show_cursor
-            from clients.terminal.renderers import (
-                render_header,
-                render_body,
-                render_screen_clear,
-            )
-            p = state.players[state.clock.active_player]
-            render_screen_clear(out)
-            render_header("turn_over", out)
-            render_body(
-                f"cash: {p.ka}$\n"
-                f"position: {p.po}\n"
-                f"movement: {p.ms}\n"
-                f"rank: {p.rank}\n"
-                f"wanted: {p.wanted}",
-                out,
-            )
-            out.write("\n")
-            out.flush()
-            show_cursor(out)
+        show_cursor(out)
+        try:
             sys.stdin.readline()
+        finally:
             hide_cursor(out)
-            return
+
+        note = "move: W/A/S/D into a door to enter. Q quits."
+        while True:
+            out.write(CLEAR)
+            render_map(city, city_raw, state, out)
+            out.write(f"{DIM}{note}{RESET}\n")
+            out.flush()
+            key = _read_key()
+            if check_resize():
+                note = " resized"
+                continue
+            if key in ("q", ""):
+                out.write("bye.\n")
+                return
+
+            delta = _MOVE_KEYS.get(key)
+            if delta is None:
+                note = "(use W/A/S/D or Q)"
+                continue
+
+            result = try_move(state, city, delta)
+            state = result.state
+            payload = result.payload
+            kind = getattr(payload, "kind", None)
+            note = {
+                "wall": "(a wall)",
+                "oob": "(edge of the city)",
+            }.get(kind or "", "move: W/A/S/D into a door to enter. Q quits.")
+            if kind == "enter":
+                key_for_la = la_to_key.get(payload.la)
+                if key_for_la is not None:
+                    state = _run_location(key_for_la, payload.ln, state, resolver, inp, out)
+            if getattr(payload, "turn_over", False):
+                from clients.terminal.renderers import (
+                    render_header,
+                    render_body,
+                    render_screen_clear,
+                )
+                p = state.players[state.clock.active_player]
+                render_screen_clear(out)
+                render_header("turn_over", out)
+                render_body(
+                    f"cash: {p.ka}$\n"
+                    f"position: {p.po}\n"
+                    f"movement: {p.ms}\n"
+                    f"rank: {p.rank}\n"
+                    f"wanted: {p.wanted}",
+                    out,
+                )
+                out.write(f"\n{DIM}press any key...{RESET}\n")
+                out.flush()
+                _read_key()
+                advance_turn(state, vehicles)
+        show_cursor(out)
+        try:
+            sys.stdin.readline()
+        finally:
+            hide_cursor(out)
+    finally:
+        show_cursor(out)
 
 
 def main(argv: list[str] | None = None) -> None:
