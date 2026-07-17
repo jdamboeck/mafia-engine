@@ -154,6 +154,45 @@ def test_confirm_returns_bool():
     assert seen == [True]
 
 
+def test_confirm_returns_false_for_n():
+    inp, out = _client(["n"])
+    seen = []
+
+    def handler(ctx):
+        ok = yield Confirm("locations.slw.menu.rent")
+        seen.append(ok)
+        return []
+
+    run(handler, inp, state=None, rng=None)
+    assert seen == [False]
+
+
+def test_prompt_choice_returns_zero_index():
+    inp, out = _client(["0"])
+    seen = []
+
+    def handler(ctx):
+        idx = yield PromptChoice("locations.slw.menu.rent", options=["a", "b", "c"])
+        seen.append(idx)
+        return []
+
+    run(handler, inp, state=None, rng=None)
+    assert seen == [0]
+
+
+def test_prompt_choice_returns_higher_index():
+    inp, out = _client(["3"])
+    seen = []
+
+    def handler(ctx):
+        idx = yield PromptChoice("locations.slw.menu.rent", options=["a", "b", "c", "d"])
+        seen.append(idx)
+        return []
+
+    run(handler, inp, state=None, rng=None)
+    assert seen == [3]
+
+
 # --------------------------------------------------------------------------- #
 # Cancel: an empty line at a cancellable prompt returns the CANCEL sentinel.     #
 # --------------------------------------------------------------------------- #

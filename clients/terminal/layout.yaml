@@ -3,44 +3,17 @@
 # symbols are terminal-specific and would not apply to pygame/web clients.
 
 map:
-  cols: 40
-  rows: 25
-  border: true
   # Background: light grey (original C64 $D021=15, Pepto #b2b2b2)
   bg_color: light_grey
-  # Streets: grey dots (original color RAM index 12, Pepto #878787)
-  street_char: "\u00b7"        # · middle dot
-  street_color: grey
-  # Buildings: light red solid blocks (original color RAM index 10, Pepto #d97c66)
-  wall_char: "\u2588"          # █ full block
-  wall_color: light_red
-  # Other walls: dark grey texture variation
-  other_wall_char: "\u00b7"    # · middle dot (smaller texture)
-  other_wall_color: dark_grey
-  # Vegetation: green (original color RAM index 5, Pepto #69a941)
-  veg_char: "\u2663"           # ♣ club (vegetation symbol)
-  veg_color: green
   # Player: red @ (static, no blink)
   player_char: "@"
-  player_color: red
   # Door characters and colors (per-location Unicode symbols)
   door_chars:
-    slw: { char: "\u2660", color: white }      # ♠ spade
-    pub: { char: "\u2666", color: light_green } # ♦ diamond
-    sph: { char: "\u2663", color: yellow }      # ♣ club
-    waf: { char: "\u2605", color: light_red }   # ★ star
+    slw: { char: "\u25c2", color: white }      # ◂ left triangle
+    pub: { char: "\u25b8", color: light_green } # ▸ right triangle
+    sph: { char: "\u25aa", color: yellow }      # ▪ small square
+    waf: { char: "\u25b4", color: light_red }   # ▴ up triangle
   # Special cells (dynamic event markers)
   special_cells:
-    569: { char: "\u2693", color: blue }   # ⚓ transport
+    569: { char: "\u25cc", color: blue }   # ◌ transport
     861: { char: "\u265b", color: red }     # ♛ mayor
-
-status_bar:
-  style: reverse
-  bg: brown
-  fg: light_grey
-  width: full
-
-header:
-  style: double_line_box
-  fg: light_grey
-  bg: black

@@ -25,6 +25,7 @@ from clients.terminal.palette import (
     fg,
     load_palette,
 )
+from clients.terminal import CLEAR
 
 # ---------------------------------------------------------------------------
 # Layout config (terminal-specific, loaded once at import time)
@@ -84,7 +85,7 @@ def set_palette(palette: dict[str, tuple[int, int, int]]) -> None:
 
 def render_screen_clear(out: TextIO) -> None:
     """Clear the screen and home the cursor."""
-    out.write("\033[2J\033[H")
+    out.write(CLEAR)
 
 
 def render_separator(out: TextIO) -> None:

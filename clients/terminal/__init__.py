@@ -34,6 +34,8 @@ from engine.interactions import (
 )
 from engine.strings import Resolver
 
+from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
+
 _DEFAULT_CONFIG_DIR = (
     Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 )
@@ -53,10 +55,8 @@ __all__ = [
     "show_cursor",
 ]
 
-# --- ANSI (stdlib-only; ~a handful of constants, keeps stdout assertable) ---- #
-CLEAR = "\033[2J\033[H"  # clear screen + home cursor (never os.system('clear'))
-DIM = "\033[2m"
-RESET = "\033[0m"
+# --- ANSI (cursor/screen control — color constants live in palette.py) ------ #
+CLEAR = "\033[2J\033[H"  # clear screen + home cursor
 CURSOR_HIDE = "\033[?25l"
 CURSOR_SHOW = "\033[?25h"
 
@@ -100,9 +100,11 @@ class ScreenContext:
         self,
         contexts: dict[str, dict[str, str]],
         out: TextIO,
+        palette: dict[str, tuple[int, int, int]] | None = None,
     ) -> None:
         self._contexts = contexts
         self._out = out
+        self._palette = palette
         self._current_name: str | None = None
         self._current: dict[str, str] | None = None
 
@@ -110,6 +112,7 @@ class ScreenContext:
     def from_config(cls, config_dir: Path, out: TextIO, theme: str = "classic") -> ScreenContext:
         """Load contexts from ``themes/<theme>/renderer/contexts.yaml``."""
         import yaml
+        from clients.terminal.palette import load_palette
 
         ctx_path = config_dir / "themes" / theme / "renderer" / "contexts.yaml"
         try:
@@ -117,7 +120,8 @@ class ScreenContext:
             contexts = raw if isinstance(raw, dict) else {}
         except (OSError, yaml.YAMLError):
             contexts = {}
-        return cls(contexts, out)
+        pal = load_palette(config_dir)
+        return cls(contexts, out, palette=pal)
 
     def switch(self, context_name: str) -> None:
         """Switch to a named context, applying its colors."""
@@ -134,20 +138,21 @@ class ScreenContext:
             return
         from clients.terminal.palette import bg as bg_ansi, fg as fg_ansi, load_palette
 
-        pal = load_palette(_DEFAULT_CONFIG_DIR)
+        if self._palette is None:
+            self._palette = load_palette(_DEFAULT_CONFIG_DIR)
         bg_name = self._current.get("bg")
         fg_name = self._current.get("fg")
         if bg_name:
-            self._out.write(bg_ansi(bg_name, pal))
+            self._out.write(bg_ansi(bg_name, self._palette))
         if fg_name:
-            self._out.write(fg_ansi(fg_name, pal))
+            self._out.write(fg_ansi(fg_name, self._palette))
         self._out.flush()
 
     def reset(self) -> None:
         """Reset to default colors (no bg/fg override)."""
         self._current_name = None
         self._current = None
-        self._out.write("\033[39m\033[49m")  # reset fg + bg
+        self._out.write(RESET_FG + RESET_BG)
         self._out.flush()
 
     @property

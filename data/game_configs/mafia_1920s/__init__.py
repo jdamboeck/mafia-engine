@@ -16,6 +16,6 @@ travel together; the engine is untouched (docs/design/product-and-scope.md and d
 from __future__ import annotations
 
 from . import handlers  # noqa: F401 — registers the config's handlers on import
-from .setup import fnm, new_game
+from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game
 
-__all__ = ["new_game", "fnm", "handlers"]
+__all__ = ["new_game", "fnm", "handlers", "load_ranks", "load_vehicles", "load_weapons"]

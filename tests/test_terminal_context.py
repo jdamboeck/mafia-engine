@@ -100,5 +100,9 @@ class TestSigwinch:
         assert check_resize() is False
 
     def test_install_handler(self) -> None:
+        import signal
         # Should not raise.
         install_sigwinch_handler()
+        # Verify handler is installed (if SIGWINCH exists on this platform).
+        if hasattr(signal, "SIGWINCH"):
+            assert signal.getsignal(signal.SIGWINCH) is not signal.SIG_DFL

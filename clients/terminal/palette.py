@@ -96,20 +96,30 @@ class ColorSupport(Enum):
     COLOR8 = "8"
 
 
+_FALLBACK_RGB: tuple[int, int, int] = (128, 128, 128)
+
+_COLOR_SUPPORT: ColorSupport | None = None
+
+
 def term_color_support() -> ColorSupport:
     """Detect terminal color support from ``$COLORTERM`` and ``$TERM``.
 
     Returns the best supported mode. Defaults to TRUECOLOR if unknown.
+    Cached after first call.
     """
+    global _COLOR_SUPPORT
+    if _COLOR_SUPPORT is not None:
+        return _COLOR_SUPPORT
     ct = os.environ.get("COLORTERM", "").lower()
     if ct in ("truecolor", "24bit"):
-        return ColorSupport.TRUECOLOR
-    term = os.environ.get("TERM", "").lower()
-    if "256color" in term:
-        return ColorSupport.COLOR256
-    if term in ("dumb", ""):
-        return ColorSupport.COLOR8
-    return ColorSupport.TRUECOLOR
+        _COLOR_SUPPORT = ColorSupport.TRUECOLOR
+    elif "256color" in os.environ.get("TERM", "").lower():
+        _COLOR_SUPPORT = ColorSupport.COLOR256
+    elif os.environ.get("TERM", "").lower() in ("dumb", ""):
+        _COLOR_SUPPORT = ColorSupport.COLOR8
+    else:
+        _COLOR_SUPPORT = ColorSupport.TRUECOLOR
+    return _COLOR_SUPPORT
 
 
 # Closest-xterm-256 index for each C64 color name.
@@ -139,7 +149,7 @@ def fg(color_name: str, palette: dict[str, tuple[int, int, int]],
     """Return the ANSI foreground escape sequence for *color_name*."""
     if support is None:
         support = term_color_support()
-    r, g, b = palette[color_name]
+    r, g, b = palette.get(color_name, _PEPTO_FALLBACK.get(color_name, _FALLBACK_RGB))
     if support == ColorSupport.TRUECOLOR:
         return f"\033[38;2;{r};{g};{b}m"
     if support == ColorSupport.COLOR256:
@@ -155,7 +165,7 @@ def bg(color_name: str, palette: dict[str, tuple[int, int, int]],
     """Return the ANSI background escape sequence for *color_name*."""
     if support is None:
         support = term_color_support()
-    r, g, b = palette[color_name]
+    r, g, b = palette.get(color_name, _PEPTO_FALLBACK.get(color_name, _FALLBACK_RGB))
     if support == ColorSupport.TRUECOLOR:
         return f"\033[48;2;{r};{g};{b}m"
     if support == ColorSupport.COLOR256:
@@ -174,13 +184,7 @@ RESET_FG = "\033[39m"
 RESET_BG = "\033[49m"
 RESET_ALL = "\033[0m"
 REVERSE = "\033[7m"
-NO_REVERSE = "\033[27m"
-BOLD_ON = "\033[1m"
-BOLD_OFF = "\033[22m"
 DIM = "\033[2m"
-CURSOR_HIDE = "\033[?25l"
-CURSOR_SHOW = "\033[?25h"
-CLEAR = "\033[2J\033[H"
 
 # Legacy aliases (keep existing tests working until T12 removes them).
 RESET = RESET_ALL
