@@ -29,7 +29,7 @@ import yaml
 from engine.actions import run_option
 from engine.config_loader import load_game_config
 from engine.locations import available_options, load_location
-from engine.movement import DOWN, LEFT, RIGHT, UP, load_city, try_move
+from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
 from engine.strings import Resolver
 
 from clients.terminal import (
@@ -48,6 +48,16 @@ _CONFIG_DIR = (
 
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+
+
+def _is_quit(key: str) -> bool:
+    """The single quit vocabulary shared by every screen (KTD-2).
+
+    ``"q"`` is an explicit quit; ``""`` is EOF (a TTY read returning no char, or an
+    exhausted piped stdin). Both the map loop and the turn-over prompt route their
+    keypress through this predicate so quit behaves identically on each.
+    """
+    return key in ("q", "")
 
 
 def _read_key() -> str:
@@ -313,7 +323,6 @@ def play(seed: int) -> None:
     from clients.terminal import hide_cursor, show_cursor
     from clients.terminal import check_resize, install_sigwinch_handler
     from clients.terminal.ascii_art import title_screen
-    from engine.movement import advance_turn
 
     out = sys.stdout
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
@@ -357,7 +366,7 @@ def play(seed: int) -> None:
             if check_resize():
                 note = " resized"
                 continue
-            if key in ("q", ""):
+            if _is_quit(key):
                 out.write("bye.\n")
                 return
 
@@ -397,13 +406,10 @@ def play(seed: int) -> None:
                 )
                 out.write(f"\n{DIM}press any key...{RESET}\n")
                 out.flush()
-                _read_key()
+                if _is_quit(_read_key()):
+                    out.write("bye.\n")
+                    return
                 advance_turn(state, vehicles)
-        show_cursor(out)
-        try:
-            sys.stdin.readline()
-        finally:
-            hide_cursor(out)
     finally:
         show_cursor(out)
 
