@@ -57,11 +57,16 @@ lives only in `result.state`.
 
 **2. Effects are the only mutations; `commit()` is the only applier.** Effect dataclasses
 live in `engine/effects.py`; `commit(state, effects)` (`engine/effects.py:393`)
-deep-copies the input **once**, folds every effect via the private `_apply_in_place`,
-and returns `CommitResult(state, effects)` (`engine/effects.py:382`) with the committed
-effects in order — the replay record. Single-effect `apply()`
-(`engine/effects.py:365`) stays pure the same way. No engine code assigns to game state
-outside `_apply_in_place`.
+folds every effect through the private `_apply` and returns `CommitResult(state, effects)`
+with the committed effects in order — the replay record. Single-effect `apply()` stays pure
+the same way. No engine code assigns to game state outside `_apply`.
+
+*Updated 2026-07-18 (immutable-state-graph refactor):* `commit()` no longer deep-copies.
+The state graph is now frozen (`@dataclass(frozen=True)` throughout `engine/state`, with
+read-only `tuple`/`MappingProxyType` collections), so purity is **structural** — each
+effect functionally rebuilds a new state and there is no shared-mutable object left to
+defend against. A direct write now raises at the offending line rather than silently
+corrupting the next save.
 
 **3. Semantic events are audit/UI records — never applied, never replayed.** The catalog
 in `engine/events.py` (e.g. `MoveBlocked` at `engine/events.py:84`, `OptionDenied` at
@@ -128,9 +133,9 @@ saying so at the cited line):
 |---|---|
 | `SetPosition` (`engine/effects.py:110`) and `Teleport` (`engine/effects.py:142`) are byte-identical | Two names so the effects stream records *why* the player moved (ordinary movement vs forced relocation). Do not merge. |
 | `LocationActionRejected` (`engine/events.py:126`) is defined and tested but emitted nowhere | Handler rejection paths (e.g. slw.rent insufficient cash) return `status="completed"` with no machine-readable marker — the do-not-guess rule; the wiring point is documented in `run_option`'s else branch. |
-| `advance_turn` (`engine/movement.py:289`) still mutates in place | The one turn-layer primitive deliberately outside the pure spine this plan converted. Known asymmetry, not an oversight. |
+| `advance_turn` (`engine/movement.py`) is pure and returns `(state, game_over)` | **Changed 2026-07-18** (immutable-state-graph refactor). It was previously the one in-place mutator outside the effect funnel — a known asymmetry — and the frozen graph forced it onto the functional path. Callers MUST adopt the returned state; the terminal turn loop was discarding it. |
 | Bugs raise instead of returning `EngineResult(error=...)` | `status="error"`/`error` are reserved for *future recoverable runtime errors*; config/programmer bugs must raise (`engine/actions.py` module docstring). |
-| Clean completion with an empty effect buffer returns a *copy*, not the original object | `commit()` always copies once; only driver-cancel returns the original object. Tests asserting object identity on success are wrong. |
+| Clean completion with an empty effect buffer returns the state unchanged | **Changed 2026-07-18.** Pre-freeze `commit()` always deep-copied, so an empty commit returned a distinct object; that distinctness was an artifact of the copy, not a guarantee. With a frozen graph the caller cannot mutate what it gets back, so an empty commit returns the input itself. Assert on VALUES, not identity. Driver-cancel still returns the original object by contract. |
 
 ## Related
 
