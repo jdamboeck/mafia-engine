@@ -9,13 +9,11 @@ nesting depth ≤ 2, NO NOT, a fixed resolvable-variable set, and the three real
 guards (slw rent, slw lease, pub recruit) from the research.
 """
 
-import dataclasses
-from types import MappingProxyType
-
 import pytest
 
 from engine.conditions import build_context, evaluate, validate
 from engine.state import Clock, Gangster, GameState, Player
+from tests.helpers import with_tenancy
 
 
 def _state(*, rank=1, ka=0, gf=0.0, ms=0, po=18, roster=0, active=0, players=1):
@@ -32,14 +30,6 @@ def _state(*, rank=1, ka=0, gf=0.0, ms=0, po=18, roster=0, active=0, players=1):
     return GameState(
         players=tuple(plist),
         clock=Clock(active_player=active, player_count=players),
-    )
-
-
-def _with_tenancy(state, ln, owner):
-    """Return ``state`` with ``map.tenancy[ln] = owner`` (frozen-graph setup idiom)."""
-    tenancy = MappingProxyType({**state.map.tenancy, ln: owner})
-    return dataclasses.replace(
-        state, map=dataclasses.replace(state.map, tenancy=tenancy)
     )
 
 
@@ -214,7 +204,7 @@ def test_all_named_variables_resolve():
 
 
 def test_tenancy_requires_ln():
-    st = _with_tenancy(_state(), 5, 2)
+    st = with_tenancy(_state(), ln=5, owner=2)
     ctx = build_context(st, ln=None)
     with pytest.raises(ValueError):
         evaluate({"var": "tenancy", "op": "=", "value": 0}, ctx)
@@ -232,7 +222,7 @@ def test_slw_rent_guard():
     ctx_free = build_context(free, ln=3)  # tenancy.get(3,0) == 0
     assert evaluate(guard, ctx_free) is True
 
-    occupied = _with_tenancy(_state(), 3, 2)
+    occupied = with_tenancy(_state(), ln=3, owner=2)
     ctx_occ = build_context(occupied, ln=3)
     assert evaluate(guard, ctx_occ) is False
 
@@ -246,12 +236,12 @@ def test_slw_lease_guard_variable_rhs():
     guard = {"var": "tenancy", "op": "=", "value": {"var": "sp"}}
 
     # active player is index 1 and is the tenant of tile 3 -> passes
-    st = _with_tenancy(_state(active=1, players=3), 3, 1)
+    st = with_tenancy(_state(active=1, players=3), ln=3, owner=1)
     ctx = build_context(st, ln=3)
     assert evaluate(guard, ctx) is True
 
     # another player is the tenant -> fails
-    st2 = _with_tenancy(_state(active=1, players=3), 3, 2)
+    st2 = with_tenancy(_state(active=1, players=3), ln=3, owner=2)
     ctx2 = build_context(st2, ln=3)
     assert evaluate(guard, ctx2) is False
 

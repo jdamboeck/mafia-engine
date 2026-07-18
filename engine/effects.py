@@ -533,9 +533,8 @@ def commit(state: GameState, effects: list) -> CommitResult:
     Purity is structural: the graph is frozen (R1), so each :func:`_apply` step builds a
     new state and the caller's ``state`` is never mutated. Returns a :class:`CommitResult`
     bundling the new state and the committed effects in order. An empty ``effects`` list
-    returns the input state unchanged — safe because the graph is frozen (pre-freeze this
-    returned a distinct copy, an artifact of the unconditional deepcopy rather than a
-    guarantee). Any effect that would raise in :func:`apply`
+    returns the input state unchanged, since the graph is frozen. Any effect that would
+    raise in :func:`apply`
     (unknown type, out-of-range target, deferred effect, bad name) raises here too, at
     the offending effect.
     """

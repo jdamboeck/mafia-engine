@@ -60,12 +60,18 @@ def with_clock(state, **field_changes):
     return dataclasses.replace(state, clock=dataclasses.replace(state.clock, **field_changes))
 
 
-def with_tenancy(state, tenancy):
-    """Return ``state`` with ``map.tenancy`` replaced by ``tenancy`` (read-only).
+def with_tenancy(state, tenancy=None, *, ln=None, owner=None):
+    """Return ``state`` with ``map.tenancy`` arranged for a test.
 
-    Wraps in a proxy so a fixture cannot hand the engine a mutable mapping and
-    quietly reopen the write path the freeze exists to close.
+    Two shapes, since fixtures need both: pass a whole ``tenancy`` mapping to
+    replace it outright, or ``ln=``/``owner=`` to set one tile on top of what is
+    already there.
+
+    Wraps the result in a proxy so a fixture cannot hand the engine a mutable
+    mapping and quietly reopen the write path the freeze exists to close.
     """
+    if ln is not None:
+        tenancy = {**state.map.tenancy, ln: owner}
     return dataclasses.replace(
         state, map=dataclasses.replace(state.map, tenancy=MappingProxyType(dict(tenancy)))
     )
