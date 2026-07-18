@@ -25,7 +25,7 @@ from pathlib import Path
 
 import yaml
 
-import copy
+from dataclasses import replace
 
 from engine.effects import MsChange, SetEntryContext, SetPosition
 from engine.events import EnterLocation, MoveBlocked, MoveStep
@@ -59,17 +59,17 @@ def _city():
 
 
 def _state(*, po=162, ms=25, rank=1, active=0, players=1, vehicle=0, roster=1):
-    plist = [
+    plist = tuple(
         Player(
             ka=5000,
             po=po,
             ms=ms,
             rank=rank,
             vehicle=vehicle,
-            roster=[Gangster() for _ in range(roster)],
+            roster=tuple(Gangster() for _ in range(roster)),
         )
         for _ in range(players)
-    ]
+    )
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
@@ -122,7 +122,7 @@ def test_blocked_cell_does_not_move_or_spend():
     # not a door, not special.
     assert city.code(202) != 156 and city.door(202) is None
     assert not city.is_special(202)
-    before = copy.deepcopy(st)
+    before = st  # frozen graph: the state is its own snapshot
     res = try_move(st, city, DOWN)
     assert res.payload.kind == "wall"
     assert res.status == "blocked"
@@ -146,7 +146,7 @@ def test_out_of_bounds_rejects_move():
 
     st = _state(po=0, ms=25)
     city = _city()
-    before = copy.deepcopy(st)
+    before = st  # frozen graph: the state is its own snapshot
     res = try_move(st, city, LEFT)  # target -1: off the grid
     assert res.payload.kind == "oob"
     assert res.status == "blocked"
@@ -175,7 +175,7 @@ def test_special_cell_is_not_implemented():
     city = City(grid=grid, doors={}, special_cells={1: 13})
     st = _state(po=0, ms=25)
     assert city.is_special(1) and city.code(1) != STREET_CODE and city.door(1) is None
-    before = copy.deepcopy(st)
+    before = st  # frozen graph: the state is its own snapshot
     res = try_move(st, city, RIGHT)  # 0 --RIGHT--> 1 (special)
     assert res.payload.kind == "special"
     assert res.status == "not_implemented"
@@ -270,25 +270,46 @@ def test_handler_forced_ms_zero_ends_turn():
 # and a full round advances the year by 1.                                    #
 # --------------------------------------------------------------------------- #
 def test_turn_rotation_and_ms_replenish():
-    st = _state(ms=3, active=0, players=2, vehicle=0)
-    st.players[0].ms = 3  # spent down
+    st = _state(ms=3, active=0, players=2, vehicle=0)  # player 0 spent down to ms=3
     year0 = st.clock.year
-    advance_turn(st, _VEHICLES)
+    st, over = advance_turn(st, _VEHICLES)
     # Rotated to player 1; player 1's ms replenished to tr(0) = 25.
     assert st.clock.active_player == 1
     assert st.players[1].ms == 25
     assert st.clock.year == year0  # no wrap yet
     # Advance again -> wraps to player 0, a full round -> year + 1.
-    advance_turn(st, _VEHICLES)
+    st, over = advance_turn(st, _VEHICLES)
     assert st.clock.active_player == 0
     assert st.players[0].ms == 25  # replenished on wrap
     assert st.clock.year == year0 + 1
 
 
+def test_advance_turn_is_pure_and_returns_game_over_signal():
+    """R4: advance_turn no longer mutates in place — it returns the new state."""
+    st = _state(ms=3, active=0, players=2, vehicle=0)
+    new_st, over = advance_turn(st, _VEHICLES)
+
+    assert new_st is not st
+    assert st.clock.active_player == 0  # INPUT untouched (purity)
+    assert st.players[0].ms == 3
+    assert new_st.clock.active_player == 1  # rotation lives on the returned state
+    assert over is False  # 1928 < end_year 1978
+
+
+def test_advance_turn_reports_game_over_at_end_year():
+    """The game-over hook still fires when a wrap reaches end_year."""
+    st = _state(ms=0, active=0, players=1, vehicle=0)
+    st = replace(st, clock=replace(st.clock, year=1929, end_year=1930))
+
+    st, over = advance_turn(st, _VEHICLES)
+    assert st.clock.year == 1930
+    assert over is True
+
+
 def test_single_player_wraps_every_turn():
     st = _state(ms=0, active=0, players=1, vehicle=0)
     year0 = st.clock.year
-    advance_turn(st, _VEHICLES)
+    st, _over = advance_turn(st, _VEHICLES)
     assert st.clock.active_player == 0  # wrapped to itself
     assert st.players[0].ms == 25  # replenished
     assert st.clock.year == year0 + 1  # a one-player round is one turn

@@ -409,7 +409,8 @@ def play(seed: int) -> None:
                 if _is_quit(_read_key()):
                     out.write("bye.\n")
                     return
-                advance_turn(state, vehicles)
+                # advance_turn is pure — the rotated/replenished state must be adopted.
+                state, _game_over = advance_turn(state, vehicles)
     finally:
         show_cursor(out)
 

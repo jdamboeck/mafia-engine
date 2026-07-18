@@ -30,11 +30,11 @@ never statically imports anything under ``data/``.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from engine.actions import EngineResult
-from engine.effects import MsChange, SetEntryContext, SetPosition, commit
+from engine.effects import MsChange, SetEntryContext, SetPosition, _tuple_replace, commit
 from engine.events import EnterLocation, MoveBlocked, MoveStep
 
 __all__ = [
@@ -298,7 +298,7 @@ def try_move(state, city: City, delta: int) -> EngineResult:
     )
 
 
-def advance_turn(state, vehicles: list[dict]) -> bool:
+def advance_turn(state, vehicles: list[dict]) -> tuple[Any, bool]:
     """End the active player's turn and rotate to the next (mf-prg.bas:1010-1013).
 
     Ports the turn-loop head:
@@ -310,24 +310,35 @@ def advance_turn(state, vehicles: list[dict]) -> bool:
     * ``ms = tr(tm(sp))`` (:1012) — the NEW active player's movement points are
       replenished from its vehicle's ``tr`` in the config's ``vehicles`` table.
 
-    Returns ``True`` if the game has reached ``end_year`` (a simple game-over hook;
-    full win handling is a later unit) — the caller may end the game, but this
-    never crashes.
+    Pure, like :func:`try_move`: the state graph is frozen, so this returns a NEW
+    state rather than mutating in place — **callers must adopt the returned state**.
+
+    Returns:
+        ``(new_state, game_over)`` where ``game_over`` is ``True`` if the game has
+        reached ``end_year`` (a simple game-over hook; full win handling is a later
+        unit) — the caller may end the game, but this never crashes.
     """
     clock = state.clock
+    year = clock.year
     next_player = clock.active_player + 1
     if next_player >= clock.player_count:
         next_player = 0  # wrap to player 0 (:1010-1011)
-        clock.year += 1  # a full round advances the year by 1
+        year += 1  # a full round advances the year by 1
 
-    clock.active_player = next_player
+    new_clock = replace(clock, year=year, active_player=next_player)
 
     # :1012 — replenish ms from the new active player's vehicle: ms = tr(tm(sp)).
     active = state.players[next_player]
-    active.ms = vehicles[active.vehicle]["tr"]
+    new_active = replace(active, ms=vehicles[active.vehicle]["tr"])
+
+    new_state = replace(
+        state,
+        clock=new_clock,
+        players=_tuple_replace(state.players, next_player, new_active),
+    )
 
     # Simple game-over hook (full win handling is out of scope this unit).
-    return int(clock.year) >= clock.end_year
+    return new_state, int(year) >= clock.end_year
 
 
 def police_interrupt_would_fire(state, ms: int, rng: Any) -> bool:
