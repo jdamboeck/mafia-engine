@@ -395,59 +395,60 @@ def _apply(state: GameState, effect: Any) -> GameState:
     unit but exist now so logs stay type-complete and serializable.
     """
     if isinstance(effect, MoneyChange):
-        p = state.players[_target_index(state, effect.player)]
-        p.ka += effect.amount
-        return
+        idx = _target_index(state, effect.player)
+        return _with_player(state, idx, ka=state.players[idx].ka + effect.amount)
 
     if isinstance(effect, ScoreChange):
-        p = state.players[_target_index(state, effect.player)]
+        idx = _target_index(state, effect.player)
         # Clamp intrinsic to gf: cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
-        p.gf = max(0.0, min(100.0, p.gf + effect.amount))
-        return
+        gf = max(0.0, min(100.0, state.players[idx].gf + effect.amount))
+        return _with_player(state, idx, gf=gf)
 
     if isinstance(effect, MsChange):
-        p = state.players[_target_index(state, effect.player)]
+        idx = _target_index(state, effect.player)
         # ms is NOT clamped — it may reach 0 (or below) to force turn end.
-        p.ms += effect.amount
-        return
+        return _with_player(state, idx, ms=state.players[idx].ms + effect.amount)
 
     if isinstance(effect, SetPosition):
-        p = state.players[_target_index(state, effect.player)]
-        p.po = effect.cell  # absolute city-map cell (po(sp))
-        return
+        idx = _target_index(state, effect.player)
+        return _with_player(state, idx, po=effect.cell)  # absolute cell (po(sp))
 
     if isinstance(effect, SetEntryContext):
-        p = state.players[_target_index(state, effect.player)]
-        p.last_la = effect.la  # location id (la)
-        p.last_location = effect.ln  # within-location tile index 1..9 (ln)
-        return
+        idx = _target_index(state, effect.player)
+        return _with_player(
+            state,
+            idx,
+            last_la=effect.la,  # location id (la)
+            last_location=effect.ln,  # within-location tile index 1..9 (ln)
+        )
 
     if isinstance(effect, Teleport):
-        p = state.players[_target_index(state, effect.player)]
-        p.po = effect.cell  # absolute city-map cell
-        return
+        idx = _target_index(state, effect.player)
+        return _with_player(state, idx, po=effect.cell)  # absolute city-map cell
 
     if isinstance(effect, StatChange):
         if effect.stat not in _STAT_NAMES:
             raise ValueError(
                 f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
             )
-        p = state.players[_target_index(state, effect.player)]
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
         if effect.gangster < 0 or effect.gangster >= len(p.roster):
             raise IndexError(
                 f"gangster index {effect.gangster} out of range "
                 f"(player has {len(p.roster)} gangsters)"
             )
         g = p.roster[effect.gangster]
-        setattr(g, effect.stat, getattr(g, effect.stat) + effect.amount)
-        return
+        raised = getattr(g, effect.stat) + effect.amount
+        return _with_gangster(state, idx, effect.gangster, **{effect.stat: raised})
 
     if isinstance(effect, StatChangeCapped):
         if effect.stat not in _STAT_NAMES:
             raise ValueError(
                 f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
             )
-        p = state.players[_target_index(state, effect.player)]
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
         if effect.gangster < 0 or effect.gangster >= len(p.roster):
             raise IndexError(
                 f"gangster index {effect.gangster} out of range "
@@ -456,27 +457,27 @@ def _apply(state: GameState, effect: Any) -> GameState:
         g = p.roster[effect.gangster]
         raised = getattr(g, effect.stat) + effect.amount
         # cap/floor are config-supplied (KTD-10) — the engine hardcodes no 99.
-        setattr(g, effect.stat, max(effect.floor, min(effect.cap, raised)))
-        return
+        capped = max(effect.floor, min(effect.cap, raised))
+        return _with_gangster(state, idx, effect.gangster, **{effect.stat: capped})
 
     if isinstance(effect, AssignWeapon):
-        p = state.players[_target_index(state, effect.player)]
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
         if effect.gangster < 0 or effect.gangster >= len(p.roster):
             raise IndexError(
                 f"gangster index {effect.gangster} out of range "
                 f"(player has {len(p.roster)} gangsters)"
             )
-        p.roster[effect.gangster].weapon = effect.weapon  # roster[g].weapon = w (13075)
-        return
+        # roster[g].weapon = w (mf-prg.bas:13075)
+        return _with_gangster(state, idx, effect.gangster, weapon=effect.weapon)
 
     if isinstance(effect, ScoreAndRank):
-        p = state.players[_target_index(state, effect.player)]
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
         # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
         gf = max(0.0, min(100.0, p.gf + effect.amount * state.config.score_mult))
-        p.gf = gf
         # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
-        p.nr = int(gf / effect.rank_divisor) + 1
-        return
+        return _with_player(state, idx, gf=gf, nr=int(gf / effect.rank_divisor) + 1)
 
     if isinstance(effect, FlagSet):
         if effect.scope != "global":
@@ -486,18 +487,19 @@ def _apply(state: GameState, effect: Any) -> GameState:
             )
         if not hasattr(state.flags, effect.name):
             raise ValueError(f"unknown global flag {effect.name!r} on Flags")
-        setattr(state.flags, effect.name, effect.value)
-        return
+        return replace(state, flags=replace(state.flags, **{effect.name: effect.value}))
 
     if isinstance(effect, SetTenancy):
         idx = _target_index(state, effect.player)
-        state.map.tenancy[effect.ln] = idx  # uk(ln) = sp (mf-prg.bas:10040)
-        return
+        # uk(ln) = sp (mf-prg.bas:10040) — rebuilt as a new read-only mapping.
+        new_map = replace(state.map, tenancy=_mapping_set(state.map.tenancy, effect.ln, idx))
+        return replace(state, map=new_map)
 
     if isinstance(effect, RentAccrue):
-        p = state.players[_target_index(state, effect.player)]
-        p.rented_months += effect.months  # um(sp) += x (mf-prg.bas:10040)
-        return
+        idx = _target_index(state, effect.player)
+        # um(sp) += x (mf-prg.bas:10040)
+        rented = state.players[idx].rented_months + effect.months
+        return _with_player(state, idx, rented_months=rented)
 
     if isinstance(effect, (WantedChange, EnergyChange, Jail, SpawnFighter)):
         raise NotImplementedError(
@@ -549,8 +551,4 @@ def commit(state: GameState, effects: list) -> CommitResult:
     new_state = state
     for effect in effects:
         new_state = _apply(new_state, effect)
-    if not effects:
-        # Preserve the established equal-but-distinct contract for an empty commit:
-        # callers rely on identity changing even when nothing was applied.
-        new_state = replace(state)
     return CommitResult(state=new_state, effects=list(effects))

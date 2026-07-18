@@ -17,6 +17,23 @@ from types import MappingProxyType
 #: Shared empty read-only mapping — a safe immutable default (R2).
 _EMPTY_MAP: Mapping = MappingProxyType({})
 
+
+def freeze(value):
+    """Recursively convert plain containers into read-only ones (R2/KTD-2).
+
+    ``dict`` -> :class:`~types.MappingProxyType`, ``list``/``tuple`` -> ``tuple``,
+    applied all the way down. Config data arrives from YAML (and from a JSON save) as
+    ordinary mutable containers; every *construction* site pipes it through here so the
+    built graph is immutable by construction rather than only at its top level.
+
+    Scalars pass through untouched. Already-frozen containers are rebuilt harmlessly.
+    """
+    if isinstance(value, Mapping):
+        return MappingProxyType({k: freeze(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(freeze(v) for v in value)
+    return value
+
 __all__ = [
     "Gangster",
     "Job",
@@ -31,6 +48,7 @@ __all__ = [
     "Config",
     "Flags",
     "GameState",
+    "freeze",
 ]
 
 

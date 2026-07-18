@@ -35,6 +35,8 @@ from engine.config_loader import load_game_config  # noqa: E402
 from engine.interactions import run  # noqa: E402
 from engine.locations import load_location  # noqa: E402
 from engine.movement import DOWN, LEFT, load_city, try_move  # noqa: E402
+from engine.state import freeze  # noqa: E402
+from tests.helpers import with_config, with_player  # noqa: E402
 from engine.rng import Rng  # noqa: E402
 from engine import persistence  # noqa: E402  (module under test)
 
@@ -113,9 +115,8 @@ def test_roundtrip_preserves_int_keyed_dicts(tmp_path: Path):
 def test_string_keyed_config_dict_survives_roundtrip(tmp_path: Path):
     """action_costs is dict[str,int] with SEMANTIC string keys — even numeric-looking ones
     must NOT be coerced to int by the config restorer (formula_params-only restoration)."""
-    state = _fresh_state()
     # A numeric-looking string key is the adversarial case for a blanket int-key restore.
-    state.config.action_costs = {"bribe": 100, "42": 7}
+    state = with_config(_fresh_state(), action_costs=freeze({"bribe": 100, "42": 7}))
 
     save_path = tmp_path / "game.jsonl"
     persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
@@ -179,8 +180,7 @@ def test_mid_slw_rent_save_resume_matches_uninterrupted(tmp_path: Path):
     slw = _load_slw()
 
     # Walk into slw ln=2 (positive-rent tile) exactly as the slice test does.
-    state = _fresh_state()
-    state.players[0].po = 141
+    state = with_player(_fresh_state(), 0, po=141)
     state = try_move(state, city, DOWN).state
     r_enter = try_move(state, city, LEFT)
     state = r_enter.state

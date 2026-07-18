@@ -29,7 +29,7 @@ import yaml
 from engine.config_loader import load_config
 from engine.effects import ScoreAndRank
 from engine.rng import Rng
-from engine.state import Clock, Config, Gangster, GameState, Player
+from engine.state import Clock, Config, Gangster, GameState, Player, freeze
 from engine.types import validate_rank, validate_vehicle, validate_weapon
 
 __all__ = [
@@ -221,7 +221,7 @@ def new_game(
                 po=setup["start_position"],
                 vehicle=start_vehicle,
                 ms=start_ms,
-                roster=[gangster],
+                roster=(gangster,),
             )
         )
 
@@ -233,7 +233,10 @@ def new_game(
     )
     config = Config(
         score_mult=score_weight,
-        formula_params=cfg["formula_params"],
+        # Deep-frozen: config data comes from YAML as mutable dicts, but the built
+        # graph must be read-only all the way down (R2/KTD-2).
+        formula_params=freeze(cfg["formula_params"]),
+        action_costs=freeze(cfg.get("action_costs", {})),
     )
 
-    return GameState(players=game_players, clock=clock, config=config)
+    return GameState(players=tuple(game_players), clock=clock, config=config)

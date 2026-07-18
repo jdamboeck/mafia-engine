@@ -21,17 +21,20 @@ prompt — generators are not serializable and none lives in ``GameState`` (see 
 
 Serialization is **type-tagged**: each effect is written as ``{"_type": "<ClassName>", ...}``
 and reconstructed by looking the tag up in :data:`_EFFECT_TYPES`. ``GameState`` is nested
-dataclasses; it round-trips via :func:`dataclasses.asdict` + typed reconstruction, with the
-int-keyed ``dict`` fields (``map.tenancy``, ``map.special_cells``) restored to int keys (JSON
-stringifies dict keys).
+dataclasses; it round-trips via :func:`_json_safe` + typed reconstruction, with the
+int-keyed mapping fields (``map.tenancy``, ``map.special_cells``) restored to int keys (JSON
+stringifies dict keys). The graph's READ-ONLY collections are unwrapped to plain dict/list on
+save and rebuilt as read-only on load, so a restored state is as immutable as a built one.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, is_dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from engine import effects as _effects
@@ -50,6 +53,7 @@ from engine.state import (
     MapState,
     Player,
     Wanted,
+    freeze,
 )
 
 __all__ = [
@@ -106,14 +110,36 @@ def _effect_from_dict(raw: dict) -> Any:
 # --------------------------------------------------------------------------- #
 # GameState (de)serialization — nested dataclasses + int-key restoration      #
 # --------------------------------------------------------------------------- #
+def _json_safe(value: Any) -> Any:
+    """Recursively convert a frozen state graph into plain JSON-safe containers.
+
+    The state graph holds READ-ONLY collections (``MappingProxyType``, ``tuple``) so it
+    is immutable by construction (R2/KTD-2). Neither survives JSON, and ``mappingproxy``
+    is not even picklable — so ``dataclasses.asdict`` (which deepcopies) cannot walk the
+    graph. This unwraps read-only mappings to ``dict`` and tuples to ``list`` on the way
+    out; :func:`_state_from_dict` rebuilds the read-only forms on the way back in.
+    """
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {f.name: _json_safe(getattr(value, f.name)) for f in dataclasses.fields(value)}
+    if isinstance(value, Mapping):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 def _state_to_dict(state: GameState) -> dict:
-    """Serialize a ``GameState`` to a JSON-safe nested dict (dataclasses.asdict)."""
-    return dataclasses.asdict(state)
+    """Serialize a ``GameState`` to a JSON-safe nested dict."""
+    return _json_safe(state)
 
 
-def _restore_int_keys(d: dict) -> dict:
-    """Return ``d`` with keys coerced back to int (JSON stringified them)."""
-    return {int(k): v for k, v in d.items()}
+def _restore_int_keys(d: dict) -> Mapping[int, int]:
+    """Return ``d`` with keys coerced back to int (JSON stringified them).
+
+    Yields a READ-ONLY mapping: a restored graph must satisfy the same deep-immutability
+    invariant as a freshly built one (R2/KTD-6).
+    """
+    return MappingProxyType({int(k): v for k, v in d.items()})
 
 
 def _restore_numeric_keys(value: Any) -> Any:
@@ -124,15 +150,15 @@ def _restore_numeric_keys(value: Any) -> Any:
     non-numeric key sets are left untouched (real string keys must survive). Recurses into
     nested dicts and lists so arbitrarily deep config data round-trips losslessly.
     """
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         restored = {k: _restore_numeric_keys(v) for k, v in value.items()}
         if restored and all(
             isinstance(k, str) and _is_int_literal(k) for k in restored
         ):
-            return {int(k): v for k, v in restored.items()}
-        return restored
+            restored = {int(k): v for k, v in restored.items()}
+        return MappingProxyType(restored)  # read-only: R2 holds after load too
     if isinstance(value, list):
-        return [_restore_numeric_keys(v) for v in value]
+        return tuple(_restore_numeric_keys(v) for v in value)
     return value
 
 
@@ -145,7 +171,7 @@ def _player_from_dict(raw: dict) -> Player:
     return Player(
         **{
             **raw,
-            "roster": [Gangster(**g) for g in raw["roster"]],
+            "roster": tuple(Gangster(**g) for g in raw["roster"]),
             "jobs": Job(**raw["jobs"]),
             "debt": Debt(**raw["debt"]),
             "business": Business(**raw["business"]),
@@ -157,7 +183,7 @@ def _player_from_dict(raw: dict) -> Player:
 
 def _map_from_dict(raw: dict) -> MapState:
     return MapState(
-        grid=raw["grid"],
+        grid=freeze(raw["grid"]),
         tenancy=_restore_int_keys(raw["tenancy"]),
         special_cells=_restore_int_keys(raw["special_cells"]),
     )
@@ -180,9 +206,9 @@ def _config_from_dict(raw: dict) -> Config:
 def _state_from_dict(raw: dict) -> GameState:
     """Reconstruct a ``GameState`` from its serialized nested dict."""
     return GameState(
-        players=[_player_from_dict(p) for p in raw["players"]],
+        players=tuple(_player_from_dict(p) for p in raw["players"]),
         map=_map_from_dict(raw["map"]),
-        combat=CombatState(**raw["combat"]),
+        combat=CombatState(**{k: freeze(v) for k, v in raw["combat"].items()}),
         clock=Clock(**raw["clock"]),
         config=_config_from_dict(raw["config"]),
         flags=Flags(**raw["flags"]),

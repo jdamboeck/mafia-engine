@@ -47,15 +47,15 @@ from engine.state import Clock, Flags, Gangster, GameState, Player
 # --------------------------------------------------------------------------- #
 # State fixtures                                                              #
 # --------------------------------------------------------------------------- #
-def make_state():
-    """A two-player state; active player is index 0."""
+def make_state(active_player: int = 0):
+    """A two-player state; active player is index 0 unless overridden."""
     p0 = Player(
         name="p0",
         ka=5000,
         gf=50.0,
         po=18,
         ms=3,
-        roster=[Gangster(name="g0", energie=5, kraft=20, intelligenz=30, brutalitaet=10)],
+        roster=(Gangster(name="g0", energie=5, kraft=20, intelligenz=30, brutalitaet=10),),
     )
     p1 = Player(
         name="p1",
@@ -63,9 +63,27 @@ def make_state():
         gf=10.0,
         po=100,
         ms=2,
-        roster=[Gangster(name="g1", energie=5, kraft=15, intelligenz=25, brutalitaet=5)],
+        roster=(Gangster(name="g1", energie=5, kraft=15, intelligenz=25, brutalitaet=5),),
     )
-    return GameState(players=[p0, p1], clock=Clock(active_player=0), flags=Flags())
+    return GameState(
+        players=(p0, p1),
+        clock=Clock(active_player=active_player, player_count=2),
+        flags=Flags(),
+    )
+
+
+
+def _with_second_gangster(state, gangster):
+    """Return ``state`` with ``gangster`` appended to player 0's roster.
+
+    The frozen graph has no ``roster.append`` — rebuild instead.
+    """
+    p0 = state.players[0]
+    return dataclasses.replace(
+        state,
+        players=(dataclasses.replace(p0, roster=p0.roster + (gangster,)),)
+        + tuple(state.players[1:]),
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -157,8 +175,7 @@ def test_set_position_explicit_player_targeting():
 
 
 def test_set_position_default_targets_active_player():
-    state = make_state()
-    state.clock.active_player = 1
+    state = make_state(active_player=1)
     out = apply(state, SetPosition(861))
     assert out.players[1].po == 861
     assert out.players[0].po == 18
@@ -188,8 +205,7 @@ def test_set_entry_context_explicit_player_targeting():
 
 
 def test_set_entry_context_default_targets_active_player():
-    state = make_state()
-    state.clock.active_player = 1
+    state = make_state(active_player=1)
     out = apply(state, SetEntryContext(la=12, ln=9))
     assert out.players[1].last_la == 12
     assert out.players[1].last_location == 9
@@ -225,8 +241,7 @@ def test_stat_change_unknown_stat_raises_value_error():
 
 
 def test_stat_change_targets_the_right_gangster_index():
-    state = make_state()
-    state.players[0].roster.append(Gangster(name="g0b", brutalitaet=1))
+    state = _with_second_gangster(make_state(), Gangster(name="g0b", brutalitaet=1))
     out = apply(state, StatChange("brutalitaet", 7, gangster=1))
     assert out.players[0].roster[1].brutalitaet == 8
     assert out.players[0].roster[0].brutalitaet == 10  # index 0 untouched
@@ -282,8 +297,7 @@ def test_assign_weapon_sets_gangster_weapon():
 
 
 def test_assign_weapon_targets_the_right_gangster_index():
-    state = make_state()
-    state.players[0].roster.append(Gangster(name="g0b", weapon=0))
+    state = _with_second_gangster(make_state(), Gangster(name="g0b", weapon=0))
     out = apply(state, AssignWeapon(weapon=3, gangster=1))
     assert out.players[0].roster[1].weapon == 3
     assert out.players[0].roster[0].weapon == 0  # index 0 untouched
@@ -340,8 +354,7 @@ def test_explicit_player_targets_that_player():
 
 
 def test_default_targets_active_player():
-    state = make_state()
-    state.clock.active_player = 1
+    state = make_state(active_player=1)
     out = apply(state, MoneyChange(-100))
     assert out.players[1].ka == 900  # active_player=1 targeted
     assert out.players[0].ka == 5000
@@ -429,13 +442,20 @@ def test_commit_returns_effects_in_order():
     assert result.effects == effects  # same objects, same order
 
 
-def test_commit_empty_effects_returns_equal_but_distinct_state():
+def test_commit_empty_effects_returns_equal_state():
+    """An empty commit changes nothing.
+
+    Pre-freeze this asserted ``is not state`` — an artifact of the unconditional
+    deepcopy, not a real guarantee. With a frozen graph the caller cannot mutate
+    what it gets back, so returning the identical object is safe *and* the honest
+    contract is about VALUES: nothing changed.
+    """
     state = make_state()
     result = commit(state, [])
 
     assert result.effects == []
-    assert result.state is not state  # a distinct copy, not the original
-    assert result.state.players[0].ka == state.players[0].ka  # equal content
+    assert result.state == state  # equal content — nothing applied
+    assert result.state.players[0].ka == state.players[0].ka
     assert result.state.players[0].ms == state.players[0].ms
 
 
@@ -517,9 +537,9 @@ def test_driver_empty_buffer_returns_equal_but_distinct_state():
         raise AssertionError
 
     result = run(handler, src, state=state)
-    # Clean completion always commits (one deep copy), so even an empty buffer yields a
-    # distinct-but-equal copy — the driver-cancel path is the one that returns the original.
-    assert result.state is not state
+    # Clean completion always commits, but an empty buffer applies nothing — the state
+    # comes back equal. (Frozen graph: no copy is needed to keep the caller safe.)
+    assert result.state == state
     assert result.state.players[0].ka == state.players[0].ka
 
 

@@ -25,11 +25,36 @@ independent effect replay.
 
 from __future__ import annotations
 
-import copy
+import dataclasses
 from typing import Any
 
-from engine.effects import commit
+from engine.effects import _tuple_replace, commit
 from engine.interactions import run
+
+
+def with_player(state, idx: int = 0, **field_changes):
+    """Return ``state`` with ``players[idx]`` field-updated — the test-side setup idiom.
+
+    The state graph is frozen (R1), so a test can no longer arrange a scenario with
+    ``state.players[0].po = 141``. This is the construction-shaped replacement, kept
+    here so the arrange step stays one readable line.
+    """
+    new_player = dataclasses.replace(state.players[idx], **field_changes)
+    return dataclasses.replace(
+        state, players=_tuple_replace(state.players, idx, new_player)
+    )
+
+
+def with_clock(state, **field_changes):
+    """Return ``state`` with ``clock`` field-updated (frozen-graph test setup idiom)."""
+    return dataclasses.replace(state, clock=dataclasses.replace(state.clock, **field_changes))
+
+
+def with_config(state, **field_changes):
+    """Return ``state`` with ``config`` field-updated (frozen-graph test setup idiom)."""
+    return dataclasses.replace(
+        state, config=dataclasses.replace(state.config, **field_changes)
+    )
 
 
 def run_pure(handler, input_source, *, state, rng=None):
@@ -52,11 +77,16 @@ def run_pure(handler, input_source, *, state, rng=None):
     Returns:
         The :class:`~engine.actions.EngineResult` so callers keep asserting on it.
     """
-    snapshot = copy.deepcopy(state)
+    # The graph is frozen (R1), so the state IS its own snapshot — nothing can alter it
+    # behind our back, and mappingproxy fields make it non-deepcopyable anyway.
+    snapshot = state
 
     result = run(handler, input_source, state=state, rng=rng)
 
-    # (a) The handler must not have mutated the caller's state in place.
+    # (a) The handler must not have mutated the caller's state in place. Since the graph
+    # was frozen this is guaranteed structurally (a direct write raises at the offending
+    # line); the assertion is kept as a cheap belt-and-braces check. Assertion (b) below
+    # is the one still doing real work.
     assert state == snapshot, (
         "handler (or driver) mutated the INPUT state in place; the input GameState "
         "must be left untouched — all changes belong on result.state via effects"
