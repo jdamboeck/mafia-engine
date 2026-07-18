@@ -37,6 +37,18 @@ The game state as a whole: a tree of immutable records where no field can be wri
 
 Immutability is structural, not conventional — an attempted write fails where it is written rather than corrupting a later save. Applying an Effect therefore never modifies state in place; it rebuilds the affected records and returns a new graph, with untouched branches shared rather than copied. Freezing the records alone is not enough: a frozen record can still hand out a mutable collection, so read-only collections are established when state is *built*, at every construction site (new game, effect application, and load). This is what makes the replay guarantee enforceable rather than merely documented — with no way to mutate state outside an Effect, the effect log necessarily accounts for every change.
 
+## Turn processing
+
+### Upkeep Flow
+The per-player processing that runs at the start of each turn, before the free turn — banner, gangster energy regeneration, rank promotion commit, debt check, shop income, arms-deal resolution.
+
+The Upkeep Flow is config handler code driven by the engine through the same generator/interaction/effect protocol as location handlers; it can show screens and start combat (the debt-default collectors fight lives here). Its "monthly" ticks fire per player turn, which equals monthly because one full player round is one month.
+
+### Job Shift
+A turn that is replaced by working an active pub job — no map movement, no location menu; the shift (quiet day, croupier trick, or a fight) is the whole turn.
+
+A job runs for a fixed number of shifts and pays its full wage once, as a lump sum after the final successful shift; a lost shift fight ends the job unpaid. There is no monthly wage.
+
 ## Flagged ambiguities
 
 - Older design prose said effects are "committed as events" — the terms are now distinct: Effects mutate and replay; Semantic Events are audit-only and never replay.
