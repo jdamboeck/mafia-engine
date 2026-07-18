@@ -10,7 +10,12 @@ Pure dataclasses + stdlib only; the ``engine/`` package imports nothing from
 display text.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
+
+#: Shared empty read-only mapping — a safe immutable default (R2).
+_EMPTY_MAP: Mapping = MappingProxyType({})
 
 __all__ = [
     "Gangster",
@@ -29,7 +34,7 @@ __all__ = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Gangster:
     """A single gangster in a player's roster.
 
@@ -44,7 +49,7 @@ class Gangster:
     brutalitaet: int = 0  # brutality (mf-prg.bas:312); later a combat damage bonus
 
 
-@dataclass
+@dataclass(frozen=True)
 class Job:
     """A pending job/contract for a player."""
 
@@ -53,7 +58,7 @@ class Job:
     months_left: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Debt:
     """Per-player debt.
 
@@ -65,7 +70,7 @@ class Debt:
     months: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Business:
     """Per-player shop/business ownership."""
 
@@ -73,7 +78,7 @@ class Business:
     shop_capital: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Contraband:
     """Per-player contraband holdings (original per-player bitfield ``ag``)."""
 
@@ -82,7 +87,7 @@ class Contraband:
     alcohol_barrels: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Wanted:
     """Per-player wanted state; also carries the two win flags."""
 
@@ -92,7 +97,7 @@ class Wanted:
     x6: bool = False  # win flag — mayor-hit event
 
 
-@dataclass
+@dataclass(frozen=True)
 class Player:
     """A single player: identity, resources, roster, and owned subsystems."""
 
@@ -106,7 +111,7 @@ class Player:
     vehicle: int = 0  # transport type index (tm)
     speed: int = 0
     ms: int = 0  # movement points (mf-prg.bas:1012); ms=0 forces turn end
-    roster: list[Gangster] = field(default_factory=list)
+    roster: tuple[Gangster, ...] = ()
     jobs: Job = field(default_factory=Job)
     debt: Debt = field(default_factory=Debt)
     business: Business = field(default_factory=Business)
@@ -119,29 +124,29 @@ class Player:
     rented_months: int = 0  # um(sp) — prepaid rented months accumulator (mf-prg.bas:10040)
 
 
-@dataclass
+@dataclass(frozen=True)
 class MapState:
     """The city map (40 wide × 25 tall) and its per-tile/special-cell data.
 
     Distinct coordinate space from the combat grid (40×13) — never conflate.
     """
 
-    grid: list[list[int]] = field(default_factory=list)  # 40×25 city map; U1 fills it
-    tenancy: dict[int, int] = field(default_factory=dict)  # per-tile tenancy by ln (orig uk)
-    special_cells: dict[int, int] = field(default_factory=dict)  # e.g. 569, 861
+    grid: tuple[tuple[int, ...], ...] = ()  # 40×25 city map
+    tenancy: Mapping[int, int] = _EMPTY_MAP  # per-tile tenancy by ln (orig uk)
+    special_cells: Mapping[int, int] = _EMPTY_MAP  # e.g. 569, 861
 
 
-@dataclass
+@dataclass(frozen=True)
 class CombatState:
     """Empty stub — no behavior this unit."""
 
-    enemy_roster: list = field(default_factory=list)
-    grid: list[list[int]] = field(default_factory=list)  # 40×13 combat grid — different space
-    dir_memory: dict = field(default_factory=dict)  # ri() direction memory
+    enemy_roster: tuple = ()
+    grid: tuple[tuple[int, ...], ...] = ()  # 40×13 combat grid — different space
+    dir_memory: Mapping = _EMPTY_MAP  # ri() direction memory
     result_flag: int = 0  # original s
 
 
-@dataclass
+@dataclass(frozen=True)
 class Clock:
     """Game calendar and player-turn bookkeeping."""
 
@@ -151,16 +156,16 @@ class Clock:
     player_count: int = 1  # sz — player count, validated [1,4] (mf-prg.bas:206)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Config:
     """Rules/params (frozen per game at build time conceptually)."""
 
     score_mult: float = 1.0  # x8 — score-gain weight [0.1,2.0] (mf-prg.bas:176); scales gf += x*x8
-    action_costs: dict[str, int] = field(default_factory=dict)
-    formula_params: dict = field(default_factory=dict)
+    action_costs: Mapping[str, int] = _EMPTY_MAP
+    formula_params: Mapping = _EMPTY_MAP
 
 
-@dataclass
+@dataclass(frozen=True)
 class Flags:
     """Global flags, distinct from the per-player bitfields above."""
 
@@ -168,11 +173,11 @@ class Flags:
     loaded: bool = False
 
 
-@dataclass
+@dataclass(frozen=True)
 class GameState:
     """Top-level game state aggregating all subsystems."""
 
-    players: list[Player] = field(default_factory=list)
+    players: tuple[Player, ...] = ()
     map: MapState = field(default_factory=MapState)
     combat: CombatState = field(default_factory=CombatState)
     clock: Clock = field(default_factory=Clock)

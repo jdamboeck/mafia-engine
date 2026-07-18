@@ -4,8 +4,8 @@ Written proof-first: this file is authored BEFORE ``engine/effects.py`` exists, 
 observe a red failure (import error), then the module is implemented to green.
 
 Effects are typed, frozen, serializable pure-data records that double as replay events
-(KTD-3, KTD-6). ``apply(state, effect) -> GameState`` is PURE: it deep-copies the input
-state, mutates the copy, and returns it — the input is never mutated. Effects flow through
+(KTD-3, KTD-6). ``apply(state, effect) -> GameState`` is PURE: the state graph is frozen,
+so it functionally rebuilds a new state — the input is never mutated. Effects flow through
 the U4 driver's buffer: ``ctx.apply`` enqueues; the buffer commits atomically (folding
 ``apply`` over it) on clean completion and is discarded on cancel.
 """
@@ -13,6 +13,7 @@ the U4 driver's buffer: ``ctx.apply`` enqueues; the buffer commits atomically (f
 from __future__ import annotations
 
 import dataclasses
+from types import MappingProxyType
 
 import pytest
 
@@ -33,6 +34,9 @@ from engine.effects import (
     StatChangeCapped,
     Teleport,
     WantedChange,
+    _mapping_set,
+    _with_gangster,
+    _with_player,
     apply,
     commit,
 )
@@ -517,3 +521,64 @@ def test_driver_empty_buffer_returns_equal_but_distinct_state():
     # distinct-but-equal copy — the driver-cancel path is the one that returns the original.
     assert result.state is not state
     assert result.state.players[0].ka == state.players[0].ka
+
+
+# --------------------------------------------------------------------------- #
+# Nested functional-update helpers (KTD-3) — written once, used by every branch #
+# --------------------------------------------------------------------------- #
+def _two_player_state() -> GameState:
+    return GameState(
+        players=(
+            Player(name="A", ka=100, roster=(Gangster(name="g0"), Gangster(name="g1"))),
+            Player(name="B", ka=200),
+        ),
+        clock=Clock(player_count=2),
+    )
+
+
+def test_with_player_updates_only_the_target():
+    """Helper happy path: the target player changes, siblings are untouched."""
+    st = _two_player_state()
+    new = _with_player(st, 0, ka=999)
+
+    assert new.players[0].ka == 999
+    assert new.players[1] is st.players[1]  # structural sharing of the sibling
+    assert new.players[0].name == "A"  # unrelated fields preserved
+
+
+def test_with_player_is_pure():
+    """Helper purity: the input state is never mutated."""
+    st = _two_player_state()
+    _with_player(st, 0, ka=999)
+
+    assert st.players[0].ka == 100  # original untouched
+
+
+def test_with_player_returns_readonly_players():
+    """R2: the rebuilt players collection is a tuple, never a mutable list."""
+    st = _two_player_state()
+    new = _with_player(st, 0, ka=999)
+
+    assert isinstance(new.players, tuple)
+
+
+def test_with_gangster_updates_only_the_target_gangster():
+    """One level deeper: the right gangster changes; roster siblings are shared."""
+    st = _two_player_state()
+    new = _with_gangster(st, 0, 1, kraft=42)
+
+    assert new.players[0].roster[1].kraft == 42
+    assert new.players[0].roster[0] is st.players[0].roster[0]
+    assert new.players[1] is st.players[1]
+    assert st.players[0].roster[1].kraft == 0  # purity
+
+
+def test_mapping_set_returns_new_readonly_mapping():
+    """R2: a rebuilt mapping is read-only and leaves the source mapping alone."""
+    source = MappingProxyType({1: 0})
+    updated = _mapping_set(source, 2, 1)
+
+    assert updated == {1: 0, 2: 1}
+    assert dict(source) == {1: 0}  # purity
+    with pytest.raises(TypeError):
+        updated[3] = 9  # type: ignore[index]

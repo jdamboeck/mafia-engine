@@ -28,8 +28,8 @@ lazily to avoid a cycle.
 
 from __future__ import annotations
 
-import copy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import Any
 
 from engine.state import GameState
@@ -329,14 +329,66 @@ def _target_index(state: GameState, player: int | None) -> int:
     return idx
 
 
-def _apply_in_place(state: GameState, effect: Any) -> None:
-    """Mutate ``state`` in place by ``effect``. NOT pure — callers own the copy.
+def _tuple_replace(items, idx: int, value):
+    """Return a new tuple with ``items[idx]`` replaced by ``value``.
 
-    This holds the raw mutation/dispatch logic shared by :func:`apply` (one effect, one
-    copy) and :func:`commit` (many effects, one copy). Dispatch is on the concrete effect
-    type. An unknown/unregistered effect type raises ``TypeError``. The target player
-    index is resolved once (explicit ``player`` else the active player); an out-of-range
-    index surfaces as ``IndexError``.
+    The read-only-preserving list update: the result is always a ``tuple``, so a
+    rebuilt collection can never be a mutable ``list`` that a handler could append
+    to (R2). Structural sharing is implicit — the untouched elements are the same
+    objects, which is safe because they are themselves frozen.
+    """
+    return tuple(items)[:idx] + (value,) + tuple(items)[idx + 1 :]
+
+
+def _with_player(state: GameState, idx: int, **field_changes) -> GameState:
+    """Return a new ``GameState`` with ``state.players[idx]`` field-updated (KTD-3).
+
+    The single nested-update primitive every player-scoped effect branch funnels
+    through: rebuild the ``Player`` via :func:`dataclasses.replace`, swap it into a
+    rebuilt read-only ``players`` collection, and rebuild the ``GameState`` around it.
+    Written once and tested once so ~15 effect branches never hand-roll the rebuild.
+
+    Engine-internal vocabulary — NOT part of the handler API (CLAUDE.md § 5.2a).
+    """
+    new_player = replace(state.players[idx], **field_changes)
+    return replace(state, players=_tuple_replace(state.players, idx, new_player))
+
+
+def _with_gangster(state: GameState, idx: int, g_idx: int, **field_changes) -> GameState:
+    """Return a new ``GameState`` with player ``idx``'s gangster ``g_idx`` updated.
+
+    One level deeper than :func:`_with_player`: rebuild the ``Gangster``, swap it into
+    a rebuilt roster, then delegate the player/state rebuild to :func:`_with_player`.
+    """
+    player = state.players[idx]
+    new_gangster = replace(player.roster[g_idx], **field_changes)
+    return _with_player(
+        state, idx, roster=_tuple_replace(player.roster, g_idx, new_gangster)
+    )
+
+
+def _mapping_set(mapping, key, value) -> MappingProxyType:
+    """Return a new read-only mapping equal to ``mapping`` with ``key`` set to ``value``.
+
+    Keeps the R2 read-only invariant across effect rebuilds: the result is a
+    :class:`~types.MappingProxyType`, never a plain mutable ``dict``.
+    """
+    updated = dict(mapping)
+    updated[key] = value
+    return MappingProxyType(updated)
+
+
+def _apply(state: GameState, effect: Any) -> GameState:
+    """Return a NEW ``GameState`` with ``effect`` applied. Pure — never mutates ``state``.
+
+    This holds the dispatch logic shared by :func:`apply` (one effect) and :func:`commit`
+    (a fold over many). Dispatch is on the concrete effect type. An unknown/unregistered
+    effect type raises ``TypeError``. The target player index is resolved once (explicit
+    ``player`` else the active player); an out-of-range index surfaces as ``IndexError``.
+
+    Every branch rebuilds through the :func:`_with_player` / :func:`_with_gangster` /
+    :func:`_mapping_set` helpers rather than writing state — the state graph is frozen
+    (R1/R3), so the functional rebuild is the only expressible write path.
 
     Deferred effects (:class:`WantedChange`, :class:`EnergyChange`, :class:`Jail`,
     :class:`SpawnFighter`) raise ``NotImplementedError`` — they are exercised in a later
@@ -459,25 +511,25 @@ def _apply_in_place(state: GameState, effect: Any) -> None:
 def apply(state: GameState, effect: Any) -> GameState:
     """Return a NEW :class:`GameState` with ``effect`` applied; never mutate ``state``.
 
-    Purity: the input ``state`` is deep-copied and only the copy is mutated and returned.
-    This makes the driver's atomic commit/discard hold at the state level — a discarded
-    buffer leaves the caller's state untouched by construction.
+    Purity is structural: the state graph is frozen (R1), so :func:`_apply` can only
+    build a new state — there is no in-place write to defend against. This makes the
+    driver's atomic commit/discard hold at the state level: a discarded buffer leaves
+    the caller's state untouched by construction.
 
-    Errors surface exactly as in :func:`_apply_in_place`: ``TypeError`` for an unknown
-    effect, ``IndexError`` for an out-of-range target, ``ValueError`` for a bad stat/flag
-    name, ``NotImplementedError`` for a deferred effect.
+    Errors surface exactly as in :func:`_apply`: ``TypeError`` for an unknown effect,
+    ``IndexError`` for an out-of-range target, ``ValueError`` for a bad stat/flag name,
+    ``NotImplementedError`` for a deferred effect.
     """
-    new_state = copy.deepcopy(state)
-    _apply_in_place(new_state, effect)
-    return new_state
+    return _apply(state, effect)
 
 
 @dataclass(frozen=True)
 class CommitResult:
     """The outcome of :func:`commit`: the new state plus the effects committed, in order.
 
-    ``state`` is a fresh copy (the caller's input is never mutated). ``effects`` is the
-    list of committed effects in application order — the replay record for this commit.
+    ``state`` is a newly built state (the caller's input is never mutated). ``effects``
+    is the list of committed effects in application order — the replay record for this
+    commit.
     """
 
     state: GameState
@@ -485,16 +537,20 @@ class CommitResult:
 
 
 def commit(state: GameState, effects: list) -> CommitResult:
-    """Apply ``effects`` in order against a SINGLE deep copy of ``state``.
+    """Fold ``effects`` in order over ``state``, returning the resulting state.
 
-    Purity: ``state`` is deep-copied ONCE up front; every effect folds into that one copy
-    via :func:`_apply_in_place`, so the caller's ``state`` is never mutated. Returns a
-    :class:`CommitResult` bundling the new state and the committed effects in order. An
-    empty ``effects`` list yields an equal-but-distinct state copy. Any effect that would
-    raise in :func:`apply` (unknown type, out-of-range target, deferred effect, bad name)
-    raises here too, at the offending effect.
+    Purity is structural: the graph is frozen (R1), so each :func:`_apply` step builds a
+    new state and the caller's ``state`` is never mutated. Returns a :class:`CommitResult`
+    bundling the new state and the committed effects in order. An empty ``effects`` list
+    yields an equal-but-distinct state. Any effect that would raise in :func:`apply`
+    (unknown type, out-of-range target, deferred effect, bad name) raises here too, at
+    the offending effect.
     """
-    new_state = copy.deepcopy(state)
+    new_state = state
     for effect in effects:
-        _apply_in_place(new_state, effect)
+        new_state = _apply(new_state, effect)
+    if not effects:
+        # Preserve the established equal-but-distinct contract for an empty commit:
+        # callers rely on identity changing even when nothing was applied.
+        new_state = replace(state)
     return CommitResult(state=new_state, effects=list(effects))
