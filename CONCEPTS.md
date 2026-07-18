@@ -30,6 +30,13 @@ A declarative precondition on a menu option, expressed in the config's condition
 
 A failed Guard is a normal outcome, not an error: the option is denied (or excluded from the offered menu) with a reason key, no Handler runs, and no state changes. Guards can depend on which tile of the location the player entered from, not just on player state.
 
+## Game state
+
+### Frozen State Graph
+The game state as a whole: a tree of immutable records where no field can be written after construction and every collection it holds is read-only.
+
+Immutability is structural, not conventional — an attempted write fails where it is written rather than corrupting a later save. Applying an Effect therefore never modifies state in place; it rebuilds the affected records and returns a new graph, with untouched branches shared rather than copied. Freezing the records alone is not enough: a frozen record can still hand out a mutable collection, so read-only collections are established when state is *built*, at every construction site (new game, effect application, and load). This is what makes the replay guarantee enforceable rather than merely documented — with no way to mutate state outside an Effect, the effect log necessarily accounts for every change.
+
 ## Flagged ambiguities
 
 - Older design prose said effects are "committed as events" — the terms are now distinct: Effects mutate and replay; Semantic Events are audit-only and never replay.
