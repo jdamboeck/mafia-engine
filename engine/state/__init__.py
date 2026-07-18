@@ -10,6 +10,7 @@ Pure dataclasses + stdlib only; the ``engine/`` package imports nothing from
 display text.
 """
 
+import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -54,6 +55,27 @@ def tuple_replace(items, idx: int, value) -> tuple:
     return items[:idx] + (value,) + items[idx + 1 :]
 
 
+def json_safe(value):
+    """Recursively convert a frozen state graph into plain JSON-safe containers.
+
+    The inverse of :func:`freeze`: read-only mappings unwrap to ``dict`` and tuples
+    to ``list``. Needed because neither read-only form survives JSON, and
+    ``mappingproxy`` is not even picklable — so ``dataclasses.asdict`` (which
+    deepcopies internally) cannot walk a frozen graph at all.
+
+    Lives here rather than in ``engine.persistence`` because it is generic
+    graph-walking, not save-format logic: persistence serializes with it, and the
+    test purity harness snapshots state values with it.
+    """
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return {f.name: json_safe(getattr(value, f.name)) for f in dataclasses.fields(value)}
+    if isinstance(value, Mapping):
+        return {k: json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v) for v in value]
+    return value
+
+
 def _coerce_readonly(instance, *field_names) -> None:
     """Force ``instance``'s named collection fields into read-only form (R2).
 
@@ -88,6 +110,7 @@ __all__ = [
     "Flags",
     "GameState",
     "freeze",
+    "json_safe",
     "tuple_replace",
 ]
 

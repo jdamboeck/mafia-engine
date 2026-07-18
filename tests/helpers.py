@@ -39,8 +39,8 @@ from typing import Any
 
 from engine.effects import commit
 from engine.interactions import run
-from engine.persistence import _json_safe, _state_from_dict
-from engine.state import tuple_replace
+from engine.persistence import state_from_dict
+from engine.state import json_safe, tuple_replace
 
 
 def with_player(state, idx: int = 0, **field_changes):
@@ -90,7 +90,7 @@ def with_config(state, **field_changes):
 def _shape(value):
     """Return a type fingerprint of ``value``'s whole graph, ignoring its contents.
 
-    :func:`_json_safe` exists to ERASE types — proxy to dict, tuple to list — so a
+    :func:`~engine.state.json_safe` exists to ERASE types — proxy to dict, tuple to list — so a
     value comparison built on it cannot see type drift. That blind spot is not
     cosmetic: swapping ``map.tenancy``'s ``MappingProxyType`` for a plain ``dict``
     reopens the exact R2 false floor the frozen graph closes, and both sides
@@ -138,7 +138,7 @@ def run_pure(handler, input_source, *, state, rng=None):
     # baseline mutates along with the state it is meant to be compared against).
     # deepcopy is unavailable here — mappingproxy fields are unpicklable — so walk the
     # graph into plain containers instead.
-    snapshot = _json_safe(state)
+    snapshot = json_safe(state)
     shape = _shape(state)
 
     result = run(handler, input_source, state=state, rng=rng)
@@ -146,7 +146,7 @@ def run_pure(handler, input_source, *, state, rng=None):
     # (a) The handler must not have mutated the caller's state in place. Frozen
     # dataclasses already make a plain attribute write raise at the offending line;
     # this catches the one escape freezing cannot close (object.__setattr__).
-    assert _json_safe(state) == snapshot, (
+    assert json_safe(state) == snapshot, (
         "handler (or driver) mutated the INPUT state in place; the input GameState "
         "must be left untouched — all changes belong on result.state via effects"
     )
@@ -165,7 +165,7 @@ def run_pure(handler, input_source, *, state, rng=None):
     # Replay from the SNAPSHOT VALUES, not from `state` — the driver computed
     # result.state as commit(state, buffer), so recommitting against that same object
     # would compare commit's output with itself and could never fail.
-    expected: Any = commit(_state_from_dict(snapshot), list(result.effects)).state
+    expected: Any = commit(state_from_dict(snapshot), list(result.effects)).state
     assert result.state == expected, (
         "result.state is NOT explained by result.effects — the handler mutated "
         "ctx.state directly instead of buffering an effect via ctx.apply(). "

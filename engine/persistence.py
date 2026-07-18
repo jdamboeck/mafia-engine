@@ -21,7 +21,7 @@ prompt — generators are not serializable and none lives in ``GameState`` (see 
 
 Serialization is **type-tagged**: each effect is written as ``{"_type": "<ClassName>", ...}``
 and reconstructed by looking the tag up in :data:`_EFFECT_TYPES`. ``GameState`` is nested
-dataclasses; it round-trips via :func:`_json_safe` + typed reconstruction, with the
+dataclasses; it round-trips via :func:`~engine.state.json_safe` + typed reconstruction, with the
 int-keyed mapping fields (``map.tenancy``, ``map.special_cells``) restored to int keys (JSON
 stringifies dict keys). The graph's READ-ONLY collections are unwrapped to plain dict/list on
 save and rebuilt as read-only on load, so a restored state is as immutable as a built one.
@@ -54,6 +54,7 @@ from engine.state import (
     Player,
     Wanted,
     freeze,
+    json_safe,
 )
 
 __all__ = [
@@ -65,6 +66,7 @@ __all__ = [
     "append_effect",
     "replay",
     "resume_pending_action",
+    "state_from_dict",
 ]
 
 
@@ -110,27 +112,9 @@ def _effect_from_dict(raw: dict) -> Any:
 # --------------------------------------------------------------------------- #
 # GameState (de)serialization — nested dataclasses + int-key restoration      #
 # --------------------------------------------------------------------------- #
-def _json_safe(value: Any) -> Any:
-    """Recursively convert a frozen state graph into plain JSON-safe containers.
-
-    The state graph holds READ-ONLY collections (``MappingProxyType``, ``tuple``) so it
-    is immutable by construction (R2/KTD-2). Neither survives JSON, and ``mappingproxy``
-    is not even picklable — so ``dataclasses.asdict`` (which deepcopies) cannot walk the
-    graph. This unwraps read-only mappings to ``dict`` and tuples to ``list`` on the way
-    out; :func:`_state_from_dict` rebuilds the read-only forms on the way back in.
-    """
-    if dataclasses.is_dataclass(value) and not isinstance(value, type):
-        return {f.name: _json_safe(getattr(value, f.name)) for f in dataclasses.fields(value)}
-    if isinstance(value, Mapping):
-        return {k: _json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_safe(v) for v in value]
-    return value
-
-
 def _state_to_dict(state: GameState) -> dict:
     """Serialize a ``GameState`` to a JSON-safe nested dict."""
-    return _json_safe(state)
+    return json_safe(state)
 
 
 def _restore_int_keys(d: dict) -> Mapping[int, int]:
@@ -203,8 +187,15 @@ def _config_from_dict(raw: dict) -> Config:
     return Config(**restored)
 
 
-def _state_from_dict(raw: dict) -> GameState:
-    """Reconstruct a ``GameState`` from its serialized nested dict."""
+def state_from_dict(raw: dict) -> GameState:
+    """Reconstruct a ``GameState`` from its serialized nested dict.
+
+    Public because it is the declared inverse of :func:`~engine.state.json_safe`
+    for the WHOLE state graph: it owns the typed per-dataclass reconstruction
+    (and int-key restoration) that a generic walker cannot do. The test purity
+    harness rebuilds its replay baseline with it, so this is a supported entry
+    point, not persistence-internal — changing its shape breaks that harness.
+    """
     return GameState(
         players=tuple(_player_from_dict(p) for p in raw["players"]),
         map=_map_from_dict(raw["map"]),
@@ -304,7 +295,7 @@ def load_game(path: str | Path) -> SaveData:
         _check_version(rec)
 
     header = records[0]
-    state = _state_from_dict(header["snapshot"])
+    state = state_from_dict(header["snapshot"])
     effect_log = [
         _effect_from_dict(rec["effect"]) for rec in records if rec.get("kind") == "effect"
     ]

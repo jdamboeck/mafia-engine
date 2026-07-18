@@ -426,7 +426,7 @@ def test_run_pure_catches_result_state_unexplained_by_effects():
     still passes if the baseline is reverted to the driver's own input. Guarding
     that specific regression needs a handler whose result matches a same-object
     replay but not an independent one — an argument for keeping the
-    `_state_from_dict(snapshot)` baseline on the strength of the reasoning in
+    `state_from_dict(snapshot)` baseline on the strength of the reasoning in
     `tests/helpers.py`, not on this test alone.
     """
     from engine.effects import MoneyChange
