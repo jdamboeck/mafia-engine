@@ -12,8 +12,12 @@ that response back. It enforces validation/re-prompting, cancellation via
 from __future__ import annotations
 
 import dataclasses
+from types import MappingProxyType
+from unittest import mock
 
 import pytest
+
+import engine.effects
 
 from engine.interactions import (
     CANCEL,
@@ -27,7 +31,7 @@ from engine.interactions import (
     StartCombat,
     run,
 )
-from engine.state import Clock, Gangster, GameState, Player
+from engine.state import Clock, Gangster, GameState, MapState, Player
 from tests.helpers import run_pure
 
 
@@ -387,6 +391,70 @@ def test_run_pure_catches_a_mutation_that_bypasses_frozen():
     st = _harness_state(ka=5000)
     with pytest.raises(AssertionError, match="mutated the INPUT state"):
         run_pure(sneaky_handler, scripted(), state=st)
+
+
+def test_run_pure_catches_a_readonly_collection_downgrade():
+    """Swapping a read-only collection for a mutable one must fail the harness.
+
+    This is the R2 false floor reopening: `map.tenancy` going from
+    `MappingProxyType` back to a plain `dict` restores the write path the frozen
+    graph exists to close. Both flatten to the same JSON, so the harness's value
+    comparison alone cannot see it — only the type fingerprint can.
+    """
+
+    def downgrading_handler(ctx):
+        object.__setattr__(ctx.state.map, "tenancy", {1: 0})
+        return []
+        yield  # pragma: no cover - make this a generator
+
+    st = dataclasses.replace(
+        _harness_state(ka=5000),
+        map=MapState(tenancy=MappingProxyType({1: 0})),
+    )
+    with pytest.raises(AssertionError, match="changed the TYPE"):
+        run_pure(downgrading_handler, scripted(), state=st)
+
+
+def test_run_pure_catches_result_state_unexplained_by_effects():
+    """Assertion (b) must be able to fail — it is the harness's real purity claim.
+
+    Proves (b) is wired up and can fire: a `result.state` carrying a change the
+    effect log does not account for is rejected.
+
+    Scope limit, stated honestly: this does NOT pin (b)'s *baseline independence*.
+    The tamper here diverges from any replay, vacuous baseline or not, so this test
+    still passes if the baseline is reverted to the driver's own input. Guarding
+    that specific regression needs a handler whose result matches a same-object
+    replay but not an independent one — an argument for keeping the
+    `_state_from_dict(snapshot)` baseline on the strength of the reasoning in
+    `tests/helpers.py`, not on this test alone.
+    """
+    from engine.effects import MoneyChange
+
+    def honest_handler(ctx):
+        ctx.apply(MoneyChange(-100))
+        return []
+        yield  # pragma: no cover - make this a generator
+
+    st = _harness_state(ka=5000)
+
+    # Patch the DRIVER's commit so `result.state` carries a change the effect log
+    # does not account for, while the input state stays pristine — assertion (a)
+    # must not fire, leaving (b) as the only thing that can catch this.
+    real_commit = engine.effects.commit
+
+    def commit_with_extra_change(state, effects):
+        result = real_commit(state, effects)
+        tampered = dataclasses.replace(
+            result.state,
+            players=(dataclasses.replace(result.state.players[0], ka=42),)
+            + tuple(result.state.players[1:]),
+        )
+        return dataclasses.replace(result, state=tampered)
+
+    with mock.patch.object(engine.effects, "commit", commit_with_extra_change):
+        with pytest.raises(AssertionError, match="NOT explained by result.effects"):
+            run_pure(honest_handler, scripted(), state=st)
 
 
 def test_run_pure_passes_a_well_behaved_handler():

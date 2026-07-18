@@ -33,6 +33,7 @@ The ``with_*`` helpers below are the frozen-graph replacement for the old
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
@@ -70,6 +71,8 @@ def with_tenancy(state, tenancy=None, *, ln=None, owner=None):
     Wraps the result in a proxy so a fixture cannot hand the engine a mutable
     mapping and quietly reopen the write path the freeze exists to close.
     """
+    if (tenancy is None) == (ln is None):
+        raise TypeError("with_tenancy takes either a tenancy mapping or ln=/owner=, not both or neither")
     if ln is not None:
         tenancy = {**state.map.tenancy, ln: owner}
     return dataclasses.replace(
@@ -82,6 +85,31 @@ def with_config(state, **field_changes):
     return dataclasses.replace(
         state, config=dataclasses.replace(state.config, **field_changes)
     )
+
+
+def _shape(value):
+    """Return a type fingerprint of ``value``'s whole graph, ignoring its contents.
+
+    :func:`_json_safe` exists to ERASE types — proxy to dict, tuple to list — so a
+    value comparison built on it cannot see type drift. That blind spot is not
+    cosmetic: swapping ``map.tenancy``'s ``MappingProxyType`` for a plain ``dict``
+    reopens the exact R2 false floor the frozen graph closes, and both sides
+    flatten to the same JSON. Python's own coercions hide more (``0 == False``,
+    ``5000 == 5000.0``), so an int silently becoming a float — the corruption that
+    surfaces only on load — would compare equal too.
+
+    Pairing this fingerprint with the value check closes both.
+    """
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        return (
+            type(value).__name__,
+            {f.name: _shape(getattr(value, f.name)) for f in dataclasses.fields(value)},
+        )
+    if isinstance(value, Mapping):
+        return (type(value).__name__, {k: _shape(v) for k, v in value.items()})
+    if isinstance(value, (list, tuple)):
+        return (type(value).__name__, [_shape(v) for v in value])
+    return type(value).__name__
 
 
 def run_pure(handler, input_source, *, state, rng=None):
@@ -111,6 +139,7 @@ def run_pure(handler, input_source, *, state, rng=None):
     # deepcopy is unavailable here — mappingproxy fields are unpicklable — so walk the
     # graph into plain containers instead.
     snapshot = _json_safe(state)
+    shape = _shape(state)
 
     result = run(handler, input_source, state=state, rng=rng)
 
@@ -120,6 +149,15 @@ def run_pure(handler, input_source, *, state, rng=None):
     assert _json_safe(state) == snapshot, (
         "handler (or driver) mutated the INPUT state in place; the input GameState "
         "must be left untouched — all changes belong on result.state via effects"
+    )
+
+    # (a2) Types too, not just values — see :func:`_shape`. Catches a read-only
+    # collection downgraded to a mutable one (reopening the R2 false floor) and
+    # scalar drift that Python's == would equate (0/False, 5000/5000.0).
+    assert _shape(state) == shape, (
+        "handler (or driver) changed the TYPE of a field on the input GameState. "
+        "A read-only collection replaced by a mutable one reopens the write path "
+        "the frozen graph exists to close; scalar type drift corrupts save/replay."
     )
 
     # (b) The returned state must be fully explained by the committed effects:

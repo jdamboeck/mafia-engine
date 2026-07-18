@@ -35,7 +35,7 @@ from typing import Any
 
 from engine.actions import EngineResult
 from engine.effects import MsChange, SetEntryContext, SetPosition, commit
-from engine.state import tuple_replace
+from engine.state import GameState, tuple_replace
 from engine.events import EnterLocation, MoveBlocked, MoveStep
 
 __all__ = [
@@ -299,7 +299,7 @@ def try_move(state, city: City, delta: int) -> EngineResult:
     )
 
 
-def advance_turn(state, vehicles: list[dict]) -> tuple[Any, bool]:
+def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, bool]:
     """End the active player's turn and rotate to the next (mf-prg.bas:1010-1013).
 
     Ports the turn-loop head:
