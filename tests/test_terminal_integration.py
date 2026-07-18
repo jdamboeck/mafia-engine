@@ -33,6 +33,7 @@ from clients.terminal.renderers import (
     render_status_bar,
     render_subheader,
 )
+from tests.helpers import with_player
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[1]
@@ -213,7 +214,7 @@ class TestMapDisplayWidth:
         state = cfg.module.new_game(
             seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")]
         )
-        state.players[0].po = 141
+        state = with_player(state, 0, po=141)
         buf = io.StringIO()
         render_map(city, city_raw, state, buf)
         return buf.getvalue()
@@ -361,7 +362,9 @@ class TestTurnOverQuit:
 
         keys = self._walk_to_turn_over() + [turn_over_key]
         calls = []
-        monkeypatch.setattr(tmain, "advance_turn", lambda *a, **k: calls.append(a))
+        monkeypatch.setattr(
+            tmain, "advance_turn", lambda st, *a, **k: (calls.append(a), (st, False))[1]
+        )
         monkeypatch.setattr(sys, "stdin", self._script(keys))
         monkeypatch.setattr(sys, "stdout", io.StringIO())
         tmain.play(seed=42)
@@ -376,7 +379,9 @@ class TestTurnOverQuit:
 
         keys = self._walk_to_turn_over()
         calls = []
-        monkeypatch.setattr(tmain, "advance_turn", lambda *a, **k: calls.append(a))
+        monkeypatch.setattr(
+            tmain, "advance_turn", lambda st, *a, **k: (calls.append(a), (st, False))[1]
+        )
         monkeypatch.setattr(sys, "stdin", self._script(keys))
         monkeypatch.setattr(sys, "stdout", io.StringIO())
         tmain.play(seed=42)

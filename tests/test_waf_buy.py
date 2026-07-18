@@ -60,11 +60,11 @@ def _state(*, ka=100000, ln=2, rank=1, gf=50.0, score_mult=1.0, roster=None):
         ka=ka,
         gf=gf,
         rank=rank,
-        roster=roster if roster is not None else [Gangster(name="g0")],
+        roster=roster if roster is not None else (Gangster(name="g0"),),
+        last_location=ln,
     )
-    active.last_location = ln
     return GameState(
-        players=[active],
+        players=(active,),
         clock=Clock(active_player=0, player_count=1),
         config=Config(score_mult=score_mult, formula_params=_PARAMS),
     )
@@ -299,10 +299,10 @@ def test_spec_sheet_shown_then_continues_to_gangster_pick():
 def test_stat_gate_intelligence_blocks_then_passes():
     # weapon 6 (gewehr) requires int>=40. Gangster int 39 fails, then a second gangster
     # int 40 passes (buys). Two-gangster hand-built fixture.
-    roster = [
+    roster = (
         Gangster(name="dumb", intelligenz=39),
         Gangster(name="smart", intelligenz=40),
-    ]
+    )
     st = _state(ln=1, rank=6, roster=roster, ka=100000)
     # ln=1 grenade roll forced miss; weapon 6; gangster 0 (fails), gangster 1 (passes);
     # both unarmed so no trade-in confirm.
@@ -317,10 +317,10 @@ def test_stat_gate_intelligence_blocks_then_passes():
     result = run_pure(
         HANDLERS["waf.buy"],
         _by_type_source({PromptInt: [6], PromptChoice: [0, 1]}),
-        state=_state(ln=1, rank=6, ka=100000, roster=[
+        state=_state(ln=1, rank=6, ka=100000, roster=(
             Gangster(name="dumb", intelligenz=39),
             Gangster(name="smart", intelligenz=40),
-        ]),
+        )),
         rng=_StubRng(1),
     )
     assert result.status == "completed"
@@ -329,7 +329,7 @@ def test_stat_gate_intelligence_blocks_then_passes():
 
 def test_stat_gate_kraft_and_brutality():
     # weapon 3 (schlagkette) requires kraft>=20 AND brut>=40.
-    roster = [Gangster(name="g", kraft=19, brutalitaet=40)]
+    roster = (Gangster(name="g", kraft=19, brutalitaet=40),)
     st = _state(ln=2, roster=roster, ka=100000)
     # weapon 3; gangster 0 fails kraft (19 < 20), then cancel the re-shown gangster pick.
     seen = _observe(
@@ -358,7 +358,7 @@ def test_first_weapon_unarmed_settles_cash_and_assigns():
 def test_trade_in_offer_uses_old_weapon_price_and_settles():
     # Armed gangster (old weapon 4 = wurfsterne, price 3000). Buy revolver (5, price 4000).
     # q = int(3000/1.5) = 2000. Accept -> cash += 2000 - 4000 = -2000. Assign 5.
-    roster = [Gangster(name="g", weapon=4, intelligenz=99, kraft=99, brutalitaet=99)]
+    roster = (Gangster(name="g", weapon=4, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, roster=roster)
     answers = {PromptInt: iter([5]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
@@ -369,7 +369,7 @@ def test_trade_in_offer_uses_old_weapon_price_and_settles():
 
 
 def test_trade_in_decline_returns_to_weapon_list():
-    roster = [Gangster(name="g", weapon=4, intelligenz=99, kraft=99, brutalitaet=99)]
+    roster = (Gangster(name="g", weapon=4, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, roster=roster)
     # buy 5, pick gangster 0, DECLINE trade-in -> back to weapon list, then cancel.
     answers = {
@@ -395,7 +395,7 @@ def test_score_first_weapon_down_by_x8():
 
 def test_score_new_index_higher_than_old_is_down():
     # old weapon 1 (messer), buy revolver 5 (x=5 > old=1) -> DOWN by x8 (gf<100).
-    roster = [Gangster(name="g", weapon=1, intelligenz=99, kraft=99, brutalitaet=99)]
+    roster = (Gangster(name="g", weapon=1, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([5]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
@@ -404,7 +404,7 @@ def test_score_new_index_higher_than_old_is_down():
 
 def test_score_new_index_not_higher_is_up_by_2x8():
     # old weapon 5 (revolver), buy messer 1 (x=1 <= old=5) -> UP by 2*x8 (gf>0).
-    roster = [Gangster(name="g", weapon=5, intelligenz=99, kraft=99, brutalitaet=99)]
+    roster = (Gangster(name="g", weapon=5, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
@@ -427,7 +427,7 @@ def test_empty_roster_loops_back_to_weapon_list_no_empty_picker():
     # list (13035 goto13010) — it never presents an empty gangster picker. So buying with an
     # empty roster must re-list weapons (not hang on an unanswerable PromptChoice), then a
     # weapon cancel ends the buy with no effects and no gangster PromptChoice ever shown.
-    st = _state(ln=2, ka=1000, roster=[])
+    st = _state(ln=2, ka=1000, roster=())
     seen = _observe(
         HANDLERS["waf.buy"], st, _StubRng(),
         {PromptInt: [1, CANCEL]},  # pick messer -> loops back (empty roster) -> cancel
@@ -438,7 +438,7 @@ def test_empty_roster_loops_back_to_weapon_list_no_empty_picker():
     result = run_pure(
         HANDLERS["waf.buy"],
         _by_type_source({PromptInt: [1, CANCEL]}),
-        state=_state(ln=2, ka=1000, roster=[]),
+        state=_state(ln=2, ka=1000, roster=()),
         rng=_StubRng(),
     )
     assert result.status == "cancelled"

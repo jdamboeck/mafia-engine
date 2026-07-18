@@ -48,11 +48,15 @@ def _state(*, ka=100000, ln=3, rank=1, score_mult=1.0, roster=None):
         name="p0",
         ka=ka,
         rank=rank,
-        roster=roster if roster is not None else [Gangster(name="g0", kraft=10, intelligenz=10, brutalitaet=10)],
+        roster=(
+            roster
+            if roster is not None
+            else (Gangster(name="g0", kraft=10, intelligenz=10, brutalitaet=10),)
+        ),
+        last_location=ln,
     )
-    active.last_location = ln
     return GameState(
-        players=[active],
+        players=(active,),
         clock=Clock(active_player=0, player_count=1),
         config=Config(score_mult=score_mult, formula_params=_PARAMS),
     )
@@ -98,11 +102,11 @@ def _observe(handler, state, rng, answers):
 # No gangster (R10)                                                            #
 # --------------------------------------------------------------------------- #
 def test_no_gangster_aborts():
-    st = _state(roster=[])
+    st = _state(roster=())
     seen = _observe(HANDLERS["waf.train"], st, _StubRng(), {})
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
     assert "locations.waf.no_gangster" in keys
-    result = run_pure(HANDLERS["waf.train"], _source({}), state=_state(roster=[]), rng=_StubRng())
+    result = run_pure(HANDLERS["waf.train"], _source({}), state=_state(roster=()), rng=_StubRng())
     assert result.effects == []
 
 
@@ -174,7 +178,7 @@ def test_range_ln2_brutality_net_minus_one():
 def test_range_gains_cap_at_99():
     # Gangster starts at kraft 98 -> +5 clamps to 99 (the effect carries cap=99, the
     # StatChangeCapped apply enforces it).
-    roster = [Gangster(name="g", kraft=98, intelligenz=10, brutalitaet=10)]
+    roster = (Gangster(name="g", kraft=98, intelligenz=10, brutalitaet=10),)
     st = _state(ln=3, rank=1, ka=100000, roster=roster)
     result = run_pure(
         HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),

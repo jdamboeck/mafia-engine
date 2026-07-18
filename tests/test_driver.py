@@ -11,6 +11,8 @@ that response back. It enforces validation/re-prompting, cancellation via
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from engine.interactions import (
@@ -346,17 +348,22 @@ def _harness_state(ka=5000):
     )
 
 
-def test_run_pure_catches_direct_state_mutation():
-    # RED-PROOF: a rigged handler that mutates ctx.state directly (no ctx.apply)
-    # produces a result.state that result.effects (empty here) cannot explain, so
-    # the harness's "explained by effects" assertion MUST fire.
+def test_direct_state_mutation_raises_at_the_offending_line():
+    """A handler that writes ctx.state directly now fails AT THE WRITE (R1).
+
+    Pre-freeze this was caught after the fact, by run_pure comparing result.state
+    against an independent replay of result.effects. The frozen graph upgrades that
+    to a language-level guarantee: the illegal write raises where it is written, so
+    the corruption can never reach a save file in the first place.
+    """
+
     def rigged_handler(ctx):
         ctx.state.players[0].ka += 1  # illegal direct mutation, no effect buffered
         return []
         yield  # pragma: no cover - make this a generator
 
     st = _harness_state(ka=5000)
-    with pytest.raises(AssertionError):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         run_pure(rigged_handler, scripted(), state=st)
 
 

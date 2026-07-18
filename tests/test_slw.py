@@ -24,7 +24,7 @@ import yaml
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
-from engine.state import Clock, Config, Gangster, GameState, MapState, Player
+from engine.state import Clock, Config, Gangster, GameState, MapState, Player, freeze
 from tests.helpers import run_pure
 
 _CONFIG_DIR = (
@@ -50,15 +50,18 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
     ``ln`` is delivered to the handler via the active player's ``last_location``
     field (the U7 seam; U9 will formalize how the turn system populates it).
     """
-    plist = [Player(ka=ka, roster=[Gangster()]) for _ in range(players)]
-    plist[active].last_location = ln
-    st = GameState(
+    # The graph is frozen (R1/R2): the active player is constructed WITH its ln
+    # rather than having it assigned afterwards.
+    plist = tuple(
+        Player(ka=ka, roster=(Gangster(),), last_location=ln if i == active else 0)
+        for i in range(players)
+    )
+    return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
-        config=Config(formula_params={"fnm": _FNM_PARAMS}),
-        map=MapState(tenancy=dict(tenancy or {})),
+        config=Config(formula_params=freeze({"fnm": _FNM_PARAMS})),
+        map=MapState(tenancy=freeze(tenancy or {})),
     )
-    return st
 
 
 def _scripted(*answers):

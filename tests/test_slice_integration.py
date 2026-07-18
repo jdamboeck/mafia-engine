@@ -48,6 +48,7 @@ from engine.config_loader import load_game_config
 from engine.interactions import PromptInt, ShowMessage, run
 from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, UP, load_city, try_move
+from tests.helpers import with_player, with_tenancy
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -185,7 +186,7 @@ def _play_trajectory():
     # A. Walk into slw ln=2 (door 180, POSITIVE rent) and RENT 2 months. #
     #    Real multi-step 156 walk: po=141 --DOWN--> 181 --LEFT--> door 180. #
     # ================================================================= #
-    p.po = 141
+    state = with_player(state, 0, po=141)
     r_step = try_move(state, city, DOWN)
     state = r_step.state  # adopt the returned state (movement is pure)
     p = state.players[0]
@@ -229,7 +230,7 @@ def _play_trajectory():
     #    Fresh state + ln=1 tile so the credit is clean and isolated.     #
     # ================================================================= #
     neg_state = _fresh_state()
-    neg_state.players[0].last_location = 1  # tile 1 -> fnm(1) == -50
+    neg_state = with_player(neg_state, 0, last_location=1)  # tile 1 -> fnm(1) == -50
     ka_before_neg = neg_state.players[0].ka
     neg_rec = _Recorder(2)  # rent 2 months at the premium (paying) unit
     neg_result = _drive_option(slw, "rent", neg_state, ln=1, recorder=neg_rec)
@@ -247,16 +248,18 @@ def _play_trajectory():
     # ================================================================= #
     # Rent-occupied: tile 2 taken by a DIFFERENT player -> rent excluded.
     occupied = _fresh_state()
-    occupied.players[0].last_location = 2
-    occupied.map.tenancy = {2: 1}  # tile 2 owned by player 1 (not the active 0)
+    occupied = with_player(occupied, 0, last_location=2)
+    # tile 2 owned by player 1 (not the active 0)
+    occupied = with_tenancy(occupied, {2: 1})
     avail_occ = {o.id for o in available_options(slw, occupied, ln=2)}
     assert "rent" not in avail_occ  # guard tenancy==0 fails -> excluded
     assert _opt(slw, "rent").on_denied == "locations.slw.no_room"
 
     # Pay-rent-not-resident: tile owned by a NON-active player -> pay_rent excluded.
     not_resident = _fresh_state()
-    not_resident.players[0].last_location = 2
-    not_resident.map.tenancy = {2: 99}  # someone who isn't the active player
+    not_resident = with_player(not_resident, 0, last_location=2)
+    # someone who isn't the active player
+    not_resident = with_tenancy(not_resident, {2: 99})
     avail_nr = {o.id for o in available_options(slw, not_resident, ln=2)}
     assert "pay_rent" not in avail_nr  # guard tenancy==sp fails -> excluded
     assert _opt(slw, "pay_rent").on_denied == "locations.slw.not_resident"
@@ -265,7 +268,7 @@ def _play_trajectory():
     # C. 0-month quiet cancel (:10030) — ZERO effects, cash UNCHANGED.    #
     # ================================================================= #
     cancel_state = _fresh_state()
-    cancel_state.players[0].last_location = 2  # a FREE tile (guard passes)
+    cancel_state = with_player(cancel_state, 0, last_location=2)  # a FREE tile (guard passes)
     ka_before_cancel = cancel_state.players[0].ka
     cancel_rec = _Recorder(0)  # 0 months -> x<=0 -> quiet return
     cancel_result = _drive_option(slw, "rent", cancel_state, ln=2, recorder=cancel_rec)
@@ -279,7 +282,8 @@ def _play_trajectory():
     #    Real walk: po=474 --LEFT--> 473 --UP--> door 433 (la=2, ln=1).   #
     # ================================================================= #
     p = state.players[0]
-    p.po = 474
+    state = with_player(state, 0, po=474)
+    p = state.players[0]
     ms_before_pub = p.ms
     r_step2 = try_move(state, city, LEFT)
     state = r_step2.state

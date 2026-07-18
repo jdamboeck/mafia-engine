@@ -25,9 +25,11 @@ from engine.state import Clock, Gangster, GameState, Player
 
 def _state(*, rank=1, roster=0, active=0, players=1):
     plist = [Player() for _ in range(players)]
-    plist[active].rank = rank
-    plist[active].roster = [Gangster() for _ in range(roster)]
-    return GameState(players=plist, clock=Clock(active_player=active, player_count=players))
+    plist[active] = Player(rank=rank, roster=tuple(Gangster() for _ in range(roster)))
+    return GameState(
+        players=tuple(plist),
+        clock=Clock(active_player=active, player_count=players),
+    )
 
 
 # A dummy handler registered under a test id to prove resolution.

@@ -39,7 +39,7 @@ from engine.effects import MoneyChange, MsChange, SetEntryContext, SetPosition
 from engine.events import EnterLocation, MoveStep, OptionDenied
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, load_city, try_move
-from tests.helpers import run_pure
+from tests.helpers import run_pure, with_player
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -96,9 +96,8 @@ def _types(items):
 # --------------------------------------------------------------------------- #
 def test_movement_step_result_events_effects_and_purity():
     city = _load_city()
-    state = _fresh_state()
     # po=141 --DOWN--> 181 is a real street step on the loaded map.
-    state.players[0].po = 141
+    state = with_player(_fresh_state(), po=141)
     ms_before = state.players[0].ms
 
     result = try_move(state, city, DOWN)
@@ -132,9 +131,8 @@ def test_movement_step_result_events_effects_and_purity():
 # --------------------------------------------------------------------------- #
 def test_location_entry_result_events_effects_and_entry_context():
     city = _load_city()
-    state = _fresh_state()
     # po=181 --LEFT--> door 180 enters slw at la=1, ln=2 on the loaded map.
-    state.players[0].po = 181
+    state = with_player(_fresh_state(), po=181)
     ms_before = state.players[0].ms
     last_location_before = state.players[0].last_location
     last_la_before = state.players[0].last_la
@@ -207,8 +205,8 @@ def test_guard_denial_through_run_option_is_blocked_and_pure():
 # --------------------------------------------------------------------------- #
 def test_handler_option_through_run_option_commits_and_is_pure():
     slw = _load_shell(_SLW_SHELL)
-    state = _fresh_state()
-    state.players[0].last_location = 2  # tile 2: fnm(2) == base 50 (a paying tile)
+    # tile 2: fnm(2) == base 50 (a paying tile)
+    state = with_player(_fresh_state(), last_location=2)
     ka_before = state.players[0].ka
 
     result = run_option(slw, "rent", state, ln=2, input_source=_scripted(2))
@@ -237,8 +235,7 @@ def test_handler_option_purity_via_run_pure_harness():
     result.state is explained by a buffered effect (no direct ctx.state mutation).
     """
     slw = _load_shell(_SLW_SHELL)
-    state = _fresh_state()
-    state.players[0].last_location = 2
+    state = with_player(_fresh_state(), last_location=2)
     handler = next(o for o in slw.options if o.id == "rent").handler
 
     result = run_pure(handler, _scripted(2), state=state, rng=None)

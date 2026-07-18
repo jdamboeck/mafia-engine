@@ -7,25 +7,29 @@ here — rather than as a fixture — precisely so both ``test_slw.py`` and
 
 The centerpiece is :func:`run_pure`, a **handler purity harness**. Handlers must
 NEVER mutate ``GameState`` directly — they only buffer effects via ``ctx.apply``
-(see ``engine.interactions``/``engine.effects``). This harness enforces that
-contract by comparison (no read-only proxy is required):
+(see ``engine.interactions``/``engine.effects``). The harness:
 
-1. deep-copy the input state BEFORE running,
-2. run the handler through :func:`engine.interactions.run`,
-3. independently replay ``result.effects`` onto the pre-run snapshot via
+1. takes the input state as its own snapshot (the graph is frozen, so nothing can
+   change it behind our back),
+2. runs the handler through :func:`engine.interactions.run`,
+3. independently replays ``result.effects`` onto that snapshot via
    :func:`engine.effects.commit`,
-4. assert (a) the caller's input state was NOT mutated and (b) the driver's
-   returned state is FULLY EXPLAINED by the committed effects (no hidden direct
-   mutation).
+4. asserts the driver's returned state is FULLY EXPLAINED by the committed
+   effects (no hidden direct mutation).
 
-A handler that sneaks a direct ``ctx.state.<...>`` mutation past the effect
-buffer is caught by assertion (b): its returned state diverges from the
-independent effect replay.
+Since the state graph was frozen, a direct ``ctx.state.<...>`` write raises at the
+offending line rather than being caught after the fact — so this harness is now a
+second line of defense. Step 4 still earns its keep: it catches a handler whose
+returned state diverges from its own effect log for any *other* reason.
+
+The ``with_*`` helpers below are the frozen-graph replacement for the old
+``state.players[0].field = x`` arrange idiom.
 """
 
 from __future__ import annotations
 
 import dataclasses
+from types import MappingProxyType
 from typing import Any
 
 from engine.effects import _tuple_replace, commit
@@ -48,6 +52,17 @@ def with_player(state, idx: int = 0, **field_changes):
 def with_clock(state, **field_changes):
     """Return ``state`` with ``clock`` field-updated (frozen-graph test setup idiom)."""
     return dataclasses.replace(state, clock=dataclasses.replace(state.clock, **field_changes))
+
+
+def with_tenancy(state, tenancy):
+    """Return ``state`` with ``map.tenancy`` replaced by ``tenancy`` (read-only).
+
+    Wraps in a proxy so a fixture cannot hand the engine a mutable mapping and
+    quietly reopen the write path the freeze exists to close.
+    """
+    return dataclasses.replace(
+        state, map=dataclasses.replace(state.map, tenancy=MappingProxyType(dict(tenancy)))
+    )
 
 
 def with_config(state, **field_changes):

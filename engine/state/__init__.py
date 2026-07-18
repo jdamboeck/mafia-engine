@@ -34,6 +34,26 @@ def freeze(value):
         return tuple(freeze(v) for v in value)
     return value
 
+
+def _coerce_readonly(instance, *field_names) -> None:
+    """Force ``instance``'s named collection fields into read-only form (R2).
+
+    Freezing a dataclass stops attribute writes but says nothing about what its
+    fields *hold* — a caller passing a plain ``dict``/``list`` would reopen the very
+    mutation path the freeze exists to close. Coercing at construction makes deep
+    immutability a property every construction site gets for free, rather than one
+    each must remember (setup, effect rebuild, persistence load).
+
+    Uses ``object.__setattr__`` because the instance is frozen by the time
+    ``__post_init__`` runs — the standard frozen-dataclass normalization idiom.
+    """
+    for name in field_names:
+        current = getattr(instance, name)
+        frozen_value = freeze(current)
+        if frozen_value is not current:
+            object.__setattr__(instance, name, frozen_value)
+
+
 __all__ = [
     "Gangster",
     "Job",
@@ -141,6 +161,9 @@ class Player:
     last_la: int = 0  # la — location id of the last entry (0 = none)
     rented_months: int = 0  # um(sp) — prepaid rented months accumulator (mf-prg.bas:10040)
 
+    def __post_init__(self):
+        _coerce_readonly(self, "roster")
+
 
 @dataclass(frozen=True)
 class MapState:
@@ -153,6 +176,9 @@ class MapState:
     tenancy: Mapping[int, int] = _EMPTY_MAP  # per-tile tenancy by ln (orig uk)
     special_cells: Mapping[int, int] = _EMPTY_MAP  # e.g. 569, 861
 
+    def __post_init__(self):
+        _coerce_readonly(self, "grid", "tenancy", "special_cells")
+
 
 @dataclass(frozen=True)
 class CombatState:
@@ -162,6 +188,9 @@ class CombatState:
     grid: tuple[tuple[int, ...], ...] = ()  # 40×13 combat grid — different space
     dir_memory: Mapping = _EMPTY_MAP  # ri() direction memory
     result_flag: int = 0  # original s
+
+    def __post_init__(self):
+        _coerce_readonly(self, "enemy_roster", "grid", "dir_memory")
 
 
 @dataclass(frozen=True)
@@ -182,6 +211,9 @@ class Config:
     action_costs: Mapping[str, int] = _EMPTY_MAP
     formula_params: Mapping = _EMPTY_MAP
 
+    def __post_init__(self):
+        _coerce_readonly(self, "action_costs", "formula_params")
+
 
 @dataclass(frozen=True)
 class Flags:
@@ -201,3 +233,6 @@ class GameState:
     clock: Clock = field(default_factory=Clock)
     config: Config = field(default_factory=Config)
     flags: Flags = field(default_factory=Flags)
+
+    def __post_init__(self):
+        _coerce_readonly(self, "players")

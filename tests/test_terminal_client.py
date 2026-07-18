@@ -42,6 +42,7 @@ from engine.interactions import (  # noqa: E402
 from engine.strings import Resolver  # noqa: E402
 from engine.movement import DOWN, load_city  # noqa: E402
 from clients.terminal import TerminalInput, map_repl, render_message  # noqa: E402
+from tests.helpers import with_player  # noqa: E402
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 
@@ -230,7 +231,7 @@ def test_map_repl_adopts_state_and_ends_on_quit():
     state = cfg.module.new_game(
         seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")]
     )
-    state.players[0].po = 141  # a known walkable cell (per the slice test)
+    state = with_player(state, 0, po=141)  # a known walkable cell (per the slice test)
 
     keys = iter(["down", "quit"])
     out = io.StringIO()

@@ -20,6 +20,7 @@ from engine.config_loader import load_game_config
 from engine.interactions import run
 from engine.locations import available_options, load_location
 from engine.movement import RIGHT, load_city, try_move
+from tests.helpers import with_player
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CONFIG = load_game_config(_CONFIG_DIR)
@@ -110,7 +111,8 @@ def _play_trajectory():
     obs["start_kraft"] = p.roster[0].kraft
 
     # --- walk into waf ln=2 (door 370) from the left (cell 369 --RIGHT--> enter) ---
-    p.po = 369
+    state = with_player(state, po=369)
+    p = state.players[0]
     r_enter = try_move(state, city, RIGHT)
     state = r_enter.state
     p = state.players[0]

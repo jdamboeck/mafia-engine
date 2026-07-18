@@ -32,20 +32,26 @@ from engine.events import (
 )
 from engine.interactions import CANCEL, Confirm, PromptInt, ShowMessage
 from engine.locations import Location, Option
-from engine.state import Clock, Config, Gangster, GameState, MapState, Player
+from engine.state import Clock, Config, Gangster, GameState, MapState, Player, freeze
 
 
 # --------------------------------------------------------------------------- #
 # Fixtures / builders                                                          #
 # --------------------------------------------------------------------------- #
 def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
-    plist = [Player(ka=ka, roster=[Gangster()]) for _ in range(players)]
-    plist[active].last_location = ln
+    # The graph is frozen (R1/R2): build the players tuple with the active player's
+    # ln already in place rather than assigning it after construction.
+    plist = tuple(
+        Player(ka=ka, roster=(Gangster(),), last_location=ln if i == active else 0)
+        for i in range(players)
+    )
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
-        config=Config(formula_params={"fnm": {"base": 50, "overrides": {1: -50}}}),
-        map=MapState(tenancy=dict(tenancy or {})),
+        config=Config(
+            formula_params=freeze({"fnm": {"base": 50, "overrides": {1: -50}}})
+        ),
+        map=MapState(tenancy=freeze(tenancy or {})),
     )
 
 
