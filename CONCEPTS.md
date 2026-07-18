@@ -8,7 +8,7 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 A primitive, typed record of one state mutation — the only way game state ever changes.
 *Avoid:* mutation, state change (as nouns for the record)
 
-Effects are pure data. They are buffered during an action and applied atomically at the end (committed against a single copy of the state, in order); a cancelled action discards its buffer and leaves state untouched. The ordered stream of committed effects, together with logged RNG draws, is the replay record — replaying it reconstructs a game deterministically.
+Effects are pure data. They are buffered during an action and applied atomically at the end (folded in order over the frozen state graph, each producing a new state); a cancelled action discards its buffer and leaves state untouched. The ordered stream of committed effects, together with logged RNG draws, is the replay record — replaying it reconstructs a game deterministically.
 
 ### Semantic Event
 An audit/UI record of what happened or was attempted during an action — never applied to state and never part of the replay record.

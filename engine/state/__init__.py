@@ -109,9 +109,13 @@ __all__ = [
     "Config",
     "Flags",
     "GameState",
-    "freeze",
-    "json_safe",
-    "tuple_replace",
+    # NOTE: `freeze`, `json_safe`, and `tuple_replace` are deliberately NOT exported.
+    # docs/design/config-and-content-contract.md § Handler API admits only "engine
+    # helpers for shared BASIC subroutines" (not-enough-money, gangster picker,
+    # score update, combat entry) — generic container plumbing is not that category.
+    # They stay importable for engine-internal use (effects, movement, persistence)
+    # and tests; keeping them out of __all__ keeps the advertised config-facing
+    # surface minimal (CLAUDE.md § 5.2a).
 ]
 
 

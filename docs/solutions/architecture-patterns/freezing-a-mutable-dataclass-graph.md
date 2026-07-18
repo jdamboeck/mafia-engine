@@ -50,10 +50,11 @@ writable one level down.
 
 `mappingproxy` is unpicklable, and `copy.deepcopy` falls back to pickle for
 unknown types. `dataclasses.asdict()` deep-copies internally, so **it cannot walk
-a graph containing a mappingproxy** — which is why `engine/persistence.py` has a
-hand-rolled `_json_safe()` instead. Save unwraps read-only containers to plain
-dict/list; load rebuilds the read-only forms. Old saves still load: the JSON shape
-is identical either way.
+a graph containing a mappingproxy** — which is why the engine has a hand-rolled
+walker, `engine.state.json_safe()`, the public inverse of `freeze()`. Save unwraps
+read-only containers to plain dict/list; `engine.persistence.state_from_dict()`
+rebuilds the read-only forms. Old saves still load: the JSON shape is identical
+either way.
 
 The same constraint bites anywhere else deepcopy was used as a cheap snapshot —
 which leads directly to the third gotcha.
@@ -82,18 +83,53 @@ exactly the escape this harness is the compensating control for. A handler doing
 `object.__setattr__(ctx.state.players[0], "ka", 999999)` passed `run_pure` with
 zero assertions firing, across ~30 call sites.
 
-The fix is a snapshot by **value**, not identity — `_json_safe(state)` — with the
+The fix is a snapshot by **value**, not identity — `json_safe(state)` — with the
 replay baseline rebuilt from those values so it is genuinely independent of the
 object the driver used.
 
-**The generalizable lesson:** when freezing removes the *need* for a defensive
-copy, check whether anything was relying on that copy for **independence** rather
-than for safety. A snapshot's job is to be a separate observation, and structural
-immutability does not supply that. Any harness whose assertions can degrade into
-tautologies needs a negative self-test — one that fails if the harness stops
-detecting what it claims to detect. `tests/test_driver.py::
-test_run_pure_catches_a_mutation_that_bypasses_frozen` is that test; its absence
-is why this regression landed green.
+## 4. The same harness went blind a *second* time — types, not values
+
+The value-snapshot fix above was itself incomplete, and the second failure is the
+more instructive one. `json_safe` exists to **erase** types (proxy to `dict`,
+tuple to `list`) so the graph can become JSON — so a comparison built on its
+output cannot see a type change. Three escapes still passed silently:
+
+```python
+object.__setattr__(ctx.state.map, "tenancy", {1: 0})   # proxy -> plain dict
+object.__setattr__(player, "speed", False)             # int 0 -> bool  (0 == False)
+object.__setattr__(player, "ka", 5000.0)               # int -> float   (5000 == 5000.0)
+```
+
+The first is the serious one: it swaps a read-only mapping for a mutable one,
+**reopening the exact false floor from §1** — and both sides flatten to the same
+JSON, so the harness saw nothing. The other two are Python's own coercions hiding
+type drift, which is precisely the corruption that surfaces only on load.
+
+Closed by asserting a **type fingerprint** (`_shape()`) alongside the value
+comparison: walk the graph recording `type(v).__name__` at every node, snapshot it
+before the run, compare after.
+
+**The generalizable lesson, in its strongest form:** when freezing removes the
+*need* for a defensive copy, check whether anything relied on that copy for
+**independence** rather than for safety — structural immutability does not supply
+a separate observation. And when a snapshot is built on a *lossy* projection
+(anything that normalizes, serializes, or flattens), it can only ever detect what
+that projection preserves; assert on the discarded dimension too, or the harness
+is blind to exactly the changes the projection was designed to erase.
+
+Any harness whose assertions can degrade into tautologies needs a **negative
+self-test** — one that fails if the harness stops detecting what it claims to
+detect. This one needed three, and each was written only after the corresponding
+hole was found the hard way:
+
+- `test_run_pure_catches_a_mutation_that_bypasses_frozen` (§3)
+- `test_run_pure_catches_a_readonly_collection_downgrade` (§4)
+- `test_run_pure_catches_result_state_unexplained_by_effects` (assertion (b);
+  its docstring records what it does *not* pin — it proves (b) can fire, but not
+  that its baseline is independent)
+
+That the same harness failed twice, in two different ways, both times staying
+green, is the point: a verification mechanism gets no credit for passing.
 
 ## See also
 
