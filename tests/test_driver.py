@@ -343,7 +343,7 @@ def test_recorded_events_discarded_on_cancel():
 def _harness_state(ka=5000):
     """A minimal one-player GameState the purity harness can compare against."""
     return GameState(
-        players=[Player(ka=ka, roster=[Gangster()])],
+        players=(Player(ka=ka, roster=(Gangster(),)),),
         clock=Clock(active_player=0, player_count=1),
     )
 
@@ -365,6 +365,28 @@ def test_direct_state_mutation_raises_at_the_offending_line():
     st = _harness_state(ka=5000)
     with pytest.raises(dataclasses.FrozenInstanceError):
         run_pure(rigged_handler, scripted(), state=st)
+
+
+def test_run_pure_catches_a_mutation_that_bypasses_frozen():
+    """The purity harness itself must fail on a genuinely-mutating handler.
+
+    ``object.__setattr__`` is the one escape a frozen dataclass cannot close, so it
+    is exactly what run_pure is the compensating control for. This test pins the
+    harness's own fidelity: an earlier refactor reduced run_pure's snapshot to
+    ``snapshot = state``, which made its assertions compare an object to itself —
+    the whole suite stayed green while the harness silently checked nothing.
+    """
+
+    def sneaky_handler(ctx):
+        # Bypasses frozen-ness; no effect is buffered, so result.effects cannot
+        # explain the changed value.
+        object.__setattr__(ctx.state.players[0], "ka", 999_999)
+        return []
+        yield  # pragma: no cover - make this a generator
+
+    st = _harness_state(ka=5000)
+    with pytest.raises(AssertionError, match="mutated the INPUT state"):
+        run_pure(sneaky_handler, scripted(), state=st)
 
 
 def test_run_pure_passes_a_well_behaved_handler():

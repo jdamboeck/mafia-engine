@@ -11,10 +11,10 @@ lets an effect double as a **serializable replay event** — a log of committed 
 each carrying a :data:`SCHEMA_VERSION`, replays a game deterministically, and old logs
 stay readable as fields evolve (KTD-6).
 
-:func:`apply` is **pure**: it deep-copies the input state, mutates the copy, and returns
-it. The input ``GameState`` is never mutated — this is what makes the driver's
-commit-or-discard atomic at the *state* level (a discarded buffer leaves the original
-state untouched by construction).
+:func:`apply` is **pure**: the state graph is frozen (``engine.state``), so it
+functionally rebuilds a new state rather than mutating one. The input ``GameState`` is
+never mutated — this is what makes the driver's commit-or-discard atomic at the *state*
+level (a discarded buffer leaves the original state untouched by construction).
 
 **Player targeting convention.** A player-scoped effect acts on the *active* player
 (``state.players[state.clock.active_player]``) by default; passing ``player=<index>``
@@ -32,7 +32,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
-from engine.state import GameState
+from engine.state import GameState, tuple_replace
 
 #: Schema version stamped on every effect (KTD-6). Bump when an effect's fields change
 #: in a way that a replay of an OLD log would need to know about; each effect references
@@ -329,17 +329,6 @@ def _target_index(state: GameState, player: int | None) -> int:
     return idx
 
 
-def _tuple_replace(items, idx: int, value):
-    """Return a new tuple with ``items[idx]`` replaced by ``value``.
-
-    The read-only-preserving list update: the result is always a ``tuple``, so a
-    rebuilt collection can never be a mutable ``list`` that a handler could append
-    to (R2). Structural sharing is implicit — the untouched elements are the same
-    objects, which is safe because they are themselves frozen.
-    """
-    return tuple(items)[:idx] + (value,) + tuple(items)[idx + 1 :]
-
-
 def _with_player(state: GameState, idx: int, **field_changes) -> GameState:
     """Return a new ``GameState`` with ``state.players[idx]`` field-updated (KTD-3).
 
@@ -351,7 +340,7 @@ def _with_player(state: GameState, idx: int, **field_changes) -> GameState:
     Engine-internal vocabulary — NOT part of the handler API (CLAUDE.md § 5.2a).
     """
     new_player = replace(state.players[idx], **field_changes)
-    return replace(state, players=_tuple_replace(state.players, idx, new_player))
+    return replace(state, players=tuple_replace(state.players, idx, new_player))
 
 
 def _with_gangster(state: GameState, idx: int, g_idx: int, **field_changes) -> GameState:
@@ -363,7 +352,7 @@ def _with_gangster(state: GameState, idx: int, g_idx: int, **field_changes) -> G
     player = state.players[idx]
     new_gangster = replace(player.roster[g_idx], **field_changes)
     return _with_player(
-        state, idx, roster=_tuple_replace(player.roster, g_idx, new_gangster)
+        state, idx, roster=tuple_replace(player.roster, g_idx, new_gangster)
     )
 
 
@@ -544,7 +533,9 @@ def commit(state: GameState, effects: list) -> CommitResult:
     Purity is structural: the graph is frozen (R1), so each :func:`_apply` step builds a
     new state and the caller's ``state`` is never mutated. Returns a :class:`CommitResult`
     bundling the new state and the committed effects in order. An empty ``effects`` list
-    yields an equal-but-distinct state. Any effect that would raise in :func:`apply`
+    returns the input state unchanged — safe because the graph is frozen (pre-freeze this
+    returned a distinct copy, an artifact of the unconditional deepcopy rather than a
+    guarantee). Any effect that would raise in :func:`apply`
     (unknown type, out-of-range target, deferred effect, bad name) raises here too, at
     the offending effect.
     """

@@ -35,6 +35,25 @@ def freeze(value):
     return value
 
 
+def tuple_replace(items, idx: int, value) -> tuple:
+    """Return a new tuple with ``items[idx]`` replaced by ``value``.
+
+    The read-only-preserving sequence update every functional rebuild funnels through:
+    the result is always a ``tuple``, so a rebuilt collection can never be a mutable
+    ``list`` a handler could append to (R2). Structural sharing is implicit — untouched
+    elements are the same objects, which is safe because they are themselves frozen.
+
+    Raises ``IndexError`` for an out-of-range ``idx`` (including a negative one). Python
+    slicing would otherwise silently GROW the tuple on a bad index — the exact
+    silent-corruption shape the frozen graph exists to eliminate, so this fails loudly
+    and matches the ``IndexError`` the effect branches already raise.
+    """
+    items = tuple(items)
+    if idx < 0 or idx >= len(items):
+        raise IndexError(f"index {idx} out of range (collection has {len(items)} items)")
+    return items[:idx] + (value,) + items[idx + 1 :]
+
+
 def _coerce_readonly(instance, *field_names) -> None:
     """Force ``instance``'s named collection fields into read-only form (R2).
 
@@ -69,6 +88,7 @@ __all__ = [
     "Flags",
     "GameState",
     "freeze",
+    "tuple_replace",
 ]
 
 

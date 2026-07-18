@@ -9,18 +9,22 @@ The centerpiece is :func:`run_pure`, a **handler purity harness**. Handlers must
 NEVER mutate ``GameState`` directly — they only buffer effects via ``ctx.apply``
 (see ``engine.interactions``/``engine.effects``). The harness:
 
-1. takes the input state as its own snapshot (the graph is frozen, so nothing can
-   change it behind our back),
+1. snapshots the input state's VALUES (not its identity — see below),
 2. runs the handler through :func:`engine.interactions.run`,
-3. independently replays ``result.effects`` onto that snapshot via
-   :func:`engine.effects.commit`,
-4. asserts the driver's returned state is FULLY EXPLAINED by the committed
-   effects (no hidden direct mutation).
+3. independently replays ``result.effects`` onto a state rebuilt from that
+   snapshot via :func:`engine.effects.commit`,
+4. asserts the input is unchanged and the driver's returned state is FULLY
+   EXPLAINED by the committed effects (no hidden direct mutation).
 
-Since the state graph was frozen, a direct ``ctx.state.<...>`` write raises at the
-offending line rather than being caught after the fact — so this harness is now a
-second line of defense. Step 4 still earns its keep: it catches a handler whose
-returned state diverges from its own effect log for any *other* reason.
+**Why the snapshot must be by value.** Freezing the graph makes a plain
+``ctx.state.<...>`` write raise at the offending line, which covers the common
+case. But ``object.__setattr__`` bypasses frozen-ness, and that is exactly what
+this harness is the compensating control for. A by-identity snapshot
+(``snapshot = state``) would make step 4 vacuous twice over: the baseline mutates
+along with the state it is compared against, and replaying from the same object
+the driver already committed against compares ``commit``'s output with itself.
+``tests/test_driver.py`` has a negative self-test pinning that this harness fails
+on a genuinely-mutating handler — without it, a weakened harness stays green.
 
 The ``with_*`` helpers below are the frozen-graph replacement for the old
 ``state.players[0].field = x`` arrange idiom.
@@ -32,8 +36,10 @@ import dataclasses
 from types import MappingProxyType
 from typing import Any
 
-from engine.effects import _tuple_replace, commit
+from engine.effects import commit
 from engine.interactions import run
+from engine.persistence import _json_safe, _state_from_dict
+from engine.state import tuple_replace
 
 
 def with_player(state, idx: int = 0, **field_changes):
@@ -45,7 +51,7 @@ def with_player(state, idx: int = 0, **field_changes):
     """
     new_player = dataclasses.replace(state.players[idx], **field_changes)
     return dataclasses.replace(
-        state, players=_tuple_replace(state.players, idx, new_player)
+        state, players=tuple_replace(state.players, idx, new_player)
     )
 
 
@@ -92,24 +98,30 @@ def run_pure(handler, input_source, *, state, rng=None):
     Returns:
         The :class:`~engine.actions.EngineResult` so callers keep asserting on it.
     """
-    # The graph is frozen (R1), so the state IS its own snapshot — nothing can alter it
-    # behind our back, and mappingproxy fields make it non-deepcopyable anyway.
-    snapshot = state
+    # Snapshot the VALUES, not the object. `snapshot = state` would be worthless: the
+    # graph is frozen, so the object cannot change — but `object.__setattr__` bypasses
+    # frozen-ness, and a by-identity snapshot makes both assertions below vacuous (the
+    # baseline mutates along with the state it is meant to be compared against).
+    # deepcopy is unavailable here — mappingproxy fields are unpicklable — so walk the
+    # graph into plain containers instead.
+    snapshot = _json_safe(state)
 
     result = run(handler, input_source, state=state, rng=rng)
 
-    # (a) The handler must not have mutated the caller's state in place. Since the graph
-    # was frozen this is guaranteed structurally (a direct write raises at the offending
-    # line); the assertion is kept as a cheap belt-and-braces check. Assertion (b) below
-    # is the one still doing real work.
-    assert state == snapshot, (
+    # (a) The handler must not have mutated the caller's state in place. Frozen
+    # dataclasses already make a plain attribute write raise at the offending line;
+    # this catches the one escape freezing cannot close (object.__setattr__).
+    assert _json_safe(state) == snapshot, (
         "handler (or driver) mutated the INPUT state in place; the input GameState "
         "must be left untouched — all changes belong on result.state via effects"
     )
 
     # (b) The returned state must be fully explained by the committed effects:
     # replaying them onto the untouched snapshot must reproduce result.state exactly.
-    expected: Any = commit(snapshot, list(result.effects)).state
+    # Replay from the SNAPSHOT VALUES, not from `state` — the driver computed
+    # result.state as commit(state, buffer), so recommitting against that same object
+    # would compare commit's output with itself and could never fail.
+    expected: Any = commit(_state_from_dict(snapshot), list(result.effects)).state
     assert result.state == expected, (
         "result.state is NOT explained by result.effects — the handler mutated "
         "ctx.state directly instead of buffering an effect via ctx.apply(). "

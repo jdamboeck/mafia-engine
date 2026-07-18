@@ -34,7 +34,8 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from engine.actions import EngineResult
-from engine.effects import MsChange, SetEntryContext, SetPosition, _tuple_replace, commit
+from engine.effects import MsChange, SetEntryContext, SetPosition, commit
+from engine.state import tuple_replace
 from engine.events import EnterLocation, MoveBlocked, MoveStep
 
 __all__ = [
@@ -334,7 +335,7 @@ def advance_turn(state, vehicles: list[dict]) -> tuple[Any, bool]:
     new_state = replace(
         state,
         clock=new_clock,
-        players=_tuple_replace(state.players, next_player, new_active),
+        players=tuple_replace(state.players, next_player, new_active),
     )
 
     # Simple game-over hook (full win handling is out of scope this unit).

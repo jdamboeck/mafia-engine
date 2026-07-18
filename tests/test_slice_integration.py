@@ -28,8 +28,8 @@ The composition it proves (the "how you play a turn" the orchestrator owns):
   persist across the trajectory ONLY by adopting ``state = result.state`` after each
   move.
 * The driver (``run``) is PURE: on clean completion it returns a NEW ``GameState``
-  with the handler's effects committed (an empty buffer yields an equal-but-distinct
-  copy); on a driver-cancel it returns the ORIGINAL, unchanged state. Effects persist
+  with the handler's effects committed (an empty buffer applies nothing and returns
+  the state unchanged); on a driver-cancel it returns the ORIGINAL, unchanged state. Effects persist
   across the trajectory ONLY by adopting ``state = result.state`` after each driven
   handler.
 * The shell (``available_options``) owns guard denial (KTD-8): a denied option is

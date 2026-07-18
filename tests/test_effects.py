@@ -41,7 +41,7 @@ from engine.effects import (
     commit,
 )
 from engine.interactions import CANCEL, PromptInt, run
-from engine.state import Clock, Flags, Gangster, GameState, Player
+from engine.state import Clock, Flags, Gangster, GameState, Player, tuple_replace
 
 
 # --------------------------------------------------------------------------- #
@@ -104,10 +104,10 @@ def test_money_change_and_purity():
     state = make_state()
     out = apply(state, MoneyChange(-500))
 
-    assert out.players[0].ka == 4500  # delta applied on the copy
+    assert out.players[0].ka == 4500  # delta applied on the rebuilt state
     assert state.players[0].ka == 5000  # ORIGINAL untouched (purity)
     assert out is not state  # a new object is returned (no aliasing)
-    assert out.players[0] is not state.players[0]  # deep copy, not shared references
+    assert out.players[0] is not state.players[0]  # rebuilt, not shared references
 
 
 # --------------------------------------------------------------------------- #
@@ -554,6 +554,19 @@ def _two_player_state() -> GameState:
         ),
         clock=Clock(player_count=2),
     )
+
+
+def test_tuple_replace_rejects_out_of_range_index():
+    """The write-once primitive must fail loudly on a bad index.
+
+    Bare slicing would silently GROW the tuple on an out-of-range (or negative)
+    index — the silent-corruption shape the frozen graph exists to eliminate. Every
+    live caller guards its index today, so this pins the helper itself.
+    """
+    items = (1, 2, 3)
+    for bad in (-1, 3, 99):
+        with pytest.raises(IndexError):
+            tuple_replace(items, bad, 0)
 
 
 def test_with_player_updates_only_the_target():
