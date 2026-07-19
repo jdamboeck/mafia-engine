@@ -32,7 +32,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
-from engine.state import GameState, tuple_replace
+from engine.state import Gangster, GameState, tuple_replace
 
 #: Schema version stamped on every effect (KTD-6). Bump when an effect's fields change
 #: in a way that a replay of an OLD log would need to know about; each effect references
@@ -537,14 +537,34 @@ def _with_player(state: GameState, idx: int, **field_changes) -> GameState:
     return replace(state, players=tuple_replace(state.players, idx, new_player))
 
 
+def _gangster_at(state: GameState, idx: int, g_idx: int) -> Gangster:
+    """Return player ``idx``'s gangster ``g_idx``, range-checked.
+
+    Every gangster-targeting effect needs the same guard before reading a stat off
+    the roster, so it lives here rather than being restated at each ``_apply`` branch
+    — a negative index would otherwise wrap silently and write the WRONG gangster.
+    :func:`_with_gangster` calls this too, so the write path is guarded even when a
+    caller does not read first.
+    """
+    player = state.players[idx]
+    if g_idx < 0 or g_idx >= len(player.roster):
+        raise IndexError(
+            f"gangster index {g_idx} out of range "
+            f"(player has {len(player.roster)} gangsters)"
+        )
+    return player.roster[g_idx]
+
+
 def _with_gangster(state: GameState, idx: int, g_idx: int, **field_changes) -> GameState:
     """Return a new ``GameState`` with player ``idx``'s gangster ``g_idx`` updated.
 
     One level deeper than :func:`_with_player`: rebuild the ``Gangster``, swap it into
     a rebuilt roster, then delegate the player/state rebuild to :func:`_with_player`.
+    The index is range-checked via :func:`_gangster_at` so no caller can skip the
+    guard and write to a wrapped-around index.
     """
     player = state.players[idx]
-    new_gangster = replace(player.roster[g_idx], **field_changes)
+    new_gangster = replace(_gangster_at(state, idx, g_idx), **field_changes)
     return _with_player(
         state, idx, roster=tuple_replace(player.roster, g_idx, new_gangster)
     )
@@ -617,13 +637,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
                 f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
             )
         idx = _target_index(state, effect.player)
-        p = state.players[idx]
-        if effect.gangster < 0 or effect.gangster >= len(p.roster):
-            raise IndexError(
-                f"gangster index {effect.gangster} out of range "
-                f"(player has {len(p.roster)} gangsters)"
-            )
-        g = p.roster[effect.gangster]
+        g = _gangster_at(state, idx, effect.gangster)
         raised = getattr(g, effect.stat) + effect.amount
         return _with_gangster(state, idx, effect.gangster, **{effect.stat: raised})
 
@@ -633,13 +647,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
                 f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
             )
         idx = _target_index(state, effect.player)
-        p = state.players[idx]
-        if effect.gangster < 0 or effect.gangster >= len(p.roster):
-            raise IndexError(
-                f"gangster index {effect.gangster} out of range "
-                f"(player has {len(p.roster)} gangsters)"
-            )
-        g = p.roster[effect.gangster]
+        g = _gangster_at(state, idx, effect.gangster)
         raised = getattr(g, effect.stat) + effect.amount
         # cap/floor are config-supplied (KTD-10) — the engine hardcodes no 99.
         capped = max(effect.floor, min(effect.cap, raised))
@@ -647,12 +655,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, AssignWeapon):
         idx = _target_index(state, effect.player)
-        p = state.players[idx]
-        if effect.gangster < 0 or effect.gangster >= len(p.roster):
-            raise IndexError(
-                f"gangster index {effect.gangster} out of range "
-                f"(player has {len(p.roster)} gangsters)"
-            )
+        _gangster_at(state, idx, effect.gangster)  # range-check before the write
         # roster[g].weapon = w (mf-prg.bas:13075)
         return _with_gangster(state, idx, effect.gangster, weapon=effect.weapon)
 
@@ -688,13 +691,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, EnergyChange):
         idx = _target_index(state, effect.player)
-        p = state.players[idx]
-        if effect.gangster < 0 or effect.gangster >= len(p.roster):
-            raise IndexError(
-                f"gangster index {effect.gangster} out of range "
-                f"(player has {len(p.roster)} gangsters)"
-            )
-        g = p.roster[effect.gangster]
+        g = _gangster_at(state, idx, effect.gangster)
         # en=en+int(kr/10)+1 (mf-prg.bas:4015), capped at [0, cap] (:4020's ifen>xthenen=x
         # is an upper clamp only in the source; a floor of 0 is the engine's own sane
         # bound — energie has no documented negative-regen path this unit).

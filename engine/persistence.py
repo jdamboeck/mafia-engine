@@ -100,6 +100,15 @@ def _effect_to_dict(effect: Any) -> dict:
     return {"_type": tag, **dataclasses.asdict(effect)}
 
 
+#: Effect fields holding a nested dataclass, by effect type and field name.
+#: ``dataclasses.asdict`` flattens these on the way out, so reconstruction has to
+#: rebuild them — otherwise the effect replays carrying a plain dict and the first
+#: attribute read fails far from the save/load code that caused it.
+_NESTED_EFFECT_FIELDS: dict[str, dict[str, type]] = {
+    "SpawnFighter": {"fighter": Fighter},
+}
+
+
 def _effect_from_dict(raw: dict) -> Any:
     """Reconstruct an Effect dataclass from its type-tagged dict."""
     tag = raw.get("_type")
@@ -107,6 +116,10 @@ def _effect_from_dict(raw: dict) -> Any:
     if cls is None:
         raise TypeError(f"cannot deserialize unknown effect type {tag!r}")
     kwargs = {k: v for k, v in raw.items() if k != "_type"}
+    for field, nested_cls in _NESTED_EFFECT_FIELDS.get(tag, {}).items():
+        value = kwargs.get(field)
+        if isinstance(value, dict):
+            kwargs[field] = nested_cls(**value)
     return cls(**kwargs)
 
 

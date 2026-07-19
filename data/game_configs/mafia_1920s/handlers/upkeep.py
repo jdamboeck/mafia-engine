@@ -42,8 +42,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import yaml
-
 from engine.effects import EnergyChange, RankCommit
 from engine.interactions import ShowMessage
 from engine.locations import register
@@ -57,12 +55,16 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1]
 def _rank_names() -> list[str]:
     """This config's rank-name table (``ra$``), 0-based (index i == in-game rank i+1).
 
-    Loaded fresh per call, matching ``waf.py``'s ``_weapons()`` pattern (KTD-7: a
-    handler reads its OWN config's entity data, never the engine's) — the config is
-    frozen per game, so a fresh read per action is harmless.
+    Goes through the config's own ``load_ranks`` loader — which validates every entry
+    against ``engine.types.validate_rank`` — rather than reading the YAML directly, so
+    the handler and the client's promotion screen share one validated path. Matches
+    ``waf.py``'s ``_weapons()`` pattern (KTD-7: a handler reads its OWN config's entity
+    data, never the engine's); the config is frozen per game, so a fresh read per call
+    is harmless.
     """
-    with (_CONFIG_DIR / "entities" / "ranks.yaml").open("r", encoding="utf-8") as fh:
-        return list(yaml.safe_load(fh)["ranks"])
+    from ..setup import load_ranks
+
+    return load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
 
 
 @register(UPKEEP_HANDLER_KEY)

@@ -255,3 +255,33 @@ def test_unknown_version_is_rejected(tmp_path: Path):
 
     with pytest.raises(persistence.SchemaVersionError):
         persistence.load_game(save_path)
+
+
+def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path):
+    """A SpawnFighter in the effect log must replay as a ``Fighter``, not a raw dict.
+
+    ``_effect_to_dict`` uses ``dataclasses.asdict``, which recursively flattens the
+    nested ``Fighter`` into a plain dict; reconstruction has to rebuild it. Without
+    that, replaying any save taken mid-fight yields ``CombatState.sides`` full of
+    dicts, and the first ``.name``/``.position`` read raises ``AttributeError`` —
+    far from the save/load code that caused it.
+    """
+    from engine.effects import SpawnFighter
+    from engine.state import Fighter
+
+    effect = SpawnFighter(fighter=Fighter(name="Al", position=100, energie=30), side=1)
+    state = _fresh_state()
+    save_path = tmp_path / "game.jsonl"
+    persistence.save_game(
+        save_path, state, effect_log=[effect], rng_log=[], seed=SEED
+    )
+
+    loaded = persistence.load_game(save_path)
+    restored = loaded.effect_log[0]
+    assert isinstance(restored.fighter, Fighter), (
+        f"fighter replayed as {type(restored.fighter).__name__}, not Fighter"
+    )
+    assert restored.fighter.name == "Al"
+    assert restored.fighter.position == 100
+    assert restored.fighter.energie == 30
+    assert restored.side == 1
