@@ -80,6 +80,23 @@ formula_params:
   pub_arms_deal_payout_min: 5500
   pub_arms_deal_payout_max: 14999
 
+  # pub jobs (U10, mf-prg.bas:12300-12335): duration jd(sp) is a fixed literal per
+  # type (not config-tunable — it is the type identity itself), pay p is a per-type
+  # 500-wide uniform roll. type 1=bouncer, 2=croupier, 3=doorman, 4=killer
+  # (mf-prg.bas:12305's ON x GOTO order).
+  job_bouncer_duration: 3     # jd(sp)=3 (mf-prg.bas:12308)
+  job_bouncer_pay_min: 2000   # p=int(rnd(1)*1000)+2000 -> 2000..2999$ (mf-prg.bas:12308)
+  job_bouncer_pay_max: 2999
+  job_croupier_duration: 2    # jd(sp)=2 (mf-prg.bas:12311)
+  job_croupier_pay_min: 1000  # p=int(rnd(1)*500)+1000 -> 1000..1499$ (mf-prg.bas:12311)
+  job_croupier_pay_max: 1499
+  job_doorman_duration: 2     # jd(sp)=2 (mf-prg.bas:12316)
+  job_doorman_pay_min: 2000   # p=int(rnd(1)*500)+2000 -> 2000..2499$ (mf-prg.bas:12316)
+  job_doorman_pay_max: 2499
+  job_killer_duration: 1      # jd(sp)=1 (mf-prg.bas:12322)
+  job_killer_pay_min: 2000    # p=int(rnd(1)*500)+2000 -> 2000..2499$ (mf-prg.bas:12322)
+  job_killer_pay_max: 2499
+
 # New-game setup constants (mf-prg.bas:220,300-315,350). These mirror the
 # BASIC setup; engine/setup.py is the authoritative porting site. Kept here so
 # the values are visible/tunable as config data.

@@ -1,4 +1,4 @@
-"""The pub (Kneipe) handlers — U8 (alcohol trade + tips) and U9 (recruit).
+"""The pub (Kneipe) handlers — U8 (alcohol trade + tips), U9 (recruit), U10 (job).
 
 Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
 
@@ -21,6 +21,15 @@ Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
   that pays the price, appends the hire to the roster at energy 5, and marks the
   candidate globally hired. See ``pub_recruit``'s own docstring for the full guard
   order and the mid-batch cap quirk (``:12145``).
+- ``pub.job`` (``12300-12335``) — take a job. INVERTED rank guard vs. recruit's
+  (``ra(sp) <= 3``, not ``>= 5``) — refusal is for players who have ALREADY grown
+  too respectable for menial work. A 1-in-5 "nobody has work" roll, then one of
+  four job types (bouncer/croupier/doorman/killer) with a fixed duration and a
+  per-type pay roll; accepting stores the job via ``JobSet`` and force-ends the
+  turn (``ms=0``, ``:12335``). The shift flow that later takes over the employed
+  player's turn is ``data/game_configs/mafia_1920s/handlers/jobs.py`` (U10, ports
+  ``25000-25560``), dispatched by the CALLER (the client's turn loop), not by
+  this handler or by upkeep (the U3 seam).
 
 Faithfulness notes
 -------------------
@@ -55,7 +64,9 @@ from __future__ import annotations
 from engine.effects import (
     BarrelChange,
     GangsterMarkHired,
+    JobSet,
     MoneyChange,
+    MsChange,
     RosterAppend,
     TipClear,
     TipSet,
@@ -66,7 +77,7 @@ from engine.state import Gangster
 
 from ..setup import load_vehicles, score_and_rank
 
-__all__ = ["pub_drink", "pub_recruit", "pub_tip"]
+__all__ = ["pub_drink", "pub_recruit", "pub_tip", "pub_job"]
 
 #: The 30 female candidate ids (0-based; source ``fnwe(x)`` predicate, mf-prg.bas:12130
 #: — BLOODY MARY(4)/JOSEFINE(14)/DOROTHY(27)/MA BAKER(30), 1-based in the source).
@@ -101,6 +112,37 @@ _TIP_TEXT_KEYS = {
 #: with a follow-on stake. Shared with ``handlers/upkeep.py``'s arms-deal slot.
 ARMS_DEAL_TIP = 4
 ARMS_DEAL_STAKE = 5000
+
+#: Job type ids (jo(sp)), matching mf-prg.bas:12305's `x=int(rnd(1)*4)+1:onxgoto
+#: 12306,12310,12315,12320` dispatch order. Shared with ``handlers/jobs.py``'s shift
+#: flow, which dispatches on the SAME ids (mf-prg.bas:25010's `onjo(sp)goto
+#: 25015,25100,25015,25200` — note type 1 AND 3 share one flow).
+JOB_BOUNCER = 1
+JOB_CROUPIER = 2
+JOB_DOORMAN = 3
+JOB_KILLER = 4
+
+#: Job rank guard: the offer is available only at or below this rank (mf-prg.bas:12300
+#: `ifra(sp)<4goto12302` — INVERTED vs. recruit's rank>=5 guard; a high-rank boss is
+#: told to find something better, not offered the menial job).
+_JOB_MAX_RANK = 3
+
+#: Per-job-type (duration, pay-min, pay-max) formula_params key triples, in the
+#: SAME order as the source's ON-GOTO dispatch (mf-prg.bas:12305-12322).
+_JOB_PARAMS = {
+    JOB_BOUNCER: ("job_bouncer_duration", "job_bouncer_pay_min", "job_bouncer_pay_max"),
+    JOB_CROUPIER: ("job_croupier_duration", "job_croupier_pay_min", "job_croupier_pay_max"),
+    JOB_DOORMAN: ("job_doorman_duration", "job_doorman_pay_min", "job_doorman_pay_max"),
+    JOB_KILLER: ("job_killer_duration", "job_killer_pay_min", "job_killer_pay_max"),
+}
+
+#: The job-offer flavour text key per type (mf-prg.bas:12306-12321).
+_JOB_OFFER_TEXT_KEYS = {
+    JOB_BOUNCER: "locations.pub.job_offer_bouncer",
+    JOB_CROUPIER: "locations.pub.job_offer_croupier",
+    JOB_DOORMAN: "locations.pub.job_offer_doorman",
+    JOB_KILLER: "locations.pub.job_offer_killer",
+}
 
 
 def _vehicles():
@@ -399,4 +441,64 @@ def pub_recruit(ctx):
         running_roster_size += 1
         yield ShowMessage("locations.pub.recruit_hired", {"gang_size": running_roster_size})
 
+    return []
+
+
+# --------------------------------------------------------------------------- #
+# pub.job (R6) — mf-prg.bas:12300-12335                                        #
+# --------------------------------------------------------------------------- #
+@register("pub.job")
+def pub_job(ctx):
+    """Take a job — ports ``mf-prg.bas:12300-12335``.
+
+    Steps (faithful to the BASIC line block):
+
+    1. ``:12300`` — rank guard, INVERTED vs. recruit's: ``ra(sp) < 4`` falls through
+       to the offer; ``ra(sp) >= 4`` (i.e. rank > 3) is refused as "too respectable"
+       (``:12301``). Spot-checked against the oracle (see this module's docstring
+       cross-reference) — this is NOT the same shape as recruit's ``rank > 4`` guard.
+    2. ``:12302`` — 1-in-5 nobody has work; else continue.
+    3. ``:12305`` — roll job type 1-4 uniform (bouncer/croupier/doorman/killer, in
+       this exact order — the source's ``ON x GOTO`` dispatch order).
+    4. ``:12306-12322`` — show the type's flavour text; the duration ``jd(sp)`` is a
+       fixed per-type literal, the pay ``p`` a per-type 500-wide uniform roll (both
+       config data, KTD-10 — see ``_JOB_PARAMS``).
+    5. ``:12330`` — show the pay, confirm; declining returns with NO state change.
+    6. ``:12335`` — accept: ``JobSet`` stores type/pay/duration, ``ms=0`` FORCE-ENDS
+       the turn (KTD-3's job-shift seam: the caller dispatches the shift flow at the
+       NEXT turn start, this handler only records the acceptance and stops movement
+       dead per the source's literal ``ms=0``, not a relative deduction).
+    """
+    sp = ctx.state.clock.active_player
+    active = ctx.state.players[sp]
+    params = ctx.state.config.formula_params
+
+    # :12300 — rank guard, INVERTED vs. recruit's (rank <= 3 gets the offer).
+    if active.rank > _JOB_MAX_RANK:
+        yield ShowMessage("locations.pub.job_rank_too_high", {"rank": active.rank})
+        return []
+
+    # :12302 — 1-in-5 nobody has work.
+    if ctx.rng.range(5) == 0:
+        yield ShowMessage("locations.pub.job_nobody_available")
+        return []
+
+    # :12305 — roll job type 1-4 uniform, source dispatch order.
+    job_type = ctx.rng.range(4) + 1
+    duration_key, pay_min_key, pay_max_key = _JOB_PARAMS[job_type]
+    duration = params[duration_key]
+    pay = ctx.rng.hit(params[pay_min_key], params[pay_max_key])
+
+    # :12306-12322 — type-specific offer text.
+    yield ShowMessage(_JOB_OFFER_TEXT_KEYS[job_type])
+
+    # :12330 — show the pay, then confirm; "n" -> quiet return, no state change.
+    yield ShowMessage("locations.pub.job_pay_confirm", {"pay": pay})
+    if not (yield Confirm("locations.pub.job_pay_confirm_prompt")):
+        return []
+
+    # :12335 — accept: store the job, force-end the turn (ms=0, not a relative spend).
+    ctx.apply(JobSet(type=job_type, pending_pay=pay, months_left=duration))
+    ctx.apply(MsChange(amount=-active.ms))
+    yield ShowMessage("locations.pub.job_accepted")
     return []

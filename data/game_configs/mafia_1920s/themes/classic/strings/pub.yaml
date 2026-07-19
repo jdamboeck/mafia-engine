@@ -17,6 +17,7 @@ locations:
       drink: "'NEIN, KEINE MILCH! HAST DU WAS         ALKOHOLISCHES DA?'"
       recruit: "'ICH SUCHE EIN PAAR JUNGS FUER MEINE    GANG. MAL SEHEN, WER DA IST...'"
       tip: "'HAST DU VIELLEICHT ''N GUTEN TIP FUER   ''NEN UEBERFALL ODER SOWAS?'"
+      job: "'ICH BRAUCHE DRINGEND EINEN JOB, EINEN  AUFTRAG! DU VERSTEHST SCHON...'"
     rank_too_low: "'als {rank} kannst du noch keine eigenen leute haben!'"
 
     # --- alcohol trade (U8, mf-prg.bas:12010-12075) ---
@@ -39,6 +40,17 @@ locations:
     arms_deal_offer: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"
     arms_deal_confirm: "ok (j/n)?"
     arms_deal_accepted: "'du wirst es nicht bereuen...'"
+
+    # --- job (U10, mf-prg.bas:12300-12335) ---
+    job_rank_too_high: "'als '{rank}' findest du was besseres!'"
+    job_nobody_available: "'niemand hat einen job fuer dich.'"
+    job_offer_bouncer: "'der inhaber der bahnhofskneipe will dich fuer 3 monate als rausschmeisser anstellen.'"
+    job_offer_croupier: "'du kannst 2 monate als croupier in georges spielhoelle arbeiten.'"
+    job_offer_doorman: "'das ''le roi''-hotel sucht einen tuersteher fuer 2 monate.'"
+    job_offer_killer: "'du erhaelst das foto eines mannes, der im ''red house'' abgestiegen ist. du sollst ihn umlegen!'"
+    job_pay_confirm: "'du bekommst dafuer {pay}$.'"
+    job_pay_confirm_prompt: "ok (j/n)?"
+    job_accepted: "'du hast den job!'"
 
     # --- recruit (U9, mf-prg.bas:12100-12175) ---
     recruit_no_housing: "'du brauchst eine unterkunft fuer die gangster!'"

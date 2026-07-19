@@ -52,7 +52,7 @@ from engine.effects import (
     commit,
 )
 from engine.interactions import CANCEL, PromptInt, run
-from engine.state import Clock, Fighter, Flags, Gangster, GameState, Player, tuple_replace
+from engine.state import Clock, Fighter, Flags, Gangster, GameState, Job, Player, tuple_replace
 
 
 # --------------------------------------------------------------------------- #
@@ -487,6 +487,48 @@ def test_roster_append_purity():
 
 
 # --------------------------------------------------------------------------- #
+# job_set / job_clear (U10) — pub job accept + shift flow, real application    #
+# --------------------------------------------------------------------------- #
+def test_job_set_stores_type_pay_and_duration():
+    state = make_state()  # jobs defaults to Job() -- type=0
+    out = apply(state, JobSet(type=2, pending_pay=1200, months_left=2))
+    assert out.players[0].jobs == Job(type=2, pending_pay=1200, months_left=2)
+
+
+def test_job_set_targets_explicit_player():
+    state = make_state()
+    out = apply(state, JobSet(type=4, pending_pay=2200, months_left=1, player=1))
+    assert out.players[1].jobs == Job(type=4, pending_pay=2200, months_left=1)
+    assert out.players[0].jobs == Job()  # untouched
+
+
+def test_job_set_purity():
+    state = make_state()
+    out = apply(state, JobSet(type=1, pending_pay=2000, months_left=3))
+    assert state.players[0].jobs == Job()  # original untouched
+    assert out is not state
+
+
+def test_job_clear_resets_to_default():
+    state = apply(make_state(), JobSet(type=3, pending_pay=2000, months_left=2))
+    out = apply(state, JobClear())
+    assert out.players[0].jobs == Job()
+
+
+def test_job_clear_targets_explicit_player():
+    state = apply(make_state(), JobSet(type=2, pending_pay=1000, months_left=2, player=1))
+    out = apply(state, JobClear(player=1))
+    assert out.players[1].jobs == Job()
+
+
+def test_job_clear_purity():
+    state = apply(make_state(), JobSet(type=1, pending_pay=2000, months_left=3))
+    out = apply(state, JobClear())
+    assert state.players[0].jobs == Job(type=1, pending_pay=2000, months_left=3)
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
 # gangster_mark_hired (U9) — global sg(i) set, pub recruit flow                #
 # --------------------------------------------------------------------------- #
 def test_gangster_mark_hired_adds_to_global_flags():
@@ -624,13 +666,12 @@ def test_negative_gangster_index_raises_not_wraps():
         WantedChange(1),
         Jail(3),
         # U2 groundwork (KTD-7): declared now, activated in a later unit each.
-        # BarrelChange/TipSet/TipClear graduated to real application in U8, and
-        # RosterAppend in U9 (see the sections above) — no longer deferred.
+        # BarrelChange/TipSet/TipClear graduated to real application in U8,
+        # RosterAppend in U9, and JobSet/JobClear in U10 (see the sections above) —
+        # none of these five are deferred any longer.
         DebtChange(500),
         DebtClear(),
         ShopChange(tile=2),
-        JobSet(type=1, pending_pay=2000, months_left=3),
-        JobClear(),
     ],
 )
 def test_deferred_effects_raise_not_implemented(effect):

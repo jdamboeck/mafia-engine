@@ -1,0 +1,25 @@
+# job shifts (U10) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): engine emits KEYS (job.shift_*), the theme resolves them.
+# Ports the shift-flow narration (mf-prg.bas:25000-25560, research-data/pass-1/
+# game-text.yaml lines 25000-25556) — the flow that takes over an EMPLOYED player's
+# turn (data/game_configs/mafia_1920s/handlers/jobs.py's job_shift). {amount}/{pay}
+# are template params.
+job:
+  # --- bouncer/doorman shared flow (25015-25045) ---
+  shift_bouncer_wait: "'du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen...'"
+  shift_bouncer_quiet: "'heute gab es nichts!'"
+  shift_bouncer_trouble: "'ein bursche faengt an, zu randalieren! tu etwas!'"
+
+  # --- croupier flow (25100-25140) ---
+  shift_croupier_intro: "'du musst als croupier natuerlich falschspielen. welche tricks willst du anwenden: 1 trickspiegel  2 gezinkte karten  3 bremse am roulette'"
+  shift_croupier_pick: "welchen trick (1-3)"
+  shift_croupier_caught: "'ein kunde hat deine tricks durchschaut und zieht ein messer!'"
+  shift_croupier_bonus: "'du machst gewinne und erhaeltst einen bonus von {amount}$.'"
+
+  # --- killer flow (25200-25210) ---
+  shift_killer_intro: "'du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse...'"
+
+  # --- common outcome resolution (25500-25560) ---
+  shift_failed: "'du hast deinen auftrag nicht erledigt!'"
+  shift_completed: "'du hast deinen job erledigt und erhaeltst deinen lohn. es sind {pay}$!'"

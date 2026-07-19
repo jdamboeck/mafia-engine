@@ -611,15 +611,29 @@ def _run_combat(
     mandatory fight must not be escapable through a cancel unwind, so this loop
     deliberately does not consult the cancel path that :func:`_resolve` owns.
 
-    Effects are NOT buffered here: this unit resolves the fight and hands the winner
-    back to the invoking handler, which owns the entry-point consequence (KTD-1 —
-    "losing a fight carries only the entry point's consequence"). The shared ``ctx``
-    is threaded through so a later unit can buffer roster energy/down deltas from
-    inside the loop without changing this function's contract.
+    The invoking handler owns the fight's ENTRY-POINT consequence (KTD-1 — "losing a
+    fight carries only the entry point's consequence": debt seizure, job pay, reward,
+    etc.) — that is still on the caller. But the fight's OWN persistent side-effect on
+    the roster — energy spent, fighters knocked down — is NOT entry-point-specific, it
+    is true of every fight regardless of who triggered it, so this function buffers it
+    directly (#44): before returning, it diffs side 1's (the acting player's roster,
+    ``mf-prg.bas:5010``'s ``ks(1)=sp`` — SpawnFighter's docstring pins this convention)
+    per-fighter energy against its pre-fight snapshot and buffers one
+    :class:`~engine.effects.EnergyChange` per fighter whose energy changed, in roster
+    order (1:1 with ``start.sides[0]``, since :func:`engine.combat.build_player_side`
+    never reorders the roster). ``cap`` is set to the fighter's OWN pre/post energy
+    ceiling (never a fresh regen-cap computation) so the clamp in
+    ``engine.effects._apply``'s ``EnergyChange`` branch is a structural no-op here —
+    combat only ever LOWERS energy this slice (no mid-fight healing exists), so the
+    post-fight value is by construction the correct final value, not merely a floor.
+    Side 2 (the enemy party) is NPC working state, never a roster, so it is not
+    persisted here. A no-op fight (no side-1 fighter's energy moved, e.g. a
+    zero-activation surrender before anyone was struck) buffers nothing.
     """
     # Lazy imports keep this module's top-level import graph free of engine.state /
     # engine.combat, mirroring the commit() import in run().
     from engine.combat import DEFAULT_CPU_SIDES, CombatFight
+    from engine.effects import EnergyChange
     from engine.state import CombatState
 
     cpu_sides = (
@@ -635,12 +649,28 @@ def _run_combat(
         rng=ctx.rng,
         weapon_stats=start.weapon_stats,
     )
+    pre_energie = [f.energie for f in fight.sides[0]]
+
+    def _finish(winner: int) -> int:
+        # #44 — buffer the roster's persistent energy/down consequence BEFORE handing
+        # the winner back, so it commits atomically with the invoking handler's own
+        # entry-point effects (one shared ctx, one atomic buffer).
+        for i, f in enumerate(fight.sides[0]):
+            if f.energie != pre_energie[i]:
+                ctx.apply(
+                    EnergyChange(
+                        amount=f.energie - pre_energie[i],
+                        cap=max(pre_energie[i], f.energie),
+                        gangster=i,
+                    )
+                )
+        return winner
 
     message: Any = None
     while True:
         winner = fight.winner()
         if winner is not None:
-            return fight.finish(winner)
+            return _finish(fight.finish(winner))
 
         if fight.active_side in cpu_sides:
             # 30110: `ifks(s)=0thengosub30400:goto30105` — the CPU side runs the AI
@@ -652,7 +682,7 @@ def _run_combat(
             if outcome["action"] == "shoot":
                 winner = fight.winner()
                 if winner is not None:
-                    return fight.finish(winner)
+                    return _finish(fight.finish(winner))
             fight.advance_activation()
             continue
 
@@ -671,7 +701,7 @@ def _run_combat(
         action, argument = _parse_combat_response(raw)
 
         if action == "surrender":
-            return fight.surrender()
+            return _finish(fight.surrender())
         if action == "pass":
             fight.advance_activation()
             continue
@@ -686,7 +716,7 @@ def _run_combat(
             message = fight.shoot(argument)
             winner = fight.winner()
             if winner is not None:
-                return fight.finish(winner)
+                return _finish(fight.finish(winner))
             fight.advance_activation()
             continue
         # 30139: an unrecognized key falls back to the GET wait — re-prompt.

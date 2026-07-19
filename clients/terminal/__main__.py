@@ -29,7 +29,8 @@ import yaml
 from engine.actions import run_option
 from engine.config_loader import load_game_config
 from engine.effects import RankCommit
-from engine.locations import available_options, load_location
+from engine.interactions import run as run_handler
+from engine.locations import HANDLERS, available_options, load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
 from engine.rng import Rng
 from engine.strings import Resolver
@@ -407,6 +408,27 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None):
     return new_state
 
 
+def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rng: Rng):
+    """Run the active player's job shift (U10, KTD-3's job-shift seam) and render it.
+
+    Dispatched by the CALLER (:func:`play`'s turn loop), right after upkeep, in place
+    of the free turn -- an employed player never reaches the map/menu this turn
+    (``data/game_configs/mafia_1920s/handlers/jobs.py``'s ``job_shift``, registered
+    under ``"job.shift"`` in the SAME :data:`engine.locations.HANDLERS` registry a
+    location option's handler string resolves against). Drives the generator via
+    :func:`engine.interactions.run` directly (there is no location shell/guard layer
+    for a shift, unlike :func:`_run_location`), sharing the ONE session RNG and the
+    real terminal ``inp`` so the shift's ``StartCombat`` fights render exactly like
+    any other in-slice fight.
+    """
+    from clients.terminal.renderers import render_header, render_screen_clear
+
+    render_screen_clear(out)
+    render_header("job", out)
+    result = run_handler(HANDLERS["job.shift"], inp, state=state, rng=rng)
+    return result.state  # adopt (run is pure)
+
+
 def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
     """Play the default config from ``seed`` over real stdin/stdout.
 
@@ -470,64 +492,76 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
 
         note = "move: W/A/S/D into a door to enter. Q quits."
         while True:
-            out.write(CLEAR)
-            render_map(city, city_raw, state, out)
-            out.write(f"{DIM}{note}{RESET}\n")
+            # U10 job-shift seam: an EMPLOYED player never reaches the map/menu this
+            # turn -- the shift flow replaces the free turn entirely (mirrors the
+            # source's :1012 dispatch). Checked fresh every turn start, right after
+            # upkeep (above on the first turn, after advance_turn below on later ones).
+            active = state.players[state.clock.active_player]
+            if active.jobs.type:
+                state = _run_job_shift_screen(state, resolver, inp, out, rng)
+            else:
+                while True:
+                    out.write(CLEAR)
+                    render_map(city, city_raw, state, out)
+                    out.write(f"{DIM}{note}{RESET}\n")
+                    out.flush()
+                    key = _read_key()
+                    if check_resize():
+                        note = " resized"
+                        continue
+                    if _is_quit(key):
+                        out.write("bye.\n")
+                        return
+
+                    delta = _MOVE_KEYS.get(key)
+                    if delta is None:
+                        note = "(use W/A/S/D or Q)"
+                        continue
+
+                    result = try_move(state, city, delta)
+                    state = result.state
+                    payload = result.payload
+                    kind = getattr(payload, "kind", None)
+                    note = {
+                        "wall": "(a wall)",
+                        "oob": "(edge of the city)",
+                    }.get(kind or "", "move: W/A/S/D into a door to enter. Q quits.")
+                    if kind == "enter":
+                        key_for_la = la_to_key.get(payload.la)
+                        if key_for_la is not None:
+                            state = _run_location(
+                                key_for_la, payload.ln, state, resolver, inp, out, rng
+                            )
+                    if getattr(payload, "turn_over", False):
+                        break
+
+            from clients.terminal.renderers import (
+                render_header,
+                render_body,
+                render_screen_clear,
+            )
+            p = state.players[state.clock.active_player]
+            render_screen_clear(out)
+            render_header("turn_over", out)
+            render_body(
+                f"cash: {p.ka}$\n"
+                f"position: {p.po}\n"
+                f"movement: {p.ms}\n"
+                f"rank: {p.rank}\n"
+                f"wanted: {p.wanted}",
+                out,
+            )
+            out.write(f"\n{DIM}press any key...{RESET}\n")
             out.flush()
-            key = _read_key()
-            if check_resize():
-                note = " resized"
-                continue
-            if _is_quit(key):
+            if _is_quit(_read_key()):
                 out.write("bye.\n")
                 return
-
-            delta = _MOVE_KEYS.get(key)
-            if delta is None:
-                note = "(use W/A/S/D or Q)"
-                continue
-
-            result = try_move(state, city, delta)
-            state = result.state
-            payload = result.payload
-            kind = getattr(payload, "kind", None)
-            note = {
-                "wall": "(a wall)",
-                "oob": "(edge of the city)",
-            }.get(kind or "", "move: W/A/S/D into a door to enter. Q quits.")
-            if kind == "enter":
-                key_for_la = la_to_key.get(payload.la)
-                if key_for_la is not None:
-                    state = _run_location(
-                        key_for_la, payload.ln, state, resolver, inp, out, rng
-                    )
-            if getattr(payload, "turn_over", False):
-                from clients.terminal.renderers import (
-                    render_header,
-                    render_body,
-                    render_screen_clear,
-                )
-                p = state.players[state.clock.active_player]
-                render_screen_clear(out)
-                render_header("turn_over", out)
-                render_body(
-                    f"cash: {p.ka}$\n"
-                    f"position: {p.po}\n"
-                    f"movement: {p.ms}\n"
-                    f"rank: {p.rank}\n"
-                    f"wanted: {p.wanted}",
-                    out,
-                )
-                out.write(f"\n{DIM}press any key...{RESET}\n")
-                out.flush()
-                if _is_quit(_read_key()):
-                    out.write("bye.\n")
-                    return
-                # advance_turn is pure — the rotated/replenished state must be adopted.
-                state, _game_over = advance_turn(state, vehicles)
-                # KTD-3: upkeep for the NEW active player, right at the turn-start seam
-                # advance_turn just opened — before this player's free turn is offered.
-                state = _run_upkeep_screen(state, resolver, out, rng)
+            # advance_turn is pure — the rotated/replenished state must be adopted.
+            state, _game_over = advance_turn(state, vehicles)
+            # KTD-3: upkeep for the NEW active player, right at the turn-start seam
+            # advance_turn just opened — before this player's free turn (or job
+            # shift) is offered.
+            state = _run_upkeep_screen(state, resolver, out, rng)
     finally:
         show_cursor(out)
 

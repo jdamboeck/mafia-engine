@@ -32,7 +32,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
-from engine.state import Gangster, GameState, tuple_replace
+from engine.state import Gangster, GameState, Job, tuple_replace
 
 #: Schema version stamped on every effect (KTD-6). Bump when an effect's fields change
 #: in a way that a replay of an OLD log would need to know about; each effect references
@@ -463,10 +463,10 @@ class TipClear:
 class JobSet:
     """Set the target player's accepted job: ``type``/``pending_pay``/``months_left``.
 
-    Groundwork only (U2, KTD-7); deferred to a later unit (pub job accept, U10).
-    Ports ``mf-prg.bas:12335``: ``jo(sp)=x:jl(sp)=p`` (plus the per-job-type
-    ``jd(sp)`` duration set earlier at :12308/:12311/:12316/:12322) — one effect
-    since the source sets them as a unit when a job is accepted. Targets
+    Declared as groundwork in U2 (KTD-7); real application landed in U10 (the pub
+    job-accept flow). Ports ``mf-prg.bas:12335``: ``jo(sp)=x:jl(sp)=p`` (plus the
+    per-job-type ``jd(sp)`` duration set earlier at :12308/:12311/:12316/:12322) —
+    one effect since the source sets them as a unit when a job is accepted. Targets
     :class:`~engine.state.Job`.
     """
 
@@ -481,9 +481,10 @@ class JobSet:
 class JobClear:
     """Clear the target player's job (``jo(sp)=0``).
 
-    Groundwork only (U2, KTD-7); deferred to a later unit. Ports the job-quit sites
-    (mf-prg.bas:25560 completion, :26080 jail commit forces ``jo(sp)=0``) — both zero
-    the job the same way, so one effect covers both call sites.
+    Declared as groundwork in U2 (KTD-7); real application landed in U10. Ports the
+    job-quit sites (mf-prg.bas:25560 completion, :25510 failed-shift-fight abort,
+    :26080 jail commit forces ``jo(sp)=0``) — all zero the job the same way, so one
+    effect covers every call site.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -623,12 +624,13 @@ def _apply(state: GameState, effect: Any) -> GameState:
     (R1/R3), so the functional rebuild is the only expressible write path.
 
     Deferred effects (:class:`WantedChange`, :class:`Jail`,
-    :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`, :class:`JobSet`,
-    :class:`JobClear`) raise ``NotImplementedError`` — they are exercised in a later
-    unit but exist now so logs stay type-complete and serializable.
+    :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`) raise
+    ``NotImplementedError`` — they are exercised in a later unit but exist now so
+    logs stay type-complete and serializable.
     (:class:`BarrelChange`, :class:`TipSet`, :class:`TipClear` gained real application
     in U8 — the pub alcohol trade and tip flow. :class:`RosterAppend` gained real
-    application in U9 — the pub recruit flow.)
+    application in U9 — the pub recruit flow. :class:`JobSet`/:class:`JobClear`
+    gained real application in U10 — the pub job-accept and shift flows.)
     """
     if isinstance(effect, MoneyChange):
         idx = _target_index(state, effect.player)
@@ -778,6 +780,25 @@ def _apply(state: GameState, effect: Any) -> GameState:
         new_hired = state.flags.hired_gangsters + (effect.candidate_id,)
         return replace(state, flags=replace(state.flags, hired_gangsters=new_hired))
 
+    if isinstance(effect, JobSet):
+        idx = _target_index(state, effect.player)
+        # jo(sp)=type : jl(sp)=pending_pay : jd(sp)=months_left (mf-prg.bas:12335, plus
+        # the per-type jd(sp) set earlier at :12308/:12311/:12316/:12322) — U10 real
+        # application.
+        new_job = Job(
+            type=effect.type,
+            pending_pay=effect.pending_pay,
+            months_left=effect.months_left,
+        )
+        return _with_player(state, idx, jobs=new_job)
+
+    if isinstance(effect, JobClear):
+        idx = _target_index(state, effect.player)
+        # jo(sp)=0 (mf-prg.bas:25560 completion, :25510 failed shift fight, :26080
+        # jail commit) — U10 real application. A full reset (not just type=0) so a
+        # cleared job never leaks a stale pending_pay/months_left into a future read.
+        return _with_player(state, idx, jobs=Job())
+
     if isinstance(
         effect,
         (
@@ -786,8 +807,6 @@ def _apply(state: GameState, effect: Any) -> GameState:
             DebtChange,
             DebtClear,
             ShopChange,
-            JobSet,
-            JobClear,
         ),
     ):
         raise NotImplementedError(

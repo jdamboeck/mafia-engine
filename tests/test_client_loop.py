@@ -464,6 +464,124 @@ class TestPubRecruitThroughClient:
 
 
 # --------------------------------------------------------------------------- #
+# U10 — pub.job (take a job) via the real input loop                          #
+# --------------------------------------------------------------------------- #
+class TestPubJobThroughClient:
+    """``pub.job``'s guard (rank<=3) is satisfied by a FRESH rank-1 ``play()`` session
+    -- unlike tip/recruit, no hand-built high-rank state is needed here. Same
+    ``run_option``/``TerminalInput`` pattern as the sibling pub tests, one level
+    below full ``play()``, since the exact RNG draw order (type/pay rolls) is easier
+    to pin against a specific seed this way."""
+
+    def test_accept_a_job_via_the_real_input_loop(self, monkeypatch):
+        from engine.actions import run_option
+        from engine.rng import Rng
+        from engine.strings import Resolver
+
+        state = new_state(1)
+        shell = tmain._load_shell("pub")
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        out = io.StringIO()
+        # seed=1: available (nonzero roll), job type 1 (bouncer), pay=2261$.
+        # "j" accepts the pay confirm.
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "job", state, ln=2, input_source=inp, rng=Rng(1))
+
+        assert result.status == "completed"
+        assert result.state.players[0].jobs.type == 1
+        assert result.state.players[0].jobs.pending_pay == 2261
+        assert result.state.players[0].ms == 0  # force-ended (mf-prg.bas:12335 ms=0)
+        # The Confirm prompt genuinely reached the real TerminalInput wire.
+        assert "ok (j/n)?" in out.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# U10 — job.shift takes over an employed player's turn (the U3 seam)          #
+# --------------------------------------------------------------------------- #
+class TestJobShiftThroughClient:
+    """Walks to the pub, accepts a job, then proves the NEXT turn runs the shift
+    flow instead of the map/menu -- via the real ``play()`` input loop end to end,
+    on the rendered ``job`` header + combat-screen protocol (same wire U7 proved
+    for its throwaway combat trigger, now exercised by a REAL one)."""
+
+    def test_employed_turn_shows_job_screen_not_the_map(self, monkeypatch):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        state = new_state(5)
+        pub_cell = find_door_cell(city_raw, "pub", ln=2)
+        walk = walk_keys_to_cell(state, city, pub_cell)
+        # Splash ack; menu choice 2 (job); accept ("j"); one more move key forces
+        # turn_over immediately (ms already 0 from the accept) -- ack turn_over,
+        # ack the next player's upkeep screen. seed=5's bouncer job then rolls a
+        # shift-fight this turn (verified by direct trace); a scripted stdin that
+        # runs out mid-fight surrenders via CANCEL (KTD-2), which is enough to
+        # prove the "job" screen -- not the map -- is what renders next.
+        keys = walk + ["", "2", "j", "w", "x", "x"]
+        output = run_play(monkeypatch, seed=5, stdin_keys=keys)
+
+        # The job-shift screen rendered (its own header), not a second map draw
+        # between the two turn_over screens.
+        assert "job" in output
+        assert "deine aktion:" in output  # the combat-screen action prompt (U7 wire)
+        # No third "move: W/A/S/D" prompt appears between the two turn-over screens
+        # -- the employed turn never reached the map loop at all.
+        turn_over_positions = [
+            i for i in range(len(output)) if output.startswith("turn_over", i)
+        ]
+        assert len(turn_over_positions) >= 2
+        between = output[turn_over_positions[0] : turn_over_positions[1]]
+        assert "move: W/A/S/D" not in between
+
+    def test_croupier_full_lifecycle_two_shifts_lump_sum_via_client_input(self):
+        """The job-lifecycle acceptance case (croupier: two shifts, lump sum paid,
+        job cleared) driven via the REAL ``TerminalInput``/``run`` wire -- the
+        driver-level equivalent lives in ``tests/test_pub_jobs.py``; this is the
+        SAME scenario one level up, on the real terminal input protocol."""
+        from engine.interactions import run as run_handler
+        from engine.rng import Rng
+        from engine.state import Clock, Config, Gangster, GameState, Job, Player
+        from engine.strings import Resolver
+
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        params = {"rank_divisor": 11.1}
+        state = GameState(
+            players=(
+                Player(
+                    name="alcapone",
+                    ka=1000,
+                    roster=(Gangster(name="alcapone", energie=10, kraft=30, brutalitaet=30),),
+                    jobs=Job(type=2, pending_pay=1200, months_left=2),
+                ),
+            ),
+            clock=Clock(active_player=0, player_count=1),
+            config=Config(formula_params=params),
+        )
+        from engine.locations import HANDLERS
+
+        # Shift 1: trick 1, seed=1 -> success (bonus 372$), months_left 2 -> 1.
+        out1 = io.StringIO()
+        inp1 = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("1\n"), stdout=out1, weapon_names=[]
+        )
+        result1 = run_handler(HANDLERS["job.shift"], inp1, state=state, rng=Rng(1))
+        assert result1.state.players[0].jobs == Job(type=2, pending_pay=1200, months_left=1)
+        assert result1.state.players[0].ka == 1372
+        assert "welchen trick" in out1.getvalue()
+
+        # Shift 2: trick 1, seed=1 again -> success again, months_left hits 0 ->
+        # full wage (1200$) pays out once, job cleared.
+        out2 = io.StringIO()
+        inp2 = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("1\n"), stdout=out2, weapon_names=[]
+        )
+        result2 = run_handler(HANDLERS["job.shift"], inp2, state=result1.state, rng=Rng(1))
+        assert result2.state.players[0].jobs == Job()  # cleared
+        assert result2.state.players[0].ka == 1372 + 372 + 1200  # bonus + lump sum
+
+
+# --------------------------------------------------------------------------- #
 # Determinism: same seed twice -> identical transcripts                       #
 # --------------------------------------------------------------------------- #
 
