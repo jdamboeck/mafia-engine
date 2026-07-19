@@ -58,9 +58,10 @@ __all__ = [
     "FlagSet",
     "SetTenancy",
     "RentAccrue",
+    "EnergyChange",
+    "RankCommit",
     # Declared-but-deferred effects
     "WantedChange",
-    "EnergyChange",
     "Jail",
     "SpawnFighter",
     "DebtChange",
@@ -279,6 +280,47 @@ class RentAccrue:
     player: int | None = None
 
 
+@dataclass(frozen=True)
+class EnergyChange:
+    """Add ``amount`` to ``roster[gangster].energie``, then clamp to ``[0, cap]`` (U3).
+
+    Ports the turn-start energy regen (``mf-prg.bas:4015``: ``en=en+int(kr/10)+1``) and
+    its cap (``:4020``: ``x=2+int(kr/4)+int(bt/4):ifen>xthenen=x``). ``cap`` is a REQUIRED
+    field the caller computes from the gangster's OWN kraft/brutalitaet before building
+    the effect (the formula reads the gangster's stats, not a config constant, so there is
+    nothing for the engine to look up here — mirrors :class:`StatChangeCapped`'s
+    config-supplied-cap shape, KTD-10). Floors at 0 (energy cannot go negative from a
+    regen tick; combat's down-to-0 case is a later unit's separate concern). Was
+    declared-but-stubbed since U2 (KTD-7); this is its real application.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    amount: int
+    cap: int
+    gangster: int = 0
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class RankCommit:
+    """Set the target player's committed rank ``rank`` (``ra(sp)``) to ``nr`` (U3).
+
+    Ports the rank-promotion commit (``mf-prg.bas:4030``:
+    ``ifra(sp)<>nr(sp)thenra(sp)=nr(sp):gosub4200``) — the SECOND half of the two-step
+    rank system: :class:`ScoreAndRank` already recomputes the PENDING next-rank counter
+    ``Player.nr`` from ``gf`` on every score award, but ``Player.rank`` (the value guards
+    and prices actually read, e.g. ``waf.py``'s ``active.rank >= 5``) only moves when this
+    effect commits it. The caller (the upkeep handler) is responsible for checking
+    ``rank != nr`` and showing the promotion screen BEFORE applying this — the effect
+    itself unconditionally sets ``rank = new_rank`` (an unconditional set is simpler and
+    still faithful, since the caller never applies it when they are already equal).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    new_rank: int
+    player: int | None = None
+
+
 # --------------------------------------------------------------------------- #
 # Declared-but-deferred effects — the type exists & is serializable, but      #
 # ``apply`` raises NotImplementedError (exercised in a later unit).           #
@@ -289,16 +331,6 @@ class WantedChange:
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: int
-    player: int | None = None
-
-
-@dataclass(frozen=True)
-class EnergyChange:
-    """Adjust a gangster's combat energy. Deferred — application in a later unit."""
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    amount: int
-    gangster: int = 0
     player: int | None = None
 
 
@@ -529,7 +561,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
     :func:`_mapping_set` helpers rather than writing state — the state graph is frozen
     (R1/R3), so the functional rebuild is the only expressible write path.
 
-    Deferred effects (:class:`WantedChange`, :class:`EnergyChange`, :class:`Jail`,
+    Deferred effects (:class:`WantedChange`, :class:`Jail`,
     :class:`SpawnFighter`, :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`,
     :class:`BarrelChange`, :class:`TipSet`, :class:`TipClear`, :class:`JobSet`,
     :class:`JobClear`, :class:`RosterAppend`) raise ``NotImplementedError`` — they are
@@ -642,11 +674,30 @@ def _apply(state: GameState, effect: Any) -> GameState:
         rented = state.players[idx].rented_months + effect.months
         return _with_player(state, idx, rented_months=rented)
 
+    if isinstance(effect, EnergyChange):
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
+        if effect.gangster < 0 or effect.gangster >= len(p.roster):
+            raise IndexError(
+                f"gangster index {effect.gangster} out of range "
+                f"(player has {len(p.roster)} gangsters)"
+            )
+        g = p.roster[effect.gangster]
+        # en=en+int(kr/10)+1 (mf-prg.bas:4015), capped at [0, cap] (:4020's ifen>xthenen=x
+        # is an upper clamp only in the source; a floor of 0 is the engine's own sane
+        # bound — energie has no documented negative-regen path this unit).
+        raised = max(0, min(effect.cap, g.energie + effect.amount))
+        return _with_gangster(state, idx, effect.gangster, energie=raised)
+
+    if isinstance(effect, RankCommit):
+        idx = _target_index(state, effect.player)
+        # ra(sp) = nr(sp) (mf-prg.bas:4030) — the caller decides WHEN (rank != nr).
+        return _with_player(state, idx, rank=effect.new_rank)
+
     if isinstance(
         effect,
         (
             WantedChange,
-            EnergyChange,
             Jail,
             SpawnFighter,
             DebtChange,

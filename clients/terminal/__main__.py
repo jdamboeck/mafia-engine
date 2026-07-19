@@ -28,10 +28,12 @@ import yaml
 
 from engine.actions import run_option
 from engine.config_loader import load_game_config
+from engine.effects import RankCommit
 from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
 from engine.rng import Rng
 from engine.strings import Resolver
+from engine.upkeep import run_upkeep
 
 from clients.terminal import (
     CLEAR,
@@ -346,6 +348,65 @@ def _run_location(
     return result.state  # adopt (run_option is pure)
 
 
+def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None):
+    """Run the active player's turn-start upkeep (KTD-3) and show its banner/promotion.
+
+    Calls :func:`engine.upkeep.run_upkeep` — THE engine-level turn-start entry point —
+    so the client never decides for itself whether upkeep runs; it only renders what
+    already happened. The turn banner always shows; the rank-promotion "wanted poster"
+    screen shows only when the committed effects contain a :class:`RankCommit` (the
+    handler's own ``rank != nr`` gate, mirrored here rather than re-derived, so the
+    client stays a thin renderer over the driver's decision).
+
+    Blocks for one keypress after the banner/promotion (mirrors the turn-over prompt's
+    "press any key..." pattern) so a human has time to read it; EOF is treated as an
+    ack, not a quit, since upkeep offers no cancel path (Verification Contract) — the
+    turn must proceed regardless.
+    """
+    import sys as _sys
+    if stdin is None:
+        stdin = _sys.stdin
+    from clients.terminal import hide_cursor, show_cursor
+    from clients.terminal.renderers import render_body, render_header, render_screen_clear
+
+    result = run_upkeep(state, rng=rng)
+    new_state = result.state  # adopt (run_upkeep is pure)
+    active = new_state.players[new_state.clock.active_player]
+
+    render_screen_clear(out)
+    render_header("upkeep", out)
+    render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out)
+
+    promoted = next(
+        (e for e in result.effects if isinstance(e, RankCommit)), None
+    )
+    if promoted is not None:
+        cfg = load_game_config(_CONFIG_DIR)
+        ranks = cfg.module.load_ranks(_CONFIG_DIR / cfg.config["entities"]["ranks"])
+        out.write("\n")
+        render_body(
+            resolver.resolve(
+                "upkeep.rank_promotion",
+                {
+                    "gang_name": active.gang_name,
+                    "name": active.name,
+                    "score": active.gf,
+                    "rank_name": ranks[active.rank - 1],
+                },
+            ),
+            out,
+        )
+
+    out.write(f"\n{DIM}press any key...{RESET}\n")
+    out.flush()
+    show_cursor(out)
+    try:
+        stdin.readline()
+    finally:
+        hide_cursor(out)
+    return new_state
+
+
 def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
     """Play the default config from ``seed`` over real stdin/stdout.
 
@@ -397,6 +458,12 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
             sys.stdin.readline()
         finally:
             hide_cursor(out)
+
+        # KTD-3: the engine owns the coupling — upkeep runs at EVERY turn start,
+        # including the very first (before the map loop's first render), so no path
+        # through this client can reach a free turn without it. Later turns run it
+        # right after advance_turn rotates (below), at the exact same seam.
+        state = _run_upkeep_screen(state, resolver, out, rng)
 
         note = "move: W/A/S/D into a door to enter. Q quits."
         while True:
@@ -455,6 +522,9 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
                     return
                 # advance_turn is pure — the rotated/replenished state must be adopted.
                 state, _game_over = advance_turn(state, vehicles)
+                # KTD-3: upkeep for the NEW active player, right at the turn-start seam
+                # advance_turn just opened — before this player's free turn is offered.
+                state = _run_upkeep_screen(state, resolver, out, rng)
     finally:
         show_cursor(out)
 

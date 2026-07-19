@@ -1,0 +1,15 @@
+# upkeep (turn-start flow) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the engine emits KEYS (e.g. "upkeep.turn_banner") and the
+# theme resolves them to these strings. Ported byte-for-byte from the research
+# (research-data/pass-1/game-text.yaml lines ~4005-4006, ~4200-4220 +
+# mf-prg.bas:4000-4090). {name}/{gang_name}/{score}/{rank_name} are template params.
+upkeep:
+  # Turn banner (4005-4006): "spieler <name>" / "ist an der reihe..."
+  turn_banner: "spieler {name}\nist an der reihe..."
+
+  # Rank-promotion "wanted poster" screen (4200-4220): gang name, player name (with a
+  # trailing "."), score ("<n> p."), then the rank name — each line was printed in
+  # reverse video ({rvon}) on the original's poster backdrop; the terminal client
+  # renders that presentation, this key only carries the verbatim text content.
+  rank_promotion: "{gang_name}\n{name}.\n{score} p.\n{rank_name}"

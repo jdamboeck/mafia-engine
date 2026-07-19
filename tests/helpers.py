@@ -45,13 +45,17 @@ from engine.state import json_safe, tuple_replace
 
 
 def make_walk_script(keys: list[str]) -> io.StringIO:
-    """Build the piped-stdin body for ``play()``: blank title-dismiss line + one key/line.
+    """Build the piped-stdin body for ``play()``: two blank acks + one key/line.
 
-    ``play()`` reads one line for "press a key" on the title screen BEFORE the map
-    loop starts, so every scripted stdin must account for it. See
+    ``play()`` reads one line for "press a key" on the title screen, THEN (U3, KTD-3)
+    one more for the turn-start upkeep screen's "press any key..." ack — BOTH before
+    the map loop starts — so every scripted stdin must account for both. See
     ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
+    Every ``advance_turn`` rotation triggers a THIRD such ack for the new active
+    player's upkeep — callers scripting a multi-turn session add one blank/any-key
+    line per rotation on top of the two this builder prepends.
     """
-    return io.StringIO("\n".join([""] + keys) + "\n")
+    return io.StringIO("\n".join(["", ""] + keys) + "\n")
 
 
 def with_player(state, idx: int = 0, **field_changes):

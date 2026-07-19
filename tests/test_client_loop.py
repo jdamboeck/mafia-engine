@@ -116,8 +116,10 @@ def walk_keys_across_turns(state, city, vehicles, target_cell: int) -> list[str]
     movement budget (e.g. waf's ``ln=1`` grenade-roll door, 39 steps from the default
     start) still needs a real key sequence a piped-stdin script can drive. Returns the
     full key stream INCLUDING the turn-over "press any key..." acknowledgment (any
-    non-quit key) wherever ``ms`` would hit 0 mid-walk — the real ``play()`` loop emits
-    that prompt and reads one key for it before the map loop continues.
+    non-quit key) AND the U3 turn-start upkeep screen's own "press any key..." ack that
+    immediately follows it (KTD-3: upkeep runs right after ``advance_turn`` rotates,
+    before the map loop's next render) — wherever ``ms`` would hit 0 mid-walk, the real
+    ``play()`` loop emits BOTH prompts in sequence and reads one key for each.
     """
     from engine.movement import advance_turn, try_move
 
@@ -129,6 +131,7 @@ def walk_keys_across_turns(state, city, vehicles, target_cell: int) -> list[str]
         out.append(key)
         if getattr(result.payload, "turn_over", False):
             out.append("x")  # ack the turn-over prompt (any non-quit key advances)
+            out.append("x")  # ack the U3 upkeep screen for the newly-active player
             state, _game_over = advance_turn(state, vehicles)
     return out
 
@@ -433,5 +436,6 @@ class TestTwoPlayerAlternation:
         assert state.clock.active_player == 0  # still player 0 until the ack below
 
         keys.append("x")  # ack turn-over -> advance_turn rotates to player 1
+        keys.append("x")  # ack player 1's U3 upkeep screen (KTD-3, right after rotation)
         output = run_play(monkeypatch, seed=7, stdin_keys=keys, players=players)
         assert "moran" in output

@@ -31,6 +31,7 @@ from engine.effects import (
     JobSet,
     MoneyChange,
     MsChange,
+    RankCommit,
     RosterAppend,
     ScoreChange,
     SetEntryContext,
@@ -297,6 +298,63 @@ def test_stat_change_capped_bad_gangster_index_raises_indexerror():
 
 
 # --------------------------------------------------------------------------- #
+# energy_change (U3) — turn-start regen, real application                     #
+# --------------------------------------------------------------------------- #
+def test_energy_change_applies_unclamped_under_cap():
+    state = make_state()  # g0 energie starts at 5
+    out = apply(state, EnergyChange(amount=3, cap=99))
+    assert out.players[0].roster[0].energie == 8
+
+
+def test_energy_change_clamps_at_cap():
+    state = make_state()  # g0 energie starts at 5
+    out = apply(state, EnergyChange(amount=50, cap=10))
+    assert out.players[0].roster[0].energie == 10
+
+
+def test_energy_change_floors_at_zero():
+    state = make_state()  # g0 energie starts at 5
+    out = apply(state, EnergyChange(amount=-50, cap=99))
+    assert out.players[0].roster[0].energie == 0
+
+
+def test_energy_change_bad_gangster_index_raises_indexerror():
+    state = make_state()
+    with pytest.raises(IndexError):
+        apply(state, EnergyChange(amount=1, cap=99, gangster=9))
+
+
+def test_energy_change_purity():
+    state = make_state()
+    out = apply(state, EnergyChange(amount=3, cap=99))
+    assert state.players[0].roster[0].energie == 5  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
+# rank_commit (U3) — ra(sp) = nr(sp), unconditional set (caller gates it)      #
+# --------------------------------------------------------------------------- #
+def test_rank_commit_sets_rank():
+    state = make_state()  # rank defaults to 1
+    out = apply(state, RankCommit(new_rank=4))
+    assert out.players[0].rank == 4
+
+
+def test_rank_commit_targets_explicit_player():
+    state = make_state()
+    out = apply(state, RankCommit(new_rank=7, player=1))
+    assert out.players[1].rank == 7
+    assert out.players[0].rank == 1  # untouched
+
+
+def test_rank_commit_purity():
+    state = make_state()
+    out = apply(state, RankCommit(new_rank=4))
+    assert state.players[0].rank == 1  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
 # assign_weapon (U3) — the R9 purchase-persist primitive                      #
 # --------------------------------------------------------------------------- #
 def test_assign_weapon_sets_gangster_weapon():
@@ -397,7 +455,6 @@ def test_negative_gangster_index_raises_not_wraps():
     "effect",
     [
         WantedChange(1),
-        EnergyChange(1),
         Jail(3),
         SpawnFighter(fighter=object()),
         # U2 groundwork (KTD-7): declared now, activated in a later unit each.
