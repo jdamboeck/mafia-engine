@@ -410,6 +410,59 @@ class TestPubTipThroughClient:
         assert "ok (j/n)?" in out.getvalue()
 
 
+class TestPubRecruitThroughClient:
+    """``pub.recruit`` requires rank>=5 AND at least one rented apartment slot
+    (mf-prg.bas:12100-12104), neither reachable from a fresh rank-1 ``play()``
+    session without a full progression session -- same rationale and same pattern
+    as ``TestPubTipThroughClient``: a hand-built rank-5, housed ``GameState`` driven
+    through the real ``run_option``/``TerminalInput`` wire.
+    """
+
+    def _state(self, *, rank=5, ka=100000, housed=True):
+        from engine.state import Clock, Config, Flags, Gangster, GameState, MapState, Player
+
+        return GameState(
+            players=(
+                Player(
+                    name="alcapone",
+                    gang_name="the outfit",
+                    ka=ka,
+                    rank=rank,
+                    roster=(Gangster(name="alcapone"),),
+                ),
+            ),
+            clock=Clock(active_player=0, player_count=1),
+            config=Config(formula_params={}),
+            map=MapState(tenancy={1: 0} if housed else {}),
+            flags=Flags(),
+        )
+
+    def test_recruit_one_gangster_via_the_real_input_loop(self, monkeypatch):
+        from engine.actions import run_option
+        from engine.rng import Rng
+        from engine.strings import Resolver
+
+        state = self._state(rank=5, ka=100000, housed=True)
+        shell = tmain._load_shell("pub")
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        out = io.StringIO()
+        # seed=15: offer pool rolls offered=1, candidate id 0 ("killer-jack",
+        # price 3000$) -- "j" accepts the single offer.
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "recruit", state, ln=1, input_source=inp, rng=Rng(15))
+
+        assert result.status == "completed"
+        assert result.state.players[0].ka == 97000  # 100000 - 3000$ price
+        assert len(result.state.players[0].roster) == 2  # boss + killer-jack
+        assert result.state.players[0].roster[1].name == "killer-jack"
+        assert result.state.players[0].roster[1].energie == 5
+        assert result.state.flags.hired_gangsters == (0,)
+        # The Confirm prompt genuinely reached the real TerminalInput wire.
+        assert "ok (j/n)?" in out.getvalue()
+
+
 # --------------------------------------------------------------------------- #
 # Determinism: same seed twice -> identical transcripts                       #
 # --------------------------------------------------------------------------- #

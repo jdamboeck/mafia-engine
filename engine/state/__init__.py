@@ -360,10 +360,26 @@ class Config:
 
 @dataclass(frozen=True)
 class Flags:
-    """Global flags, distinct from the per-player bitfields above."""
+    """Global flags, distinct from the per-player bitfields above.
+
+    ``hired_gangsters`` ports ``sg(i)`` (mf-prg.bas:12106,12110,12165) — the GLOBAL
+    (not per-player) set of the 30 recruit-candidate ids (0-based here; the source's
+    ``i`` is 1-based) already hired by ANY player this game. It lives on ``Flags``
+    rather than on ``Player`` because the source array has no player dimension: once
+    a candidate is hired by one player, every player's recruit roll skips them
+    (U9's ``pub.recruit``). A tuple, not a ``set``/``frozenset`` (R2/KTD-7): every
+    other read-only COLLECTION field in this module is a tuple or
+    ``MappingProxyType`` so ``json_safe``/persistence's generic walkers handle it
+    for free; a bare Python ``set`` is not JSON-serializable and would need its own
+    special-cased round-trip.
+    """
 
     graphics_mode: int = 0
     loaded: bool = False
+    hired_gangsters: tuple[int, ...] = ()
+
+    def __post_init__(self):
+        _coerce_readonly(self, "hired_gangsters")
 
 
 @dataclass(frozen=True)

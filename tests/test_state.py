@@ -111,6 +111,19 @@ def test_state_dataclasses_are_frozen():
             setattr(obj, field_name, value)
 
 
+def test_flags_hired_gangsters_defaults_empty_and_coerces_to_tuple():
+    """U9: Flags.hired_gangsters is the global sg(i) set (mf-prg.bas:12106/12165).
+
+    Defaults empty; a list passed at construction (as persistence's json_safe
+    round-trip would hand back) coerces to a read-only tuple (R2/KTD-7), same as
+    every other collection-typed state field.
+    """
+    assert Flags().hired_gangsters == ()
+    coerced = Flags(hired_gangsters=[2, 5, 29])
+    assert coerced.hired_gangsters == (2, 5, 29)
+    assert isinstance(coerced.hired_gangsters, tuple)
+
+
 def test_frozen_construction_and_replace_still_work():
     """Freezing constrains writes, not construction: keyword build + replace work."""
     p = Player(name="Al", ka=5000, roster=(Gangster(name="Joe"),))

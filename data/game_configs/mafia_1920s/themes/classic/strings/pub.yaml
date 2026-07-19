@@ -39,3 +39,13 @@ locations:
     arms_deal_offer: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"
     arms_deal_confirm: "ok (j/n)?"
     arms_deal_accepted: "'du wirst es nicht bereuen...'"
+
+    # --- recruit (U9, mf-prg.bas:12100-12175) ---
+    recruit_no_housing: "'du brauchst eine unterkunft fuer die gangster!'"
+    recruit_gang_full: "'maximal 10 gangster!'"
+    recruit_nobody_available: "'es ist niemand da.'"
+    recruit_intro_male: "'ein gangster kommt, um mit dir zu sprechen...'"
+    recruit_intro_female: "'eine dame scheint sich fuer deine gang zu interessieren...'"
+    recruit_offer: "'{pronoun} wird {name} genannt. {description}. {pronoun} verlangt {price}$ vorschuss, wenn {pronoun} sich dir anschliessen soll.'"
+    recruit_confirm: "ok (j/n)?"
+    recruit_hired: "'nun hast du {gang_size} gangster!'"

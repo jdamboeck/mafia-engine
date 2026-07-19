@@ -64,6 +64,8 @@ __all__ = [
     "BarrelChange",
     "TipSet",
     "TipClear",
+    "RosterAppend",
+    "GangsterMarkHired",
     # Declared-but-deferred effects
     "WantedChange",
     "Jail",
@@ -72,7 +74,6 @@ __all__ = [
     "ShopChange",
     "JobSet",
     "JobClear",
-    "RosterAppend",
     # Application
     "apply",
     "commit",
@@ -493,18 +494,43 @@ class JobClear:
 class RosterAppend:
     """Append a new :class:`~engine.state.Gangster` to the target player's roster.
 
-    Groundwork only (U2, KTD-7); deferred to a later unit (pub recruit, U9). The
-    ONLY roster-growing effect (:class:`StatChange`/:class:`AssignWeapon`/etc. all
-    require an existing index) — recruiting a hire adds a new entry, always AFTER
-    the boss at ``roster[0]`` (KTD-6; see :class:`~engine.state.Player`'s docstring).
-    ``gangster`` is a fully-built :class:`~engine.state.Gangster` (the handler rolls
-    its stats from the candidate table before applying this effect) — names are
-    directional data, not engine-invented.
+    Declared as groundwork in U2 (KTD-7); real application landed in U9 (the pub
+    recruit flow). The ONLY roster-growing effect (:class:`StatChange`/
+    :class:`AssignWeapon`/etc. all require an existing index) — recruiting a hire
+    adds a new entry, always AFTER the boss at ``roster[0]`` (KTD-6; see
+    :class:`~engine.state.Player`'s docstring). ``gangster`` is a fully-built
+    :class:`~engine.state.Gangster` (the handler rolls its stats from the candidate
+    table before applying this effect) — names are directional data, not
+    engine-invented. Ports ``mf-prg.bas:12160-12165``: ``gz(sp)=gz(sp)+1`` (roster
+    grows by one; ``len(roster)`` IS ``gz(sp)`` per KTD-6, so nothing separate is
+    incremented), ``gn$(sp,gz(sp))=gn$``/``gw(sp,gz(sp))=gw``/``ge$(sp,gz(sp))=
+    '05'+ge$`` (name/weapon/stats, energy fixed at 5). The price deduction
+    (``ka(sp)=ka(sp)-p``, :12160) is the CALLER's separate :class:`MoneyChange`,
+    not part of this effect — mirrors every other settle site in this config
+    (e.g. ``pub.drink``'s buy path) keeping one effect per state-shape change.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     gangster: Any
     player: int | None = None
+
+
+@dataclass(frozen=True)
+class GangsterMarkHired:
+    """Add ``candidate_id`` to the GLOBAL (not per-player) hired-candidates set.
+
+    New this unit (U9), real application from the start — no groundwork phase
+    (unlike most other U9 effects) since ``Flags.hired_gangsters`` did not exist
+    before this unit. Ports ``sg(g(i))=1`` (``mf-prg.bas:12165``): once ANY player
+    hires candidate ``candidate_id`` (0-based; the source's ``g(i)`` is 1-based),
+    every player's future recruit roll skips them (:12110's ``ifsg(g(i))goto12110``
+    reroll-on-hired guard). Idempotent by construction: appending an already-present
+    id would violate the "no duplicate offers" invariant upstream, but ``apply``
+    still de-dupes defensively rather than trusting every caller.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    candidate_id: int
 
 
 # --------------------------------------------------------------------------- #
@@ -598,10 +624,11 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     Deferred effects (:class:`WantedChange`, :class:`Jail`,
     :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`, :class:`JobSet`,
-    :class:`JobClear`, :class:`RosterAppend`) raise ``NotImplementedError`` — they are
-    exercised in a later unit but exist now so logs stay type-complete and serializable.
+    :class:`JobClear`) raise ``NotImplementedError`` — they are exercised in a later
+    unit but exist now so logs stay type-complete and serializable.
     (:class:`BarrelChange`, :class:`TipSet`, :class:`TipClear` gained real application
-    in U8 — the pub alcohol trade and tip flow.)
+    in U8 — the pub alcohol trade and tip flow. :class:`RosterAppend` gained real
+    application in U9 — the pub recruit flow.)
     """
     if isinstance(effect, MoneyChange):
         idx = _target_index(state, effect.player)
@@ -735,6 +762,22 @@ def _apply(state: GameState, effect: Any) -> GameState:
         # paths in pub.tip) — U8 real application.
         return _with_player(state, idx, tip_target=0)
 
+    if isinstance(effect, RosterAppend):
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
+        # gz(sp)=gz(sp)+1 : gn$/gw/ge$ stored at the new slot (mf-prg.bas:12160-12165)
+        # — U9 real application. len(roster) IS gz(sp) (KTD-6), so appending the tuple
+        # IS the increment; nothing separate to bump.
+        return _with_player(state, idx, roster=p.roster + (effect.gangster,))
+
+    if isinstance(effect, GangsterMarkHired):
+        # sg(g(i))=1 (mf-prg.bas:12165) — GLOBAL, not per-player. De-dupe
+        # defensively even though the handler is expected to never mark twice.
+        if effect.candidate_id in state.flags.hired_gangsters:
+            return state
+        new_hired = state.flags.hired_gangsters + (effect.candidate_id,)
+        return replace(state, flags=replace(state.flags, hired_gangsters=new_hired))
+
     if isinstance(
         effect,
         (
@@ -745,7 +788,6 @@ def _apply(state: GameState, effect: Any) -> GameState:
             ShopChange,
             JobSet,
             JobClear,
-            RosterAppend,
         ),
     ):
         raise NotImplementedError(

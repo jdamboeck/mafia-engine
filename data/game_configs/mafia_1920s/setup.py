@@ -37,6 +37,7 @@ __all__ = [
     "load_vehicles",
     "load_ranks",
     "load_weapons",
+    "load_gangster_candidates",
     "load_combat_backdrop",
     "fnm",
     "score_and_rank",
@@ -92,6 +93,19 @@ def load_weapons(path: str | Path) -> list[dict]:
     for i, w in enumerate(weapons):
         validate_weapon(w, index=i)
     return weapons
+
+
+def load_gangster_candidates(path: str | Path) -> list[dict]:
+    """Load the 30 recruitable-gangster candidates (U9, ``../research/.../gan-extraction.yaml``).
+
+    Each entry is ``{name, weapon, kraft, intelligenz, brutalitaet, price,
+    description, female}``, list index 0-based == the original's 1-based candidate
+    file number ``g(i)`` minus one (``pub.recruit`` re-adds the offset when it needs
+    the 1-based id for the "already hired" tracking set). No engine-side validator
+    exists for this shape (unlike weapons/vehicles/ranks) — the recruit flow is this
+    config's own concern end-to-end, so the loader stays a plain YAML read.
+    """
+    return list(_load_yaml(path)["gangsters"])
 
 
 def load_combat_backdrop(path: str | Path) -> tuple[int, ...]:

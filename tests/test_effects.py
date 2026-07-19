@@ -26,6 +26,7 @@ from engine.effects import (
     DebtClear,
     EnergyChange,
     FlagSet,
+    GangsterMarkHired,
     Jail,
     JobClear,
     JobSet,
@@ -459,6 +460,68 @@ def test_tip_set_and_clear_purity():
 
 
 # --------------------------------------------------------------------------- #
+# roster_append (U9) — pub recruit flow, real application                     #
+# --------------------------------------------------------------------------- #
+def test_roster_append_adds_after_the_boss():
+    state = make_state()  # roster == (g0,) — the boss at index 0 (KTD-6)
+    hire = Gangster(name="new-hire", weapon=1, energie=5, kraft=40, intelligenz=10, brutalitaet=70)
+    out = apply(state, RosterAppend(gangster=hire))
+    assert out.players[0].roster == (state.players[0].roster[0], hire)
+    assert len(out.players[0].roster) == 2
+
+
+def test_roster_append_targets_explicit_player():
+    state = make_state()
+    hire = Gangster(name="hired")
+    out = apply(state, RosterAppend(gangster=hire, player=1))
+    assert out.players[1].roster[-1] == hire
+    assert len(out.players[0].roster) == 1  # untouched
+
+
+def test_roster_append_purity():
+    state = make_state()
+    hire = Gangster(name="hired")
+    out = apply(state, RosterAppend(gangster=hire))
+    assert len(state.players[0].roster) == 1  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
+# gangster_mark_hired (U9) — global sg(i) set, pub recruit flow                #
+# --------------------------------------------------------------------------- #
+def test_gangster_mark_hired_adds_to_global_flags():
+    state = make_state()
+    out = apply(state, GangsterMarkHired(candidate_id=3))
+    assert out.flags.hired_gangsters == (3,)
+
+
+def test_gangster_mark_hired_accumulates():
+    state = apply(make_state(), GangsterMarkHired(candidate_id=3))
+    out = apply(state, GangsterMarkHired(candidate_id=29))
+    assert out.flags.hired_gangsters == (3, 29)
+
+
+def test_gangster_mark_hired_is_not_per_player():
+    # Global, not player-scoped -- no `player` field exists on the effect at all.
+    state = apply(make_state(), GangsterMarkHired(candidate_id=0))
+    assert state.flags.hired_gangsters == (0,)
+    assert not hasattr(GangsterMarkHired(candidate_id=0), "player")
+
+
+def test_gangster_mark_hired_dedupes_defensively():
+    state = apply(make_state(), GangsterMarkHired(candidate_id=5))
+    out = apply(state, GangsterMarkHired(candidate_id=5))
+    assert out.flags.hired_gangsters == (5,)  # not (5, 5)
+
+
+def test_gangster_mark_hired_purity():
+    state = make_state()
+    out = apply(state, GangsterMarkHired(candidate_id=1))
+    assert state.flags.hired_gangsters == ()  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
 # assign_weapon (U3) — the R9 purchase-persist primitive                      #
 # --------------------------------------------------------------------------- #
 def test_assign_weapon_sets_gangster_weapon():
@@ -561,14 +624,13 @@ def test_negative_gangster_index_raises_not_wraps():
         WantedChange(1),
         Jail(3),
         # U2 groundwork (KTD-7): declared now, activated in a later unit each.
-        # BarrelChange/TipSet/TipClear graduated to real application in U8 (see the
-        # "barrel_change"/"tip_set / tip_clear" sections above) — no longer deferred.
+        # BarrelChange/TipSet/TipClear graduated to real application in U8, and
+        # RosterAppend in U9 (see the sections above) — no longer deferred.
         DebtChange(500),
         DebtClear(),
         ShopChange(tile=2),
         JobSet(type=1, pending_pay=2000, months_left=3),
         JobClear(),
-        RosterAppend(gangster=object()),
     ],
 )
 def test_deferred_effects_raise_not_implemented(effect):

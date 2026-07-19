@@ -1,6 +1,6 @@
-"""The pub (Kneipe) handlers — U8 (alcohol trade + tips) and U9 (recruit, later unit).
+"""The pub (Kneipe) handlers — U8 (alcohol trade + tips) and U9 (recruit).
 
-Ports three of the pub's four menu actions from ``mf-prg.bas:12000-12335``:
+Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
 
 - ``pub.drink`` (``12010-12075``) — alcohol trade. Only pub tile ``ln=4`` serves; the
   ``ln=5`` branch (``:12010``'s ``ifln=4orln=5goto12020``) is confirmed DEAD CODE this
@@ -15,9 +15,12 @@ Ports three of the pub's four menu actions from ``mf-prg.bas:12000-12335``:
   informer has nothing; the roll picks one of 5 flavour texts (tip type 1-5, stored on
   the player); tip 4 alone has a follow-on 5000$ stake that a later upkeep slot (U8's
   ``upkeep.py`` fill-in) resolves.
-
-``pub.recruit`` stays the U9 stub below (never entered this slice: the shell's
-``rank>4 and gang_size<10`` guard denies it at rank 1) until U9 lands its body.
+- ``pub.recruit`` (``12100-12175``) — recruit from the 30-candidate research pool.
+  Rank + housing + crew-cap guards, an offer pool capped at 3 with a nobody-available
+  roll, a per-candidate draw (reroll on already-hired/already-drawn), and a settle
+  that pays the price, appends the hire to the roster at energy 5, and marks the
+  candidate globally hired. See ``pub_recruit``'s own docstring for the full guard
+  order and the mid-batch cap quirk (``:12145``).
 
 Faithfulness notes
 -------------------
@@ -33,12 +36,14 @@ Faithfulness notes
 
 Cancellability rule (KTD-1 feasibility)
 ----------------------------------------
-Neither ``pub.drink`` nor ``pub.tip`` uses a driver-level ``cancellable=True`` prompt:
-every "decline"/"nothing to buy" path in the source is a plain ``return`` back to the
-main loop (``goto1100``/``return``), which this port expresses as a quiet Python
-``return []`` after the relevant ``PromptInt``/``Confirm`` answer — there is no
-"cancel back to an earlier menu" shape here (unlike waf's nested weapon/gangster
-pickers), so no interaction needs the driver's atomic-discard cancel path.
+None of ``pub.drink``/``pub.tip``/``pub.recruit`` uses a driver-level
+``cancellable=True`` prompt: every "decline"/"nothing to buy"/"skip this candidate"
+path in the source is a plain ``return`` (or, for recruit's per-candidate loop, a
+``continue`` to the next offer) back to the main loop, which this port expresses as
+a quiet Python ``return []``/``continue`` after the relevant
+``PromptInt``/``Confirm`` answer — there is no "cancel back to an earlier menu"
+shape here (unlike waf's nested weapon/gangster pickers), so no interaction needs
+the driver's atomic-discard cancel path.
 
 ``ln`` seam
 -----------
@@ -47,13 +52,36 @@ Read from the active player's ``last_location`` field, exactly as ``slw``/``waf`
 
 from __future__ import annotations
 
-from engine.effects import BarrelChange, MoneyChange, TipClear, TipSet
+from engine.effects import (
+    BarrelChange,
+    GangsterMarkHired,
+    MoneyChange,
+    RosterAppend,
+    TipClear,
+    TipSet,
+)
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
+from engine.state import Gangster
 
 from ..setup import load_vehicles, score_and_rank
 
 __all__ = ["pub_drink", "pub_recruit", "pub_tip"]
+
+#: The 30 female candidate ids (0-based; source ``fnwe(x)`` predicate, mf-prg.bas:12130
+#: — BLOODY MARY(4)/JOSEFINE(14)/DOROTHY(27)/MA BAKER(30), 1-based in the source).
+_FEMALE_CANDIDATE_IDS = frozenset({3, 13, 26, 29})
+
+#: Crew cap: total roster length INCLUDING the boss at roster[0] (KTD-6). gz(sp)
+#: counts the boss (mf-prg.bas:300 gz(i)=1 at setup, :4651 eviction resets to 1) so
+#: "10 gangsters" means at most NINE hires -- mf-prg.bas:12105/12145.
+_CREW_CAP = 10
+
+#: Candidate offer pool ceiling (mf-prg.bas:12106's `ify>3theny=3`).
+_MAX_OFFERS = 3
+
+#: Pub tile that never has recruits available (mf-prg.bas:12107's `orln=3`).
+_NO_RECRUIT_TILE = 3
 
 #: Alcohol tile: only this ``ln`` serves (mf-prg.bas:12010; ln=5 is dead code, see
 #: module docstring). Every other pub tile falls into the 50% refusal-or-sell branch.
@@ -85,6 +113,16 @@ def _vehicles():
 
     cfg_dir = Path(__file__).resolve().parents[1]
     return load_vehicles(cfg_dir / "entities" / "vehicles.yaml")
+
+
+def _gangster_candidates():
+    """Load the 30 recruit candidates (U9). Same fresh-per-call pattern as ``_vehicles()``."""
+    from pathlib import Path
+
+    from ..setup import load_gangster_candidates
+
+    cfg_dir = Path(__file__).resolve().parents[1]
+    return load_gangster_candidates(cfg_dir / "entities" / "gangsters.yaml")
 
 
 # --------------------------------------------------------------------------- #
@@ -235,19 +273,130 @@ def pub_tip(ctx):
 
 
 # --------------------------------------------------------------------------- #
-# pub.recruit — STUB only (U9). Unreachable this slice: the shell's           #
-# rank>4 and gang_size<10 guard denies it at rank 1 (KTD-8).                  #
+# pub.recruit (R5) — mf-prg.bas:12100-12175                                    #
 # --------------------------------------------------------------------------- #
 @register("pub.recruit")
 def pub_recruit(ctx):
-    """Pub recruit — STUB (body is a later unit; ports mf-prg.bas:12100-12175).
+    """Recruit gangsters from the 30-candidate pool — ports ``mf-prg.bas:12100-12175``.
 
-    Never reached this slice: at rank 1 the shell guard ``ra(sp) > 4`` denies the
-    option, so the handler is not entered. If a future caller reaches it before the
-    real body lands, fail loudly rather than silently no-op.
+    Guards, in order (the shell ALSO gates entry on rank>4 and gang_size<10 for the
+    menu-availability UX per KTD-8, but every guard is re-checked here so the handler
+    is correct standalone and each denial's message/order is independently provable):
+
+    1. ``:12100-12102`` — rank guard ``ra(sp) > 4``.
+    2. ``:12103-12104`` — housing guard: the player must hold at least one of the 5
+       apartment-tenancy slots (``uk(i)=sp`` for some ``i`` in 1..5).
+    3. ``:12105`` — crew cap: ``gz(sp) == 10`` denies (roster length INCLUDING the
+       boss at ``roster[0]``, KTD-6 — at most nine hires).
+    4. ``:12106`` — offer pool ``y`` = count of the 30 candidates not yet globally
+       hired, capped at 3.
+    5. ``:12107`` — roll ``x`` in ``[0, y]``; ``x == 0`` OR the current pub tile is
+       ``ln == 3`` -> nobody available.
+    6. ``:12108-12175`` — per-candidate loop (``x`` iterations): draw a candidate id
+       (reroll on already-hired OR already-drawn-this-batch), show the gendered
+       intro + offer, confirm, afford-check, then settle (deduct price, append to
+       roster at energy 5, mark the candidate globally hired) — showing the new
+       gang-size tally. ``:12145``'s mid-batch cap re-check (hitting the cap
+       DURING this batch, e.g. after a rank/multi-hire scenario) aborts the WHOLE
+       remaining batch back to the pub menu rather than continuing to offer more.
     """
-    raise NotImplementedError(
-        "pub.recruit body is a later unit (mf-prg.bas:12100-12175); at rank 1 the "
-        "shell guard ra>4 denies this option, so it is never entered this slice."
-    )
-    yield  # pragma: no cover — marks this a generator (handler protocol) though unreached
+    sp = ctx.state.clock.active_player
+    active = ctx.state.players[sp]
+    ln = active.last_location  # ln seam (see module docstring)
+
+    # :12100-12102 — rank guard.
+    if active.rank <= 4:
+        yield ShowMessage("locations.pub.rank_too_low", {"rank": active.rank})
+        return []
+
+    # :12103-12104 — housing guard: at least one of 5 apartment slots (uk(i)=sp).
+    if not any(ctx.state.map.tenancy.get(i) == sp for i in range(1, 6)):
+        yield ShowMessage("locations.pub.recruit_no_housing")
+        return []
+
+    # :12105 — crew cap (roster length INCLUDES the boss, KTD-6).
+    if len(active.roster) == _CREW_CAP:
+        yield ShowMessage("locations.pub.recruit_gang_full")
+        return []
+
+    candidates = _gangster_candidates()
+    hired = ctx.state.flags.hired_gangsters
+
+    # :12106 — offer pool: unhired candidates, capped at 3.
+    pool = sum(1 for i in range(len(candidates)) if i not in hired)
+    pool = min(pool, _MAX_OFFERS)
+
+    # :12107 — roll x in [0, pool]; 0 or tile 3 -> nobody available.
+    offered = ctx.rng.range(pool + 1)
+    if offered == 0 or ln == _NO_RECRUIT_TILE:
+        yield ShowMessage("locations.pub.recruit_nobody_available")
+        return []
+
+    # :12108-12175 — per-candidate loop. ``ctx.state`` never reflects effects applied
+    # earlier in THIS SAME handler run (buffering only commits after the generator
+    # returns, engine/interactions.py's Ctx.apply docstring) -- cash/roster-size must
+    # be tracked locally across iterations, not re-read from ctx.state mid-loop.
+    running_cash = active.ka
+    running_roster_size = len(active.roster)
+    drawn_this_batch: list[int] = []
+    for _ in range(offered):
+        # :12145 mid-batch cap re-check: a hire earlier in THIS batch may have
+        # already filled the roster -- abort the rest of the batch rather than
+        # keep offering (mirrors the source's `ifgz(sp)=10goto12005`).
+        if running_roster_size == _CREW_CAP:
+            return []
+
+        # :12110-12113 — draw a candidate, reroll on already-hired or already-drawn.
+        while True:
+            candidate_id = ctx.rng.range(len(candidates))
+            if candidate_id in hired or candidate_id in drawn_this_batch:
+                continue
+            break
+        drawn_this_batch.append(candidate_id)
+
+        candidate = candidates[candidate_id]
+        female = candidate_id in _FEMALE_CANDIDATE_IDS
+        pronoun = "sie" if female else "er"
+
+        # :12115-12121 — gendered intro.
+        yield ShowMessage(
+            "locations.pub.recruit_intro_female" if female else "locations.pub.recruit_intro_male"
+        )
+        # :12130-12136 — name/description/price offer, then yes/no confirm.
+        yield ShowMessage(
+            "locations.pub.recruit_offer",
+            {
+                "pronoun": pronoun,
+                "name": candidate["name"],
+                "description": candidate["description"],
+                "price": candidate["price"],
+            },
+        )
+        if not (yield Confirm("locations.pub.recruit_confirm")):
+            continue  # :12136 "n" -> skip to :12175, next candidate
+
+        # :12140 — afford check.
+        if running_cash < candidate["price"]:
+            yield ShowMessage("system.not_enough_money")
+            continue
+
+        # :12160-12165 — settle: pay, append to roster at energy 5, mark hired.
+        ctx.apply(MoneyChange(-candidate["price"]))
+        ctx.apply(
+            RosterAppend(
+                gangster=Gangster(
+                    name=candidate["name"],
+                    weapon=candidate["weapon"],
+                    energie=5,
+                    kraft=candidate["kraft"],
+                    intelligenz=candidate["intelligenz"],
+                    brutalitaet=candidate["brutalitaet"],
+                )
+            )
+        )
+        ctx.apply(GangsterMarkHired(candidate_id=candidate_id))
+        running_cash -= candidate["price"]
+        running_roster_size += 1
+        yield ShowMessage("locations.pub.recruit_hired", {"gang_size": running_roster_size})
+
+    return []
