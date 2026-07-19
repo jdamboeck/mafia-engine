@@ -267,21 +267,24 @@ def test_handler_forced_ms_zero_ends_turn():
 
 # --------------------------------------------------------------------------- #
 # Turn rotation: advance rotates active_player, wraps, replenishes ms = tr,   #
-# and a full round advances the year by 1.                                    #
+# and a full round advances the MONTH by 1 (year only every 12 rounds, KTD-4).#
 # --------------------------------------------------------------------------- #
 def test_turn_rotation_and_ms_replenish():
     st = _state(ms=3, active=0, players=2, vehicle=0)  # player 0 spent down to ms=3
     year0 = st.clock.year
+    month0 = st.clock.month
     st, over = advance_turn(st, _VEHICLES)
     # Rotated to player 1; player 1's ms replenished to tr(0) = 25.
     assert st.clock.active_player == 1
     assert st.players[1].ms == 25
     assert st.clock.year == year0  # no wrap yet
-    # Advance again -> wraps to player 0, a full round -> year + 1.
+    assert st.clock.month == month0  # no wrap yet
+    # Advance again -> wraps to player 0, a full round -> month + 1 (year unchanged).
     st, over = advance_turn(st, _VEHICLES)
     assert st.clock.active_player == 0
     assert st.players[0].ms == 25  # replenished on wrap
-    assert st.clock.year == year0 + 1
+    assert st.clock.year == year0  # a single round is a MONTH, not a year (KTD-4)
+    assert st.clock.month == month0 + 1
 
 
 def test_advance_turn_is_pure_and_returns_game_over_signal():
@@ -297,22 +300,42 @@ def test_advance_turn_is_pure_and_returns_game_over_signal():
 
 
 def test_advance_turn_reports_game_over_at_end_year():
-    """The game-over hook still fires when a wrap reaches end_year."""
+    """The game-over hook still fires when a wrap reaches end_year (12th month wrap)."""
     st = _state(ms=0, active=0, players=1, vehicle=0)
-    st = replace(st, clock=replace(st.clock, year=1929, end_year=1930))
+    # month=11 (the 12th round of the year): the NEXT wrap rolls year 1929 -> 1930.
+    st = replace(st, clock=replace(st.clock, year=1929, month=11, end_year=1930))
 
     st, over = advance_turn(st, _VEHICLES)
     assert st.clock.year == 1930
+    assert st.clock.month == 0  # wrapped
     assert over is True
 
 
 def test_single_player_wraps_every_turn():
     st = _state(ms=0, active=0, players=1, vehicle=0)
     year0 = st.clock.year
+    month0 = st.clock.month
     st, _over = advance_turn(st, _VEHICLES)
     assert st.clock.active_player == 0  # wrapped to itself
     assert st.players[0].ms == 25  # replenished
-    assert st.clock.year == year0 + 1  # a one-player round is one turn
+    assert st.clock.year == year0  # a one-player round is one MONTH, not a year
+    assert st.clock.month == month0 + 1
+
+
+def test_twelve_full_rounds_advance_the_year_exactly_once():
+    """KTD-4 headline: 12 full rounds (one lap of the wrap each) advance year by
+    exactly 1, and month is visible/incrementing at every intermediate wrap."""
+    st = _state(ms=0, active=0, players=1, vehicle=0)
+    year0 = st.clock.year
+    for expected_month in range(1, 12):
+        st, over = advance_turn(st, _VEHICLES)
+        assert st.clock.year == year0  # no year rollover yet
+        assert st.clock.month == expected_month
+        assert over is False
+    # The 12th wrap rolls the year and resets month to 0.
+    st, over = advance_turn(st, _VEHICLES)
+    assert st.clock.year == year0 + 1
+    assert st.clock.month == 0
 
 
 # --------------------------------------------------------------------------- #

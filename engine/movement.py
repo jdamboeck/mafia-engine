@@ -47,6 +47,7 @@ __all__ = [
     "STREET_CODE",
     "STEP_COST",
     "ENTER_COST",
+    "MONTHS_PER_YEAR",
     "City",
     "MoveResult",
     "load_city",
@@ -299,6 +300,11 @@ def try_move(state, city: City, delta: int) -> EngineResult:
     )
 
 
+#: Months per year — the wrap divisor for the fractional-year clock (KTD-4;
+#: mf-prg.bas:1010's ``ja = ja + 1/12`` accumulates twelfths of a year per round).
+MONTHS_PER_YEAR = 12
+
+
 def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, bool]:
     """End the active player's turn and rotate to the next (mf-prg.bas:1010-1013).
 
@@ -306,8 +312,11 @@ def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, boo
 
     * ``sp = sp + 1``; when it passes the player count it **wraps to player 0**
       (0-based here; the original is 1-based). On wrap, a full round has elapsed,
-      so the calendar advances: ``clock.year += 1`` (a year is one full cycle of
-      all players — the 1/12-per-turn month granularity is not modelled this slice).
+      so the calendar advances ONE MONTH (``ja = ja + 1/12``, KTD-4): ``month``
+      increments, and ``year`` increments only when ``month`` wraps past 11 (i.e.
+      once every 12 full rounds) — matching ``int(ja)`` incrementing once per 12
+      additions of ``1/12``. This replaces the prior one-round-equals-one-year
+      simplification.
     * ``ms = tr(tm(sp))`` (:1012) — the NEW active player's movement points are
       replenished from its vehicle's ``tr`` in the config's ``vehicles`` table.
 
@@ -321,12 +330,16 @@ def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, boo
     """
     clock = state.clock
     year = clock.year
+    month = clock.month
     next_player = clock.active_player + 1
     if next_player >= clock.player_count:
         next_player = 0  # wrap to player 0 (:1010-1011)
-        year += 1  # a full round advances the year by 1
+        month += 1  # a full round advances the month by 1 (ja += 1/12)
+        if month >= MONTHS_PER_YEAR:
+            month = 0
+            year += 1  # 12 full rounds -> a full year (int(ja) increments)
 
-    new_clock = replace(clock, year=year, active_player=next_player)
+    new_clock = replace(clock, year=year, month=month, active_player=next_player)
 
     # :1012 — replenish ms from the new active player's vehicle: ms = tr(tm(sp)).
     active = state.players[next_player]

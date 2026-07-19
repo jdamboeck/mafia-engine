@@ -63,6 +63,15 @@ __all__ = [
     "EnergyChange",
     "Jail",
     "SpawnFighter",
+    "DebtChange",
+    "DebtClear",
+    "ShopChange",
+    "BarrelChange",
+    "TipSet",
+    "TipClear",
+    "JobSet",
+    "JobClear",
+    "RosterAppend",
     # Application
     "apply",
     "commit",
@@ -310,6 +319,147 @@ class SpawnFighter:
     fighter: Any
 
 
+@dataclass(frozen=True)
+class DebtChange:
+    """Add ``amount`` (signed) to the target player's debt ``kr(sp)``, and set the
+    grace-counter ``months`` (``kz(sp)``) alongside it.
+
+    Groundwork only (U2, KTD-7): the effect TYPE is declared now so kdh's borrow/repay
+    handlers (a later unit) have a vocabulary to target; ``apply`` raises
+    ``NotImplementedError`` until that unit activates this branch. Carries both fields
+    in one effect because the source sets them together at every kdh call site
+    (borrow :15030 sets ``kr+=x`` and ``kz=6`` in the same line; full repayment :15075
+    resets ``kz=0`` alongside the ``kr`` decrement) — see :class:`~engine.state.Debt`
+    for the confirmed field semantics.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    amount: int
+    months: int | None = None  # None = leave Debt.months unchanged
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class DebtClear:
+    """Zero the target player's debt AND its grace counter in one step.
+
+    Groundwork only (U2, KTD-7); deferred to a later unit. Ports the loan-default
+    penalty (``mf-prg.bas:4370``: ``kr(sp)=0:kz(sp)=0``, alongside the cash seizure
+    a handler would apply separately via :class:`MoneyChange`) and the full-repayment
+    reset (``:15075``, ``kz(sp)=0`` once ``kr(sp)`` reaches 0). A dedicated clear
+    (rather than a ``DebtChange`` computed to exactly cancel the balance) keeps the
+    two loan-shark exit paths self-documenting in the replay log.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class ShopChange:
+    """Set the target player's owned shop ``tile`` and/or its ``capital`` delta.
+
+    Groundwork only (U2, KTD-7); deferred to a later unit (kdh shop purchase/income).
+    Targets :class:`~engine.state.Business` — ``tile`` sets ``shop_tile`` (``None``
+    leaves it unchanged; the sentinel 0 means "no shop", per the field's own
+    docstring), ``capital_delta`` adds to ``shop_capital`` (``None`` = no change).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    tile: int | None = None
+    capital_delta: int | None = None
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class BarrelChange:
+    """Add ``amount`` (signed) to the target player's alcohol barrel stock ``ta(sp)``.
+
+    Groundwork only (U2, KTD-7); deferred to a later unit (pub alcohol trade, U8).
+    Targets :class:`~engine.state.Contraband.alcohol_barrels` (mf-prg.bas:12035 buy,
+    :12075 sell).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    amount: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class TipSet:
+    """Set the target player's rolled heist tip type ``tp(sp)``.
+
+    Groundwork only (U2, KTD-7); deferred to a later unit (pub tip flow, U8).
+    Targets :class:`~engine.state.Player.tip_target` (mf-prg.bas:12225-12226: the
+    tip roll ``tp(sp)=1-5`` dispatching to one of five heist-rumour texts).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    tip_type: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class TipClear:
+    """Clear the target player's rolled heist tip (``tp(sp)=0``).
+
+    Groundwork only (U2, KTD-7); deferred to a later unit. The counterpart to
+    :class:`TipSet` — a used or expired tip resets ``tip_target`` to 0 (no tip held).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class JobSet:
+    """Set the target player's accepted job: ``type``/``pending_pay``/``months_left``.
+
+    Groundwork only (U2, KTD-7); deferred to a later unit (pub job accept, U10).
+    Ports ``mf-prg.bas:12335``: ``jo(sp)=x:jl(sp)=p`` (plus the per-job-type
+    ``jd(sp)`` duration set earlier at :12308/:12311/:12316/:12322) — one effect
+    since the source sets them as a unit when a job is accepted. Targets
+    :class:`~engine.state.Job`.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    type: int
+    pending_pay: int
+    months_left: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class JobClear:
+    """Clear the target player's job (``jo(sp)=0``).
+
+    Groundwork only (U2, KTD-7); deferred to a later unit. Ports the job-quit sites
+    (mf-prg.bas:25560 completion, :26080 jail commit forces ``jo(sp)=0``) — both zero
+    the job the same way, so one effect covers both call sites.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class RosterAppend:
+    """Append a new :class:`~engine.state.Gangster` to the target player's roster.
+
+    Groundwork only (U2, KTD-7); deferred to a later unit (pub recruit, U9). The
+    ONLY roster-growing effect (:class:`StatChange`/:class:`AssignWeapon`/etc. all
+    require an existing index) — recruiting a hire adds a new entry, always AFTER
+    the boss at ``roster[0]`` (KTD-6; see :class:`~engine.state.Player`'s docstring).
+    ``gangster`` is a fully-built :class:`~engine.state.Gangster` (the handler rolls
+    its stats from the candidate table before applying this effect) — names are
+    directional data, not engine-invented.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    gangster: Any
+    player: int | None = None
+
+
 # --------------------------------------------------------------------------- #
 # apply — PURE: deep-copy, mutate the copy, return it                         #
 # --------------------------------------------------------------------------- #
@@ -380,8 +530,10 @@ def _apply(state: GameState, effect: Any) -> GameState:
     (R1/R3), so the functional rebuild is the only expressible write path.
 
     Deferred effects (:class:`WantedChange`, :class:`EnergyChange`, :class:`Jail`,
-    :class:`SpawnFighter`) raise ``NotImplementedError`` — they are exercised in a later
-    unit but exist now so logs stay type-complete and serializable.
+    :class:`SpawnFighter`, :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`,
+    :class:`BarrelChange`, :class:`TipSet`, :class:`TipClear`, :class:`JobSet`,
+    :class:`JobClear`, :class:`RosterAppend`) raise ``NotImplementedError`` — they are
+    exercised in a later unit but exist now so logs stay type-complete and serializable.
     """
     if isinstance(effect, MoneyChange):
         idx = _target_index(state, effect.player)
@@ -490,7 +642,24 @@ def _apply(state: GameState, effect: Any) -> GameState:
         rented = state.players[idx].rented_months + effect.months
         return _with_player(state, idx, rented_months=rented)
 
-    if isinstance(effect, (WantedChange, EnergyChange, Jail, SpawnFighter)):
+    if isinstance(
+        effect,
+        (
+            WantedChange,
+            EnergyChange,
+            Jail,
+            SpawnFighter,
+            DebtChange,
+            DebtClear,
+            ShopChange,
+            BarrelChange,
+            TipSet,
+            TipClear,
+            JobSet,
+            JobClear,
+            RosterAppend,
+        ),
+    ):
         raise NotImplementedError(
             f"{type(effect).__name__} is declared but its application is exercised in a "
             "later unit."

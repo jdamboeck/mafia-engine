@@ -136,7 +136,16 @@ class Gangster:
 
 @dataclass(frozen=True)
 class Job:
-    """A pending job/contract for a player."""
+    """A pending job/contract for a player.
+
+    Field semantics confirmed against the source (mf-prg.bas:12308-12335,25550-25560):
+    ``type`` is ``jo(sp)`` (the accepted job's type id; 0 = no job), ``pending_pay`` is
+    ``jl(sp)`` (the lump sum paid out when the job completes — despite the source
+    comment "monthly pay", it is a single payout on completion, not a per-turn wage;
+    see the Product Contract's R6/F3 correction), and ``months_left`` is ``jd(sp)``
+    (the remaining-duration counter, decremented once per elapsed month and completing
+    the job at 0, :25550).
+    """
 
     type: int = 0
     pending_pay: int = 0
@@ -149,6 +158,14 @@ class Debt:
 
     Renamed from the original ``kr(sp)`` to avoid colliding with the gangster
     stat ``kraft`` — a required correctness point for this unit.
+
+    ``amount`` is ``kr(sp)`` (the outstanding loan-shark balance). ``months`` is
+    ``kz(sp)`` — a grace-period counter that increments once per elapsed month while
+    positive and resets to 6 on borrowing (mf-prg.bas:15030) / 0 on full repayment
+    (:15075); reaching 0 again after having been positive triggers the debt-collector
+    encounter (:4305,4350). Its exact upkeep tick (the relational-sign-flagged
+    ``kz(sp)=kz(sp)+(kz(sp)>0)`` at :4305) is a later unit's (U3's) concern — this
+    field only needs to hold the value here.
     """
 
     amount: int = 0
@@ -157,9 +174,16 @@ class Debt:
 
 @dataclass(frozen=True)
 class Business:
-    """Per-player shop/business ownership."""
+    """Per-player shop/business ownership.
 
-    shop_owner: bool = False
+    ``shop_tile`` replaces the earlier ``shop_owner: bool`` (KTD-7 groundwork): the
+    original tracks ownership by WHICH ``kdh`` tile the player bought (an ``ln``
+    value), not a bare flag — a later unit's shop-income/sale logic needs the tile
+    to compute income, so the boolean was a lossy placeholder. ``0`` means "no shop"
+    (``ln`` is 1-based in the source, so 0 is not a valid owned tile).
+    """
+
+    shop_tile: int = 0  # 0 = none; else the owned kdh tile's ln
     shop_capital: int = 0
 
 
@@ -169,7 +193,7 @@ class Contraband:
 
     fake_papers: int = 0
     counterfeit: int = 0
-    alcohol_barrels: int = 0
+    alcohol_barrels: int = 0  # ta(sp) — alcohol barrel stock (mf-prg.bas:1219,12035,12075)
 
 
 @dataclass(frozen=True)
@@ -184,7 +208,20 @@ class Wanted:
 
 @dataclass(frozen=True)
 class Player:
-    """A single player: identity, resources, roster, and owned subsystems."""
+    """A single player: identity, resources, roster, and owned subsystems.
+
+    ``roster[0]`` is ALWAYS the player's own boss/persona gangster (KTD-6, matching
+    ``mf-prg.bas:300``: ``gz(i)=1`` gives the player exactly one gangster at setup,
+    named after the player, ``gn$(i,1)=sp$(i)`` — first-array-slot, i.e. index 0 here).
+    There is no separate parallel "player stat" representation: the boss's
+    kraft/intelligenz/brutalitaet/energie/weapon live entirely on this one
+    ``Gangster`` entry, and every roster-length check (``gz(sp)``, e.g. the pub's
+    10-gangster cap at :12105) counts the boss too. Later hires are appended after
+    it. This is already how :func:`data.game_configs.mafia_1920s.setup.new_game`
+    and every roster read site (``engine/conditions.py``'s ``gang_size``,
+    ``data/game_configs/mafia_1920s/handlers/waf.py``) are written — there is no
+    separate index shift to perform.
+    """
 
     name: str = ""
     gang_name: str = ""
@@ -196,7 +233,7 @@ class Player:
     vehicle: int = 0  # transport type index (tm)
     speed: int = 0
     ms: int = 0  # movement points (mf-prg.bas:1012); ms=0 forces turn end
-    roster: tuple[Gangster, ...] = ()
+    roster: tuple[Gangster, ...] = ()  # roster[0] is always the boss (see class docstring)
     jobs: Job = field(default_factory=Job)
     debt: Debt = field(default_factory=Debt)
     business: Business = field(default_factory=Business)
@@ -242,9 +279,19 @@ class CombatState:
 
 @dataclass(frozen=True)
 class Clock:
-    """Game calendar and player-turn bookkeeping."""
+    """Game calendar and player-turn bookkeeping.
 
-    year: int = 1928  # ja — current year; floor 1928 (mf-prg.bas:170,172)
+    ``year``/``month`` jointly port the original's fractional-year calendar
+    ``ja`` (mf-prg.bas:1010, ``ja = ja + 1/12``; the displayed/compared year is
+    ``int(ja)``). This engine represents that same quantity as an integer year
+    plus a 0-11 month counter rather than a float, so a full round (one lap of
+    all players, mf-prg.bas:1010's ``sp=sp+1`` wrap) advances ``month`` by one
+    and ``year`` only rolls over every 12 rounds — matching ``int(ja)``
+    incrementing only once every 12 additions of ``1/12`` (KTD-4).
+    """
+
+    year: int = 1928  # int(ja) — current year; floor 1928 (mf-prg.bas:170,172)
+    month: int = 0  # the fractional part of ja, in twelfths (0-11); wraps year at 12
     end_year: int = 1978  # x9 — game-end year, validated [1928,1978] (mf-prg.bas:172)
     active_player: int = 0  # sp — active player index
     player_count: int = 1  # sz — player count, validated [1,4] (mf-prg.bas:206)

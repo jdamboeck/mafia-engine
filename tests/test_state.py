@@ -8,6 +8,7 @@ from dataclasses import FrozenInstanceError, replace
 import pytest
 
 from engine.state import (
+    Business,
     Clock,
     CombatState,
     Config,
@@ -18,6 +19,7 @@ from engine.state import (
     Gangster,
     Player,
     Wanted,
+    json_safe,
 )
 
 
@@ -118,3 +120,63 @@ def test_frozen_construction_and_replace_still_work():
     bumped = replace(p, ka=p.ka + 100)
     assert bumped.ka == 5100
     assert p.ka == 5000  # original untouched
+
+
+# --------------------------------------------------------------------------- #
+# U2 groundwork: clock month granularity, Business.shop_tile, json_safe       #
+# round-trips (KTD-4, KTD-7).                                                 #
+# --------------------------------------------------------------------------- #
+def test_clock_default_has_month_zero():
+    """Month is a first-class, visible clock field (KTD-4), defaulting to 0."""
+    c = Clock()
+    assert c.month == 0
+    assert c.year == 1928
+
+
+def test_clock_month_is_frozen():
+    with pytest.raises(FrozenInstanceError):
+        Clock().month = 5
+
+
+def test_business_shop_tile_replaces_shop_owner_bool():
+    """Business tracks WHICH tile is owned (0 = none), not a bare boolean (KTD-7)."""
+    b = Business()
+    assert b.shop_tile == 0  # default: no shop
+    assert b.shop_capital == 0
+    owned = replace(b, shop_tile=2, shop_capital=1500)
+    assert owned.shop_tile == 2
+    assert owned.shop_capital == 1500
+    assert b.shop_tile == 0  # original untouched (frozen graph)
+
+
+def test_new_state_fields_survive_json_safe_round_trip():
+    """shop_tile + clock.month survive the json_safe walk (the persistence primitive)."""
+    p = Player(business=Business(shop_tile=3, shop_capital=750))
+    state = GameState(players=(p,), clock=Clock(year=1930, month=7))
+
+    safe = json_safe(state)
+    assert safe["players"][0]["business"]["shop_tile"] == 3
+    assert safe["players"][0]["business"]["shop_capital"] == 750
+    assert safe["clock"]["month"] == 7
+    assert safe["clock"]["year"] == 1930
+    # json_safe erases read-only types to plain containers, JSON-shaped.
+    assert isinstance(safe["players"], list)
+    assert isinstance(safe["players"][0], dict)
+
+
+def test_new_state_fields_survive_persistence_round_trip(tmp_path):
+    """The full persistence round-trip (not just json_safe) preserves the new fields."""
+    from engine import persistence
+
+    p = Player(business=Business(shop_tile=1, shop_capital=200))
+    state = GameState(players=(p,), clock=Clock(year=1932, month=3))
+
+    save_path = tmp_path / "u2_groundwork.jsonl"
+    persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=1)
+    loaded = persistence.load_game(save_path)
+
+    assert loaded.state.players[0].business.shop_tile == 1
+    assert loaded.state.players[0].business.shop_capital == 200
+    assert loaded.state.clock.month == 3
+    assert loaded.state.clock.year == 1932
+    assert loaded.state == state
