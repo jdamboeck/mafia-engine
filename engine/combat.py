@@ -75,6 +75,8 @@ __all__ = [
     "shot_range",
     "is_hit",
     "damage_roll",
+    "AiTarget",
+    "ai_target",
     "CombatFight",
 ]
 
@@ -360,6 +362,132 @@ def damage_roll(rng: Any, *, tg: int, brutalitaet: int) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# CPU target selection — the `cr` machine-code routine (U6)                   #
+# --------------------------------------------------------------------------- #
+#: The side the CPU AI hunts.
+#:
+#: In the original this is not a parameter at all: the ``cr`` routine (``$C000``,
+#: disassembled in ``research/research-data/verification/ml-core-disassembly.yaml``)
+#: scans the screen for ``char $C1 (=193)`` cells whose **colour-RAM low nibble is 2**
+#: — a hardcoded constant in the machine code. ``mf-prg.bas:30010``
+#: (``pokefr+kp(i,j),2-4*(i=2)``) paints side 1 with colour 2 (the relational is false
+#: for ``i=1``, so the expression is 2 under EITHER sign convention — this site is not
+#: affected by the relational-sign landmine). So ``cr`` structurally always hunts
+#: side 1. This port states that intent as a named constant rather than replicating
+#: the colour-RAM encoding, exactly as U6's plan section directs.
+AI_HUNTS_SIDE = 1
+
+#: Sides driven by the AI rather than by a client prompt.
+#:
+#: Ports ``mf-prg.bas:30110`` (``ifks(s)=0thengosub30400:goto30105``) together with
+#: ``5010`` (``ks(1)=sp:ks(2)=0``): the combat-launch helper puts the NPC party in
+#: slot 2 and marks it CPU with ``ks(2)=0``. ``30020`` agrees — direction memory is
+#: only initialized ``ifks(2)=0``. The source *can* express a player-vs-player fight
+#: (``27020`` sets ``ks(1)``/``ks(2)`` to two player numbers), so this is a default,
+#: not a hardcoded rule: a caller may pass an empty ``cpu_sides`` for hot-seat play.
+DEFAULT_CPU_SIDES: tuple[int, ...] = (2,)
+
+
+class AiTarget:
+    """The nearest hostile fighter, as ``cr`` reports it through ``ua``..``ua+3``.
+
+    ``cr``'s four return bytes (``$A7``..``$AA``) and their BASIC decoding at
+    ``mf-prg.bas:30405`` (``x=peek(ua)-1 : y=peek(ua+1)-40``):
+
+    ==========  ===========================================  ===================
+    byte        raw meaning (disassembly)                    decoded here
+    ==========  ===========================================  ===================
+    ``ua+0``    x-direction code 0=left / 1=none / 2=right   :attr:`x`  (-1/0/+1)
+    ``ua+1``    y-direction code 0=up / 40=none / 80=down    :attr:`y`  (-40/0/+40)
+    ``ua+2``    ``abs(dx)`` to the nearest enemy             :attr:`abs_dx`
+    ``ua+3``    ``abs(dy)`` to the nearest enemy             :attr:`abs_dy`
+    ==========  ===========================================  ===================
+
+    Note that the decoded ``x``/``y`` are already **linear step deltas** (±1 and ±40,
+    i.e. :data:`STEP_LEFT`/:data:`STEP_RIGHT` and :data:`STEP_UP`/:data:`STEP_DOWN`),
+    which is exactly why the BASIC can feed them straight into ``p=x`` at ``30450``
+    and into the shot resolver at ``30215`` without any conversion. ``y``'s ±40 magnitude
+    is the *combat* grid's row width (40 columns) — the same 40 as the city map's width
+    by coincidence of screen geometry, not because the two spaces are related (CLAUDE.md).
+
+    ``side``/``index`` locate the chosen fighter for the caller; the original has no
+    equivalent (it only ever needs the deltas), so they are port bookkeeping.
+    """
+
+    __slots__ = ("side", "index", "x", "y", "abs_dx", "abs_dy")
+
+    def __init__(self, *, side: int, index: int, x: int, y: int, abs_dx: int, abs_dy: int) -> None:
+        self.side = side
+        self.index = index
+        self.x = x
+        self.y = y
+        self.abs_dx = abs_dx
+        self.abs_dy = abs_dy
+
+    @property
+    def distance(self) -> int:
+        """The ``cr`` distance metric ``dy*40 + dx`` (the ``$ECF0`` table)."""
+        return self.abs_dy * GRID_COLS + self.abs_dx
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return (
+            f"AiTarget(side={self.side}, index={self.index}, x={self.x}, y={self.y}, "
+            f"abs_dx={self.abs_dx}, abs_dy={self.abs_dy})"
+        )
+
+
+def ai_target(fight: "CombatFight") -> AiTarget | None:
+    """Pick the active fighter's target the way ``cr`` (``$C000``) does.
+
+    **The metric.** The disassembly's runtime-confirmed ``$ECF0`` table holds multiples
+    of ``$28`` (40): ``LDA $ECF0,X`` with ``X = abs(dy)`` yields ``dy*40``, and the
+    following ``ADC abs(dx)`` gives ``dy*40 + dx``. The **smallest** such value wins —
+    "the nearest enemy in reading order" (ml-core-disassembly.yaml, ``cr.distance_metric``).
+
+    This is emphatically **not** Euclidean or Chebyshev distance: a fighter five columns
+    away on the same row (metric 5) is "nearer" than one a single row away in the same
+    column (metric 40). The AI's whole pursuit shape follows from that bias.
+
+    **Who is a candidate.** ``cr`` scans for cells holding char 193 with colour-RAM low
+    nibble 2 — side 1 (see :data:`AI_HUNTS_SIDE`). Downed fighters are excluded because
+    ``mf-prg.bas:30310`` pokes their cell back to 32, removing the 193 glyph ``cr``
+    matches on; this port checks ``Fighter.down`` instead, which is the same set.
+
+    Returns ``None`` when no hostile fighter is standing — in the original that state is
+    unreachable, because the victory check at ``30106`` fires before the AI branch at
+    ``30110`` ever runs. The port returns ``None`` rather than raising so a degenerate
+    setup degrades to "no action" instead of crashing a fight.
+
+    Ties are broken by scan order (lowest fighter index), matching ``cr``'s strict
+    ``<`` comparison as it walks candidates: the first candidate at the minimum wins.
+    """
+    hostile = fight.sides[AI_HUNTS_SIDE - 1]
+    origin = fight.active.position
+    ox, oy = divmod(origin, GRID_COLS)[1], divmod(origin, GRID_COLS)[0]
+
+    best: AiTarget | None = None
+    for index, other in enumerate(hostile):
+        if other.down:
+            continue
+        row, col = divmod(other.position, GRID_COLS)
+        dx = col - ox
+        dy = row - oy
+        candidate = AiTarget(
+            side=AI_HUNTS_SIDE,
+            index=index,
+            # 30405's decoding: the direction bytes collapse the delta to its SIGN,
+            # scaled to a one-cell step (±1 horizontally, ±40 = one row vertically).
+            x=(STEP_RIGHT if dx > 0 else STEP_LEFT if dx < 0 else 0),
+            y=(STEP_DOWN if dy > 0 else STEP_UP if dy < 0 else 0),
+            abs_dx=abs(dx),
+            abs_dy=abs(dy),
+        )
+        if best is None or candidate.distance < best.distance:
+            best = candidate
+    return best
+
+
+# --------------------------------------------------------------------------- #
 # CombatFight — the activation loop's working state (KTD-1)                   #
 # --------------------------------------------------------------------------- #
 class CombatFight:
@@ -599,6 +727,186 @@ class CombatFight:
             "target_index": target_index,
             "downed": downed,
         }
+
+    # -- the CPU decision layer (mf-prg.bas:30400-30492) -------------------- #
+    def ai_take_turn(self) -> dict:
+        """Run one CPU activation: pick a target, then attack or move.
+
+        The whole ``mf-prg.bas:30400-30492`` block, in the source's own order:
+
+        - ``30405`` — ``syscr`` locates the nearest side-1 fighter and decodes the
+          four ``ua`` bytes into step deltas ``x``/``y`` plus ``abs(dx)``/``abs(dy)``
+          (:func:`ai_target`).
+        - ``30410`` — ``ifpeek(ua+2)=1orpeek(ua+3)=1goto30420``: if the target is
+          **near-adjacent** on either axis, jump STRAIGHT to the attack branch,
+          skipping the coin flip entirely. Note this is ``= 1``, not ``<= 1`` — a
+          target on the very same cell is impossible, so the distinction never bites.
+        - ``30415`` — otherwise ``ifint(rnd(1)*2)=0orgw(ks(s),f)<4goto30450``: a 50%
+          roll, OR a melee weapon (ids 0..3), forces the move branch. A ranged fighter
+          that wins the flip falls through and tries to shoot.
+        - ``30420`` — ``ifx=0thenx=y:goto30215``: column-aligned, so fire vertically.
+        - ``30421`` — ``ify<>0goto30450``: reached only with ``x<>0``; if ``y`` is also
+          non-zero the target is DIAGONAL, and the original has no diagonal shot, so it
+          moves instead.
+        - ``30425`` — ``goto30215``: reached with ``x<>0`` and ``y=0`` — row-aligned,
+          fire horizontally.
+
+        So the AI fires **only** along a shared row or column, and the 50% roll is
+        consulted **only** when the target is not near-adjacent — two easy things to get
+        subtly wrong when reading the block out of order.
+
+        Returns a small result dict for the driver to narrate: ``action`` (``"shoot"``,
+        ``"move"``, or ``"none"``), ``direction`` (the step/fire delta, ``None`` when
+        idle), ``result`` (the :meth:`shoot` outcome, only for ``"shoot"``), and
+        ``target`` (the chosen :class:`AiTarget`, ``None`` when the hostile side is
+        already wiped).
+
+        The activation is **always** consumed, including when the fighter is boxed in
+        and takes no step (``30465``'s bare ``return``, then ``30110``'s
+        ``gosub30400:goto30105``). Advancing the cursor is the driver's job, not this
+        method's — mirroring how :meth:`try_move` and :meth:`shoot` leave it alone.
+        """
+        target = ai_target(self)
+        idle = {"action": "none", "direction": None, "result": None, "target": target}
+        if target is None:
+            # Unreachable from real play: 30106's victory check fires before 30110.
+            return idle
+
+        # 30410: near-adjacent -> attack branch, WITHOUT drawing the 30415 roll.
+        near_adjacent = target.abs_dx == 1 or target.abs_dy == 1
+        if not near_adjacent:
+            # 30415: 50% roll OR a melee weapon forces the close-distance branch.
+            melee = self.active.weapon < 4
+            forced_move = self._rng.range(2) == 0 if self._rng is not None else False
+            if forced_move or melee:
+                return self._ai_move(target)
+
+        # 30420/30421/30425: fire only along a shared column or row.
+        if target.x == 0:
+            direction = target.y  # 30420: x=y, fire vertically
+        elif target.y != 0:
+            return self._ai_move(target)  # 30421: diagonal -> close distance
+        else:
+            direction = target.x  # 30425: row-aligned, fire horizontally
+
+        if direction == 0:
+            # Degenerate: attacker and target share a cell (impossible in play, since
+            # occupancy blocks it). Nothing sensible to fire at, so idle.
+            return idle
+        return {
+            "action": "shoot",
+            "direction": direction,
+            "result": self.shoot(direction),
+            "target": target,
+        }
+
+    def _ai_move(self, target: AiTarget) -> dict:
+        """The AI move routine ``mf-prg.bas:30450-30465``.
+
+        Four step attempts, in the source's exact order, each gated on direction memory
+        and each ending the activation the moment one commits:
+
+        1. ``30450`` — the horizontal step toward the target (``p=x``).
+        2. ``30451`` — the vertical step toward the target (``p=y``).
+        3. ``30455``/``30460`` — the retry gates. ``30455`` reads *"if a horizontal
+           approach is still available, branch to the VERTICAL sidesteps at 30460;
+           else fall into the horizontal ones at 30456"*. The gate deliberately sends
+           the fighter **perpendicular** to the approach it already failed — that is
+           what unsticks it from a wall it is walking into.
+        4. ``30456``/``30457`` or ``30461``/``30462`` — the two perpendicular sidesteps.
+
+        **Direction memory** (``ri(f)``, seeded to -1 at ``30020``, written at ``30492``)
+        forbids exactly one step per attempt: the exact reverse of the last committed
+        step. The approach gates spell it as ``ri(f)<>(1+2*(x=1))`` (``30450``) and
+        ``ri(f)<>(40+80*(y=1))`` (``30451``); both reduce to ``ri(f) <> -p``. The four
+        sidestep lines state the SAME rule with literal constants and no relational at
+        all — ``30456`` guards ``p=1`` with ``ri(f)<>-1``, ``30457`` guards ``p=-1``
+        with ``ri(f)<>1``, ``30461`` guards ``p=40`` with ``ri(f)<>-40``, ``30462``
+        guards ``p=-40`` with ``ri(f)<>40``. Those literals are the proof: the rule is
+        "never step the exact reverse of your last step", and this port encodes it once
+        (:meth:`_ai_step`) rather than re-deriving the relational per site.
+
+        (Relational-sign note, per docs/solutions/architecture-patterns/
+        basic-relational-boolean-is-plus-one-when-porting.md: that doc's binding
+        instruction is *"port the prose result, not a raw C64 evaluation"*. The prose
+        result here is pinned independently by the four literal sidestep guards, so no
+        sign convention needs to be applied to ``(1+2*(x=1))`` at all. For the record,
+        the raw C64 reading happens to agree — ``true=-1`` makes ``1+2*(x=1)`` equal
+        ``-x`` — while the ``true=+1`` reading would yield the nonsensical ``3`` for a
+        rightward step and an asymmetric ``1`` for a leftward one. This is a site where
+        the two readings diverge and the literals settle it; flagged for the record.)
+
+        The seed value ``ri=-1`` (``30020``) is not neutral: it is a real leftward step,
+        so a freshly-spawned enemy will not open the fight by stepping right. That is
+        the original's behaviour, faithfully kept.
+        """
+        # 30450 then 30451: the two approach steps, horizontal first.
+        for step in (target.x, target.y):
+            if step != 0 and self._ai_step(step):
+                return {"action": "move", "direction": step, "result": None, "target": target}
+
+        # 30455: if the horizontal approach was AVAILABLE (x<>0 and not reverse-blocked)
+        # but failed, branch to the VERTICAL sidesteps; otherwise take the horizontal
+        # ones. The gate tests availability, not success — it is reached only on failure.
+        horizontal_available = target.x != 0 and self._dir_memory_allows(target.x)
+        if horizontal_available:
+            sidesteps = (STEP_DOWN, STEP_UP)  # 30461, 30462
+            # 30460: with a vertical approach also available, skip straight to the exit
+            # at 30465 — the fighter has already tried both approach axes.
+            if target.y != 0 and self._dir_memory_allows(target.y):
+                sidesteps = ()
+        else:
+            sidesteps = (STEP_RIGHT, STEP_LEFT)  # 30456, 30457
+
+        for step in sidesteps:
+            if self._ai_step(step):
+                return {"action": "move", "direction": step, "result": None, "target": target}
+
+        # 30465: boxed in — the activation is spent with no step taken.
+        return {"action": "none", "direction": None, "result": None, "target": target}
+
+    def _dir_memory_allows(self, step: int) -> bool:
+        """Is ``step`` permitted by this fighter's direction memory ``ri(f)``?
+
+        The rule the four literal guards at ``30456``/``30457``/``30461``/``30462`` pin:
+        ``ri(f) <> -p``. A fighter with no recorded step yet carries the ``30020`` seed
+        ``-1``, which forbids a rightward step on its very first activation.
+        """
+        return self.dir_memory.get(self.active_fighter - 1, -1) != -step
+
+    def _ai_step(self, step: int) -> bool:
+        """One gated, validated AI step — ``30490``/``30491``/``30492`` in one call.
+
+        Returns whether the step committed. Three things must hold, in this order:
+
+        1. the direction-memory guard (:meth:`_dir_memory_allows`) — checked by the
+           CALLER lines ``30450``-``30462`` before they ever ``gosub30490``, and
+           re-checked here so no call site can forget it;
+        2. ``30490``'s validity test — ``q<0 or q>520`` or the target cell is not
+           walkable (``peek(br+q)`` neither 32 nor 96), which is the same movement
+           obstruction set :func:`can_move_onto` owns, including fighter occupancy
+           (in the source another fighter's cell holds char 193, failing the 32/96 test);
+        3. on success, ``30491`` commits the position and ``30492`` records
+           ``ri(f)=p``.
+
+        On the ``p``-as-flag idiom: ``30490`` returns with ``p`` still holding the
+        attempted step (non-zero) when the cell is rejected, while ``30492`` clears
+        ``p=0`` after committing. Every call site then reads ``ifp=0thenreturn`` — so
+        ``p=0`` means *"the step succeeded, end the activation"* and a non-zero ``p``
+        means *"blocked, fall through to the next attempt"*. Reading that idiom
+        backwards inverts the whole routine, which is why it is spelled out here.
+        """
+        if step not in STEPS:
+            return False
+        if not self._dir_memory_allows(step):
+            return False
+        fighter = self.active
+        target_cell = fighter.position + step
+        if not can_move_onto(target_cell, self._grid, self.occupied(exclude=fighter)):
+            return False
+        self._replace_fighter(self.active_side, self.active_fighter - 1, position=target_cell)
+        self.dir_memory[self.active_fighter - 1] = step  # 30492: ri(f)=p
+        return True
 
     def surrender(self) -> int:
         """The active side gives up; return the winning (opposing) side.

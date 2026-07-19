@@ -561,6 +561,11 @@ def test_losses_are_visible_on_the_screen_that_follows_a_knockout():
 
     Two enemies so the fight does NOT end on the first knockout — otherwise no further
     screen is yielded and the updated counter would never be observable.
+
+    ``cpu_sides=()`` keeps this a hot-seat fight (U6): the point under test is that the
+    loss counter reaches the CLIENT, so side 2 must be prompted rather than played by
+    the AI (which would consume RNG draws and yield no screen — see
+    ``tests/test_combat_ai.py`` for the CPU-branch behaviour itself).
     """
     sides = (
         (_f(name="a", weapon=5, position=100, brutalitaet=0),),
@@ -572,7 +577,7 @@ def test_losses_are_visible_on_the_screen_that_follows_a_knockout():
     screens = []
 
     def handler(ctx):
-        winner = yield StartCombat(**_spec(sides=sides))
+        winner = yield StartCombat(**_spec(sides=sides, cpu_sides=()))
         return winner
 
     def src(interaction):

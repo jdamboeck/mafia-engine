@@ -121,7 +121,16 @@ class StartCombat:
         because the engine never reads a config's entity tables itself.
     ``dir_memory``
         Optional per-enemy-fighter direction memory seed (``ri()``), consumed by
-        U6's AI; harmless to omit.
+        U6's AI; harmless to omit. Keyed by 0-based fighter index (the source's
+        ``ri(i)`` is 1-based; :func:`engine.combat.setup_combat` established the
+        0-based keying and the AI follows it).
+    ``cpu_sides``
+        Which sides the engine plays itself instead of prompting the client
+        (``mf-prg.bas:30110``: ``ifks(s)=0thengosub30400``). Defaults to
+        :data:`engine.combat.DEFAULT_CPU_SIDES` — side 2, the NPC party the
+        combat-launch helper marks with ``ks(2)=0`` (``5010``). Pass an empty
+        tuple for a hot-seat fight where both sides are client-driven (the source
+        supports this shape at ``27020``, the bandenkrieg launch).
 
     Combat is only ever yielded from a TOP-LEVEL handler this slice (KTD-1) — the
     driver asserts this rather than supporting it inside :func:`_run_substate`.
@@ -131,6 +140,10 @@ class StartCombat:
     grid: Any = ()
     weapon_stats: Any = None
     dir_memory: Any = None
+    #: ``None`` means "use the default" (side 2); an explicit ``()`` means "no CPU
+    #: side at all" — the two are deliberately distinguishable, so a hot-seat fight
+    #: can be requested without the default silently reasserting itself.
+    cpu_sides: Any = None
 
 
 @dataclass(frozen=True)
@@ -582,12 +595,16 @@ def _run_combat(
 
     1. Check victory (``30106``) — the fight ends the moment one side has no
        standing fighter, mid-round, without finishing the current side's turn.
-    2. Yield a :class:`CombatScreen` for the active fighter and read one action.
-    3. Apply exactly ONE action per activation (``30130-30155``): a legal move, a
+    2. If the active side is CPU-controlled (``30110``: ``ifks(s)=0``), run the AI
+       decision routine (:meth:`engine.combat.CombatFight.ai_take_turn`, ports
+       ``30400-30492``) and advance — **no** :class:`CombatScreen` is yielded and the
+       client is never prompted for that side. Otherwise:
+    3. Yield a :class:`CombatScreen` for the active fighter and read one action.
+    4. Apply exactly ONE action per activation (``30130-30155``): a legal move, a
        shot, a pass, or a surrender. An ILLEGAL move or an unrecognized response
        re-prompts the SAME activation (``30145``/``30139`` jump back to ``30125``)
        rather than consuming it.
-    4. Advance the cursor (``30105``), skipping downed fighters (``30109``).
+    5. Advance the cursor (``30105``), skipping downed fighters (``30109``).
 
     **Non-cancellable (KTD-2).** :data:`CANCEL` — which is also how a client
     surfaces EOF — is mapped to a surrender, never to a ``Cancelled`` throw. A
@@ -602,8 +619,12 @@ def _run_combat(
     """
     # Lazy imports keep this module's top-level import graph free of engine.state /
     # engine.combat, mirroring the commit() import in run().
-    from engine.combat import CombatFight
+    from engine.combat import DEFAULT_CPU_SIDES, CombatFight
     from engine.state import CombatState
+
+    cpu_sides = (
+        DEFAULT_CPU_SIDES if start.cpu_sides is None else tuple(start.cpu_sides)
+    )
 
     fight = CombatFight(
         CombatState(
@@ -620,6 +641,20 @@ def _run_combat(
         winner = fight.winner()
         if winner is not None:
             return fight.finish(winner)
+
+        if fight.active_side in cpu_sides:
+            # 30110: `ifks(s)=0thengosub30400:goto30105` — the CPU side runs the AI
+            # decision routine INSTEAD of the key read at 30125, then advances the
+            # cursor unconditionally. There is no client prompt on this path at all,
+            # so no CombatScreen is yielded and `message` is left for the next human
+            # activation to carry (the source likewise narrates nothing for an AI move).
+            outcome = fight.ai_take_turn()
+            if outcome["action"] == "shoot":
+                winner = fight.winner()
+                if winner is not None:
+                    return fight.finish(winner)
+            fight.advance_activation()
+            continue
 
         screen = CombatScreen(
             sides=fight.sides,
