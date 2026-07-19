@@ -303,6 +303,114 @@ class TestSlwRentThroughClient:
 
 
 # --------------------------------------------------------------------------- #
+# pub drink (alcohol trade) + tip through the client — U8                     #
+# --------------------------------------------------------------------------- #
+
+
+class TestPubDrinkThroughClient:
+    """``pub.drink`` at tile ln=4 draws TWO ``rng.hit`` calls (stock, price) before
+    the client can even show the quantity prompt — same rng=None root cause U1 fixed
+    for sph/waf, now exercised for pub's buy path."""
+
+    def test_buy_one_barrel_at_ln4_completes(self, monkeypatch):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        cfg = load_game_config(_CONFIG_DIR)
+        vehicles = cfg.module.load_vehicles(
+            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
+        )
+        state = new_state(42)
+        cell = find_door_cell(city_raw, "pub", ln=4)
+        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        # menu index 0 = "drink" (recruit is guard-excluded at rank 1, tip is index 1);
+        # buy 1 barrel.
+        keys = walk + ["", "0", "1"]
+
+        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        # Seed 42's rolled buy price for this walk is 5$/barrel -- 1 barrel costs 5$.
+        assert "cash 5495$" in output
+
+    def test_same_seed_twice_is_deterministic(self, monkeypatch):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        cfg = load_game_config(_CONFIG_DIR)
+        vehicles = cfg.module.load_vehicles(
+            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
+        )
+        state = new_state(42)
+        cell = find_door_cell(city_raw, "pub", ln=4)
+        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        keys = walk + ["", "0", "1"]
+
+        out1 = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        out2 = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        assert out1 == out2
+
+
+class TestPubTipThroughClient:
+    """``pub.tip`` requires rank>=4 (mf-prg.bas:12200), which a fresh rank-1 ``play()``
+    session cannot reach without a full progression session -- ``play()`` has no state-
+    injection hook. This drives the SAME real protocol one level down: a hand-built
+    rank-4 ``GameState`` through ``engine.actions.run_option`` with a genuine
+    ``TerminalInput`` reading piped stdin (the identical class/wire ``play()`` uses,
+    per ``TestInteractiveCombatThroughTerminalInput``'s precedent for the same need).
+    """
+
+    def _state(self, *, rank=4, ka=100000):
+        from engine.state import Clock, Config, Gangster, GameState, Player
+
+        return GameState(
+            players=(
+                Player(
+                    name="alcapone",
+                    gang_name="the outfit",
+                    ka=ka,
+                    rank=rank,
+                    roster=(Gangster(name="alcapone"),),
+                ),
+            ),
+            clock=Clock(active_player=0, player_count=1),
+            config=Config(
+                formula_params={
+                    "rank_divisor": 11.1,
+                    "pub_tip_price_base": 1000,
+                    "pub_tip_price_step": 500,
+                    "pub_alcohol_stock_min": 100,
+                    "pub_alcohol_stock_max": 299,
+                    "pub_alcohol_buy_price_min": 5,
+                    "pub_alcohol_buy_price_max": 9,
+                    "pub_alcohol_sell_price_min": 10,
+                    "pub_alcohol_sell_price_max": 29,
+                    "pub_arms_deal_payout_min": 5500,
+                    "pub_arms_deal_payout_max": 14999,
+                }
+            ),
+        )
+
+    def test_buy_a_tip_via_the_real_input_loop(self, monkeypatch):
+        from engine.actions import run_option
+        from engine.rng import Rng
+        from engine.strings import Resolver
+
+        state = self._state(rank=4, ka=100000)
+        shell = tmain._load_shell("pub")
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        out = io.StringIO()
+        # seed=1: available(0), price roll 2 -> 2000$, tip id roll -> type 1 (no stake
+        # sub-flow). "j" confirms the price.
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "tip", state, ln=2, input_source=inp, rng=Rng(1))
+
+        assert result.status == "completed"
+        assert result.state.players[0].ka == 98000  # 100000 - 2000$ tip price
+        assert result.state.players[0].tip_target == 1
+        # The Confirm prompt genuinely reached the real TerminalInput wire.
+        assert "ok (j/n)?" in out.getvalue()
+
+
+# --------------------------------------------------------------------------- #
 # Determinism: same seed twice -> identical transcripts                       #
 # --------------------------------------------------------------------------- #
 

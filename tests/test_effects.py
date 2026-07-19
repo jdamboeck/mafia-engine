@@ -395,6 +395,70 @@ def test_spawn_fighter_purity():
 
 
 # --------------------------------------------------------------------------- #
+# barrel_change (U8) — pub alcohol trade, real application                    #
+# --------------------------------------------------------------------------- #
+def test_barrel_change_adds_to_alcohol_stock():
+    state = make_state()  # contraband.alcohol_barrels defaults to 0
+    out = apply(state, BarrelChange(10))
+    assert out.players[0].contraband.alcohol_barrels == 10
+
+
+def test_barrel_change_negative_amount_subtracts():
+    state = apply(make_state(), BarrelChange(10))
+    out = apply(state, BarrelChange(-4))
+    assert out.players[0].contraband.alcohol_barrels == 6
+
+
+def test_barrel_change_targets_explicit_player():
+    state = make_state()
+    out = apply(state, BarrelChange(5, player=1))
+    assert out.players[1].contraband.alcohol_barrels == 5
+    assert out.players[0].contraband.alcohol_barrels == 0  # untouched
+
+
+def test_barrel_change_purity():
+    state = make_state()
+    out = apply(state, BarrelChange(10))
+    assert state.players[0].contraband.alcohol_barrels == 0  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
+# tip_set / tip_clear (U8) — pub tip flow + arms-deal resolution               #
+# --------------------------------------------------------------------------- #
+def test_tip_set_stores_the_tip_type():
+    state = make_state()  # tip_target defaults to 0
+    out = apply(state, TipSet(tip_type=4))
+    assert out.players[0].tip_target == 4
+
+
+def test_tip_set_targets_explicit_player():
+    state = make_state()
+    out = apply(state, TipSet(tip_type=2, player=1))
+    assert out.players[1].tip_target == 2
+    assert out.players[0].tip_target == 0  # untouched
+
+
+def test_tip_clear_resets_to_zero():
+    state = apply(make_state(), TipSet(tip_type=4))
+    out = apply(state, TipClear())
+    assert out.players[0].tip_target == 0
+
+
+def test_tip_clear_targets_explicit_player():
+    state = apply(make_state(), TipSet(tip_type=3, player=1))
+    out = apply(state, TipClear(player=1))
+    assert out.players[1].tip_target == 0
+
+
+def test_tip_set_and_clear_purity():
+    state = make_state()
+    out = apply(state, TipSet(tip_type=4))
+    assert state.players[0].tip_target == 0  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
 # assign_weapon (U3) — the R9 purchase-persist primitive                      #
 # --------------------------------------------------------------------------- #
 def test_assign_weapon_sets_gangster_weapon():
@@ -497,12 +561,11 @@ def test_negative_gangster_index_raises_not_wraps():
         WantedChange(1),
         Jail(3),
         # U2 groundwork (KTD-7): declared now, activated in a later unit each.
+        # BarrelChange/TipSet/TipClear graduated to real application in U8 (see the
+        # "barrel_change"/"tip_set / tip_clear" sections above) — no longer deferred.
         DebtChange(500),
         DebtClear(),
         ShopChange(tile=2),
-        BarrelChange(3),
-        TipSet(tip_type=1),
-        TipClear(),
         JobSet(type=1, pending_pay=2000, months_left=3),
         JobClear(),
         RosterAppend(gangster=object()),

@@ -60,6 +60,26 @@ formula_params:
   # sph casino payout: gross = int(stake*(0.5+x)); win iff rng.range(1+x)==0 (mf-prg.bas:16026-16040)
   casino_payout_offset: 0.5
 
+  # pub alcohol trade (mf-prg.bas:12020,12050): buy stock/price at ln=4, sell price
+  # elsewhere. Buy quantity is separately capped by vehicle capacity - carried barrels
+  # (entities/vehicles.yaml's "tank" field), not a formula_params entry.
+  pub_alcohol_stock_min: 100      # x = int(rnd(1)*200)+100 -> 100..299 (mf-prg.bas:12020)
+  pub_alcohol_stock_max: 299
+  pub_alcohol_buy_price_min: 5    # p = int(rnd(1)*5)+5 -> 5..9 $/barrel (mf-prg.bas:12020)
+  pub_alcohol_buy_price_max: 9
+  pub_alcohol_sell_price_min: 10  # x = int(rnd(1)*20)+10 -> 10..29 $/barrel (mf-prg.bas:12050)
+  pub_alcohol_sell_price_max: 29
+
+  # pub tips (mf-prg.bas:12215): price = 1000 + (0,1,2)*500 -> 1000/1500/2000 $.
+  pub_tip_price_base: 1000
+  pub_tip_price_step: 500
+
+  # pub arms-deal upkeep resolution (mf-prg.bas:31005): payout p = int(rnd(1)*9500)+5500
+  # -> 5500..14999 $. The 1-in-5 total-loss roll and the 5000$ stake are source-fixed
+  # literals (mf-prg.bas:31000/12248), not config-tunable this slice.
+  pub_arms_deal_payout_min: 5500
+  pub_arms_deal_payout_max: 14999
+
 # New-game setup constants (mf-prg.bas:220,300-315,350). These mirror the
 # BASIC setup; engine/setup.py is the authoritative porting site. Kept here so
 # the values are visible/tunable as config data.

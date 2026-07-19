@@ -2,7 +2,7 @@
 #
 # DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.pub.rank_too_low")
 # and the theme resolves them to these strings. Ported from the research
-# (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:12100-12102) — verbatim.
+# (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:12000-12335) — verbatim.
 #
 # rank_too_low: the pub recruit refusal when ra(sp)<=4. In the original this is a
 # two-line print (mf-prg.bas:12101-12102):
@@ -14,5 +14,28 @@ locations:
   pub:
     entry_prompt: "'EH, AMIGO, WILLST DU ''NE MILCH? ODER   SUCHST DU WAS ANDERES?'"
     menu:
+      drink: "'NEIN, KEINE MILCH! HAST DU WAS         ALKOHOLISCHES DA?'"
       recruit: "'ICH SUCHE EIN PAAR JUNGS FUER MEINE    GANG. MAL SEHEN, WER DA IST...'"
+      tip: "'HAST DU VIELLEICHT ''N GUTEN TIP FUER   ''NEN UEBERFALL ODER SOWAS?'"
     rank_too_low: "'als {rank} kannst du noch keine eigenen leute haben!'"
+
+    # --- alcohol trade (U8, mf-prg.bas:12010-12075) ---
+    drink_refused: "'was? alkohol? ist doch verboten!'"
+    drink_offer: "'ich habe {stock} faesser fuer {price}$ pro fass.'"
+    drink_quantity_prompt: "wieviele willst du"
+    sell_offer: "'nein. vielleicht hast du aber was fuer mich? ich zahle {price}$ pro fass!'"
+    sell_quantity_prompt: "wieviel willst du abgeben"
+
+    # --- tips (U8, mf-prg.bas:12200-12252) ---
+    tip_too_inexperienced: "'du bist noch zu unerfahren!'"
+    tip_nothing: "'leider habe ich nichts fuer dich!'"
+    tip_teaser: "'ich habe etwas gehoert...aber das kostet dich {price}$.'"
+    tip_confirm: "ok (j/n)?"
+    tip_postzug: "'im postzug soll demnaechst eine grosse ladung diamanten transportiert werden!'"
+    tip_bank: "'die bank an der hauptstrasse erhaelt in naechster zeit 500 kg goldbarren!'"
+    tip_geldtransport: "'ein geldtransport wird durch unsere stadt fahren. es ist ein blauer wagen, du wirst ihn sehen!'"
+    tip_waffenschmuggel: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"
+    tip_buergermeister: "'psst...ich habe da einen sehr wichtigen auftrag! der buergermeister soll umgelegt werden, er hat aber leibwaechter!'"
+    arms_deal_offer: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"
+    arms_deal_confirm: "ok (j/n)?"
+    arms_deal_accepted: "'du wirst es nicht bereuen...'"

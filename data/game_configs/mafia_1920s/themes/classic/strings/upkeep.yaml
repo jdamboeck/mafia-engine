@@ -13,3 +13,7 @@ upkeep:
   # reverse video ({rvon}) on the original's poster backdrop; the terminal client
   # renders that presentation, this key only carries the verbatim text content.
   rank_promotion: "{gang_name}\n{name}.\n{score} p.\n{rank_name}"
+
+  # Arms-deal upkeep slot (U8, mf-prg.bas:31000-31051) — resolves a tip-4 stake.
+  arms_deal_lost: "die waffenhaendler, denen du 5000 $ anvertraut hast, wurden geschnappt!"
+  arms_deal_won: "dein kapital hat im waffenhandel gearbeitet. du erhaelts {amount}$ zurueck!"

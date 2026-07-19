@@ -61,15 +61,15 @@ __all__ = [
     "EnergyChange",
     "RankCommit",
     "SpawnFighter",
+    "BarrelChange",
+    "TipSet",
+    "TipClear",
     # Declared-but-deferred effects
     "WantedChange",
     "Jail",
     "DebtChange",
     "DebtClear",
     "ShopChange",
-    "BarrelChange",
-    "TipSet",
-    "TipClear",
     "JobSet",
     "JobClear",
     "RosterAppend",
@@ -419,9 +419,9 @@ class ShopChange:
 class BarrelChange:
     """Add ``amount`` (signed) to the target player's alcohol barrel stock ``ta(sp)``.
 
-    Groundwork only (U2, KTD-7); deferred to a later unit (pub alcohol trade, U8).
-    Targets :class:`~engine.state.Contraband.alcohol_barrels` (mf-prg.bas:12035 buy,
-    :12075 sell).
+    Declared as groundwork in U2 (KTD-7); real application landed in U8 (the pub
+    alcohol trade). Targets :class:`~engine.state.Contraband.alcohol_barrels`
+    (mf-prg.bas:12035 buy, :12075 sell).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -433,9 +433,9 @@ class BarrelChange:
 class TipSet:
     """Set the target player's rolled heist tip type ``tp(sp)``.
 
-    Groundwork only (U2, KTD-7); deferred to a later unit (pub tip flow, U8).
-    Targets :class:`~engine.state.Player.tip_target` (mf-prg.bas:12225-12226: the
-    tip roll ``tp(sp)=1-5`` dispatching to one of five heist-rumour texts).
+    Declared as groundwork in U2 (KTD-7); real application landed in U8 (the pub tip
+    flow). Targets :class:`~engine.state.Player.tip_target` (mf-prg.bas:12225-12226:
+    the tip roll ``tp(sp)=1-5`` dispatching to one of five heist-rumour texts).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -447,8 +447,11 @@ class TipSet:
 class TipClear:
     """Clear the target player's rolled heist tip (``tp(sp)=0``).
 
-    Groundwork only (U2, KTD-7); deferred to a later unit. The counterpart to
-    :class:`TipSet` — a used or expired tip resets ``tip_target`` to 0 (no tip held).
+    Declared as groundwork in U2 (KTD-7); real application landed in U8. The
+    counterpart to :class:`TipSet` — a used or expired tip resets ``tip_target`` to 0
+    (no tip held). U8 applies this from both ``pub.tip``'s tip-4 decline/broke paths
+    and ``upkeep.py``'s arms-deal slot (the ``tp(sp)=0`` at ``mf-prg.bas:31000``,
+    applied FIRST so a stake resolves exactly once — see ``handlers/upkeep.py``).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -594,10 +597,11 @@ def _apply(state: GameState, effect: Any) -> GameState:
     (R1/R3), so the functional rebuild is the only expressible write path.
 
     Deferred effects (:class:`WantedChange`, :class:`Jail`,
-    :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`,
-    :class:`BarrelChange`, :class:`TipSet`, :class:`TipClear`, :class:`JobSet`,
+    :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`, :class:`JobSet`,
     :class:`JobClear`, :class:`RosterAppend`) raise ``NotImplementedError`` — they are
     exercised in a later unit but exist now so logs stay type-complete and serializable.
+    (:class:`BarrelChange`, :class:`TipSet`, :class:`TipClear` gained real application
+    in U8 — the pub alcohol trade and tip flow.)
     """
     if isinstance(effect, MoneyChange):
         idx = _target_index(state, effect.player)
@@ -711,6 +715,26 @@ def _apply(state: GameState, effect: Any) -> GameState:
         new_combat = replace(state.combat, sides=tuple(sides))
         return replace(state, combat=new_combat)
 
+    if isinstance(effect, BarrelChange):
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
+        # ta(sp) += amount (mf-prg.bas:12035 buy, :12075 sell) — U8 real application.
+        new_contraband = replace(
+            p.contraband, alcohol_barrels=p.contraband.alcohol_barrels + effect.amount
+        )
+        return _with_player(state, idx, contraband=new_contraband)
+
+    if isinstance(effect, TipSet):
+        idx = _target_index(state, effect.player)
+        # tp(sp) = tip_type (mf-prg.bas:12225-12226) — U8 real application.
+        return _with_player(state, idx, tip_target=effect.tip_type)
+
+    if isinstance(effect, TipClear):
+        idx = _target_index(state, effect.player)
+        # tp(sp) = 0 (mf-prg.bas:31000 arms-deal resolve; also the tip4 decline/broke
+        # paths in pub.tip) — U8 real application.
+        return _with_player(state, idx, tip_target=0)
+
     if isinstance(
         effect,
         (
@@ -719,9 +743,6 @@ def _apply(state: GameState, effect: Any) -> GameState:
             DebtChange,
             DebtClear,
             ShopChange,
-            BarrelChange,
-            TipSet,
-            TipClear,
             JobSet,
             JobClear,
             RosterAppend,

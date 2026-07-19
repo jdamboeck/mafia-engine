@@ -1,16 +1,24 @@
-# pub (Kneipe) — location shell (U6 declarative layer).
+# pub (Kneipe) — location shell (U6 declarative layer; U8 adds drink/tip).
 #
-# Ports the pub recruit gate from mf-prg.bas:12100/12105. ONE guarded option this
-# unit (recruit); the pub handler BODY is a later unit (the shell only needs a
-# registered stub handler so it loads — see handlers/pub.py).
+# Ports the pub menu from mf-prg.bas:12005 (onwgoto12010,12100,12200,12300). The
+# original ALWAYS shows all 4 options and refuses INSIDE the handler (no menu-level
+# filtering) for drink/tip/job — only recruit gets a SHELL guard (an earlier unit's
+# already-established shape, kept here for continuity: the denial reached by WALKING
+# to the pub at rank 1 is that unit's headline). drink/tip therefore carry NO shell
+# guard — rank (tip) and tile (drink) branching happen inside their handlers,
+# faithful to the source's always-offered menu (KTD-8 only applies to guarded options).
 #
+#   drink   — no guard; branches on ln (only ln=4 sells) and RNG inside the handler.
 #   recruit — guard: rank>4 AND gang has room (<10);   on_denied -> rank_too_low
+#   tip     — no guard; rank>3 check happens inside the handler (mf-prg.bas:12200).
 #
-# At rank 1 the guard fails (rank>4 is false), so the option is EXCLUDED by
+# At rank 1 the recruit guard fails (rank>4 is false), so that option is EXCLUDED by
 # available_options — the denial reached by WALKING to the pub is this slice's
-# headline. The recruit body itself is out of scope this unit.
+# headline. The recruit body itself is out of scope this unit (U9).
 key: pub
 options:
+  - id: drink
+    handler: "pub.drink"
   - id: recruit
     guard:
       and:
@@ -18,3 +26,5 @@ options:
         - {var: gang_size, op: '<', value: 10} # gz(sp)<10, room for more (mf-prg.bas:12105)
     on_denied: "locations.pub.rank_too_low"
     handler: "pub.recruit"
+  - id: tip
+    handler: "pub.tip"

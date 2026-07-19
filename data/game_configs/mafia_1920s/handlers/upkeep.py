@@ -16,12 +16,22 @@ This unit lands the flow's HEAD per the order fixed by KTD-3
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-Three slots are declared but LEFT AS NO-OPS this unit — later units activate them in
-place, in this exact position in the flow, without reordering anything already here:
+Three slots were declared as no-ops in U3; this unit (U8) fills the THIRD in place,
+without reordering anything already here:
 
-* **debt check** (``4040``, U12) — the grace-counter tick / collectors fight.
-* **shop income** (``4041``, U11) — the passive kdh-shop payout roll.
-* **arms deal** (``4060``, U8) — the staked heist-tip resolution.
+* **debt check** (``4040``, U12) — the grace-counter tick / collectors fight. Still a
+  no-op.
+* **shop income** (``4041``, U11) — the passive kdh-shop payout roll. Still a no-op.
+* **arms deal** (``4060``, U8) — the staked heist-tip resolution, ports
+  ``mf-prg.bas:31000-31051``. Only fires when the active player's ``tip_target ==
+  pub.ARMS_DEAL_TIP`` (4) — set by ``pub.tip``'s stake sub-flow. The tip is CLEARED
+  FIRST (``:31000``'s ``tp(sp)=0`` is the line's first statement, before the RNG roll)
+  so the resolution can only ever fire once per stake: even though this same generator
+  cannot re-run mid-turn, the clear-first ordering is what a later turn's upkeep read
+  of ``tip_target`` sees, and it is load-bearing precisely because nothing else ever
+  sets ``tip_target`` back to 4 — a stake resolves exactly once, never again. Then
+  1-in-5 total loss (no cash effect — the 5000$ stake is already spent, sunk cost);
+  else a payout of 5500-14999$ (``formula_params.pub_arms_deal_payout_min/max``).
 
 The job-shift seam (``employed -> shift flow instead of the free turn``, mirroring the
 source's ``1012`` dispatch) is **out of this generator entirely**: upkeep only prepares
@@ -42,10 +52,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import EnergyChange, RankCommit
+from engine.effects import EnergyChange, MoneyChange, RankCommit, TipClear
 from engine.interactions import ShowMessage
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
+
+from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
 
@@ -107,6 +119,26 @@ def upkeep_turn_start(ctx):
 
     # --- 4040: debt check — SLOT, no-op this unit (U12 activates in place) -
     # --- 4041: shop income — SLOT, no-op this unit (U11 activates in place) -
-    # --- 4060: arms deal — SLOT, no-op this unit (U8 activates in place) ---
+
+    # --- 4060: arms deal — ports mf-prg.bas:31000-31051 ---------------------
+    # iftp(sp)=4thengosub31000 (:4060). Re-read `active` is unnecessary: nothing above
+    # this slot in the SAME upkeep run touches tip_target.
+    if active.tip_target == ARMS_DEAL_TIP:
+        # :31000 — tp(sp)=0 FIRST, before the roll: the clear must happen before the
+        # loss/payout branch so a stake resolves EXACTLY ONCE (see module docstring).
+        ctx.apply(TipClear())
+        if ctx.rng.range(5) == 0:
+            # :31050-31051 — 1-in-5 total loss; the stake is already spent (sunk cost),
+            # so this branch applies no MoneyChange.
+            yield ShowMessage("upkeep.arms_deal_lost")
+        else:
+            # :31005 — payout p = int(rnd(1)*9500)+5500 -> 5500..14999$.
+            arms_params = ctx.state.config.formula_params
+            payout = ctx.rng.hit(
+                arms_params["pub_arms_deal_payout_min"],
+                arms_params["pub_arms_deal_payout_max"],
+            )
+            ctx.apply(MoneyChange(payout))
+            yield ShowMessage("upkeep.arms_deal_won", {"amount": payout})
 
     return []
