@@ -104,6 +104,7 @@ __all__ = [
     "Wanted",
     "Player",
     "MapState",
+    "Fighter",
     "CombatState",
     "Clock",
     "Config",
@@ -265,16 +266,64 @@ class MapState:
 
 
 @dataclass(frozen=True)
-class CombatState:
-    """Empty stub — no behavior this unit."""
+class Fighter:
+    """A single combatant on the combat grid — the per-fighter setup snapshot (U4).
 
-    enemy_roster: tuple = ()
-    grid: tuple[tuple[int, ...], ...] = ()  # 40×13 combat grid — different space
-    dir_memory: Mapping = _EMPTY_MAP  # ri() direction memory
-    result_flag: int = 0  # original s
+    Mirrors the source's parallel per-side arrays: ``kp(s,f)`` (position),
+    ``gw(s,f)`` (weapon), ``ec(f)``/``en`` (energy), plus kraft/brutalitaet, which
+    for a roster gangster are the gangster's own stats and for an NPC enemy are the
+    fixed 30/30 (``mf-prg.bas:30245``). ``down`` ports ``kp(s,f)<0`` — a dead/downed
+    fighter is marked rather than removed, so index-addressed arrays (``dir_memory``,
+    UI panels) stay stable across a fight (mirrors ``30106/30109``'s dead-skip checks).
+
+    A player-side fighter's ``name`` is the roster gangster's name (boss included,
+    KTD-6); an enemy-side fighter's ``name`` comes from the ``StartCombat`` spec.
+    """
+
+    name: str = ""
+    weapon: int = 0
+    energie: int = 0
+    kraft: int = 0
+    brutalitaet: int = 0
+    position: int = 0  # linear cell 0..520 on the 40×13 combat grid (CLAUDE.md)
+    down: bool = False  # kp(s,f)<0 in the source — energy reached 0
+
+
+@dataclass(frozen=True)
+class CombatState:
+    """The serializable combat-screen snapshot: populated at setup (U4), evolves
+    each activation (U5), finalized by outcome effects (U5).
+
+    ``sides`` holds side 1 (the active player's roster-as-fighters) and side 2 (the
+    enemy party spawned from the ``StartCombat`` spec) as two fighter tuples — ports
+    the source's parallel ``kp(1,*)``/``kp(2,*)`` arrays as one indexable pair rather
+    than a bare 1/2 dict, matching ``Player``'s "no separate parallel array" style.
+    ``grid`` is the 40×13 backdrop's wall/scenery codes, **linear** over cells 0..520
+    inclusive (521 entries) — the kept 521-cell bound admits a partial 14th row, so a
+    strict (row, col) shape would wrongly reject the legal cell 520 (CLAUDE.md).
+    ``dir_memory`` is the enemy side's per-fighter direction memory ``ri(f)``
+    (``mf-prg.bas:30020``: initialized to -1, "no last move yet"), keyed by enemy
+    fighter index — the source only tracks this for the CPU side (``ks(2)=0``).
+    ``active_side``/``active_fighter`` are the ``s``/``f`` activation cursors (1/2
+    and 1-based fighter index, matching the source so the cursor bookkeeping in U5
+    needs no reindexing). ``losses`` mirrors ``v(1)``/``v(2)`` (per-side downed
+    count). ``result_flag`` is the original ``s`` post-fight winner flag (0 = fight
+    in progress / unset).
+    """
+
+    sides: tuple[tuple[Fighter, ...], tuple[Fighter, ...]] = ((), ())
+    grid: tuple[int, ...] = ()  # 40×13 combat grid, LINEAR cells 0..520 — different space
+    dir_memory: Mapping = _EMPTY_MAP  # ri() direction memory, enemy fighter index -> int
+    active_side: int = 1  # s — 1 or 2
+    active_fighter: int = 1  # f — 1-based index into sides[active_side-1]
+    losses: tuple[int, int] = (0, 0)  # v(1), v(2) — per-side downed-fighter counts
+    result_flag: int = 0  # original s at fight end; 0 = unset/in progress
 
     def __post_init__(self):
-        _coerce_readonly(self, "enemy_roster", "grid", "dir_memory")
+        _coerce_readonly(self, "grid", "dir_memory", "losses")
+        object.__setattr__(
+            self, "sides", tuple(tuple(side) for side in self.sides)
+        )
 
 
 @dataclass(frozen=True)

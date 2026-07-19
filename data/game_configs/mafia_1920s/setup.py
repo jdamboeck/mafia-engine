@@ -37,6 +37,7 @@ __all__ = [
     "load_vehicles",
     "load_ranks",
     "load_weapons",
+    "load_combat_backdrop",
     "fnm",
     "score_and_rank",
 ]
@@ -91,6 +92,20 @@ def load_weapons(path: str | Path) -> list[dict]:
     for i, w in enumerate(weapons):
         validate_weapon(w, index=i)
     return weapons
+
+
+def load_combat_backdrop(path: str | Path) -> tuple[int, ...]:
+    """Load a combat backdrop's linear wall/scenery code array (U4).
+
+    ``path`` points at one of ``content/combat/{ks,kp,km}.yaml`` — the pre-decoded
+    (``tools/decode_combat_backdrops.py``) 521-entry ``cells`` array covering the
+    combat grid's kept 0..520 bound (``engine.combat.CELL_COUNT``). Returned as a
+    plain tuple of ints, ready to pass straight to ``engine.combat.setup_combat``'s
+    ``grid`` parameter — engine combat code owns interpreting the codes (walls vs.
+    empty vs. scenery), this loader only supplies the raw array.
+    """
+    cells = _load_yaml(path)["cells"]
+    return tuple(cells)
 
 
 # --- fnm rent formula ------------------------------------------------------

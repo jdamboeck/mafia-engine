@@ -51,7 +51,7 @@ from engine.effects import (
     commit,
 )
 from engine.interactions import CANCEL, PromptInt, run
-from engine.state import Clock, Flags, Gangster, GameState, Player, tuple_replace
+from engine.state import Clock, Fighter, Flags, Gangster, GameState, Player, tuple_replace
 
 
 # --------------------------------------------------------------------------- #
@@ -355,6 +355,46 @@ def test_rank_commit_purity():
 
 
 # --------------------------------------------------------------------------- #
+# spawn_fighter (U4) — combat setup, real application                         #
+# --------------------------------------------------------------------------- #
+def test_spawn_fighter_appends_to_side_1():
+    state = make_state()
+    f = Fighter(name="capone", weapon=1, energie=5, kraft=15, brutalitaet=20, position=129)
+    out = apply(state, SpawnFighter(fighter=f, side=1))
+    assert out.combat.sides == ((f,), ())
+
+
+def test_spawn_fighter_appends_to_side_2():
+    state = make_state()
+    f = Fighter(name="thug", weapon=0, energie=5, kraft=30, brutalitaet=30, position=111)
+    out = apply(state, SpawnFighter(fighter=f, side=2))
+    assert out.combat.sides == ((), (f,))
+
+
+def test_spawn_fighter_appends_in_order():
+    state = make_state()
+    f1 = Fighter(name="a", position=129)
+    f2 = Fighter(name="b", position=210)
+    out = apply(state, SpawnFighter(fighter=f1, side=1))
+    out = apply(out, SpawnFighter(fighter=f2, side=1))
+    assert out.combat.sides[0] == (f1, f2)
+
+
+def test_spawn_fighter_bad_side_raises_value_error():
+    state = make_state()
+    with pytest.raises(ValueError):
+        apply(state, SpawnFighter(fighter=Fighter(), side=3))
+
+
+def test_spawn_fighter_purity():
+    state = make_state()
+    f = Fighter(name="capone", position=129)
+    out = apply(state, SpawnFighter(fighter=f, side=1))
+    assert state.combat.sides == ((), ())  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
 # assign_weapon (U3) — the R9 purchase-persist primitive                      #
 # --------------------------------------------------------------------------- #
 def test_assign_weapon_sets_gangster_weapon():
@@ -456,7 +496,6 @@ def test_negative_gangster_index_raises_not_wraps():
     [
         WantedChange(1),
         Jail(3),
-        SpawnFighter(fighter=object()),
         # U2 groundwork (KTD-7): declared now, activated in a later unit each.
         DebtChange(500),
         DebtClear(),

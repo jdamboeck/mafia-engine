@@ -46,6 +46,7 @@ from engine.state import (
     Config,
     Contraband,
     Debt,
+    Fighter,
     Flags,
     Gangster,
     GameState,
@@ -187,6 +188,22 @@ def _config_from_dict(raw: dict) -> Config:
     return Config(**restored)
 
 
+def _combat_from_dict(raw: dict) -> CombatState:
+    """Reconstruct ``CombatState``, restoring the nested ``Fighter`` dataclasses (U4).
+
+    ``sides`` is a 2-tuple of fighter-dict lists (JSON-safed by :func:`~engine.state.json_safe`
+    into plain lists of plain dicts) — each dict rebuilds into a :class:`~engine.state.Fighter`.
+    ``dir_memory`` is keyed by enemy fighter index (int), JSON-stringified on save like
+    ``map.tenancy``, so it goes through the same :func:`_restore_int_keys` restoration.
+    """
+    restored = dict(raw)
+    restored["sides"] = tuple(
+        tuple(Fighter(**f) for f in side) for side in raw["sides"]
+    )
+    restored["dir_memory"] = _restore_int_keys(raw["dir_memory"])
+    return CombatState(**restored)
+
+
 def state_from_dict(raw: dict) -> GameState:
     """Reconstruct a ``GameState`` from its serialized nested dict.
 
@@ -199,7 +216,7 @@ def state_from_dict(raw: dict) -> GameState:
     return GameState(
         players=tuple(_player_from_dict(p) for p in raw["players"]),
         map=_map_from_dict(raw["map"]),
-        combat=CombatState(**{k: freeze(v) for k, v in raw["combat"].items()}),
+        combat=_combat_from_dict(raw["combat"]),
         clock=Clock(**raw["clock"]),
         config=_config_from_dict(raw["config"]),
         flags=Flags(**raw["flags"]),

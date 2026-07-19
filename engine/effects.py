@@ -60,10 +60,10 @@ __all__ = [
     "RentAccrue",
     "EnergyChange",
     "RankCommit",
+    "SpawnFighter",
     # Declared-but-deferred effects
     "WantedChange",
     "Jail",
-    "SpawnFighter",
     "DebtChange",
     "DebtClear",
     "ShopChange",
@@ -345,10 +345,22 @@ class Jail:
 
 @dataclass(frozen=True)
 class SpawnFighter:
-    """Spawn a combat fighter. Deferred — application in a later unit."""
+    """Append one fighter to ``state.combat.sides[side - 1]`` (U4, real application).
+
+    ``fighter`` is a fully-built :class:`~engine.state.Fighter` — the caller (combat
+    setup, ``engine.combat.setup_combat``) computes its placement/stats before
+    building this effect, mirroring :class:`RosterAppend`'s "engine builds the value,
+    the effect only appends it" shape. ``side`` is 1 or 2 (matching the source's
+    ``kp(1,*)``/``kp(2,*)`` — side 1 is always the acting player, side 2 the enemy
+    party, ``mf-prg.bas:5010``: ``ks(1)=sp:ks(2)=0``). Fight setup buffers one
+    ``SpawnFighter`` per fighter so the replay log shows the roster being built up
+    fighter-by-fighter, matching the source's per-fighter placement loop
+    (``mf-prg.bas:30000``'s ``forj=1togz(ks(i))``) rather than one opaque bulk write.
+    """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     fighter: Any
+    side: int = 1
 
 
 @dataclass(frozen=True)
@@ -562,7 +574,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
     (R1/R3), so the functional rebuild is the only expressible write path.
 
     Deferred effects (:class:`WantedChange`, :class:`Jail`,
-    :class:`SpawnFighter`, :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`,
+    :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`,
     :class:`BarrelChange`, :class:`TipSet`, :class:`TipClear`, :class:`JobSet`,
     :class:`JobClear`, :class:`RosterAppend`) raise ``NotImplementedError`` — they are
     exercised in a later unit but exist now so logs stay type-complete and serializable.
@@ -694,12 +706,19 @@ def _apply(state: GameState, effect: Any) -> GameState:
         # ra(sp) = nr(sp) (mf-prg.bas:4030) — the caller decides WHEN (rank != nr).
         return _with_player(state, idx, rank=effect.new_rank)
 
+    if isinstance(effect, SpawnFighter):
+        if effect.side not in (1, 2):
+            raise ValueError(f"SpawnFighter.side must be 1 or 2, got {effect.side!r}")
+        sides = list(state.combat.sides)
+        sides[effect.side - 1] = tuple(sides[effect.side - 1]) + (effect.fighter,)
+        new_combat = replace(state.combat, sides=tuple(sides))
+        return replace(state, combat=new_combat)
+
     if isinstance(
         effect,
         (
             WantedChange,
             Jail,
-            SpawnFighter,
             DebtChange,
             DebtClear,
             ShopChange,
