@@ -436,6 +436,9 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
     vehicles = cfg.module.load_vehicles(
         _CONFIG_DIR / cfg.config["entities"]["vehicles"]
     )
+    weapon_names = [
+        w["name"] for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
+    ]
 
     state = cfg.module.new_game(
         seed=seed,
@@ -443,7 +446,7 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
         score_weight=1.0,
         players=players or [("alcapone", "the outfit")],
     )
-    inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out)
+    inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out, weapon_names=weapon_names)
     rng = Rng(seed)  # the one session RNG (KTD-8) — threaded into every run_option call
 
     hide_cursor(out)

@@ -27,6 +27,7 @@ from typing import Any, TextIO
 
 from engine.interactions import (
     CANCEL,
+    CombatScreen,
     Confirm,
     PromptChoice,
     PromptInt,
@@ -64,6 +65,40 @@ CURSOR_SHOW = "\033[?25h"
 _CANCEL_TOKENS = {"", "q", "quit", "cancel"}
 #: Inputs that read as truthy for a Confirm prompt.
 _YES_TOKENS = {"y", "yes", "j", "ja", "1", "true"}
+
+# ---------------------------------------------------------------------------
+# Combat key mapping (U7, KTD-9) -- "key bindings are presentation, formulas are
+# not". The original's raw C64 GET keys are `:`/`;`/`@`/`/` (move/aim left, right,
+# up, down; mf-prg.bas:30130-30133 for movement, 30206-30209 for the aim step),
+# RETURN to enter the aim-then-fire sub-loop (30134), SPACE to pass (30135), and
+# `q` to surrender (30136). Those raw glyphs are awkward on a real keyboard and
+# `q` for "surrender" collides with this client's OWN pre-existing "quit" key
+# (_is_quit in __main__.py) at every OTHER screen -- so this client maps to
+# client-appropriate keys instead of the original's literal GET characters, per
+# KTD-9's explicit license to do so. WASD mirrors the map-walk keys already bound
+# in __main__.py (_MOVE_KEYS) so the player's fingers do not have to relearn
+# directions between the map and the grid; F is "fire" (enter the aim step); P
+# passes (SPACE is what the source binds, but a literal space is easy to lose in
+# a piped-stdin test script, so this client spells it as a letter key instead --
+# presentation, not formula, per KTD-9); SURRENDER is spelled out (not bound to a
+# single letter) so it cannot be hit by accident the way a bare `q` could.
+#: The combat grid is 40 columns wide (CLAUDE.md: "the combat grid is 40x13" -- a
+#: fact of the wire protocol's coordinate space, not simulation logic, so it is
+#: safe to state here without importing engine.combat). WASD -> the same linear
+#: step delta engine.combat.STEPS uses (left/right = ±1, up/down = ∓40), so the
+#: response this module sends is exactly what the driver's ``fight.try_move``/
+#: ``fight.shoot`` already expect -- no engine.combat import needed to produce it.
+_COMBAT_GRID_COLS = 40
+_COMBAT_MOVE_KEYS = {"w": -_COMBAT_GRID_COLS, "s": _COMBAT_GRID_COLS, "a": -1, "d": 1}
+#: Same four letters read a SECOND time, after 'f', as the aim direction for a shot.
+_COMBAT_AIM_KEYS = dict(_COMBAT_MOVE_KEYS)
+_COMBAT_FIRE_KEY = "f"
+#: "p" for pass -- a literal space is easy to lose in a piped-stdin script (a script
+#: line of " " round-trips through strip() indistinguishably from a genuinely blank
+#: line), so this client spells the pass key out rather than binding raw SPACE; a
+#: blank/unrecognized line re-prompts instead of silently passing the activation.
+_COMBAT_PASS_KEY = "p"
+_COMBAT_SURRENDER_TOKENS = {"surrender", "give up", "yield"}
 
 
 # ---------------------------------------------------------------------------
@@ -212,16 +247,30 @@ class TerminalInput:
         resolver: Resolver,
         stdin: TextIO | None = None,
         stdout: TextIO | None = None,
+        weapon_names: list[str] | None = None,
     ) -> None:
         self._resolver = resolver
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
+        #: Weapon id -> name, for the combat fighter panel (U7). Optional: a caller
+        #: that never yields CombatScreen (every pre-U7 location) need not supply it.
+        self._weapon_names = weapon_names or []
 
     def __call__(self, interaction: Any) -> Any:
         if isinstance(interaction, ShowMessage):
             # Driver auto-acks ShowMessage; if we are ever consulted, just render it.
             render_message(self._resolver, interaction, self._stdout)
             return None
+
+        if isinstance(interaction, CombatScreen):
+            # U7: this callable owns the WHOLE combat turn -- render the grid, the
+            # active fighter's panel, and any message from the last activation, THEN
+            # read one key and apply the KTD-9 mapping. EOF -> CANCEL, which
+            # _parse_combat_response (engine/interactions.py) maps to a surrender --
+            # combat prompts are non-cancellable (KTD-2), so CANCEL here is never a
+            # "discard the action" signal, only "give up".
+            self._render_combat_screen(interaction)
+            return self._read_combat_action()
 
         self._stdout.write(self._prompt_text(interaction))
         raw = self._read_line()
@@ -234,6 +283,65 @@ class TerminalInput:
             return CANCEL
         # Relay the raw line as-is; the driver coerces/validates and re-prompts if needed.
         return raw.strip()
+
+    def _render_combat_screen(self, screen: CombatScreen) -> None:
+        """Draw one activation's full combat screen: grid, message, panel, prompt.
+
+        Renders straight from ``screen.to_json()`` (the JSON-serializable payload,
+        never the engine's ``CombatState``/``Fighter`` objects) so this client
+        depends only on the wire shape (KTD-2), matching the pattern the rest of
+        this class already follows for ``ShowMessage``.
+        """
+        from clients.terminal.renderers import (
+            render_combat_grid,
+            render_combat_message,
+            render_fighter_panel,
+            render_screen_clear,
+        )
+
+        payload = screen.to_json()
+        render_screen_clear(self._stdout)
+        render_combat_grid(payload, self._stdout)
+        render_combat_message(payload, self._resolver, self._stdout)
+        render_fighter_panel(payload, self._resolver, self._weapon_names, self._stdout)
+        self._stdout.write(self._resolver.resolve("combat.action_prompt") + "\n")
+        self._stdout.write(self._resolver.resolve("combat.key_legend") + "\n> ")
+        self._stdout.flush()
+
+    def _read_combat_action(self) -> Any:
+        """Read one combat key and return the ``(action, argument)`` response.
+
+        KTD-9 key mapping (client-appropriate, NOT the original's raw GET chars):
+        WASD move one cell; ``f`` then WASD aims and fires; ``p`` passes; the literal
+        word ``surrender`` ends the fight. EOF returns :data:`CANCEL` (-> surrender,
+        per KTD-2). An unrecognized line is relayed as an unknown-action string, which
+        the driver's ``_parse_combat_response`` normalizes to a re-prompt.
+
+        EOF is detected directly off ``readline()``'s own return ("" with nothing
+        consumed means the stream is exhausted) rather than through ``_read_line``,
+        which already collapses EOF and a literal blank line to the same "" and so
+        cannot distinguish them -- the distinction matters here (blank re-prompts,
+        EOF surrenders).
+        """
+        raw = self._stdin.readline()
+        if raw == "":
+            return CANCEL
+        key = raw.rstrip("\n").strip().lower()
+        if key in _COMBAT_SURRENDER_TOKENS:
+            return ("surrender", None)
+        if key == _COMBAT_PASS_KEY:
+            return ("pass", None)
+        if key in _COMBAT_MOVE_KEYS:
+            return ("move", _COMBAT_MOVE_KEYS[key])
+        if key == _COMBAT_FIRE_KEY:
+            aim_raw = self._stdin.readline()
+            if aim_raw == "":
+                return CANCEL
+            aim_key = aim_raw.rstrip("\n").strip().lower()
+            if aim_key in _COMBAT_AIM_KEYS:
+                return ("shoot", _COMBAT_AIM_KEYS[aim_key])
+            return "unknown_aim"
+        return "unknown_action"
 
     def _prompt_text(self, interaction: Any) -> str:
         if isinstance(interaction, PromptChoice):

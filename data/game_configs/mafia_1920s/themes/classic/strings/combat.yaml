@@ -1,0 +1,50 @@
+# combat (grid fight, U5/U7) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): engine/combat.py and the CombatScreen driver loop emit
+# short message KEYS (see engine/interactions.py:_run_combat's `message` values and
+# CombatFight.shoot's result dict); the terminal client resolves them here. Ported
+# byte-for-byte from research-data/pass-1/game-text.yaml + mf-prg.bas:30100-30520.
+# {name}/{side}/{losses1}/{losses2} are template params the U7 renderer fills.
+combat:
+  # 30125/30139: unrecognized key falls back to the GET wait -- re-prompt, no text
+  # printed by the original at that exact point; the client still needs SOME line.
+  unknown_action: "?"
+
+  # 30145: illegal move target (occupied/scenery/out of bounds) -- re-prompt.
+  illegal_move: "(das geht nicht)"
+
+  # 30235: "{rvon}verfehlt!" -- the shot missed.
+  miss: "verfehlt!"
+
+  # 30305: "treffer! spieler <i> ist am ende!" -- a player-side fighter is knocked out.
+  hit_player_down: "treffer! spieler {index} ist am ende!"
+
+  # 30300: "der gegner ist tot!" -- an enemy/NPC fighter is knocked out.
+  hit_enemy_down: "der gegner ist tot!"
+
+  # A hit that does not knock the target down -- no verbatim original line covers
+  # this case narratively (the source prints nothing between the muzzle flash and the
+  # next activation), so this is a presentation-only addition, not ported text.
+  hit: "treffer!"
+
+  # 30500: "{rvon} sieger: <gang>!!!" -- the winner banner. {name} = winning side's name.
+  winner_banner: "sieger: {name}!!!"
+
+  # 30510/30515: "verluste der spieler:" heading + "<gang>: <n>" per side.
+  losses_heading: "verluste der spieler:"
+  losses_line: "{name}: {count}"
+
+  # Presentation-only labels for the fighter panel (no single verbatim source line;
+  # 30116/1300 print the stat block using labels sourced elsewhere in game-text.yaml's
+  # spec-sheet vocabulary -- reused here for consistency).
+  panel_weapon: "waffe: {weapon}"
+  panel_energy: "energie: {energie}"
+  panel_kraft: "kraft: {kraft}"
+  panel_brutalitaet: "brutalitaet: {brutalitaet}"
+
+  # Action prompt shown above the key legend.
+  action_prompt: "deine aktion:"
+
+  # U7 key legend -- presentation-only (KTD-9: key bindings are presentation, not
+  # ported source text), shown once per activation above the input line.
+  key_legend: "[wasd] bewegen  [f]+[wasd] schiessen  [p] aussetzen  'surrender' aufgeben"

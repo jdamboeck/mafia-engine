@@ -439,3 +439,186 @@ class TestTwoPlayerAlternation:
         keys.append("x")  # ack player 1's U3 upkeep screen (KTD-3, right after rotation)
         output = run_play(monkeypatch, seed=7, stdin_keys=keys, players=players)
         assert "moran" in output
+
+
+# --------------------------------------------------------------------------- #
+# U7 — combat playable through the real input_source protocol (piped stdin)   #
+# --------------------------------------------------------------------------- #
+#
+# No in-slice handler yields StartCombat yet (kdh/pub jobs land in later units,
+# U8-U12), so there is no map-reachable fight to walk into. What IS real and
+# already load-bearing is the input_source protocol itself: TerminalInput driven
+# by engine.interactions.run() over piped stdin is the exact wire the eventual
+# combat trigger will use unchanged (KTD-1/KTD-2) -- this is the same pattern
+# tests/test_terminal_client.py already uses to test TerminalInput directly. A
+# throwaway handler that yields StartCombat stands in for the not-yet-built
+# trigger, exercising the SAME driver/client protocol a real trigger will.
+
+
+class TestInteractiveCombatThroughTerminalInput:
+    def _fight_handler(self, sides, *, cpu_sides=()):
+        from engine.interactions import StartCombat
+
+        def handler(ctx):
+            winner = yield StartCombat(
+                sides=sides,
+                grid=(),
+                weapon_stats=self._weapon_stats(),
+                cpu_sides=cpu_sides,
+            )
+            return winner
+
+        return handler
+
+    def _weapon_stats(self):
+        cfg = load_game_config(_CONFIG_DIR)
+        weapons = cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
+        return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
+
+    def _weapon_names(self):
+        cfg = load_game_config(_CONFIG_DIR)
+        weapons = cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
+        return [w["name"] for w in weapons]
+
+    def _client(self, keys, seed=42):
+        from engine.rng import Rng
+        from engine.strings import Resolver
+
+        out = io.StringIO()
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        inp = tmain.TerminalInput(
+            resolver=resolver,
+            stdin=io.StringIO("\n".join(keys) + "\n"),
+            stdout=out,
+            weapon_names=self._weapon_names(),
+        )
+        return inp, out, Rng(seed)
+
+    def test_scripted_full_fight_reaches_a_winner_with_losses(self):
+        """A hot-seat 1v1 (both sides client-driven, cpu_sides=()) walked entirely by
+        WASD/f+aim keys: side 1 (position 100) moves right onto the wall-free grid
+        toward side 2 (position 101, adjacent already) and shoots. This is the
+        interactive-combat acceptance case for U7: a real fight, driven only by
+        piped-stdin keys through TerminalInput, resolves to a winner."""
+        from engine.interactions import run
+        from engine.state import Fighter
+
+        sides = (
+            (Fighter(name="hero", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100),),
+            (Fighter(name="thug", weapon=0, energie=1, kraft=10, brutalitaet=10, position=101),),
+        )
+        handler = self._fight_handler(sides, cpu_sides=())
+        # side 1 shoots right (thug is immediately adjacent at 101); thug (1 energy,
+        # any positive damage roll) surrenders on its own turn if still standing --
+        # but revolver tg=10 against a 1-energy target is a guaranteed kill on a hit.
+        # A handful of retries covers a miss (ts=5 -> ~4/5 hit chance): shoot, shoot...
+        keys = ["f", "d"] * 6
+        inp, out, rng = self._client(keys)
+        result = run(handler, inp, state=None, rng=rng)
+
+        assert result.status == "completed"
+        assert result.payload.returned in (1, 2)
+        transcript = out.getvalue()
+        # Per-side losses line rendered from the LAST screen shown before the winning
+        # shot (mf-prg.bas:30510-30515's vocabulary, ported via combat.losses_*).
+        assert "verluste" in transcript.lower() or "energie" in transcript.lower()
+
+    def test_grid_renders_exactly_40_columns_no_wide_chars(self):
+        """Mirrors tests/test_terminal_integration.py::TestMapDisplayWidth, but for
+        the 40x13 COMBAT grid -- a different coordinate space (CLAUDE.md)."""
+        import unicodedata
+
+        from clients.terminal.renderers import render_combat_grid
+
+        payload = {
+            "grid": [],
+            "sides": [
+                [{"position": 100, "down": False}],
+                [{"position": 101, "down": False}],
+            ],
+            "active_side": 1,
+            "active_fighter": 1,
+        }
+        buf = io.StringIO()
+        render_combat_grid(payload, buf)
+        import re
+
+        ansi_re = re.compile(r"\033\[[0-9;]*m")
+        lines = buf.getvalue().rstrip("\n").split("\n")
+        assert len(lines) == 13
+        for i, line in enumerate(lines):
+            clean = ansi_re.sub("", line)
+            assert len(clean) == 40, f"row {i}: width {len(clean)} != 40 ({clean!r})"
+            for ch in clean:
+                assert unicodedata.east_asian_width(ch) != "W", f"row {i}: wide char {ch!r}"
+
+    def test_illegal_move_reprompts_without_state_change(self):
+        """Moving onto the occupied enemy cell is illegal (mf-prg.bas:30145) -- the
+        driver re-prompts the SAME activation. The client must not desync: it reads
+        a second key and the fight proceeds from the same (unmoved) position."""
+        from engine.interactions import run
+        from engine.state import Fighter
+
+        sides = (
+            (Fighter(name="hero", weapon=0, energie=20, kraft=30, brutalitaet=30, position=100),),
+            (Fighter(name="thug", weapon=0, energie=20, kraft=10, brutalitaet=10, position=101),),
+        )
+        handler = self._fight_handler(sides, cpu_sides=())
+        # 'd' (move right onto the occupied cell 101) is illegal -> re-prompt; then
+        # surrender to end the fight deterministically.
+        keys = ["d", "surrender"]
+        inp, out, rng = self._client(keys)
+        result = run(handler, inp, state=None, rng=rng)
+        assert result.status == "completed"
+        # side 1 surrendered -> side 2 (thug) wins.
+        assert result.payload.returned == 2
+        assert "das geht nicht" in out.getvalue() or "geht nicht" in out.getvalue().lower()
+
+    def test_surrender_ends_the_fight_from_the_client(self):
+        from engine.interactions import run
+        from engine.state import Fighter
+
+        sides = (
+            (Fighter(name="hero", weapon=0, energie=20, kraft=30, brutalitaet=30, position=100),),
+            (Fighter(name="thug", weapon=0, energie=20, kraft=10, brutalitaet=10, position=200),),
+        )
+        handler = self._fight_handler(sides, cpu_sides=())
+        inp, out, rng = self._client(["surrender"])
+        result = run(handler, inp, state=None, rng=rng)
+        assert result.status == "completed"
+        assert result.payload.returned == 2  # side 1 gave up -> side 2 wins
+
+    def test_eof_mid_fight_surrenders_and_exits_cleanly(self):
+        """Mirrors U1's EOF regression: an exhausted script at a CombatScreen prompt
+        must not hang or crash -- it maps to a surrender (KTD-2), same as CANCEL."""
+        from engine.interactions import run
+        from engine.state import Fighter
+
+        sides = (
+            (Fighter(name="hero", weapon=0, energie=20, kraft=30, brutalitaet=30, position=100),),
+            (Fighter(name="thug", weapon=0, energie=20, kraft=10, brutalitaet=10, position=200),),
+        )
+        handler = self._fight_handler(sides, cpu_sides=())
+        inp, out, rng = self._client([])  # no keys at all -> immediate EOF
+        result = run(handler, inp, state=None, rng=rng)
+        assert result.status == "completed"
+        assert result.payload.returned == 2
+
+    def test_determinism_same_seed_and_script_identical_transcript(self):
+        from engine.interactions import run
+        from engine.state import Fighter
+
+        def _sides():
+            return (
+                (Fighter(name="hero", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100),),
+                (Fighter(name="thug", weapon=0, energie=15, kraft=10, brutalitaet=10, position=101),),
+            )
+
+        keys = ["f", "d"] * 8
+        outs = []
+        for _ in range(2):
+            handler = self._fight_handler(_sides(), cpu_sides=())
+            inp, out, rng = self._client(keys, seed=99)
+            run(handler, inp, state=None, rng=rng)
+            outs.append(out.getvalue())
+        assert outs[0] == outs[1]
