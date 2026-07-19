@@ -555,7 +555,7 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
                 f"position: {p.po}\n"
                 f"movement: {p.ms}\n"
                 f"rank: {p.rank}\n"
-                f"wanted: {p.wanted}",
+                f"jail: {p.wanted.jail_months} months",
                 out,
             )
             out.write(f"\n{DIM}press any key...{RESET}\n")

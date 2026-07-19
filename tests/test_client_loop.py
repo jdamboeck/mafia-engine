@@ -1060,6 +1060,146 @@ class TestInteractiveCombatThroughTerminalInput:
 
 
 # --------------------------------------------------------------------------- #
+# U13 — whole-session determinism: fixed seed, multi-turn, two players         #
+# --------------------------------------------------------------------------- #
+class TestWholeSessionDeterminism:
+    """A fixed seed + a fixed script must reproduce the WHOLE session byte for byte.
+
+    The existing determinism tests each pin ONE handler's draws (sph's payout, waf's
+    three camp rolls, one combat). This pins the session as a unit: several turns, two
+    players rotating, upkeep running at every turn start, and a location visited along
+    the way -- i.e. every RNG consumer in the slice drawing from the SAME session Rng in
+    a fixed order. Per-handler determinism does not imply this: a handler that drew from
+    a fresh Rng, or upkeep drawing a variable number of times per turn, would leave the
+    individual tests green while the session's draw ORDER silently diverged.
+
+    Byte equality is deliberate (not a state comparison): the transcript is the
+    observable output, so it catches divergence in what the player SEES -- narration
+    included -- not merely in the final state.
+    """
+
+    def _script(self, seed, players):
+        """A multi-turn walk: player 0 walks into the pub and trades, then both
+        players' turns roll over (upkeep runs for each rotation)."""
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        cfg = load_game_config(_CONFIG_DIR)
+        vehicles = cfg.module.load_vehicles(
+            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
+        )
+        state = new_state(seed, players=players)
+        cell = find_door_cell(city_raw, "pub", ln=4)
+        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        # splash ack, drink(0), buy 1 barrel -- then walk the rest of the turn out so
+        # the rotation to player 1 (and its upkeep screen) is part of the transcript.
+        return walk + ["", "0", "1"] + ["w"] * 12 + ["x", "x"] + ["s"] * 3
+
+    def test_same_seed_and_script_reproduce_the_session_byte_for_byte(self, monkeypatch):
+        players = [("alcapone", "the outfit"), ("moran", "north side")]
+        keys = self._script(11, players)
+
+        out1 = run_play(monkeypatch, seed=11, stdin_keys=keys, players=players)
+        out2 = run_play(monkeypatch, seed=11, stdin_keys=keys, players=players)
+
+        assert out1 == out2
+        # The session really was multi-turn and multi-player (otherwise byte-equality
+        # would be a vacuous pass over a session that ended on turn 1).
+        assert "moran" in out1, "the session never rotated to the second player"
+        assert out1.count("turn_over") >= 1
+
+    def test_a_different_seed_diverges(self, monkeypatch):
+        """The equality above must be the SEED's doing, not a script that renders the
+        same bytes regardless -- otherwise the determinism test proves nothing."""
+        players = [("alcapone", "the outfit"), ("moran", "north side")]
+        keys = self._script(11, players)
+
+        out_a = run_play(monkeypatch, seed=11, stdin_keys=keys, players=players)
+        out_b = run_play(monkeypatch, seed=12, stdin_keys=keys, players=players)
+        assert out_a != out_b
+
+
+# --------------------------------------------------------------------------- #
+# U13 — regressions the defining session surfaced / the R9 sweep left unpinned #
+# --------------------------------------------------------------------------- #
+class TestTurnOverScreenRendersNoRawDataclassRepr:
+    """The turn-over summary must render VALUES, not a Python repr (U13 session find).
+
+    ``play()``'s turn-over block interpolates player fields into its summary. ``wanted``
+    was a scalar when that f-string was written and later became the structured
+    :class:`~engine.state.Wanted` dataclass, so ``f"wanted: {p.wanted}"`` silently began
+    printing ``Wanted(jail_months=0, bribe_months=0, x5=False, x6=False)`` at every
+    turn boundary -- engine internals (including the two win FLAGS, which are meant to
+    be secret) leaking straight onto the player's screen.
+
+    No test covered the turn-over screen's text, so the drift was invisible: the field
+    still "rendered", just as a repr. This pins the general contract -- no ``Name(...=``
+    dataclass repr anywhere in the transcript -- rather than the one field, so the next
+    scalar-to-dataclass migration fails here instead of shipping.
+    """
+
+    def test_turn_over_summary_has_no_dataclass_repr(self, monkeypatch):
+        import re
+
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        cfg = load_game_config(_CONFIG_DIR)
+        vehicles = cfg.module.load_vehicles(
+            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
+        )
+        state = new_state(42)
+        # Walk until the movement budget runs out -- that IS the turn-over screen.
+        cell = find_door_cell(city_raw, "kdh", ln=1)
+        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk)
+
+        assert "turn_over" in output, "the turn-over screen never rendered"
+        assert "Wanted(" not in output, (
+            "the turn-over screen leaked a raw Wanted dataclass repr to the player"
+        )
+        # The general form: no `Identifier(field=` repr anywhere in what a human sees.
+        leaked = re.findall(r"\b[A-Z]\w+\([a-z_]+=", output)
+        assert not leaked, f"raw dataclass reprs rendered to the player: {leaked}"
+
+
+class TestHandlerRegistrationIsSelfSufficientPerModule:
+    """Every test module that resolves a handler must register them itself (#46).
+
+    The #46 defect: ``HANDLERS`` is a process-global registry populated as a SIDE EFFECT
+    of ``load_game_config``. A module that resolves a handler without loading the config
+    passed only when some EARLIER module in the same collection run happened to load it
+    first -- so the full suite was green while ``pytest -k`` on that module alone failed
+    with "unregistered handler", an error pointing nowhere near the real cause.
+
+    The fix (importing ``load_game_config(_CONFIG_DIR)`` at module import) was applied
+    but never PINNED: nothing failed if a future module reintroduced the ordering
+    dependency. This asserts the invariant directly -- a registry-clearing run of this
+    module's own imports still resolves the handlers it uses -- so the leak cannot come
+    back silently.
+    """
+
+    def test_config_load_populates_the_handler_registry_from_empty(self):
+        from engine.locations import HANDLERS
+
+        # The handlers this module's tests resolve by name.
+        used = ["pub.job", "job.shift", "pub.recruit", "pub.tip"]
+        saved = dict(HANDLERS)
+        try:
+            HANDLERS.clear()
+            assert not HANDLERS, "registry did not clear -- test cannot prove anything"
+            # Exactly what this module does at import: loading the config must be
+            # SUFFICIENT on its own to register every handler used here.
+            load_game_config(_CONFIG_DIR)
+            missing = [h for h in used if h not in HANDLERS]
+            assert not missing, (
+                f"load_game_config did not register {missing}; this module would "
+                f"depend on another module having loaded the config first (#46)"
+            )
+        finally:
+            HANDLERS.clear()
+            HANDLERS.update(saved)
+
+
+# --------------------------------------------------------------------------- #
 # U12 — the debt-default headline flow through the real client loop           #
 # --------------------------------------------------------------------------- #
 class TestDebtDefaultThroughClient:
