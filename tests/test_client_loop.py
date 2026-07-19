@@ -1161,6 +1161,70 @@ class TestTurnOverScreenRendersNoRawDataclassRepr:
         assert not leaked, f"raw dataclass reprs rendered to the player: {leaked}"
 
 
+class TestTurnOverScreenRendersCorrectValues:
+    """The turn-over summary must show the RIGHT values, not just non-repr ones (#48).
+
+    ``TestTurnOverScreenRendersNoRawDataclassRepr`` (above) pins the class of bug where a
+    field renders as a Python repr. It does NOT pin the field being the right one: a
+    renamed attribute, a swapped field (``p.ka`` for ``p.po``), or a unit change would
+    still render a plausible-looking number and pass that test. This computes the
+    expected cash/position/movement/rank/jail values INDEPENDENTLY of ``play()`` --
+    by replaying the same upkeep + walk through the bare engine functions
+    (``run_upkeep``, ``try_move``) the harness already uses to script the walk -- and
+    asserts the rendered screen matches them exactly.
+    """
+
+    def test_turn_over_summary_matches_independently_computed_state(self, monkeypatch):
+        from engine.movement import try_move
+        from engine.rng import Rng
+
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        cfg = load_game_config(_CONFIG_DIR)
+        vehicles = cfg.module.load_vehicles(
+            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
+        )
+        state = new_state(42)
+
+        # Walk until the movement budget runs out -- that IS the turn-over screen.
+        cell = find_door_cell(city_raw, "kdh", ln=1)
+        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk)
+        assert "turn_over" in output, "the turn-over screen never rendered"
+
+        # Independently derive the expected values: run the SAME turn-start upkeep
+        # (KTD-3 -- play() runs it before the map loop's first render, with the same
+        # session seed) and then replay the SAME walk keys through the bare engine's
+        # try_move, stopping at the first turn-over -- exactly what play()'s map loop
+        # does internally, but computed here without going through play() at all.
+        rng = Rng(42)
+        upkept = run_upkeep(state, input_source=lambda i: None, rng=rng).state
+        expected_state = upkept
+        for key in walk:
+            delta = tmain._MOVE_KEYS.get(key)
+            if delta is None:
+                continue
+            result = try_move(expected_state, city, delta)
+            expected_state = result.state
+            if getattr(result.payload, "turn_over", False):
+                break
+        p = expected_state.players[expected_state.clock.active_player]
+
+        assert f"cash: {p.ka}$" in output
+        assert f"position: {p.po}" in output
+        assert f"movement: {p.ms}" in output
+        assert f"rank: {p.rank}" in output
+        assert f"jail: {p.wanted.jail_months} months" in output
+        # Sanity: pin the concrete numbers too, so a coincidental match between a
+        # wrong field and the right one (e.g. ka and po both landing on the same
+        # value) can't slip through unnoticed.
+        assert p.ka == 5500
+        assert p.po == 306
+        assert p.ms == 0
+        assert p.rank == 1
+        assert p.wanted.jail_months == 0
+
+
 class TestHandlerRegistrationIsSelfSufficientPerModule:
     """Every test module that resolves a handler must register them itself (#46).
 
