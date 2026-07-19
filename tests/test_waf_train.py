@@ -64,13 +64,22 @@ def _state(*, ka=100000, ln=3, rank=1, score_mult=1.0, roster=None):
 
 def _source(answers):
     iters = {k: iter(v) for k, v in answers.items()}
+    seen: list = []
 
     def source(interaction):
+        seen.append(interaction)
+        if isinstance(interaction, ShowMessage):
+            # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
+            # and the driver acks regardless of what we return here.
+            return None
         for typ, it in iters.items():
             if isinstance(interaction, typ):
                 return next(it)
         raise AssertionError(f"unscripted interaction {interaction!r}")
 
+    source.seen = seen
+    source.messages = lambda: [i for i in seen if isinstance(i, ShowMessage)]
+    source.message_keys = lambda: [i.key for i in seen if isinstance(i, ShowMessage)]
     return source
 
 

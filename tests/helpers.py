@@ -58,6 +58,54 @@ def make_walk_script(keys: list[str]) -> io.StringIO:
     return io.StringIO("\n".join(["", ""] + keys) + "\n")
 
 
+def scripted(*answers):
+    """An ``input_source`` answering PROMPTS in order, while RECEIVING narration.
+
+    Since #43 the driver hands every ``ShowMessage`` to the input source too — for
+    delivery, not for an answer (it discards the return value and acks regardless).
+    A scripted source must therefore distinguish the two: a ``ShowMessage`` is
+    *recorded and ignored*, and only a real prompt consumes the next scripted answer.
+    Doing it the other way round — letting narration eat a scripted answer — would
+    silently desynchronize every script whenever a handler's flavour text changes.
+
+    Strictness is preserved, and that is the point: running past the end of the script
+    still raises, so a handler that yields an unexpected *prompt* fails loudly rather
+    than being answered with a fabricated value.
+
+    The returned callable exposes:
+
+    ``seen``
+        Every interaction the driver presented, in order (prompts and messages).
+    ``messages()``
+        Callable returning just the ``ShowMessage`` interactions delivered so far —
+        so a test whose subject IS the narration can assert on what a client would
+        have rendered. ``message_keys()`` returns their keys.
+    """
+    from engine.interactions import ShowMessage
+
+    it = iter(answers)
+    seen: list = []
+
+    def source(interaction):
+        seen.append(interaction)
+        if isinstance(interaction, ShowMessage):
+            # Delivered, not asked. Consumes no scripted answer; the driver acks.
+            return None
+        try:
+            return next(it)
+        except StopIteration:
+            raise AssertionError(
+                f"input_source exhausted; driver asked again for {interaction!r}"
+            ) from None
+
+    source.seen = seen
+    source.messages = lambda: [i for i in seen if isinstance(i, ShowMessage)]
+    source.message_keys = lambda: [
+        i.key for i in seen if isinstance(i, ShowMessage)
+    ]
+    return source
+
+
 def with_player(state, idx: int = 0, **field_changes):
     """Return ``state`` with ``players[idx]`` field-updated — the test-side setup idiom.
 

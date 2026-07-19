@@ -40,7 +40,7 @@ from engine.interactions import ShowMessage
 from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
-from tests.helpers import run_pure
+from tests.helpers import run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -89,13 +89,6 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
     )
 
 
-def _scripted(*answers):
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 def _debt_effects(result):

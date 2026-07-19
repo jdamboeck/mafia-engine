@@ -21,7 +21,7 @@ from engine.effects import MoneyChange
 from engine.interactions import PromptChoice, PromptInt
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Gangster, GameState, Player
-from tests.helpers import run_pure
+from tests.helpers import run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -52,13 +52,6 @@ def _state(*, ka=5000, active=0, players=1):
     )
 
 
-def _scripted(*answers):
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 def test_menu_cancel_returns_no_effect():

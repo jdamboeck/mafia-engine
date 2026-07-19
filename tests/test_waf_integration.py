@@ -20,7 +20,7 @@ from engine.config_loader import load_game_config
 from engine.interactions import run
 from engine.locations import available_options, load_location
 from engine.movement import RIGHT, load_city, try_move
-from tests.helpers import with_player
+from tests.helpers import scripted, with_player
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CONFIG = load_game_config(_CONFIG_DIR)
@@ -49,18 +49,8 @@ def _opt(location, opt_id):
     return next(o for o in location.options if o.id == opt_id)
 
 
-def _recorder(*answers):
-    """input_source returning scripted answers by interaction type is overkill here; use a
-    plain in-order recorder that also drives LoadSubState's display-only sub-state."""
-    it = iter(answers)
-    seen = []
-
-    def source(interaction):
-        seen.append(interaction)
-        return next(it)
-
-    source.seen = seen
-    return source
+#: In-order prompt recorder; ShowMessage is delivered but consumes no answer (#43).
+_recorder = scripted
 
 
 # --------------------------------------------------------------------------- #

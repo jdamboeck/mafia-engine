@@ -74,9 +74,13 @@ SEED = 42
 # _scripted, extended to CAPTURE the interactions the driver presents).        #
 # --------------------------------------------------------------------------- #
 class _Recorder:
-    """An input_source that records every interaction the driver presents and
-    returns scripted answers in order (``ShowMessage`` is auto-acked by the driver
-    and never consults the source, so only prompts consume an answer)."""
+    """An input_source recording every interaction the driver presents.
+
+    Since #43 that includes ``ShowMessage``: narration is DELIVERED to the source (so
+    a client can render it) but is never asked for an answer, so it consumes no
+    scripted response — only real prompts do. That is what lets ``self.seen`` be the
+    FULL presented sequence rather than just the prompts.
+    """
 
     def __init__(self, *answers):
         self.seen: list = []
@@ -84,42 +88,13 @@ class _Recorder:
 
     def __call__(self, interaction):
         self.seen.append(interaction)
+        if isinstance(interaction, ShowMessage):
+            return None
         return next(self._answers)
 
     @property
     def types(self) -> list[type]:
         return [type(i) for i in self.seen]
-
-
-def _captured_sequence(handler, state, *answers):
-    """Manually step ``handler`` to capture the FULL interaction sequence it presents.
-
-    The driver auto-acks ``ShowMessage`` WITHOUT consulting the input_source (see
-    engine.interactions._resolve), so a recording input_source only ever sees the
-    prompts — it cannot observe the display-only messages. To assert the exact
-    presented sequence (``ShowMessage`` quote -> ``PromptInt`` -> ``ShowMessage``
-    success) we step the generator out-of-band and record every ``yield``. This is
-    an observation only; the real run/effects still go through :func:`run`.
-    ``answers`` feeds each prompt in order (``ShowMessage`` is sent ``None``, as the
-    driver's Ack carries no value the handler uses).
-    """
-    from engine.interactions import Ctx
-
-    ctx = Ctx(state=state, rng=None)
-    gen = handler(ctx)
-    seen: list = []
-    ans = iter(answers)
-    try:
-        interaction = next(gen)
-        while True:
-            seen.append(interaction)
-            if isinstance(interaction, ShowMessage):
-                interaction = gen.send(None)
-            else:
-                interaction = gen.send(next(ans))
-    except StopIteration:
-        pass
-    return [type(i) for i in seen]
 
 
 def _load_city():
@@ -203,12 +178,6 @@ def _play_trajectory():
     obs["ms_after_slw_walk"] = p.ms
 
     ka_before_rent = p.ka
-    # The FULL presented interaction sequence: quote -> months prompt -> success.
-    # (Observed out-of-band because the driver auto-acks ShowMessage — the recording
-    # input_source below only sees the PromptInt it is actually consulted for.)
-    seq = _captured_sequence(_opt(slw, "rent").handler, state, 2)
-    assert seq == [ShowMessage, PromptInt, ShowMessage]
-
     rent_rec = _Recorder(2)  # rent for 2 months
     result = _drive_option(slw, "rent", state, ln=2, recorder=rent_rec)
     assert result.status == "completed"
@@ -218,9 +187,11 @@ def _play_trajectory():
     assert p.ka == ka_before_rent - 100
     assert state.map.tenancy[2] == 0  # tenancy set to sp (active player index 0)
     assert p.rented_months == 2
-    # The recording input_source is consulted ONLY for the PromptInt (ShowMessage
-    # is auto-acked by the driver) — it saw exactly the one months prompt.
-    assert rent_rec.types == [PromptInt]
+    # The FULL presented interaction sequence, straight off the recording input_source
+    # (#43): quote -> months prompt -> success. Before narration was delivered this
+    # had to be observed out-of-band by hand-driving the generator, which proved the
+    # handler YIELDED the messages but not that any client could receive them.
+    assert rent_rec.types == [ShowMessage, PromptInt, ShowMessage]
     obs["cash_after_positive_rent"] = p.ka
     obs["tenancy_after_rent"] = dict(state.map.tenancy)
     obs["rented_months_after_rent"] = p.rented_months

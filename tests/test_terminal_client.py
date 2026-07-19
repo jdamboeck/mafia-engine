@@ -65,12 +65,15 @@ def _client(stdin_lines: list[str]):
 # --------------------------------------------------------------------------- #
 # ShowMessage: rendered, never consults stdin.                                  #
 # --------------------------------------------------------------------------- #
-def test_show_message_never_consults_input_source():
-    """The driver auto-acks ShowMessage WITHOUT consulting the input_source, so a
-    ShowMessage-only handler must complete with the client never reading stdin (empty
-    stdin would raise if it did). Rendering ShowMessage is render_message's job (below),
-    not the input_source's — this is the U10 notes' 'client does not prompt on it'."""
-    inp, out = _client([])  # empty stdin: if the client read it here, it would block/fail
+def test_show_message_is_rendered_by_the_client_without_prompting():
+    """The client RENDERS a ShowMessage and does not prompt on it (#43).
+
+    Since #43 the driver hands ShowMessage to the input_source — that is the only way
+    narration can ever reach a screen. The U10 note it must still honour is "the client
+    does not prompt on it": stdin is empty here, so if ``TerminalInput`` read from it
+    the run would fail. Instead the text must appear on stdout.
+    """
+    out = io.StringIO()
     consulted = []
 
     class _Spy(TerminalInput):
@@ -84,8 +87,11 @@ def test_show_message_never_consults_input_source():
         yield ShowMessage("locations.slw.no_room")
         return []
 
-    run(handler, spy, state=None, rng=None)
-    assert consulted == []  # driver auto-acked; the input_source was never called
+    result = run(handler, spy, state=None, rng=None)
+
+    assert result.status == "completed"  # empty stdin was never read -> no prompt
+    assert [type(i).__name__ for i in consulted] == ["ShowMessage"]  # delivered
+    assert out.getvalue().strip()  # ...and actually rendered to the screen
 
 
 def test_show_message_with_params_substitutes():

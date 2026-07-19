@@ -19,6 +19,7 @@ import pytest
 
 from engine.config_loader import load_game_config
 from engine.effects import EnergyChange, RankCommit
+from engine.interactions import ShowMessage
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Gangster, GameState, Player
 from engine.strings import Resolver
@@ -163,15 +164,22 @@ def test_effects_commit_atomically_energy_and_rank_together():
 
 
 def test_upkeep_offers_no_cancel_path():
-    # Every interaction upkeep yields is a ShowMessage, auto-acked by the driver
-    # WITHOUT consulting the input source — so a refusing input_source proves no
-    # prompt ever reached it, i.e. there is no path for player input to cancel this.
+    # Every interaction upkeep yields is a display-only ShowMessage. Since #43 those
+    # ARE delivered to the input source (for rendering) — but they ask nothing, and
+    # the driver acks them regardless of the reply. So a source that refuses every
+    # QUESTION still proves the point: no prompt ever reached it, hence there is no
+    # path for player input to cancel this.
     state = _state(rank=1, nr=4, gf=52.0)
+    narrated = []
 
     def refuse(interaction):
-        raise AssertionError(f"upkeep must not consult the input source: {interaction!r}")
+        if isinstance(interaction, ShowMessage):
+            narrated.append(interaction)
+            return None
+        raise AssertionError(f"upkeep must not PROMPT the input source: {interaction!r}")
 
     result = run_pure(HANDLERS[UPKEEP_HANDLER_KEY], refuse, state=state)
+    assert narrated, "upkeep's banner/promotion narration must reach the client"
     assert result.status == "completed"  # never "cancelled" — nothing CAN cancel it
 
 

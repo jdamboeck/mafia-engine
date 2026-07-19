@@ -17,11 +17,12 @@ drives it via :func:`engine.interactions.run`, and returns the resulting
 (``state = result.state``, mirroring every other pure driver call in this codebase).
 
 Upkeep issues no cancellable prompts (per the plan's Verification Contract: "upkeep
-interactions offer no cancel path"). Its only interactions are ``ShowMessage`` (the
-turn banner, the promotion screen) which the driver auto-acks without consulting the
-input source at all — so :func:`run_upkeep`'s default ``input_source`` is a callable
-that raises if anything ever calls it, catching a future handler that adds a real
-prompt to upkeep without updating this contract.
+interactions offer no cancel path"). Its only non-combat interactions are
+``ShowMessage`` (the turn banner, the promotion screen), which the driver delivers to
+the input source for rendering but always acks itself — so :func:`run_upkeep`'s default
+``input_source`` swallows those and raises on anything that actually asks a question,
+catching a future handler that adds a real prompt to upkeep without updating this
+contract.
 
 ``engine/`` imports nothing from ``server``/``clients``/transport.
 """
@@ -31,7 +32,7 @@ from __future__ import annotations
 from typing import Any
 
 from engine.actions import EngineResult
-from engine.interactions import run
+from engine.interactions import ShowMessage, run
 
 __all__ = ["UPKEEP_HANDLER_KEY", "run_upkeep"]
 
@@ -43,13 +44,22 @@ UPKEEP_HANDLER_KEY = "upkeep.turn_start"
 
 
 def _refuse_input(interaction: Any) -> Any:
-    """The FALLBACK ``input_source`` for upkeep: fail loudly if ever consulted.
+    """The FALLBACK ``input_source`` for upkeep: discard narration, refuse questions.
 
-    Upkeep's non-combat steps yield only ``ShowMessage`` (auto-acked by the driver —
-    never consults the input source) per the plan's no-cancel-path contract. This
-    remains the default so a caller that passes no ``input_source`` still surfaces any
-    accidental prompt at the call site rather than silently answering it with a
-    fabricated response.
+    What this defends is the plan's no-cancel-path contract: upkeep must never ASK the
+    player anything, because a question is a place a player could refuse or cancel and
+    thereby escape their turn-start obligations. A default source that fabricated an
+    answer would hide such a prompt; this one raises so it surfaces at the call site.
+
+    Since #43 the driver DELIVERS ``ShowMessage`` to the input source (delivery and
+    response are separate concerns — narration is unrenderable otherwise), and upkeep
+    legitimately narrates: the turn banner, the promotion screen. Those are display
+    only — they ask nothing, so they cannot be a cancel path, and this fallback simply
+    swallows them (returning ``None``; the driver discards the return value and acks
+    regardless). A caller that wants to RENDER upkeep narration passes a real source.
+
+    Everything that actually asks a question — ``PromptInt``/``PromptChoice``/
+    ``Confirm`` — still raises here, which is the contract this function exists for.
 
     U12 added the one legitimate exception: the debt-default collectors fight
     (``mf-prg.bas:4350``) is a ``StartCombat`` sub-protocol, and combat activations DO
@@ -59,10 +69,12 @@ def _refuse_input(interaction: Any) -> Any:
     surrender, which LOSES the fight rather than discarding the flow), so upkeep still
     cannot be escaped, only lost.
     """
+    if isinstance(interaction, ShowMessage):
+        return None
     raise AssertionError(
         f"upkeep asked the input source for a response to {interaction!r}; "
         "upkeep must offer no cancel/prompt path (Verification Contract) — "
-        "ShowMessage is auto-acked by the driver and never reaches here"
+        "only display-only ShowMessage may reach here"
     )
 
 

@@ -32,33 +32,12 @@ from engine.interactions import (
     run,
 )
 from engine.state import Clock, Fighter, Gangster, GameState, MapState, Player
-from tests.helpers import run_pure
+from tests.helpers import run_pure, scripted
 
 
 # --------------------------------------------------------------------------- #
 # input_source helper                                                         #
 # --------------------------------------------------------------------------- #
-def scripted(*responses):
-    """Return an input_source callable that yields the given responses in order.
-
-    The driver calls ``input_source(interaction)`` each time it needs a value.
-    We also record every interaction it was consulted for, so tests can assert
-    on the exact sequence and count of prompts.
-    """
-    it = iter(responses)
-    seen = []
-
-    def source(interaction):
-        seen.append(interaction)
-        try:
-            return next(it)
-        except StopIteration:  # pragma: no cover - indicates a test scripting bug
-            raise AssertionError(
-                f"input_source exhausted; driver asked again for {interaction!r}"
-            )
-
-    source.seen = seen
-    return source
 
 
 # --------------------------------------------------------------------------- #
@@ -79,8 +58,13 @@ def test_happy_path_sequence_responses_and_effects():
     src = scripted(3, True)
     result = run(handler, src)
 
-    # ShowMessage does not consult input_source: only the two real prompts do.
-    assert [type(i).__name__ for i in src.seen] == ["PromptInt", "Confirm"]
+    # #43: ShowMessage IS delivered to the input source (for rendering) alongside
+    # the two real prompts — but it consumes no scripted answer.
+    assert [type(i).__name__ for i in src.seen] == [
+        "ShowMessage",
+        "PromptInt",
+        "Confirm",
+    ]
     assert received == {"n": 3, "ok": True}
     assert result.status == "completed"
     assert result.effects == [("bought", 3)]
@@ -243,7 +227,14 @@ def test_effects_commit_in_order():
 # --------------------------------------------------------------------------- #
 # Edges — ShowMessage auto-acks; ctx exposes state/rng; non-cancellable CANCEL #
 # --------------------------------------------------------------------------- #
-def test_showmessage_autoacks_without_consulting_input_source():
+def test_showmessage_is_delivered_but_always_acked_by_the_driver():
+    """ShowMessage reaches the source for RENDERING, but never for an answer (#43).
+
+    The delivery half is proven by ``test_show_message_reaches_the_input_source_
+    before_being_acked``; this pins the other half — the source consumes no scripted
+    response and the handler always receives :data:`Ack`, so narration can never
+    become a prompt.
+    """
     acks = {}
 
     def handler(ctx):
@@ -251,10 +242,32 @@ def test_showmessage_autoacks_without_consulting_input_source():
         acks["r"] = r
         return []
 
-    src = scripted()  # no responses scripted at all
+    src = scripted()  # no responses scripted at all: narration must not consume one
     run(handler, src)
-    assert src.seen == []  # ShowMessage never consulted input_source
-    assert acks["r"] is Ack  # the Ack sentinel is sent back
+    assert [type(i).__name__ for i in src.seen] == ["ShowMessage"]  # delivered
+    assert acks["r"] is Ack  # ...but the Ack sentinel is what the handler receives
+
+
+def test_showmessage_return_value_is_discarded_even_when_it_is_cancel():
+    """A client returning CANCEL at a ShowMessage must NOT cancel the action (#43).
+
+    This is the property that makes delivering narration safe: the driver discards
+    whatever the source returns. Without it, handing ShowMessage to the input source
+    would silently create a cancel path at every banner.
+    """
+    reached = {}
+
+    def handler(ctx):
+        yield ShowMessage("banner")
+        reached["after"] = True
+        ctx.apply(("kept", 1))
+        return []
+
+    result = run(handler, lambda interaction: CANCEL)
+
+    assert reached == {"after": True}  # the handler ran on past the message
+    assert result.status == "completed"  # NOT "cancelled"
+    assert result.effects == [("kept", 1)]  # and its effects committed
 
 
 def test_ctx_exposes_state_and_rng():
@@ -505,14 +518,6 @@ def test_run_pure_holds_on_cancel_identity():
     assert result.effects == []
 
 
-@pytest.mark.xfail(
-    reason="#43: the driver acks ShowMessage without delivering it. The one-line "
-    "fix (call input_source before acking) breaks ~107 tests across a dozen "
-    "modules, because every handler-test source raises on interactions it did "
-    "not script and none of them script ShowMessage. Tracked as its own unit of "
-    "work, not a drive-by.",
-    strict=True,
-)
 def test_show_message_reaches_the_input_source_before_being_acked():
     """A handler's narration must be visible to the client (#43).
 

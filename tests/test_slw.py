@@ -25,7 +25,7 @@ from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, Gangster, GameState, MapState, Player, freeze
-from tests.helpers import run_pure
+from tests.helpers import run_pure, scripted as _scripted
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[1]
@@ -62,16 +62,6 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
         config=Config(formula_params=freeze({"fnm": _FNM_PARAMS})),
         map=MapState(tenancy=freeze(tenancy or {})),
     )
-
-
-def _scripted(*answers):
-    """An input_source returning the given answers in order for each prompt."""
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 def _load_shell():
@@ -136,52 +126,34 @@ def test_zero_months_cancels_with_no_effects():
 def test_insufficient_cash_no_deduction():
     # ka=10, rent 5 months at p=50 -> need 250 > 10.
     st = _state(ka=10, ln=2, active=0)
-    seen = []
+    src = _scripted(5)
 
-    def source(interaction):
-        seen.append(interaction)
-        return 5
-
-    result = run_pure(HANDLERS["slw.rent"], source, state=st, rng=None)
+    result = run_pure(HANDLERS["slw.rent"], src, state=st, rng=None)
 
     assert result.status == "completed"
     assert result.effects == []  # nothing deducted / no tenancy
     assert result.state.players[0].ka == 10
     assert 2 not in result.state.map.tenancy
-    # The not-enough-money message is emitted (auto-acked ShowMessage).
-    # (It is not passed to the input_source, so assert via the returned handler run
-    # having produced no effects; confirm the key by driving keys the handler emits.)
 
 
 def test_insufficient_cash_emits_not_enough_money():
-    # Assert the interaction sequence directly by capturing yields via a wrapping run.
+    """The refusal NARRATION reaches the client (#43).
+
+    Before #43 the driver acked ShowMessage without delivering it, so this test had
+    to hand-drive the generator out-of-band to see the message at all — proving the
+    handler yielded it, but NOT that any client could ever render it. Now the message
+    is delivered to the input source like any other interaction, so the assertion is
+    on what a real client would actually display.
+    """
     st = _state(ka=10, ln=2, active=0)
-    emitted: list = []
+    src = _scripted(5)  # PromptInt for months -> 5 (needs 250, has 10)
 
-    def source(interaction):
-        # PromptInt for months -> answer 5.
-        return 5
+    result = run_pure(HANDLERS["slw.rent"], src, state=st, rng=None)
 
-    # Re-run the handler manually to observe the ShowMessage it yields on the
-    # insufficient path (the driver auto-acks ShowMessage without consulting source).
-    from engine.interactions import Ctx
-
-    ctx = Ctx(state=st, rng=None)
-    gen = HANDLERS["slw.rent"](ctx)
-    interaction = next(gen)  # rent_quote ShowMessage
-    emitted.append(interaction)
-    interaction = gen.send(None)  # months_prompt PromptInt
-    emitted.append(interaction)
-    try:
-        interaction = gen.send(5)  # insufficient -> ShowMessage(not_enough_money)
-        emitted.append(interaction)
-        gen.send(None)  # let it return
-    except StopIteration:
-        pass
-
-    keys = [getattr(i, "key", None) for i in emitted]
-    assert "system.not_enough_money" in keys
-    assert ctx._buffer == []  # no effects buffered on the insufficient path
+    assert "system.not_enough_money" in src.message_keys(), (
+        "the refusal message never reached the input source; a client cannot render it"
+    )
+    assert result.effects == []  # no effects buffered on the insufficient path
 
 
 # --------------------------------------------------------------------------- #

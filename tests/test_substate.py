@@ -26,24 +26,9 @@ from engine.interactions import (
 )
 from engine.state import Fighter
 from engine.substates import SUBSTATES, register_substate
+from tests.helpers import scripted
 
 
-def scripted(*responses):
-    """Return an input_source callable yielding the given responses in order."""
-    it = iter(responses)
-    seen = []
-
-    def source(interaction):
-        seen.append(interaction)
-        try:
-            return next(it)
-        except StopIteration:  # pragma: no cover - test scripting bug
-            raise AssertionError(
-                f"input_source exhausted; driver asked again for {interaction!r}"
-            )
-
-    source.seen = seen
-    return source
 
 
 @pytest.fixture(autouse=True)

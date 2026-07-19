@@ -30,7 +30,7 @@ from engine.config_loader import load_game_config
 from engine.effects import GangsterMarkHired, MoneyChange, RosterAppend
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Flags, Gangster, GameState, MapState, Player
-from tests.helpers import run_pure
+from tests.helpers import run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -53,13 +53,6 @@ class _StubRng:
         raise AssertionError("pub.recruit should not call rng.hit()")
 
 
-def _scripted(*answers):
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 def _state(

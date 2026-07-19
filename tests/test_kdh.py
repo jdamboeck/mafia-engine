@@ -27,7 +27,7 @@ from engine.locations import HANDLERS
 from engine.rng import Rng
 from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
 from engine.upkeep import UPKEEP_HANDLER_KEY
-from tests.helpers import run_pure
+from tests.helpers import run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -97,13 +97,6 @@ def _state(players, *, active=0):
     )
 
 
-def _scripted(*answers):
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 # --------------------------------------------------------------------------- #

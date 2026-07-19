@@ -33,6 +33,7 @@ from engine.events import (
 from engine.interactions import CANCEL, Confirm, PromptInt, ShowMessage
 from engine.locations import Location, Option
 from engine.state import Clock, Config, Gangster, GameState, MapState, Player, freeze
+from tests.helpers import scripted as _scripted
 
 
 # --------------------------------------------------------------------------- #
@@ -55,13 +56,6 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
     )
 
 
-def _scripted(*answers):
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 # --------------------------------------------------------------------------- #

@@ -350,9 +350,12 @@ def run(
         input_source: A callable ``(interaction) -> response`` the driver pulls from
             whenever an interaction needs client input (``PromptInt``/``PromptChoice``/
             ``Confirm``). It is consulted once per attempt, so an invalid answer that
-            triggers a re-prompt consults it again. ``ShowMessage`` never consults it
-            (the driver auto-acks). This callable shape lets tests both assert on the
-            presented interaction and return a context-appropriate response.
+            triggers a re-prompt consults it again. ``ShowMessage`` is also handed to
+            it — for DELIVERY only (the client must be able to render narration); its
+            return value there is discarded and :data:`Ack` is sent regardless, so a
+            display-only interaction can never become a cancel path. This callable
+            shape lets tests both assert on the presented interaction and return a
+            context-appropriate response.
         state: Opaque game state exposed as ``ctx.state`` (read-only for handlers).
         rng: Opaque rng handle exposed as ``ctx.rng``.
 
@@ -468,7 +471,13 @@ def _resolve(
     the handler via ``gen.throw``). Never throws into the generator itself.
     """
     if isinstance(interaction, ShowMessage):
-        # Display-only: auto-ack without consulting the input source.
+        # Display-only, but DELIVERY and RESPONSE are separate concerns (#43). The
+        # message still has to reach the client — a driver that acks without handing
+        # it over makes every handler's narration structurally invisible. So the
+        # input source SEES it, and its return value is DISCARDED: nothing a client
+        # returns (CANCEL included) can turn narration into a cancel path or feed a
+        # fabricated response back into the handler. Ack is sent unconditionally.
+        input_source(interaction)
         return Ack
 
     if isinstance(interaction, StartCombat):

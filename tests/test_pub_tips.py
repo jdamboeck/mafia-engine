@@ -21,7 +21,7 @@ from engine.effects import MoneyChange, TipClear, TipSet
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Gangster, GameState, Player
 from engine.upkeep import run_upkeep
-from tests.helpers import run_pure
+from tests.helpers import run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -64,13 +64,6 @@ def _state(*, ka=100000, rank=4, tip_target=0, roster=None):
     )
 
 
-def _scripted(*answers):
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 # --------------------------------------------------------------------------- #

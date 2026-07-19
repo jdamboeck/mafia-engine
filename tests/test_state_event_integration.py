@@ -39,7 +39,7 @@ from engine.effects import MoneyChange, MsChange, SetEntryContext, SetPosition
 from engine.events import EnterLocation, MoveStep, OptionDenied
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, load_city, try_move
-from tests.helpers import run_pure, with_player
+from tests.helpers import run_pure, scripted as _scripted, with_player
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -74,16 +74,6 @@ def _fresh_state():
         score_weight=1.0,
         players=[("alcapone", "the outfit")],
     )
-
-
-def _scripted(*answers):
-    """An input_source returning scripted answers in order (ShowMessage auto-acked)."""
-    it = iter(answers)
-
-    def source(interaction):
-        return next(it)
-
-    return source
 
 
 def _types(items):
