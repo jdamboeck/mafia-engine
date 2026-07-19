@@ -503,3 +503,43 @@ def test_run_pure_holds_on_cancel_identity():
     assert result.status == "cancelled"
     assert result.state is st  # original object handed back unchanged
     assert result.effects == []
+
+
+@pytest.mark.xfail(
+    reason="#43: the driver acks ShowMessage without delivering it. The one-line "
+    "fix (call input_source before acking) breaks ~107 tests across a dozen "
+    "modules, because every handler-test source raises on interactions it did "
+    "not script and none of them script ShowMessage. Tracked as its own unit of "
+    "work, not a drive-by.",
+    strict=True,
+)
+def test_show_message_reaches_the_input_source_before_being_acked():
+    """A handler's narration must be visible to the client (#43).
+
+    ``ShowMessage`` is display-only — the driver never asks the client what to DO
+    about it, and always acks. But "no response needed" is not "no delivery
+    needed": if the driver acks without ever handing the interaction over, a
+    client has no way to render the text, and every handler's narration is
+    silently invisible. Three separate units hit this (waf/sph flavour text, pub
+    trade/tip messages, combat outcome banners) and each worked around it by
+    re-deriving the same strings client-side from state.
+
+    The contract: the input source SEES every ShowMessage; its return value is
+    ignored and Ack is sent regardless, so this cannot become a cancel path.
+    """
+    seen = []
+
+    def handler(ctx):
+        yield ShowMessage("some.key", {"n": 1})
+        return []
+
+    def src(interaction):
+        seen.append(interaction)
+        return "ignored — the driver acks ShowMessage regardless"
+
+    result = run(handler, src, state=GameState())
+
+    assert result.status == "completed"
+    assert [i.key for i in seen if isinstance(i, ShowMessage)] == ["some.key"], (
+        "ShowMessage never reached the input source; clients cannot render it"
+    )

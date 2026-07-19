@@ -47,6 +47,13 @@ _CONFIG_DIR = tmain._CONFIG_DIR
 _MOVE_KEYS = tmain._MOVE_KEYS  # {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
 _DELTA_TO_KEY = {v: k for k, v in _MOVE_KEYS.items()}
 
+# Load the config HERE, at import (#46). Loading it registers this config's handlers
+# into engine.locations.HANDLERS as a side effect; without it these tests only pass
+# when some earlier module in the same collection run happened to load it first, so a
+# filtered run (`pytest -k ...`) failed on an "unregistered handler" that was never
+# the real problem. Mirrors tests/test_persistence.py and tests/test_slice_integration.py.
+load_game_config(_CONFIG_DIR)
+
 
 # --------------------------------------------------------------------------- #
 # Public harness surface (importable by later units' client tests)            #
