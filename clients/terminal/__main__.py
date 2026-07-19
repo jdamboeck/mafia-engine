@@ -30,6 +30,7 @@ from engine.actions import run_option
 from engine.config_loader import load_game_config
 from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
+from engine.rng import Rng
 from engine.strings import Resolver
 
 from clients.terminal import (
@@ -131,6 +132,13 @@ _CODE_TO_CHAR: dict[int, str] = {
     206: "\u2572",  # ╲  diagonal
     208: "\u2590",  # ▐  right half block
 }
+
+
+#: Location keys with a real shell file this slice. A door whose ``location`` is NOT
+#: in this set exists in the map/door table (per U11's future scope) but has no shell
+#: yet — walking into it must deny gracefully instead of crashing (U1 audit finding:
+#: the kdh doors at cells 221/753 already exist in city.yaml; see ``_run_location``).
+_IMPLEMENTED_LOCATIONS = frozenset({"slw", "pub", "sph", "waf"})
 
 
 def _load_shell(location_key: str):
@@ -239,6 +247,7 @@ def _run_location(
     resolver: Resolver,
     inp: TerminalInput,
     out,
+    rng: Rng,
     stdin=None,
 ):
     """Show a location's available options and run the one the player picks.
@@ -246,6 +255,12 @@ def _run_location(
     Returns the (possibly new) state. Guard-denied options are excluded by
     ``available_options`` (KTD-8) and never listed. ``leave`` (and an empty choice)
     returns to the map without running anything.
+
+    ``rng`` is the ONE session RNG constructed in :func:`play` (KTD-8: slice-local
+    seeding contract, session-owned until the network transport lands) and threaded
+    through every handler call for this location. Passing ``rng=None`` here is the
+    root cause of the sph/waf crash this unit fixes — any handler that draws
+    (``ctx.rng.range``/``ctx.rng.hit``) needs a real :class:`Rng`, not ``None``.
     """
     import sys as _sys
     if stdin is None:
@@ -259,6 +274,16 @@ def _run_location(
         render_prompt,
         render_screen_clear,
     )
+
+    if location_key not in _IMPLEMENTED_LOCATIONS:
+        # U1 audit finding: kdh's doors (cells 221/753) already exist in city.yaml
+        # ahead of U11's shell landing. Deny gracefully rather than let _load_shell's
+        # FileNotFoundError crash the whole client — no state change, no move spent
+        # beyond what try_move already charged for the door step.
+        render_screen_clear(out)
+        out.write(f"({location_key} is closed for renovations.)\n\n")
+        out.flush()
+        return state
 
     shell = _load_shell(location_key)
     options = available_options(shell, state, ln)
@@ -312,14 +337,26 @@ def _run_location(
         return state
 
     result = run_option(
-        shell, chosen.id, state, ln=ln, input_source=inp, rng=None
+        shell, chosen.id, state, ln=ln, input_source=inp, rng=rng
     )
     render_result(result, out)
     return result.state  # adopt (run_option is pure)
 
 
-def play(seed: int) -> None:
-    """Play one turn of the default config from ``seed`` over real stdin/stdout."""
+def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
+    """Play the default config from ``seed`` over real stdin/stdout.
+
+    ``players`` is ``[(name, gang_name), ...]``, 1..4 entries (default: a single
+    "alcapone" / "the outfit" player, unchanged from before this parameter existed).
+    Multiple players hot-seat through ``advance_turn``'s rotation.
+
+    Constructs exactly ONE session :class:`~engine.rng.Rng` from ``seed`` and threads
+    it through every ``run_option`` call for the whole session (KTD-8: a slice-local
+    seeding contract — ownership may move to the server/driver when the network
+    transport lands, per the plan's Open Questions). Previously ``_run_location``
+    passed ``rng=None``, which crashed any handler that draws (sph's gamble, waf's
+    grenade/training rolls) the moment it was played through this client.
+    """
     from clients.terminal import hide_cursor, show_cursor
     from clients.terminal import check_resize, install_sigwinch_handler
     from clients.terminal.ascii_art import title_screen
@@ -339,9 +376,13 @@ def play(seed: int) -> None:
     )
 
     state = cfg.module.new_game(
-        seed=seed, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+        seed=seed,
+        end_year=1930,
+        score_weight=1.0,
+        players=players or [("alcapone", "the outfit")],
     )
     inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out)
+    rng = Rng(seed)  # the one session RNG (KTD-8) — threaded into every run_option call
 
     hide_cursor(out)
     try:
@@ -386,7 +427,9 @@ def play(seed: int) -> None:
             if kind == "enter":
                 key_for_la = la_to_key.get(payload.la)
                 if key_for_la is not None:
-                    state = _run_location(key_for_la, payload.ln, state, resolver, inp, out)
+                    state = _run_location(
+                        key_for_la, payload.ln, state, resolver, inp, out, rng
+                    )
             if getattr(payload, "turn_over", False):
                 from clients.terminal.renderers import (
                     render_header,
@@ -418,8 +461,24 @@ def play(seed: int) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="clients.terminal", description="Play the mafia slice.")
     parser.add_argument("--seed", type=int, default=42, help="RNG seed (default 42).")
+    parser.add_argument(
+        "--player",
+        dest="players",
+        action="append",
+        metavar="NAME:GANG",
+        help=(
+            "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, "
+            "turn order = order given). Default: a single 'alcapone:the outfit'."
+        ),
+    )
     args = parser.parse_args(argv)
-    play(args.seed)
+    players = None
+    if args.players:
+        players = []
+        for spec in args.players:
+            name, _, gang = spec.partition(":")
+            players.append((name, gang or name))
+    play(args.seed, players=players)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entry point
