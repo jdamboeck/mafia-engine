@@ -39,6 +39,7 @@ __all__ = [
     "PromptChoice",
     "Confirm",
     "StartCombat",
+    "CombatScreen",
     "LoadSubState",
     # Response / control
     "Ack",
@@ -98,10 +99,114 @@ class Confirm:
 
 @dataclass(frozen=True)
 class StartCombat:
-    """Combat entry (out of scope this slice; the driver raises NotImplementedError)."""
+    """Combat entry: run a full fight as a driver sub-protocol (U5, KTD-1/KTD-2).
 
-    fighters: Any
-    arena: Any
+    A top-level handler yields this to hand control to the driver's inline combat
+    loop (:func:`_run_combat`). The loop shares the parent's :class:`Ctx`, so any
+    effects the fight buffers commit — or are discarded — atomically WITH the
+    invoking handler's, exactly as :class:`LoadSubState` does for sub-states. The
+    response ``.send()`` back into the handler is the **winning side** (1 or 2), so
+    the handler applies its own entry-point consequence (debt seizure, reward, …).
+
+    Fields:
+
+    ``sides``
+        The two fighter tuples for the fight, already built and placed — normally
+        the output of :func:`engine.combat.setup_combat` (``CombatState.sides``).
+    ``grid``
+        The backdrop's linear 521-cell wall/scenery code array (config data). An
+        empty tuple is a legal open arena.
+    ``weapon_stats``
+        Mapping ``weapon id -> (ts, tg)`` from the config's weapon table. Passed in
+        because the engine never reads a config's entity tables itself.
+    ``dir_memory``
+        Optional per-enemy-fighter direction memory seed (``ri()``), consumed by
+        U6's AI; harmless to omit.
+
+    Combat is only ever yielded from a TOP-LEVEL handler this slice (KTD-1) — the
+    driver asserts this rather than supporting it inside :func:`_run_substate`.
+    """
+
+    sides: Any = ((), ())
+    grid: Any = ()
+    weapon_stats: Any = None
+    dir_memory: Any = None
+
+
+@dataclass(frozen=True)
+class CombatScreen:
+    """One activation's combat screen — the client-facing fight interaction (KTD-2).
+
+    Yielded once per activation (and again after an illegal input) while a fight is
+    running. It carries everything a client needs to render the board and ask for the
+    active fighter's single action, and NOTHING that is not JSON-serializable: this is
+    the first interaction payload clients depend on *structurally*, so it doubles as a
+    wire message for the eventual network transport. Overloading ``ShowMessage`` or
+    ``PromptChoice`` could not carry a 40×13 grid; a dedicated typed interaction keeps
+    rendering in the client and the protocol network-ready.
+
+    The **response** the driver expects is a ``(action, argument)`` pair:
+
+    - ``("move", step)`` — step one cell; ``step`` is one of
+      :data:`engine.combat.STEPS` (``mf-prg.bas:30130-30133``). An illegal step
+      re-prompts without consuming the activation (``30145`` jumps back to ``30125``).
+    - ``("shoot", direction)`` — aim and fire; ``direction`` is one of
+      :data:`engine.combat.STEPS` (``30206-30209``).
+    - ``("pass", None)`` — end the activation without acting (``30135``, SPACE).
+    - ``("surrender", None)`` — give up; the OTHER side wins (``30136``).
+
+    Combat prompts are **non-cancellable** (KTD-2): a mandatory fight cannot be
+    escaped through a cancel unwind, so the driver maps the client's quit vocabulary
+    — :data:`CANCEL`, and EOF, which a client surfaces as ``CANCEL`` — to a
+    ``surrender``. Unrecognized responses simply re-prompt.
+
+    ``prompt`` is ``"action"`` today; the field exists so a client that wants a
+    separate aim step (the original reads the direction in a second GET at ``30205``)
+    can be served without changing the interaction's type.
+
+    :meth:`to_json` renders the payload; :data:`SCHEMA_VERSION` versions it from day
+    one, since clients bind to this shape structurally.
+    """
+
+    #: Payload schema version. Bump on any breaking change to :meth:`to_json`'s shape.
+    SCHEMA_VERSION = 1
+
+    sides: Any = ((), ())
+    grid: Any = ()
+    active_side: int = 1
+    active_fighter: int = 1
+    losses: Any = (0, 0)
+    prompt: str = "action"
+    message: Any = None
+
+    def to_json(self) -> dict:
+        """Return the JSON-serializable payload (plain dicts/lists/scalars only).
+
+        Frozen dataclasses and tuples do not survive JSON on their own, so the whole
+        snapshot is walked into plain containers here rather than at each client.
+        """
+        from engine.state import json_safe
+
+        return {
+            "version": self.SCHEMA_VERSION,
+            "sides": [[json_safe(f) for f in side] for side in self.sides],
+            "grid": list(self.grid),
+            "active_side": self.active_side,
+            "active_fighter": self.active_fighter,
+            "losses": list(self.losses),
+            "prompt": self.prompt,
+            "message": json_safe(self.message) if self.message is not None else None,
+            "fighter": self._active_fighter_panel(),
+        }
+
+    def _active_fighter_panel(self) -> Any:
+        """The active fighter's own stats/weapon panel (``mf-prg.bas:30115-30116``)."""
+        from engine.state import json_safe
+
+        side = self.sides[self.active_side - 1] if self.sides else ()
+        if not side or self.active_fighter - 1 >= len(side):
+            return None
+        return json_safe(side[self.active_fighter - 1])
 
 
 @dataclass(frozen=True)
@@ -248,10 +353,11 @@ def run(
         ``HandlerResult(returned=None)`` payload.
 
     Raises:
-        NotImplementedError: if the handler yields ``StartCombat`` (combat is out of
-            scope for this slice).
         ValueError: if the handler yields ``LoadSubState`` with a ``kind`` that is not
             registered in :data:`engine.substates.SUBSTATES` (a config bug).
+
+    A yielded ``StartCombat`` runs the combat sub-protocol (:func:`_run_combat`) and
+    resolves with the winning side (U5) — it no longer raises.
 
     Note:
         Synchronous by construction. The SAME protocol is later driven by an async
@@ -271,6 +377,13 @@ def run(
                 # thrown at a child prompt propagates out of _run_substate up to the
                 # `except Cancelled` below, unwinding the whole action.
                 response = _run_substate(interaction, input_source, ctx)
+                interaction = gen.send(response)
+                continue
+            if isinstance(interaction, StartCombat):
+                # KTD-1: the combat sub-protocol runs HERE for the same reason
+                # LoadSubState does — it shares this ctx, so a fight's effects
+                # buffer into the parent action and commit (or discard) with it.
+                response = _run_combat(interaction, input_source, ctx)
                 interaction = gen.send(response)
                 continue
             response = _resolve(interaction, input_source)
@@ -346,9 +459,12 @@ def _resolve(
         return Ack
 
     if isinstance(interaction, StartCombat):
-        raise NotImplementedError(
-            "StartCombat is out of scope for this slice; "
-            "the driver does not run combat yet."
+        # StartCombat is a SUB-PROTOCOL, not a single request/response: it is handled
+        # by run()/_run_substate before _resolve is ever consulted (like LoadSubState).
+        # Reaching here means a new yield path bypassed that dispatch.
+        raise AssertionError(
+            "StartCombat must be dispatched by the driver's combat loop, not resolved "
+            "as a single interaction (KTD-1)."
         )
 
     if isinstance(interaction, PromptInt):
@@ -411,7 +527,8 @@ def _run_substate(
 
     Raises:
         ValueError: if ``load.kind`` is not registered (a config bug).
-        NotImplementedError: if the child yields ``StartCombat`` (unchanged).
+        AssertionError: if the child yields ``StartCombat`` — combat is only ever
+            yielded from top-level handlers this slice (KTD-1).
     """
     from engine.substates import SUBSTATES
 
@@ -425,6 +542,15 @@ def _run_substate(
     child = factory(ctx, load.params)
     interaction = next(child)  # prime the child to its first yield
     while True:
+        # KTD-1: combat is only ever yielded from TOP-LEVEL handlers this slice. The
+        # driver asserts that rather than supporting nesting, because a fight inside a
+        # sub-state would need cancel semantics ("combat is non-cancellable" vs. "a
+        # cancelled sub-state unwinds the whole action") that this slice has not
+        # decided. Failing loud here beats silently picking one.
+        assert not isinstance(interaction, StartCombat), (
+            "StartCombat inside a sub-state is not supported this slice (KTD-1): "
+            "yield combat from a top-level handler."
+        )
         response = _resolve(interaction, input_source)
         if response is _CANCEL_SIGNAL:
             # Cancel INSIDE the sub-state: unwind the child, then let Cancelled
@@ -438,6 +564,117 @@ def _run_substate(
             interaction = child.send(response)
         except StopIteration as stop:
             return stop.value
+
+
+def _run_combat(
+    start: "StartCombat",
+    input_source: Callable[[Any], Any],
+    ctx: "Ctx",
+) -> int:
+    """Drive a full fight to a winner and return the winning side (KTD-1/KTD-2).
+
+    The combat sub-protocol, structurally a sibling of :func:`_run_substate`: an
+    INLINE loop over the parent's ``ctx`` (so the fight's effects buffer into the
+    parent action and commit or discard with it), never a nested :func:`run` call
+    (which would commit the fight independently and break that atomicity).
+
+    Ports the activation loop ``mf-prg.bas:30100-30155``. Each pass:
+
+    1. Check victory (``30106``) — the fight ends the moment one side has no
+       standing fighter, mid-round, without finishing the current side's turn.
+    2. Yield a :class:`CombatScreen` for the active fighter and read one action.
+    3. Apply exactly ONE action per activation (``30130-30155``): a legal move, a
+       shot, a pass, or a surrender. An ILLEGAL move or an unrecognized response
+       re-prompts the SAME activation (``30145``/``30139`` jump back to ``30125``)
+       rather than consuming it.
+    4. Advance the cursor (``30105``), skipping downed fighters (``30109``).
+
+    **Non-cancellable (KTD-2).** :data:`CANCEL` — which is also how a client
+    surfaces EOF — is mapped to a surrender, never to a ``Cancelled`` throw. A
+    mandatory fight must not be escapable through a cancel unwind, so this loop
+    deliberately does not consult the cancel path that :func:`_resolve` owns.
+
+    Effects are NOT buffered here: this unit resolves the fight and hands the winner
+    back to the invoking handler, which owns the entry-point consequence (KTD-1 —
+    "losing a fight carries only the entry point's consequence"). The shared ``ctx``
+    is threaded through so a later unit can buffer roster energy/down deltas from
+    inside the loop without changing this function's contract.
+    """
+    # Lazy imports keep this module's top-level import graph free of engine.state /
+    # engine.combat, mirroring the commit() import in run().
+    from engine.combat import CombatFight
+    from engine.state import CombatState
+
+    fight = CombatFight(
+        CombatState(
+            sides=start.sides,
+            grid=tuple(start.grid or ()),
+            dir_memory=dict(start.dir_memory or {}),
+        ),
+        rng=ctx.rng,
+        weapon_stats=start.weapon_stats,
+    )
+
+    message: Any = None
+    while True:
+        winner = fight.winner()
+        if winner is not None:
+            return fight.finish(winner)
+
+        screen = CombatScreen(
+            sides=fight.sides,
+            grid=fight.grid,
+            active_side=fight.active_side,
+            active_fighter=fight.active_fighter,
+            losses=fight.losses,
+            prompt="action",
+            message=message,
+        )
+        raw = input_source(screen)
+        message = None
+
+        action, argument = _parse_combat_response(raw)
+
+        if action == "surrender":
+            return fight.surrender()
+        if action == "pass":
+            fight.advance_activation()
+            continue
+        if action == "move":
+            if not fight.try_move(argument):
+                # 30145: illegal target -> back to the key read; activation intact.
+                message = "illegal_move"
+                continue
+            fight.advance_activation()
+            continue
+        if action == "shoot":
+            message = fight.shoot(argument)
+            winner = fight.winner()
+            if winner is not None:
+                return fight.finish(winner)
+            fight.advance_activation()
+            continue
+        # 30139: an unrecognized key falls back to the GET wait — re-prompt.
+        message = "unknown_action"
+
+
+def _parse_combat_response(raw: Any) -> tuple[str, Any]:
+    """Normalize a client's combat response into ``(action, argument)``.
+
+    Accepts the ``(action, argument)`` pair the protocol specifies, a bare action
+    string for the argument-less actions, and maps :data:`CANCEL` (a client's quit /
+    EOF vocabulary) to a surrender per KTD-2. Anything else returns an unknown action
+    so the loop re-prompts rather than guessing.
+    """
+    if raw is CANCEL or raw is None:
+        return ("surrender", None)
+    if isinstance(raw, str):
+        return (raw, None)
+    if isinstance(raw, (tuple, list)) and len(raw) == 2:
+        return (str(raw[0]), raw[1])
+    if isinstance(raw, (tuple, list)) and len(raw) == 1:
+        return (str(raw[0]), None)
+    return ("__unknown__", None)
 
 
 def _coerce_int(raw: Any) -> int | None:

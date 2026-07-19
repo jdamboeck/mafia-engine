@@ -31,7 +31,7 @@ from engine.interactions import (
     StartCombat,
     run,
 )
-from engine.state import Clock, Gangster, GameState, MapState, Player
+from engine.state import Clock, Fighter, Gangster, GameState, MapState, Player
 from tests.helpers import run_pure
 
 
@@ -190,16 +190,29 @@ def test_promptchoice_reprompts_on_out_of_range_index():
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 5 — StartCombat still raises; LoadSubState now runs sub-states      #
-# (the LoadSubState nested-runner contract lives in tests/test_substate.py)    #
+# Scenario 5 — StartCombat runs a fight (U5); LoadSubState runs sub-states     #
+# (the LoadSubState nested-runner contract lives in tests/test_substate.py;    #
+#  the combat sub-protocol's own contract lives in tests/test_combat_loop.py)  #
 # --------------------------------------------------------------------------- #
-def test_startcombat_raises_not_implemented():
+def test_startcombat_runs_the_combat_sub_protocol_and_returns_a_winner():
+    """U5 replaced the NotImplementedError raise with the real combat loop.
+
+    Kept here (rather than deleted) as the driver-level regression that the
+    ``StartCombat`` branch is wired at all: a surrender resolves the fight and
+    sends the winning side back into the handler.
+    """
+    got = {}
+
     def handler(ctx):
-        yield StartCombat(fighters=["g1"], arena="alley")
+        got["winner"] = yield StartCombat(
+            sides=((Fighter(name="hero", position=10),), (Fighter(name="thug", position=300),)),
+        )
         return []
 
-    with pytest.raises(NotImplementedError):
-        run(handler, scripted())
+    # A combat prompt is non-cancellable: CANCEL is a surrender (KTD-2), so side 1
+    # gives up and side 2 wins.
+    run(handler, lambda interaction: CANCEL)
+    assert got["winner"] == 2
 
 
 def test_loadsubstate_unknown_kind_raises_value_error():

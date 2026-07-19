@@ -42,6 +42,7 @@ no display text.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any
 
 from engine.state import CombatState, Fighter
@@ -56,6 +57,14 @@ __all__ = [
     "SIDE1_ANCHOR",
     "SIDE2_ANCHOR",
     "STAGGER_OFFSETS",
+    "RANGE_MELEE",
+    "RANGE_RANGED",
+    "RANGE_HEAVY",
+    "STEP_LEFT",
+    "STEP_RIGHT",
+    "STEP_UP",
+    "STEP_DOWN",
+    "STEPS",
     "can_move_onto",
     "blocks_shot",
     "placement_position",
@@ -63,6 +72,10 @@ __all__ = [
     "build_player_side",
     "build_enemy_side",
     "setup_combat",
+    "shot_range",
+    "is_hit",
+    "damage_roll",
+    "CombatFight",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -263,3 +276,360 @@ def setup_combat(
         losses=(0, 0),
         result_flag=0,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Shot ranges + the two combat rolls (U5)                                     #
+# --------------------------------------------------------------------------- #
+#: Base shot range for weapon ids 0..3 (``mf-prg.bas:30215``: ``r=2``).
+RANGE_MELEE = 2
+#: Range for weapon ids > 3 (``mf-prg.bas:30215``: ``ifw>3thenr=15``).
+RANGE_RANGED = 15
+#: Range for the two heavy weapons (``mf-prg.bas:30216``: ``ifw=6orw=7thenr=20``).
+RANGE_HEAVY = 20
+
+#: Linear step deltas for the four grid directions (``mf-prg.bas:30130-30133`` and
+#: ``30206-30209``): left/right are ±1, up/down are ∓ one row width (±40). These are
+#: the *only* legal move/aim deltas — the source reads exactly four keys.
+STEP_LEFT = -1
+STEP_RIGHT = 1
+STEP_UP = -GRID_COLS
+STEP_DOWN = GRID_COLS
+STEPS: tuple[int, ...] = (STEP_LEFT, STEP_RIGHT, STEP_UP, STEP_DOWN)
+
+
+def shot_range(weapon: int) -> int:
+    """Return a shot's travel range in cells for ``weapon``.
+
+    Ports ``mf-prg.bas:30215-30216`` exactly and in the source's order:
+    ``r=2`` base, ``ifw>3thenr=15``, then ``ifw=6orw=7thenr=20``. The last test
+    runs *after* the ``w>3`` widening, so ids 6 and 7 end at 20 even though they
+    also satisfy ``w>3``.
+    """
+    r = RANGE_MELEE
+    if weapon > 3:
+        r = RANGE_RANGED
+    if weapon in (6, 7):
+        r = RANGE_HEAVY
+    return r
+
+
+def is_hit(rng: Any, *, ts: int, kraft: int) -> bool:
+    """Roll the two miss factors; return True iff the shot connects.
+
+    Ports ``mf-prg.bas:30247``: ``ifint(rnd(1)*ts(w))=0orint(rnd(1)*(kr/10+1))=0goto30235``
+    — the shot MISSES if EITHER factor rolls 0, so it hits iff NEITHER does.
+    ``rng.range(n)`` is exactly the source's ``int(rnd(1)*n)``.
+
+    ``ts`` is the weapon's accuracy (config data, ``mf-prg.bas:50100-50115``) and
+    ``kraft`` is the **attacker's** kraft: ``30246`` loads ``a=ks(s):b=f`` — the
+    ACTIVE side and fighter, i.e. the attacker — before this roll, and the CPU
+    branch ``30245`` substitutes the attacker's fixed ``kr=30``. (The research
+    interpretation layer glosses this factor as "dodge by craft"; per KTD-9 the
+    decompiled code wins, and the code unambiguously loads the attacker.)
+
+    Both factors are drawn unconditionally, even though BASIC's ``or`` short-circuits
+    past the second when the first is already 0. Drawing both keeps the RNG log
+    shape stable per shot, which is what makes a seeded replay reproducible — a
+    fidelity-neutral deviation (the outcome is identical either way, since a miss
+    is a miss) that the behavioral bar explicitly permits.
+
+    ``int(kr/10+1)`` is BASIC's truncation, so the second factor's bound is
+    ``kraft // 10 + 1`` — never 0, so ``rng.range`` is always called legally.
+    """
+    weapon_factor = rng.range(ts) if ts > 0 else 0
+    craft_factor = rng.range(kraft // 10 + 1)
+    return weapon_factor != 0 and craft_factor != 0
+
+
+def damage_roll(rng: Any, *, tg: int, brutalitaet: int) -> int:
+    """Roll one hit's damage.
+
+    Ports ``mf-prg.bas:30255``: ``y=int(rnd(1)*tg(w)+bt/10)+1``. Note where the
+    ``int()`` sits — it wraps the WHOLE sum, not just the random term, so the
+    fractional part of ``bt/10`` can still carry the sum past an integer boundary.
+    ``tg`` is the weapon's damage rating (config data) and ``bt`` is the
+    **attacker's** brutalitaet (loaded with kraft at ``30246``; fixed 30 for the
+    CPU at ``30245``).
+
+    The trailing ``+1`` makes damage at least 1 on every hit — a connecting shot
+    always costs the target energy.
+    """
+    draw = rng.range(tg) if tg > 0 else 0
+    return int(draw + brutalitaet / 10) + 1
+
+
+# --------------------------------------------------------------------------- #
+# CombatFight — the activation loop's working state (KTD-1)                   #
+# --------------------------------------------------------------------------- #
+class CombatFight:
+    """Mutable per-fight working state: the blow-by-blow the driver loop advances.
+
+    KTD-1 splits combat state in two. The **persistent** graph (``GameState.combat``,
+    a frozen :class:`~engine.state.CombatState`) holds the setup snapshot and the
+    fight's committed consequences. The **mid-fight** evolution — positions moving
+    cell by cell, energies ticking down, the activation cursor walking the sides —
+    is working memory and lives HERE, in a plain mutable object, never in the frozen
+    graph. Only the fight's persistent consequences (roster energy/down deltas, money,
+    score, result) ride effects into the shared ``Ctx``, which is what keeps
+    ``run_pure``'s replay check honest: replaying the effect stream reproduces the
+    post-fight graph without needing to replay every intermediate step.
+
+    This class is deliberately NOT a generator. The driver
+    (:func:`engine.interactions._run_combat`) owns the yield/send protocol; this
+    object owns the *rules*. Keeping them apart is what lets U6's AI drive the same
+    rules with no client in the loop, and what keeps the future async transport a
+    pure swap of the driver half.
+
+    ``weapon_stats`` maps a weapon id to its ``(ts, tg)`` pair — CONFIG data
+    (``data/game_configs/mafia_1920s/entities/weapons.yaml``, verbatim from
+    ``mf-prg.bas:50100-50115``), passed in rather than imported, because the engine
+    never reads a config's entity tables directly.
+    """
+
+    def __init__(
+        self,
+        combat: CombatState,
+        *,
+        rng: Any = None,
+        weapon_stats: Any = None,
+    ) -> None:
+        # Fighters are frozen dataclasses; the working copy is a list-of-lists so a
+        # step/damage rebuilds one Fighter in place without touching the frozen graph.
+        self._sides: list[list[Fighter]] = [list(side) for side in combat.sides]
+        self._grid: tuple[int, ...] = tuple(combat.grid)
+        self._rng = rng
+        self._weapon_stats = dict(weapon_stats or {})
+        self.active_side: int = combat.active_side or 1  # s (1 or 2)
+        self.active_fighter: int = combat.active_fighter or 1  # f (1-based)
+        self._losses: list[int] = list(combat.losses) or [0, 0]
+        self._result_flag: int = combat.result_flag
+        self.finished: bool = False
+        self.dir_memory: dict = dict(combat.dir_memory)
+
+    # -- read-only views ---------------------------------------------------- #
+    @property
+    def sides(self) -> tuple[tuple[Fighter, ...], tuple[Fighter, ...]]:
+        """The two sides as frozen tuples (a snapshot, safe to hand to a screen)."""
+        return (tuple(self._sides[0]), tuple(self._sides[1]))
+
+    @property
+    def grid(self) -> tuple[int, ...]:
+        return self._grid
+
+    @property
+    def losses(self) -> tuple[int, int]:
+        """Per-side downed counts — ``v(1)``/``v(2)`` (``mf-prg.bas:30310``)."""
+        return (self._losses[0], self._losses[1])
+
+    @property
+    def result_flag(self) -> int:
+        """The winning side once the fight ends, else 0 (the source's post-fight ``s``)."""
+        return self._result_flag
+
+    @property
+    def active(self) -> Fighter:
+        """The fighter whose activation is in progress."""
+        return self._sides[self.active_side - 1][self.active_fighter - 1]
+
+    def occupied(self, *, exclude: Fighter | None = None) -> frozenset[int]:
+        """Cells held by a standing fighter (downed ones vacate — ``30310`` pokes 32)."""
+        return frozenset(
+            f.position
+            for side in self._sides
+            for f in side
+            if not f.down and f is not exclude
+        )
+
+    def weapon_stats(self, weapon: int) -> tuple[int, int]:
+        """``(ts, tg)`` for ``weapon``; ``(0, 0)`` if the config omits it."""
+        return tuple(self._weapon_stats.get(weapon, (0, 0)))  # type: ignore[return-value]
+
+    # -- activation cursor (mf-prg.bas:30105-30109) ------------------------- #
+    def _opposing(self, side: int) -> int:
+        """The other side index.
+
+        Ports the source's ``1-(s=1)`` side toggle (``mf-prg.bas:30106``, ``30108``,
+        ``30250``). This is a *structural* toggle, not a numeric formula with a
+        relational coefficient: the research interpretation for all three lines reads
+        it as "the opposing side" / "hand the turn to the other side", and porting
+        that documented prose result — rather than either raw evaluation — is exactly
+        what the pinned relational convention mandates
+        (docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md:
+        "port the prose result, not a raw C64 evaluation").
+        """
+        return 2 if side == 1 else 1
+
+    def advance_activation(self) -> None:
+        """Move the cursor to the next standing fighter, wrapping side 1 -> 2 -> 1.
+
+        Ports ``mf-prg.bas:30105-30109``: ``f=f+1``; if ``f`` has run past this side's
+        last fighter (``30107``) hand over to the other side with ``f=1`` (``30108``);
+        skip any fighter already down (``30109``: ``ifkp(s,f)<0goto30105``).
+
+        Guards against an infinite walk when neither side has a standing fighter (only
+        reachable from a degenerate empty-roster setup, never from real play, since the
+        victory check fires first) by bounding the scan at the total fighter count.
+        """
+        total = len(self._sides[0]) + len(self._sides[1]) + 2
+        for _ in range(total):
+            self.active_fighter += 1
+            if self.active_fighter > len(self._sides[self.active_side - 1]):
+                self.active_side = self._opposing(self.active_side)
+                self.active_fighter = 1
+            side = self._sides[self.active_side - 1]
+            if side and not side[self.active_fighter - 1].down:
+                return
+
+    def winner(self) -> int | None:
+        """The winning side, or ``None`` while both sides still have a standing fighter.
+
+        Ports the per-activation victory check ``mf-prg.bas:30106``
+        (``fori=1togz(ks(1-(s=1))):ifkp(1-(s=1),i)<0thennexti:goto30500``): scan the
+        OPPOSING side; if every one of its fighters is marked down (``kp<0``, set at
+        ``30310``) the fight is over and the *current* side is the winner (``30500``
+        names ``bn$(ks(s))``, with ``s`` unchanged by the check).
+
+        Once :meth:`surrender` has ended the fight, the recorded ``result_flag`` is
+        returned instead — surrender declares a winner regardless of who is standing.
+        """
+        if self.finished:
+            return self._result_flag or None
+        for side in (1, 2):
+            other = self._opposing(side)
+            fighters = self._sides[other - 1]
+            if all(f.down for f in fighters):
+                return side
+        return None
+
+    # -- actions: one per activation (mf-prg.bas:30130-30155) --------------- #
+    def _replace_fighter(self, side: int, index0: int, **changes) -> Fighter:
+        """Rebuild one frozen :class:`Fighter` in the working roster and return it."""
+        current = self._sides[side - 1][index0]
+        updated = replace(current, **changes)
+        self._sides[side - 1][index0] = updated
+        return updated
+
+    def try_move(self, step: int) -> bool:
+        """Attempt a one-cell step; return whether it was legal and committed.
+
+        Ports ``mf-prg.bas:30140-30150``: compute the target ``p = kp(s,f) + x``,
+        reject it at ``30145`` when the cell is not empty (only codes 32/96 are
+        walkable) or falls outside the 0..520 bound, else commit ``kp(s,f)=kp(s,f)+x``
+        at ``30150``. A rejected step does NOT consume the activation — the source
+        jumps back to the key-read at ``30125``, so the driver re-prompts.
+
+        The caller supplies ``step`` as one of :data:`STEPS`; the row-width deltas
+        mean a left/right step can cross a row boundary exactly as the source's
+        linear screen addressing does (the original has no per-row clamp either).
+        """
+        if step not in STEPS:
+            return False
+        fighter = self.active
+        target = fighter.position + step
+        if not can_move_onto(target, self._grid, self.occupied(exclude=fighter)):
+            return False
+        self._replace_fighter(self.active_side, self.active_fighter - 1, position=target)
+        return True
+
+    def shoot(self, direction: int) -> dict:
+        """Fire in ``direction``; resolve travel, hit check, and damage in one call.
+
+        The whole ``mf-prg.bas:30200-30310`` attack block:
+
+        - ``30215-30216`` — the weapon's travel range (:func:`shot_range`).
+        - ``30220-30225`` — step the projectile one cell per range point; it stops on
+          leaving the grid, on a wall (:func:`blocks_shot` — codes 160/156 only), or
+          when the range is exhausted. Scenery and friendly fighters are OVERFLOWN:
+          the source's step test checks walls only, and its hit test ``30226``
+          additionally requires the OPPOSING side's colour.
+        - ``30247`` — the two miss factors (:func:`is_hit`), using the ATTACKER's
+          kraft and the weapon's ``ts``.
+        - ``30255`` — the damage roll (:func:`damage_roll`), using the ATTACKER's
+          brutalitaet and the weapon's ``tg``.
+        - ``30260``/``30275`` — subtract from the target's energy, clamped at 0.
+        - ``30300-30310`` — at 0 energy the target is marked down and the side's
+          loss counter increments.
+
+        Returns a small result dict — ``hit``, ``damage``, ``target_side``,
+        ``target_index`` (0-based, ``None`` on a miss), and ``downed`` — so the driver
+        can narrate the shot without re-deriving what happened.
+        """
+        miss = {"hit": False, "damage": 0, "target_side": None, "target_index": None, "downed": False}
+        if direction not in STEPS:
+            return miss
+
+        attacker = self.active
+        enemy_side = self._opposing(self.active_side)
+        ts, tg = self.weapon_stats(attacker.weapon)
+
+        # -- projectile travel (30220-30226) -------------------------------- #
+        p = attacker.position
+        target_index: int | None = None
+        for _ in range(shot_range(attacker.weapon)):
+            p += direction
+            if blocks_shot(p, self._grid):
+                return miss
+            for i, f in enumerate(self._sides[enemy_side - 1]):
+                if not f.down and f.position == p:
+                    target_index = i
+                    break
+            if target_index is not None:
+                break
+        if target_index is None:
+            return miss
+
+        # -- hit check (30245-30247), attacker's stats ---------------------- #
+        if not is_hit(self._rng, ts=ts, kraft=attacker.kraft):
+            return miss
+
+        # -- damage (30255) and application (30260/30275, clamp at 0) ------- #
+        damage = damage_roll(self._rng, tg=tg, brutalitaet=attacker.brutalitaet)
+        target = self._sides[enemy_side - 1][target_index]
+        energie = max(0, target.energie - damage)
+        downed = energie == 0
+        self._replace_fighter(enemy_side, target_index, energie=energie, down=downed)
+        if downed:
+            # v(x)=v(x)+1 (mf-prg.bas:30310) — the STRUCK side takes the loss.
+            self._losses[enemy_side - 1] += 1
+        return {
+            "hit": True,
+            "damage": damage,
+            "target_side": enemy_side,
+            "target_index": target_index,
+            "downed": downed,
+        }
+
+    def surrender(self) -> int:
+        """The active side gives up; return the winning (opposing) side.
+
+        Ports ``mf-prg.bas:30136`` (``ifx$="q"thensysie:s=1-(s=1):goto30500``): the
+        side toggle runs BEFORE the victory screen, so ``30500``'s ``bn$(ks(s))``
+        names the side that did NOT surrender. Ends the fight immediately, whatever
+        the board looks like.
+        """
+        self._result_flag = self._opposing(self.active_side)
+        self.finished = True
+        return self._result_flag
+
+    def finish(self, winner: int) -> int:
+        """Record ``winner`` as the fight's result and mark the fight over."""
+        self._result_flag = winner
+        self.finished = True
+        return winner
+
+    def snapshot(self) -> CombatState:
+        """Freeze the working state back into a :class:`~engine.state.CombatState`.
+
+        The bridge from working memory to the serializable graph shape: what the
+        combat screen renders from, and what a fight-result effect would carry.
+        """
+        return CombatState(
+            sides=self.sides,
+            grid=self._grid,
+            dir_memory=dict(self.dir_memory),
+            active_side=self.active_side,
+            active_fighter=self.active_fighter,
+            losses=self.losses,
+            result_flag=self._result_flag,
+        )

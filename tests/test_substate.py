@@ -24,6 +24,7 @@ from engine.interactions import (
     StartCombat,
     run,
 )
+from engine.state import Fighter
 from engine.substates import SUBSTATES, register_substate
 
 
@@ -192,12 +193,43 @@ def test_unknown_substate_kind_raises_value_error():
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 7 — StartCombat still raises NotImplementedError (unchanged)        #
+# Scenario 7 — StartCombat runs at top level, but is asserted OUT of sub-states #
 # --------------------------------------------------------------------------- #
-def test_startcombat_still_raises_not_implemented():
+def test_startcombat_from_a_top_level_handler_runs_the_fight():
+    """U5: the raise is gone at top level — the driver runs the combat sub-protocol."""
+    got = {}
+
     def parent(ctx):
-        yield StartCombat(fighters=["g1"], arena="alley")
+        got["winner"] = yield StartCombat(
+            sides=((Fighter(name="hero", position=10),), (Fighter(name="thug", position=300),)),
+        )
         return []
 
-    with pytest.raises(NotImplementedError):
-        run(parent, scripted(), state=None)
+    run(parent, lambda interaction: CANCEL, state=None)  # CANCEL == surrender (KTD-2)
+    assert got["winner"] == 2
+
+
+def test_startcombat_inside_a_substate_is_asserted_out():
+    """KTD-1: combat is only ever yielded from TOP-LEVEL handlers this slice.
+
+    The driver asserts this rather than supporting nesting, because a fight inside a
+    sub-state would need cancel semantics this slice has not decided (combat is
+    non-cancellable; a cancelled sub-state unwinds the whole action).
+    """
+
+    @register_substate("u5_combat_in_substate")
+    def child(ctx, params):
+        yield StartCombat(
+            sides=((Fighter(name="hero", position=10),), (Fighter(name="thug", position=300),)),
+        )
+        return None
+
+    def parent(ctx):
+        yield LoadSubState(kind="u5_combat_in_substate", params={})
+        return []
+
+    try:
+        with pytest.raises(AssertionError):
+            run(parent, lambda interaction: CANCEL, state=None)
+    finally:
+        SUBSTATES.pop("u5_combat_in_substate", None)
