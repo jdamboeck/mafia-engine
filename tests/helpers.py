@@ -33,6 +33,7 @@ The ``with_*`` helpers below are the frozen-graph replacement for the old
 from __future__ import annotations
 
 import dataclasses
+import io
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
@@ -41,6 +42,16 @@ from engine.effects import commit
 from engine.interactions import run
 from engine.persistence import state_from_dict
 from engine.state import json_safe, tuple_replace
+
+
+def make_walk_script(keys: list[str]) -> io.StringIO:
+    """Build the piped-stdin body for ``play()``: blank title-dismiss line + one key/line.
+
+    ``play()`` reads one line for "press a key" on the title screen BEFORE the map
+    loop starts, so every scripted stdin must account for it. See
+    ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
+    """
+    return io.StringIO("\n".join([""] + keys) + "\n")
 
 
 def with_player(state, idx: int = 0, **field_changes):

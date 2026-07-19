@@ -2,8 +2,9 @@
 input loop over piped stdin, per
 ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
 
-This is the harness later units' client tests import (``make_walk_script`` / ``run_play``
-below) — kept small and documented on purpose (KTD per U1's Files/Approach).
+This is the harness later units' client tests import (``run_play`` and the walk
+builders below; ``make_walk_script`` lives in ``tests.helpers`` alongside the other
+cross-module test callables) — kept small and documented on purpose.
 
 Why a harness at all: the driver-level tests (``test_sph.py`` etc.) call handlers
 directly with an explicit ``Rng`` and never touch ``clients/terminal/__main__.py``.
@@ -39,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import clients.terminal.__main__ as tmain
 from engine.config_loader import load_game_config
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
+from tests.helpers import make_walk_script
 
 _CONFIG_DIR = tmain._CONFIG_DIR
 _MOVE_KEYS = tmain._MOVE_KEYS  # {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
@@ -48,15 +50,6 @@ _DELTA_TO_KEY = {v: k for k, v in _MOVE_KEYS.items()}
 # --------------------------------------------------------------------------- #
 # Public harness surface (importable by later units' client tests)            #
 # --------------------------------------------------------------------------- #
-
-
-def make_walk_script(keys: list[str]) -> io.StringIO:
-    """Build the piped-stdin body for ``play()``: blank title-dismiss line + one key/line.
-
-    Per the solution doc's rule 1 — ``play()`` reads one line for "press a key" on the
-    title screen BEFORE the map loop starts; every scripted stdin must account for it.
-    """
-    return io.StringIO("\n".join([""] + keys) + "\n")
 
 
 def find_door_cell(city_raw: dict, location_key: str, *, ln: int | None = None) -> int:

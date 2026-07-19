@@ -134,17 +134,24 @@ _CODE_TO_CHAR: dict[int, str] = {
 }
 
 
-#: Location keys with a real shell file this slice. A door whose ``location`` is NOT
-#: in this set exists in the map/door table (per U11's future scope) but has no shell
-#: yet — walking into it must deny gracefully instead of crashing (U1 audit finding:
-#: the kdh doors at cells 221/753 already exist in city.yaml; see ``_run_location``).
-_IMPLEMENTED_LOCATIONS = frozenset({"slw", "pub", "sph", "waf"})
+def _shell_path(location_key: str) -> Path:
+    return _CONFIG_DIR / "content" / "locations" / f"{location_key}.yaml"
+
+
+def _shell_exists(location_key: str) -> bool:
+    """Whether this location has a shell yet.
+
+    The map's door table runs ahead of the shells: kdh's doors (cells 221/753)
+    are already in city.yaml while its shell is still U11's work, so walking in
+    would otherwise crash on a missing file. Derived from disk rather than a
+    hardcoded list so a new shell needs no edit here to become reachable.
+    """
+    return _shell_path(location_key).is_file()
 
 
 def _load_shell(location_key: str):
     """Load a location shell by its key (``slw``/``pub``/``sph``/``waf``)."""
-    path = _CONFIG_DIR / "content" / "locations" / f"{location_key}.yaml"
-    return load_location(yaml.safe_load(path.read_text(encoding="utf-8")))
+    return load_location(yaml.safe_load(_shell_path(location_key).read_text(encoding="utf-8")))
 
 
 def _door_location_map(city_raw: dict) -> dict[int, str]:
@@ -258,8 +265,7 @@ def _run_location(
 
     ``rng`` is the ONE session RNG constructed in :func:`play` (KTD-8: slice-local
     seeding contract, session-owned until the network transport lands) and threaded
-    through every handler call for this location. Passing ``rng=None`` here is the
-    root cause of the sph/waf crash this unit fixes — any handler that draws
+    through every handler call for this location. Any handler that draws
     (``ctx.rng.range``/``ctx.rng.hit``) needs a real :class:`Rng`, not ``None``.
     """
     import sys as _sys
@@ -275,11 +281,8 @@ def _run_location(
         render_screen_clear,
     )
 
-    if location_key not in _IMPLEMENTED_LOCATIONS:
-        # U1 audit finding: kdh's doors (cells 221/753) already exist in city.yaml
-        # ahead of U11's shell landing. Deny gracefully rather than let _load_shell's
-        # FileNotFoundError crash the whole client — no state change, no move spent
-        # beyond what try_move already charged for the door step.
+    if not _shell_exists(location_key):
+        # No state change, and no move spent beyond try_move's door-step charge.
         render_screen_clear(out)
         out.write(f"({location_key} is closed for renovations.)\n\n")
         out.flush()
@@ -347,15 +350,13 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
     """Play the default config from ``seed`` over real stdin/stdout.
 
     ``players`` is ``[(name, gang_name), ...]``, 1..4 entries (default: a single
-    "alcapone" / "the outfit" player, unchanged from before this parameter existed).
-    Multiple players hot-seat through ``advance_turn``'s rotation.
+    "alcapone" / "the outfit" player). Multiple players hot-seat through
+    ``advance_turn``'s rotation.
 
     Constructs exactly ONE session :class:`~engine.rng.Rng` from ``seed`` and threads
     it through every ``run_option`` call for the whole session (KTD-8: a slice-local
     seeding contract — ownership may move to the server/driver when the network
-    transport lands, per the plan's Open Questions). Previously ``_run_location``
-    passed ``rng=None``, which crashed any handler that draws (sph's gamble, waf's
-    grenade/training rolls) the moment it was played through this client.
+    transport lands, per the plan's Open Questions).
     """
     from clients.terminal import hide_cursor, show_cursor
     from clients.terminal import check_resize, install_sigwinch_handler

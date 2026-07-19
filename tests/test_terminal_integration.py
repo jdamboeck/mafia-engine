@@ -33,7 +33,7 @@ from clients.terminal.renderers import (
     render_status_bar,
     render_subheader,
 )
-from tests.helpers import with_player
+from tests.helpers import make_walk_script, with_player
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[1]
@@ -350,12 +350,6 @@ class TestTurnOverQuit:
                 return keys
         raise AssertionError("did not reach turn_over within 200 steps")
 
-    def _script(self, keys):
-        """Piped-stdin body: a leading blank line dismisses the title screen
-        (``play()`` consumes one line there before the map loop), then one key
-        per line."""
-        return io.StringIO("\n".join([""] + keys) + "\n")
-
     def _run(self, monkeypatch, turn_over_key):
         """Drive play() through one turn-over, return the advance_turn call count."""
         import clients.terminal.__main__ as tmain
@@ -365,7 +359,7 @@ class TestTurnOverQuit:
         monkeypatch.setattr(
             tmain, "advance_turn", lambda st, *a, **k: (calls.append(a), (st, False))[1]
         )
-        monkeypatch.setattr(sys, "stdin", self._script(keys))
+        monkeypatch.setattr(sys, "stdin", make_walk_script(keys))
         monkeypatch.setattr(sys, "stdout", io.StringIO())
         tmain.play(seed=42)
         return len(calls)
@@ -382,7 +376,7 @@ class TestTurnOverQuit:
         monkeypatch.setattr(
             tmain, "advance_turn", lambda st, *a, **k: (calls.append(a), (st, False))[1]
         )
-        monkeypatch.setattr(sys, "stdin", self._script(keys))
+        monkeypatch.setattr(sys, "stdin", make_walk_script(keys))
         monkeypatch.setattr(sys, "stdout", io.StringIO())
         tmain.play(seed=42)
         assert calls == []
