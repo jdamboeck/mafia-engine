@@ -17,3 +17,7 @@ upkeep:
   # Arms-deal upkeep slot (U8, mf-prg.bas:31000-31051) — resolves a tip-4 stake.
   arms_deal_lost: "die waffenhaendler, denen du 5000 $ anvertraut hast, wurden geschnappt!"
   arms_deal_won: "dein kapital hat im waffenhandel gearbeitet. du erhaelts {amount}$ zurueck!"
+
+  # Shop-income upkeep slot (U11, mf-prg.bas:4400-4420) — the kdh loan business.
+  shop_income_quiet: "in deinem kreditinstitut herrscht flaute."
+  shop_income_earned: "dein kreditgeschaeft floriert und du machst {amount}$ einnahmen."

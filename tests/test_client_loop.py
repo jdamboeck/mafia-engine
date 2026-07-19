@@ -639,18 +639,59 @@ class TestEofMidHandlerExitsCleanly:
 
 
 # --------------------------------------------------------------------------- #
-# Walking into a kdh door before U11: graceful denial, not a crash            #
+# Walking into a door whose shell does not exist yet: graceful denial         #
 # --------------------------------------------------------------------------- #
 
 
-class TestKdhDoorGracefulDenial:
-    """The kdh doors already exist in city.yaml (cells 221/753, U1 audit finding) but
-    ``content/locations/kdh.yaml`` does not — walking in used to raise
-    ``FileNotFoundError`` straight out of ``play()``. Until U11 lands, it must deny
-    gracefully and return to the map.
+class TestUnimplementedDoorGracefulDenial:
+    """The U1 ``_shell_exists`` guard (``clients/terminal/__main__.py``) makes walking
+    into ANY door whose ``content/locations/<key>.yaml`` shell is missing deny
+    gracefully and return to the map, rather than raising ``FileNotFoundError`` straight
+    out of ``play()``. This originally exercised the kdh doors (cells 221/753, U1 audit
+    finding) as the map's door table ran ahead of kdh's shell; U11 landed
+    ``content/locations/kdh.yaml``, so kdh is reachable now (see
+    ``TestKdhLocationThroughClient`` below) and the guard needs a DIFFERENT
+    genuinely-unimplemented location to keep proving the denial path works. ``sgl``
+    (Schutzgeld-Laden — cells 49/145/340/443/538 in city.yaml, U11's serial order) fits:
+    wired into the map, no shell yet.
     """
 
-    def test_walking_into_kdh_denies_gracefully(self, monkeypatch):
+    def test_walking_into_an_unimplemented_door_denies_gracefully(self, monkeypatch):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        cfg = load_game_config(_CONFIG_DIR)
+        vehicles = cfg.module.load_vehicles(
+            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
+        )
+        state = new_state(42)
+        sgl_cell = find_door_cell(city_raw, "sgl")
+        walk = walk_keys_across_turns(state, city, vehicles, sgl_cell)
+        # No follow-up keys needed: denial is immediate and returns straight to the map.
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk)
+        assert "closed for renovations" in output or "sgl" in output.lower()
+
+    def test_sgl_shell_file_does_not_exist_yet(self):
+        """Documents WHY the guard is needed (regression bait for whichever unit lands
+        sgl next: this assertion should be the first thing to fail, prompting a swap to
+        another still-unimplemented location rather than deleting the coverage)."""
+        shell_path = _CONFIG_DIR / "content" / "locations" / "sgl.yaml"
+        assert not shell_path.exists()
+
+
+# --------------------------------------------------------------------------- #
+# U11 — kdh reachable + a full play-through via the real input loop           #
+# --------------------------------------------------------------------------- #
+class TestKdhLocationThroughClient:
+    """kdh is reachable by walking (the doors at cells 221/753 already existed, U1
+    audit finding; U11 lands the shell). This drives a full play-through — borrow,
+    repay, buy the shop, deposit capital, collect debts into the ambush fight — one
+    ``run_option``/``TerminalInput`` call per step (same one-level-down pattern as
+    ``TestPubJobThroughClient``/``TestPubRecruitThroughClient``, chaining the returned
+    state across calls), since a hand-built shop-owning state cannot be reached by
+    ``play()`` walking alone within one session.
+    """
+
+    def test_kdh_reachable_by_walking(self, monkeypatch):
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
@@ -660,16 +701,119 @@ class TestKdhDoorGracefulDenial:
         state = new_state(42)
         kdh_cell = find_door_cell(city_raw, "kdh")
         walk = walk_keys_across_turns(state, city, vehicles, kdh_cell)
-        # No follow-up keys needed: denial is immediate and returns straight to the map.
-        output = run_play(monkeypatch, seed=42, stdin_keys=walk)
-        assert "closed for renovations" in output or "kdh" in output.lower()
+        # Splash ack, then immediately leave (menu index 5 = "leave").
+        keys = walk + ["", "5"]
+        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        assert "closed for renovations" not in output
 
-    def test_kdh_shell_file_does_not_exist_yet(self):
-        """Documents WHY the guard is needed (regression bait for when U11 lands: this
-        assertion should be the first thing to fail, prompting removal of the guard's
-        now-stale docstring reference to "until U11 lands")."""
-        shell_path = _CONFIG_DIR / "content" / "locations" / "kdh.yaml"
-        assert not shell_path.exists()
+    def _params(self):
+        return {
+            "rank_divisor": 11.1,
+            "kdh_borrow_min": 0,
+            "kdh_borrow_max": 5000,
+            "kdh_borrow_grace_months": 6,
+            "kdh_buy_price_choices": 11,
+            "kdh_buy_price_step": 100,
+            "kdh_buy_price_base": 5000,
+            "kdh_sell_price_choices": 11,
+            "kdh_sell_price_step": 100,
+            "kdh_sell_price_base": 4500,
+            "kdh_capital_max": 5000,
+            "kdh_ambush_roll": 3,
+            "kdh_ambush_energie": 35,
+            "kdh_ambush_weapon": 6,
+            "kdh_ambush_loot_min": 500,
+            "kdh_ambush_loot_max": 1499,
+            "kdh_ambush_score": 2.0,
+            "kdh_income_quiet_roll": 3,
+        }
+
+    def _state(self, **overrides):
+        from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
+
+        return GameState(
+            players=(
+                Player(
+                    name="alcapone",
+                    gang_name="the outfit",
+                    ka=overrides.pop("ka", 100000),
+                    last_location=1,
+                    debt=overrides.pop("debt", Debt()),
+                    business=overrides.pop("business", Business()),
+                    roster=(
+                        Gangster(
+                            name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8
+                        ),
+                    ),
+                ),
+            ),
+            clock=Clock(active_player=0, player_count=1),
+            config=Config(formula_params=self._params()),
+        )
+
+    def test_borrow_repay_buy_deposit_and_collect_into_the_ambush_fight(self, monkeypatch):
+        from engine.actions import run_option
+        from engine.rng import Rng
+        from engine.state import Debt
+        from engine.strings import Resolver
+
+        shell = tmain._load_shell("kdh")
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+
+        # 1. Borrow 2000$ (seed=1: no rng draw needed, borrow has none).
+        state = self._state()
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("2000\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
+        assert result.status == "completed"
+        assert result.state.players[0].debt == Debt(amount=2000, months=6)
+        state = result.state
+
+        # 2. Repay in full -> grace counter clears too.
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("2000\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
+        assert result.state.players[0].debt == Debt()
+        state = result.state
+
+        # 3. Buy the shop at this tile (seed=3: price rolls 5300$; "j" confirms).
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "trade", state, ln=1, input_source=inp, rng=Rng(3))
+        assert result.state.players[0].business.shop_tile == 1
+        assert result.state.players[0].ka == 100000 - 5300
+        state = result.state
+
+        # 4. Deposit 1000$ capital.
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("1000\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "capital", state, ln=1, input_source=inp, rng=Rng(4))
+        assert result.state.players[0].business.shop_capital == 1000
+        state = result.state
+
+        # 5. Collect debts -- seed=5 draws range(3)==2 (nonzero -> the KTD-9 2/3
+        # ambush fires). Reaching the combat screen (not the "paid on time" message)
+        # proves the collect flow drove a real fight through the real input loop.
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("surrender\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "collect", state, ln=1, input_source=inp, rng=Rng(5))
+        assert result.status == "completed"
+        rendered = out.getvalue()
+        assert "deine aktion:" in rendered  # the combat-screen action prompt (U7 wire)
+        assert "waffe:" in rendered  # the fighter panel rendered, i.e. combat ran
+        # A surrender loses -- no loot, no state change beyond the fight itself
+        # (cash reflects the 5300$ purchase + the 1000$ capital deposit from step 4).
+        assert result.state.players[0].ka == 100000 - 5300 - 1000
 
 
 # --------------------------------------------------------------------------- #

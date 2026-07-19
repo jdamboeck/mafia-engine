@@ -1,0 +1,32 @@
+# kdh (Kredit-Hai / loan shark) — location shell (U11 declarative layer).
+#
+# Ports the kdh menu from mf-prg.bas:15005 (onwgoto15010,15050,15100,15200,15300).
+# ALL FIVE playable options carry NO shell guard: every refusal in the source
+# happens INSIDE the handler body (no existing debt to borrow, bounds on repay, the
+# buy/sell/rival-scan guard chain, must-own-this-tile for capital/collect) — exactly
+# like pub's drink/tip/job (KTD-8 only applies shell-level guards where the ORIGINAL
+# refuses before even offering the option, which never happens here). Plus a
+# guardless leave.
+#
+#   borrow  — no guard; kr(sp)!=0 (existing debt) refusal happens inside the handler.
+#   repay   — no guard; bounds/afford checks happen inside the handler.
+#   trade   — no guard; buy/sell routing + all guards happen inside the handler.
+#   capital — no guard; must-own-this-tile check happens inside the handler.
+#   collect — no guard; must-own-this-tile check happens inside the handler.
+#   leave   — guardless, force-ends nothing (ms unchanged; mirrors waf's leave).
+key: kdh
+options:
+  - id: borrow
+    handler: "kdh.borrow"
+  - id: repay
+    handler: "kdh.repay"
+  - id: trade
+    handler: "kdh.trade"
+  - id: capital
+    handler: "kdh.capital"
+  - id: collect
+    handler: "kdh.collect"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: 0}

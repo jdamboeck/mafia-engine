@@ -369,12 +369,11 @@ class DebtChange:
     """Add ``amount`` (signed) to the target player's debt ``kr(sp)``, and set the
     grace-counter ``months`` (``kz(sp)``) alongside it.
 
-    Groundwork only (U2, KTD-7): the effect TYPE is declared now so kdh's borrow/repay
-    handlers (a later unit) have a vocabulary to target; ``apply`` raises
-    ``NotImplementedError`` until that unit activates this branch. Carries both fields
-    in one effect because the source sets them together at every kdh call site
-    (borrow :15030 sets ``kr+=x`` and ``kz=6`` in the same line; full repayment :15075
-    resets ``kz=0`` alongside the ``kr`` decrement) — see :class:`~engine.state.Debt`
+    Declared as groundwork in U2 (KTD-7); real application landed in U11 (kdh
+    borrow/repay). Carries both fields in one effect because the source sets them
+    together at every kdh call site (borrow :15030 sets ``kr+=x`` and ``kz=6`` in the
+    same line; partial repayment :15065 decrements ``kr`` only, leaving ``months``
+    untouched — pass ``months=None`` for that case) — see :class:`~engine.state.Debt`
     for the confirmed field semantics.
     """
 
@@ -388,12 +387,13 @@ class DebtChange:
 class DebtClear:
     """Zero the target player's debt AND its grace counter in one step.
 
-    Groundwork only (U2, KTD-7); deferred to a later unit. Ports the loan-default
-    penalty (``mf-prg.bas:4370``: ``kr(sp)=0:kz(sp)=0``, alongside the cash seizure
-    a handler would apply separately via :class:`MoneyChange`) and the full-repayment
-    reset (``:15075``, ``kz(sp)=0`` once ``kr(sp)`` reaches 0). A dedicated clear
-    (rather than a ``DebtChange`` computed to exactly cancel the balance) keeps the
-    two loan-shark exit paths self-documenting in the replay log.
+    Declared as groundwork in U2 (KTD-7); real application landed in U11. Ports the
+    full-repayment reset (``mf-prg.bas:15075``, ``kz(sp)=0`` once ``kr(sp)`` reaches
+    0 — kdh's repay handler applies this ALONGSIDE the final ``DebtChange`` that zeros
+    ``kr``) and is also the vocabulary the loan-default penalty (``:4370``,
+    ``kr(sp)=0:kz(sp)=0``) will reuse when U12 lands. A dedicated clear (rather than a
+    ``DebtChange`` computed to exactly cancel the balance) keeps both loan-shark exit
+    paths self-documenting in the replay log.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -404,10 +404,11 @@ class DebtClear:
 class ShopChange:
     """Set the target player's owned shop ``tile`` and/or its ``capital`` delta.
 
-    Groundwork only (U2, KTD-7); deferred to a later unit (kdh shop purchase/income).
-    Targets :class:`~engine.state.Business` — ``tile`` sets ``shop_tile`` (``None``
-    leaves it unchanged; the sentinel 0 means "no shop", per the field's own
-    docstring), ``capital_delta`` adds to ``shop_capital`` (``None`` = no change).
+    Declared as groundwork in U2 (KTD-7); real application landed in U11 (kdh
+    buy/sell/capital-adjust/income). Targets :class:`~engine.state.Business` —
+    ``tile`` sets ``shop_tile`` (``None`` leaves it unchanged; the sentinel 0 means
+    "no shop", per the field's own docstring; passing 0 explicitly clears ownership
+    on a sale), ``capital_delta`` adds to ``shop_capital`` (``None`` = no change).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -623,14 +624,15 @@ def _apply(state: GameState, effect: Any) -> GameState:
     :func:`_mapping_set` helpers rather than writing state — the state graph is frozen
     (R1/R3), so the functional rebuild is the only expressible write path.
 
-    Deferred effects (:class:`WantedChange`, :class:`Jail`,
-    :class:`DebtChange`, :class:`DebtClear`, :class:`ShopChange`) raise
+    Deferred effects (:class:`WantedChange`, :class:`Jail`) raise
     ``NotImplementedError`` — they are exercised in a later unit but exist now so
     logs stay type-complete and serializable.
     (:class:`BarrelChange`, :class:`TipSet`, :class:`TipClear` gained real application
     in U8 — the pub alcohol trade and tip flow. :class:`RosterAppend` gained real
     application in U9 — the pub recruit flow. :class:`JobSet`/:class:`JobClear`
-    gained real application in U10 — the pub job-accept and shift flows.)
+    gained real application in U10 — the pub job-accept and shift flows.
+    :class:`DebtChange`/:class:`DebtClear`/:class:`ShopChange` gained real
+    application in U11 — the kdh loan-shark handlers.)
     """
     if isinstance(effect, MoneyChange):
         idx = _target_index(state, effect.player)
@@ -799,16 +801,38 @@ def _apply(state: GameState, effect: Any) -> GameState:
         # cleared job never leaks a stale pending_pay/months_left into a future read.
         return _with_player(state, idx, jobs=Job())
 
-    if isinstance(
-        effect,
-        (
-            WantedChange,
-            Jail,
-            DebtChange,
-            DebtClear,
-            ShopChange,
-        ),
-    ):
+    if isinstance(effect, DebtChange):
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
+        # kr(sp) += amount (mf-prg.bas:15030 borrow, :15065 repay) — U11 real
+        # application. months is None on a partial repay (kz(sp) untouched); borrow
+        # and full-repay callers pass an explicit value alongside this effect (full
+        # repay's kz=0 reset is DebtClear, applied as a SEPARATE effect by the caller).
+        new_debt = replace(p.debt, amount=p.debt.amount + effect.amount)
+        if effect.months is not None:
+            new_debt = replace(new_debt, months=effect.months)
+        return _with_player(state, idx, debt=new_debt)
+
+    if isinstance(effect, DebtClear):
+        idx = _target_index(state, effect.player)
+        # kr(sp)=0:kz(sp)=0 (mf-prg.bas:15075 full repayment) — U11 real application.
+        return _with_player(state, idx, debt=replace(state.players[idx].debt, amount=0, months=0))
+
+    if isinstance(effect, ShopChange):
+        idx = _target_index(state, effect.player)
+        p = state.players[idx]
+        new_business = p.business
+        if effect.tile is not None:
+            # kg(sp)=ln (buy, mf-prg.bas:15120) or kg(sp)=0 (sell, :15155) — U11.
+            new_business = replace(new_business, shop_tile=effect.tile)
+        if effect.capital_delta is not None:
+            # kk(sp) += capital_delta (fund/income, mf-prg.bas:15220, :4410) — U11.
+            new_business = replace(
+                new_business, shop_capital=new_business.shop_capital + effect.capital_delta
+            )
+        return _with_player(state, idx, business=new_business)
+
+    if isinstance(effect, (WantedChange, Jail)):
         raise NotImplementedError(
             f"{type(effect).__name__} is declared but its application is exercised in a "
             "later unit."

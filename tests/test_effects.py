@@ -52,7 +52,18 @@ from engine.effects import (
     commit,
 )
 from engine.interactions import CANCEL, PromptInt, run
-from engine.state import Clock, Fighter, Flags, Gangster, GameState, Job, Player, tuple_replace
+from engine.state import (
+    Business,
+    Clock,
+    Debt,
+    Fighter,
+    Flags,
+    Gangster,
+    GameState,
+    Job,
+    Player,
+    tuple_replace,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -667,17 +678,110 @@ def test_negative_gangster_index_raises_not_wraps():
         Jail(3),
         # U2 groundwork (KTD-7): declared now, activated in a later unit each.
         # BarrelChange/TipSet/TipClear graduated to real application in U8,
-        # RosterAppend in U9, and JobSet/JobClear in U10 (see the sections above) —
-        # none of these five are deferred any longer.
-        DebtChange(500),
-        DebtClear(),
-        ShopChange(tile=2),
+        # RosterAppend in U9, JobSet/JobClear in U10, and DebtChange/DebtClear/
+        # ShopChange in U11 (see the sections above and below) — none of these
+        # eight are deferred any longer.
     ],
 )
 def test_deferred_effects_raise_not_implemented(effect):
     state = make_state()
     with pytest.raises(NotImplementedError):
         apply(state, effect)
+
+
+# --------------------------------------------------------------------------- #
+# debt_change / debt_clear (U11) — kdh borrow/repay flows, real application    #
+# --------------------------------------------------------------------------- #
+def test_debt_change_adds_to_debt_amount():
+    state = make_state()  # debt defaults to Debt() -- amount=0, months=0
+    out = apply(state, DebtChange(amount=500, months=6))
+    assert out.players[0].debt == Debt(amount=500, months=6)
+
+
+def test_debt_change_months_none_leaves_months_untouched():
+    state = apply(make_state(), DebtChange(amount=1000, months=6))
+    out = apply(state, DebtChange(amount=-400))
+    assert out.players[0].debt == Debt(amount=600, months=6)
+
+
+def test_debt_change_targets_explicit_player():
+    state = make_state()
+    out = apply(state, DebtChange(amount=200, months=6, player=1))
+    assert out.players[1].debt == Debt(amount=200, months=6)
+    assert out.players[0].debt == Debt()  # untouched
+
+
+def test_debt_change_purity():
+    state = make_state()
+    out = apply(state, DebtChange(amount=500, months=6))
+    assert state.players[0].debt == Debt()  # original untouched
+    assert out is not state
+
+
+def test_debt_clear_zeroes_amount_and_months():
+    state = apply(make_state(), DebtChange(amount=500, months=6))
+    out = apply(state, DebtClear())
+    assert out.players[0].debt == Debt(amount=0, months=0)
+
+
+def test_debt_clear_targets_explicit_player():
+    state = apply(make_state(), DebtChange(amount=300, months=6, player=1))
+    out = apply(state, DebtClear(player=1))
+    assert out.players[1].debt == Debt()
+
+
+def test_debt_clear_purity():
+    state = apply(make_state(), DebtChange(amount=500, months=6))
+    out = apply(state, DebtClear())
+    assert state.players[0].debt == Debt(amount=500, months=6)  # original untouched
+    assert out is not state
+
+
+# --------------------------------------------------------------------------- #
+# shop_change (U11) — kdh buy/sell/capital-adjust/income, real application     #
+# --------------------------------------------------------------------------- #
+def test_shop_change_sets_tile():
+    state = make_state()  # business defaults to Business() -- shop_tile=0
+    out = apply(state, ShopChange(tile=3))
+    assert out.players[0].business.shop_tile == 3
+
+
+def test_shop_change_tile_zero_clears_ownership():
+    state = apply(make_state(), ShopChange(tile=3))
+    out = apply(state, ShopChange(tile=0))
+    assert out.players[0].business.shop_tile == 0
+
+
+def test_shop_change_capital_delta_adds():
+    state = apply(make_state(), ShopChange(tile=3))
+    out = apply(state, ShopChange(capital_delta=500))
+    assert out.players[0].business == Business(shop_tile=3, shop_capital=500)
+
+
+def test_shop_change_capital_delta_negative_subtracts():
+    state = apply(make_state(), ShopChange(tile=3, capital_delta=1000))
+    out = apply(state, ShopChange(capital_delta=-400))
+    assert out.players[0].business.shop_capital == 600
+
+
+def test_shop_change_tile_and_capital_delta_together():
+    state = make_state()
+    out = apply(state, ShopChange(tile=2, capital_delta=750))
+    assert out.players[0].business == Business(shop_tile=2, shop_capital=750)
+
+
+def test_shop_change_targets_explicit_player():
+    state = make_state()
+    out = apply(state, ShopChange(tile=4, player=1))
+    assert out.players[1].business.shop_tile == 4
+    assert out.players[0].business == Business()  # untouched
+
+
+def test_shop_change_purity():
+    state = make_state()
+    out = apply(state, ShopChange(tile=3))
+    assert state.players[0].business == Business()  # original untouched
+    assert out is not state
 
 
 # --------------------------------------------------------------------------- #

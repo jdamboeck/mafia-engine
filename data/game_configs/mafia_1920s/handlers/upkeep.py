@@ -16,12 +16,17 @@ This unit lands the flow's HEAD per the order fixed by KTD-3
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-Three slots were declared as no-ops in U3; this unit (U8) fills the THIRD in place,
-without reordering anything already here:
+Three slots were declared as no-ops in U3; U8 filled the arms-deal slot, this unit
+(U11) fills the shop-income slot, both in place, without reordering anything already
+here:
 
 * **debt check** (``4040``, U12) — the grace-counter tick / collectors fight. Still a
   no-op.
-* **shop income** (``4041``, U11) — the passive kdh-shop payout roll. Still a no-op.
+* **shop income** (``4041-4420``, U11) — the passive kdh-shop payout roll. Ports
+  ``mf-prg.bas:4041``'s guard (``kg(sp)<>0andkk(sp)<>0`` — must own a shop AND have
+  nonzero capital) gosub'd to ``4400-4420``: 1-in-3 quiet month (no income, no
+  effect); else a payout ``p=int(rnd(1)*kk(sp)/20+kk(sp)/10)`` — 10%-15% of the
+  shop's capital.
 * **arms deal** (``4060``, U8) — the staked heist-tip resolution, ports
   ``mf-prg.bas:31000-31051``. Only fires when the active player's ``tip_target ==
   pub.ARMS_DEAL_TIP`` (4) — set by ``pub.tip``'s stake sub-flow. The tip is CLEARED
@@ -118,7 +123,31 @@ def upkeep_turn_start(ctx):
         ctx.apply(RankCommit(new_rank=active.nr))
 
     # --- 4040: debt check — SLOT, no-op this unit (U12 activates in place) -
-    # --- 4041: shop income — SLOT, no-op this unit (U11 activates in place) -
+
+    # --- 4041-4420: shop income — ports mf-prg.bas:4041,4405-4410 --------------
+    # ifkg(sp)<>0andkk(sp)<>0thengosub4400 (:4041). Re-read `active` is unnecessary:
+    # nothing above this slot in the SAME upkeep run touches business.
+    if active.business.shop_tile != 0 and active.business.shop_capital != 0:
+        params = ctx.state.config.formula_params
+        if ctx.rng.range(params["kdh_income_quiet_roll"]) != 0:
+            # :4405 — 2-in-3 chance the loan business earns money this month.
+            capital = active.business.shop_capital
+            # :4410 — p = int(rnd(1)*kk(sp)/20 + kk(sp)/10) -> a continuous draw
+            # (rnd(1) in [0,1)) scaled by a VARIABLE coefficient (capital), unlike a
+            # fixed-bound roll (rng.hit). Ported as an exact discrete equivalent:
+            # multiplying the whole expression by 20, `20p = int(2*capital +
+            # t*capital)` for continuous t in [0,1) — substituting a discrete
+            # rng.range(capital) draw for the continuous `t*capital` term (both are
+            # uniform over the SAME achievable integer range, so the substitution
+            # preserves the exact value set and per-value probability; verified by
+            # simulation against the continuous source formula). Result: 10%-15% of
+            # capital.
+            income = (2 * capital + ctx.rng.range(capital)) // 20
+            ctx.apply(MoneyChange(income))
+            yield ShowMessage("upkeep.shop_income_earned", {"amount": income})
+        else:
+            # :4406 — 1-in-3 quiet month.
+            yield ShowMessage("upkeep.shop_income_quiet")
 
     # --- 4060: arms deal — ports mf-prg.bas:31000-31051 ---------------------
     # iftp(sp)=4thengosub31000 (:4060). Re-read `active` is unnecessary: nothing above
