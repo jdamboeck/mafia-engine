@@ -16,12 +16,13 @@ This unit lands the flow's HEAD per the order fixed by KTD-3
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-Three slots were declared as no-ops in U3; U8 filled the arms-deal slot, this unit
-(U11) fills the shop-income slot, both in place, without reordering anything already
-here:
+Three slots were declared as no-ops in U3; U8 filled the arms-deal slot, U11 the
+shop-income slot, and this unit (U12) fills the debt slot — each in place, without
+reordering anything already here:
 
-* **debt check** (``4040``, U12) — the grace-counter tick / collectors fight. Still a
-  no-op.
+* **debt check** (``4040``, ``4300-4370``, U12) — the loan-shark grace countdown and
+  its collectors fight. Ports ``:4305``'s tick, ``:4306-4309``'s warning,
+  ``:4350-4355``'s fight, and ``:4365-4370``'s seizure. See COUNTER DIRECTION below.
 * **shop income** (``4041-4420``, U11) — the passive kdh-shop payout roll. Ports
   ``mf-prg.bas:4041``'s guard (``kg(sp)<>0andkk(sp)<>0`` — must own a shop AND have
   nonzero capital) gosub'd to ``4400-4420``: 1-in-3 quiet month (no income, no
@@ -49,6 +50,36 @@ Deferred lines NOT ported here (Scope Boundaries): ``4045-4046`` (rent countdown
 eviction — an out-of-scope system this slice), ``4050`` (bribe-protection aging),
 ``4055-4056`` (fake-papers/counterfeit decay) — none are triggered by anything in-slice.
 
+COUNTER DIRECTION — the U2-flagged relational-sign landmine (``:4305``)
+-----------------------------------------------------------------------
+``:4305`` is ``kz(sp)=kz(sp)+(kz(sp)>0)``. This project pins a porting convention of
+``true=+1`` (``docs/solutions/architecture-patterns/
+basic-relational-boolean-is-plus-one-when-porting.md``), under which the counter would
+climb from 6 forever — a grace period that never expires and a headline flow that
+never fires. Under strict C64 semantics (``true=-1``) it counts DOWN.
+
+**The source pins DOWN**, and the convention loses here — the same resolution shape
+U6 applied at ``:30450`` (sibling lines stating the rule with literal constants beat
+the convention). Three independent confirmations:
+
+1. ``:15030`` sets ``kz(sp)=6`` on borrowing, and ``:15025`` prints "du hast 6 monate
+   zeit". A counter that ascends from 6 has no terminus; one that descends from 6
+   expires in exactly the six months the game promises the player.
+2. ``:4305``'s own branch is ``ifkz(sp)=0goto4350`` — the collectors are reachable
+   only by a counter that DESCENDS to 0. Ascending from 6 never equals 0, so an
+   up-count makes the entire debt-default flow dead code.
+3. ``:4308`` prints ``kz(sp)+1`` as the months remaining. That ``+1`` is only correct
+   if the tick has already fired this turn: after the first tick (6->5) the player is
+   told "6 monat(e)", matching :15025's promise. Under an up-count it would report an
+   ever-growing deadline.
+
+Getting this backwards is SILENT — the flow simply never triggers and tests still
+pass — so ``tests/test_debt_default.py::test_counter_counts_down_not_up`` exists
+specifically to fail if the sign is ever inverted.
+
+The ``(kz(sp)>0)`` guard also makes **0 a fixed point**, which is load-bearing: it is
+what makes a WON fight recur every turn (KTD-9) rather than silently resetting.
+
 KTD-7 conformance: touches only ``ctx.state`` (read-only), ``yield <Interaction>``,
 ``ctx.apply(<Effect>)``, and this config's own ``..setup``/entity-loader helpers.
 """
@@ -57,16 +88,45 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import EnergyChange, MoneyChange, RankCommit, TipClear
-from engine.interactions import ShowMessage
+from engine.effects import (
+    DebtChange,
+    DebtClear,
+    EnergyChange,
+    MoneyChange,
+    RankCommit,
+    TipClear,
+)
+from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
+from ..setup import load_combat_backdrop, load_weapons
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
+
+#: The debt-default collectors (mf-prg.bas:4355): five "eintreiber", schlagkette
+#: (weapon id 3), energy 30 each, on the "ks" backdrop. Counts/stats are config
+#: params (config.yaml's kdh_collectors_*); the NAME and BACKDROP are fixed strings
+#: in the source line itself.
+_COLLECTOR_NAME = "eintreiber"
+_COLLECTORS_BACKDROP = "ks"
+
+
+def _weapon_stats() -> dict:
+    """This config's weapon id -> ``(ts, tg)`` table, for ``StartCombat.weapon_stats``.
+
+    Matches ``kdh.py``/``jobs.py``'s fresh-per-call loader (KTD-7: a handler reads its
+    OWN config's entity data, never the engine's).
+    """
+    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
+    return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
+
+
+def _backdrop(name: str) -> tuple[int, ...]:
+    return load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{name}.yaml")
 
 
 def _rank_names() -> list[str]:
@@ -122,7 +182,77 @@ def upkeep_turn_start(ctx):
         )
         ctx.apply(RankCommit(new_rank=active.nr))
 
-    # --- 4040: debt check — SLOT, no-op this unit (U12 activates in place) -
+    # --- 4040/4300-4370: debt check — the grace tick and the collectors fight ---
+    # Ported from :4305's `kz(sp)=kz(sp)+(kz(sp)>0):ifkz(sp)=0goto4350`. See the
+    # module docstring's COUNTER DIRECTION note: the tick counts DOWN.
+    #
+    # `active.debt` is safe to read here: nothing above this slot in the SAME upkeep
+    # run touches debt (regen writes energy, the rank commit writes rank). Below this
+    # point, `months`/`debt_amount` are tracked LOCALLY — ctx.apply only BUFFERS, so
+    # re-reading ctx.state mid-flow would see pre-tick values.
+    debt_amount = active.debt.amount
+    months = active.debt.months
+    if debt_amount != 0 or months != 0:
+        # :4305's `+(kz(sp)>0)` — decrement ONLY while positive, so 0 is a fixed
+        # point. That fixed point is exactly what makes a won fight recur every turn
+        # (KTD-9): the counter never leaves 0, so every later turn re-enters :4350.
+        if months > 0:
+            months -= 1
+            ctx.apply(DebtChange(amount=0, months=months))
+
+        if months > 0:
+            # :4306-4309 — still inside the grace period: warn and move on. The
+            # printed figure is `kz(sp)+1` (:4308) — read AFTER the tick, so a
+            # just-taken 6-month loan is reported as "6 monat(e)" on its first turn.
+            yield ShowMessage(
+                "upkeep.debt_warning",
+                {"amount": debt_amount, "months": months + 1},
+            )
+        elif debt_amount != 0:
+            # :4350-4370 — the grace period has expired. Guarded on a NONZERO debt so
+            # a fully repaid player (:15075 leaves kr=0 AND kz=0) is never ambushed.
+            #
+            # The jail gate (:4040) is a read that trivially passes in-slice: jail is
+            # declared-but-stubbed (KTD-7) and nothing can imprison a player, so the
+            # not-jailed precondition is always true and is not re-encoded here.
+            from engine.combat import setup_combat
+
+            yield ShowMessage("upkeep.debt_collectors_intro")
+            debt_params = ctx.state.config.formula_params
+            combat_state = setup_combat(
+                active.roster,
+                # :4355 — bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"
+                enemy_count=debt_params["kdh_collectors_count"],
+                enemy_weapon=debt_params["kdh_collectors_weapon"],
+                enemy_energie=debt_params["kdh_collectors_energie"],
+                enemy_name=_COLLECTOR_NAME,
+                grid=_backdrop(_COLLECTORS_BACKDROP),
+            )
+            winner = yield StartCombat(
+                sides=combat_state.sides,
+                grid=combat_state.grid,
+                weapon_stats=_weapon_stats(),
+                dir_memory=combat_state.dir_memory,
+            )
+
+            # Outcome narration (KTD-1: the invoking handler's job — _run_combat
+            # yields no final screen). Reuses the combat.* keys U7 exported.
+            winner_name = active.name if winner == 1 else _COLLECTOR_NAME
+            yield ShowMessage("combat.winner_banner", {"name": winner_name})
+
+            if winner == 2:
+                # :4365-4370 — lost: `ka(sp)=0:kr(sp)=0:kz(sp)=0`. The seizure takes
+                # the cash the player holds AT THIS MOMENT. `active.ka` is still the
+                # correct figure: no effect buffered earlier in this run moves money
+                # except the shop-income/arms-deal slots, which run BELOW this one.
+                yield ShowMessage("upkeep.debt_seized")
+                ctx.apply(MoneyChange(-active.ka))
+                ctx.apply(DebtClear())
+            # :4355's `ifs=1thenreturn` — a WIN falls straight through: no seizure,
+            # and crucially no debt relief either. The loan and its expired counter
+            # both survive, so the collectors come back next turn and every turn
+            # after, until the player repays at kdh or finally loses. This is
+            # source-confirmed behaviour kept deliberately per KTD-9 — NOT a bug.
 
     # --- 4041-4420: shop income — ports mf-prg.bas:4041,4405-4410 --------------
     # ifkg(sp)<>0andkk(sp)<>0thengosub4400 (:4041). Re-read `active` is unnecessary:

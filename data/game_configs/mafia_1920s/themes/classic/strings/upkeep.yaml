@@ -14,6 +14,23 @@ upkeep:
   # renders that presentation, this key only carries the verbatim text content.
   rank_promotion: "{gang_name}\n{name}.\n{score} p.\n{rank_name}"
 
+  # Debt-default upkeep slot (U12, mf-prg.bas:4300-4370) — the loan-shark grace
+  # countdown and its collectors fight.
+  #
+  # The grace warning (:4306,4308-4309) is one screen printed as three lines:
+  #   "du hast <kr>$ schulden. dir bleiben" / "noch <kz+1> monat(e), sie" /
+  #   "abzuzahlen!" — the source's line breaks fall mid-sentence purely because of
+  # the C64's 40-column screen, so the port keeps the wording verbatim while letting
+  # the sentence read as one. {months} is ALREADY kz+1 (the handler does that
+  # arithmetic); {amount} is the outstanding balance kr(sp).
+  debt_warning: "du hast {amount}$ schulden. dir bleiben noch {months} monat(e), sie abzuzahlen!"
+
+  # :4350 — the collectors are loosed (printed before the fight starts).
+  debt_collectors_intro: "der kredithai hetzt seine eintreiber auf dich..."
+
+  # :4365 — printed ONLY on a loss, immediately before :4370 zeroes cash + debt.
+  debt_seized: "die kerle nehmen dein ganzes geld mit und verschwinden..."
+
   # Arms-deal upkeep slot (U8, mf-prg.bas:31000-31051) — resolves a tip-4 stake.
   arms_deal_lost: "die waffenhaendler, denen du 5000 $ anvertraut hast, wurden geschnappt!"
   arms_deal_won: "dein kapital hat im waffenhandel gearbeitet. du erhaelts {amount}$ zurueck!"

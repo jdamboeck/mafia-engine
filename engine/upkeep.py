@@ -43,12 +43,21 @@ UPKEEP_HANDLER_KEY = "upkeep.turn_start"
 
 
 def _refuse_input(interaction: Any) -> Any:
-    """The default ``input_source`` for upkeep: fail loudly if ever consulted.
+    """The FALLBACK ``input_source`` for upkeep: fail loudly if ever consulted.
 
-    Upkeep yields only ``ShowMessage`` (auto-acked by the driver — never consults the
-    input source) per the plan's no-cancel-path contract. If a future upkeep addition
-    yields a real prompt, this raises immediately rather than silently answering it
-    with a fabricated response — the contract violation surfaces at the call site.
+    Upkeep's non-combat steps yield only ``ShowMessage`` (auto-acked by the driver —
+    never consults the input source) per the plan's no-cancel-path contract. This
+    remains the default so a caller that passes no ``input_source`` still surfaces any
+    accidental prompt at the call site rather than silently answering it with a
+    fabricated response.
+
+    U12 added the one legitimate exception: the debt-default collectors fight
+    (``mf-prg.bas:4350``) is a ``StartCombat`` sub-protocol, and combat activations DO
+    require real per-activation input. A caller whose player may be in default must
+    therefore pass a real ``input_source``. That does not reopen a cancel path —
+    combat prompts are non-cancellable by KTD-9 (the client's quit vocabulary maps to
+    surrender, which LOSES the fight rather than discarding the flow), so upkeep still
+    cannot be escaped, only lost.
     """
     raise AssertionError(
         f"upkeep asked the input source for a response to {interaction!r}; "
@@ -57,7 +66,13 @@ def _refuse_input(interaction: Any) -> Any:
     )
 
 
-def run_upkeep(state: Any, *, rng: Any = None, handlers: dict | None = None) -> EngineResult:
+def run_upkeep(
+    state: Any,
+    *,
+    input_source: Any = None,
+    rng: Any = None,
+    handlers: dict | None = None,
+) -> EngineResult:
     """Run the active player's turn-start upkeep flow and return its result.
 
     This is THE engine-level turn-start entry point (KTD-3): a client's turn loop calls
@@ -71,15 +86,20 @@ def run_upkeep(state: Any, *, rng: Any = None, handlers: dict | None = None) -> 
     like any other handler via :func:`engine.interactions.run`. Effects commit
     atomically on clean completion (the same commit-or-discard contract every handler
     gets); upkeep offers no cancel path, so ``result.status`` is always
-    ``"completed"`` in practice, never ``"cancelled"``.
+    ``"completed"`` in practice, never ``"cancelled"`` — including through the U12
+    collectors fight, whose surrender loses the fight without discarding the flow.
 
     Args:
         state: The game state upkeep runs against (the ACTIVE player, per
             ``state.clock.active_player`` — the generator reads this off ``ctx.state``
             exactly as a location handler would).
-        rng: The session RNG (threaded through so a later unit's upkeep slot — debt,
-            shop income, arms deal — can draw from it; this unit's own steps are
-            deterministic and do not consume it).
+        input_source: The client's response callback, forwarded to the driver.
+            Defaults to :func:`_refuse_input`, which raises if consulted — correct for
+            every upkeep step EXCEPT the U12 collectors fight, which needs real combat
+            input. Callers that can reach a debt default (the terminal client's turn
+            loop) must pass a real one.
+        rng: The session RNG (threaded through so an upkeep slot — debt, shop income,
+            arms deal — can draw from it).
         handlers: Override registry (test seam); defaults to the live
             :data:`engine.locations.HANDLERS`.
 
@@ -104,4 +124,4 @@ def run_upkeep(state: Any, *, rng: Any = None, handlers: dict | None = None) -> 
             "must register a turn-start upkeep generator (even a no-op one) since "
             "engine.upkeep.run_upkeep is unconditionally called at turn start"
         )
-    return run(factory, _refuse_input, state=state, rng=rng)
+    return run(factory, input_source or _refuse_input, state=state, rng=rng)

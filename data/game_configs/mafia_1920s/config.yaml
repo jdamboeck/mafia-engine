@@ -118,6 +118,11 @@ formula_params:
   kdh_ambush_loot_min: 500   # p=int(rnd(1)*1000)+500 -> 500..1499$ (mf-prg.bas:15320)
   kdh_ambush_loot_max: 1499
   kdh_ambush_score: 2.0      # x=2:gosub1160 (mf-prg.bas:15321)
+  # debt-default collectors (mf-prg.bas:4355):
+  #   bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"
+  kdh_collectors_count: 5    # gz(0)=5 (mf-prg.bas:4355)
+  kdh_collectors_weapon: 3   # w=3, schlagkette (mf-prg.bas:4355)
+  kdh_collectors_energie: 30 # e=30 (mf-prg.bas:4355)
   # shop income (mf-prg.bas:4405-4410): 1/3 quiet month, else
   # p=int(rnd(1)*kk(sp)/20+kk(sp)/10) -> 10%-15% of capital.
   kdh_income_quiet_roll: 3

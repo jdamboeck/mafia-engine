@@ -349,7 +349,7 @@ def _run_location(
     return result.state  # adopt (run_option is pure)
 
 
-def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None):
+def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp=None):
     """Run the active player's turn-start upkeep (KTD-3) and show its banner/promotion.
 
     Calls :func:`engine.upkeep.run_upkeep` — THE engine-level turn-start entry point —
@@ -363,6 +363,13 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None):
     "press any key..." pattern) so a human has time to read it; EOF is treated as an
     ack, not a quit, since upkeep offers no cancel path (Verification Contract) — the
     turn must proceed regardless.
+
+    ``inp`` is the session's :class:`TerminalInput`, forwarded to ``run_upkeep`` so the
+    U12 debt-default collectors fight (``mf-prg.bas:4350``) can read real combat input.
+    Every other upkeep step yields only auto-acked ``ShowMessage`` screens and never
+    consults it. This does not reopen a cancel path: combat prompts are
+    non-cancellable (KTD-9), so a quit during the fight surrenders — losing it, and
+    triggering the seizure — rather than escaping upkeep.
     """
     import sys as _sys
     if stdin is None:
@@ -370,7 +377,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None):
     from clients.terminal import hide_cursor, show_cursor
     from clients.terminal.renderers import render_body, render_header, render_screen_clear
 
-    result = run_upkeep(state, rng=rng)
+    result = run_upkeep(state, input_source=inp, rng=rng)
     new_state = result.state  # adopt (run_upkeep is pure)
     active = new_state.players[new_state.clock.active_player]
 
@@ -488,7 +495,7 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
         # including the very first (before the map loop's first render), so no path
         # through this client can reach a free turn without it. Later turns run it
         # right after advance_turn rotates (below), at the exact same seam.
-        state = _run_upkeep_screen(state, resolver, out, rng)
+        state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
 
         note = "move: W/A/S/D into a door to enter. Q quits."
         while True:
@@ -561,7 +568,7 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
             # KTD-3: upkeep for the NEW active player, right at the turn-start seam
             # advance_turn just opened — before this player's free turn (or job
             # shift) is offered.
-            state = _run_upkeep_screen(state, resolver, out, rng)
+            state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
     finally:
         show_cursor(out)
 

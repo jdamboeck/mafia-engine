@@ -161,12 +161,17 @@ class Debt:
     stat ``kraft`` — a required correctness point for this unit.
 
     ``amount`` is ``kr(sp)`` (the outstanding loan-shark balance). ``months`` is
-    ``kz(sp)`` — a grace-period counter that increments once per elapsed month while
-    positive and resets to 6 on borrowing (mf-prg.bas:15030) / 0 on full repayment
-    (:15075); reaching 0 again after having been positive triggers the debt-collector
-    encounter (:4305,4350). Its exact upkeep tick (the relational-sign-flagged
-    ``kz(sp)=kz(sp)+(kz(sp)>0)`` at :4305) is a later unit's (U3's) concern — this
-    field only needs to hold the value here.
+    ``kz(sp)`` — a grace-period counter set to 6 on borrowing (mf-prg.bas:15030) and
+    0 on full repayment (:15075).
+
+    U12 resolved the relational-sign flag on its upkeep tick
+    (``kz(sp)=kz(sp)+(kz(sp)>0)``, :4305): the counter **DECREMENTS** once per elapsed
+    month while positive, and reaching 0 triggers the debt-collector encounter
+    (:4350). This is the C64 ``true=-1`` reading, NOT the project's usual ``true=+1``
+    porting convention — see the COUNTER DIRECTION section of
+    ``data/game_configs/mafia_1920s/handlers/upkeep.py`` for the three source lines
+    that pin it. The ``>0`` guard makes 0 a fixed point, which is what makes a won
+    collectors fight recur every turn.
     """
 
     amount: int = 0

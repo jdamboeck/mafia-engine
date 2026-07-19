@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import clients.terminal.__main__ as tmain
 from engine.config_loader import load_game_config
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
+from engine.upkeep import run_upkeep
 from tests.helpers import make_walk_script
 
 _CONFIG_DIR = tmain._CONFIG_DIR
@@ -868,9 +869,13 @@ class TestTwoPlayerAlternation:
 # U7 — combat playable through the real input_source protocol (piped stdin)   #
 # --------------------------------------------------------------------------- #
 #
-# No in-slice handler yields StartCombat yet (kdh/pub jobs land in later units,
-# U8-U12), so there is no map-reachable fight to walk into. What IS real and
-# already load-bearing is the input_source protocol itself: TerminalInput driven
+# NOTE (U12): when this block was written no in-slice handler yielded StartCombat.
+# Real triggers have landed since -- kdh's collect ambush, the pub job shifts, and
+# the debt-default collectors (see TestDebtDefaultThroughClient at the end of this
+# file, which walks the headline flow through the real loop). This class is kept
+# because it still isolates the protocol wire itself with a throwaway handler, free
+# of any one trigger's guards. What IS real and already load-bearing is the
+# input_source protocol itself: TerminalInput driven
 # by engine.interactions.run() over piped stdin is the exact wire the eventual
 # combat trigger will use unchanged (KTD-1/KTD-2) -- this is the same pattern
 # tests/test_terminal_client.py already uses to test TerminalInput directly. A
@@ -1045,3 +1050,155 @@ class TestInteractiveCombatThroughTerminalInput:
             run(handler, inp, state=None, rng=rng)
             outs.append(out.getvalue())
         assert outs[0] == outs[1]
+
+
+# --------------------------------------------------------------------------- #
+# U12 — the debt-default headline flow through the real client loop           #
+# --------------------------------------------------------------------------- #
+class TestDebtDefaultThroughClient:
+    """The armed closure's headline flow, driven by the real input loop.
+
+    Walks the acceptance case the plan names: borrow at kdh, let the six-month grace
+    expire turn by turn, and fight the collectors on the rendered 40x13 grid through
+    ``TerminalInput`` over piped stdin -- the same wire a network client would use
+    unchanged (KTD-1/KTD-2).
+
+    Uses the one-``run_upkeep``-call-per-turn pattern (chaining the returned state)
+    rather than ``play()`` walking, for the same reason ``TestKdhLocationThroughClient``
+    does: a debt six months into its grace period cannot be reached by walking within
+    one scripted session.
+    """
+
+    def _params(self):
+        return {
+            "rank_divisor": 11.1,
+            "kdh_borrow_min": 0,
+            "kdh_borrow_max": 5000,
+            "kdh_borrow_grace_months": 6,
+            "kdh_capital_max": 5000,
+            "kdh_income_quiet_roll": 3,
+            "kdh_collectors_count": 5,
+            "kdh_collectors_weapon": 3,
+            "kdh_collectors_energie": 30,
+        }
+
+    def _state(self, **overrides):
+        from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
+
+        return GameState(
+            players=(
+                Player(
+                    name="alcapone",
+                    gang_name="the outfit",
+                    ka=overrides.pop("ka", 20000),
+                    last_location=1,
+                    debt=overrides.pop("debt", Debt()),
+                    business=Business(),
+                    roster=(
+                        Gangster(
+                            name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8
+                        ),
+                    ),
+                ),
+            ),
+            clock=Clock(active_player=0, player_count=1),
+            config=Config(formula_params=self._params()),
+        )
+
+    def _weapon_names(self):
+        cfg = load_game_config(_CONFIG_DIR)
+        weapons = cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
+        return [w["name"] for w in weapons]
+
+    def _input(self, keys):
+        from engine.strings import Resolver
+
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=Resolver.from_config(_CONFIG_DIR, theme="classic"),
+            stdin=io.StringIO("\n".join(keys) + "\n"),
+            stdout=out,
+            weapon_names=self._weapon_names(),
+        )
+        return inp, out
+
+    def test_borrow_then_grace_expires_into_the_collectors_fight(self, monkeypatch):
+        """The full F1 acceptance flow: borrow at kdh, six turns of upkeep, then fight.
+
+        Turns 1-5 warn with a descending months-remaining count and consume no combat
+        input; turn 6 (kz ticks 1 -> 0) opens the fight on the rendered grid, which the
+        scripted keys surrender -- losing it, so the seizure fires.
+        """
+        from engine.actions import run_option
+        from engine.rng import Rng
+        from engine.state import Debt
+        from engine.strings import Resolver
+
+        shell = tmain._load_shell("kdh")
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+
+        # --- borrow 3000$ at kdh through the real input loop -------------------
+        state = self._state(ka=20000)
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("3000\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
+        assert result.state.players[0].debt == Debt(amount=3000, months=6)
+        assert result.state.players[0].ka == 23000
+        state = result.state
+
+        # --- turns 1-5: the grace period counts DOWN, warning each turn --------
+        for expected_months in (5, 4, 3, 2, 1):
+            inp, _out = self._input([])  # no combat input consumed while in grace
+            state = run_upkeep(state, input_source=inp, rng=Rng(7)).state
+            assert state.players[0].debt.months == expected_months
+            assert state.players[0].ka == 23000  # nothing seized during grace
+
+        # --- turn 6: kz ticks 1 -> 0, the collectors attack --------------------
+        inp, out = self._input(["surrender"])  # a mandatory fight is lost, not escaped
+        result = run_upkeep(state, input_source=inp, rng=Rng(7))
+        assert result.status == "completed"
+
+        # The fight really rendered on the 40x13 grid through the client: the combat
+        # screen's own action prompt (rendered per activation) proves the client-side
+        # combat protocol ran, not just the engine-side branch.
+        rendered = out.getvalue()
+        assert "deine aktion:" in rendered
+        assert "aufgeben" in rendered
+
+        # Lost -> :4365-4370: all cash seized, debt and counter wiped.
+        assert result.state.players[0].ka == 0
+        assert result.state.players[0].debt == Debt(amount=0, months=0)
+
+    def test_repaying_mid_grace_stops_the_countdown_and_no_fight_ever_comes(self):
+        """Repay at kdh during the grace period -> upkeep never summons collectors."""
+        from engine.actions import run_option
+        from engine.rng import Rng
+        from engine.state import Debt
+        from engine.strings import Resolver
+
+        shell = tmain._load_shell("kdh")
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+
+        state = self._state(ka=20000, debt=Debt(amount=3000, months=3))
+
+        # Repay in full -> :15075 clears kr AND kz.
+        out = io.StringIO()
+        inp = tmain.TerminalInput(
+            resolver=resolver, stdin=io.StringIO("3000\n"), stdout=out, weapon_names=[]
+        )
+        result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
+        assert result.state.players[0].debt == Debt()
+        state = result.state
+        cash = state.players[0].ka
+
+        # Several further turns: no fight, no seizure, cash untouched. If the debt
+        # branch keyed on the bare counter instead of the debt, kz=0 would ambush a
+        # fully repaid player here -- run_upkeep would consume combat input it does
+        # not have and raise.
+        for _ in range(3):
+            inp, _out = self._input([])
+            state = run_upkeep(state, input_source=inp, rng=Rng(7)).state
+            assert state.players[0].ka == cash
+            assert state.players[0].debt == Debt()
