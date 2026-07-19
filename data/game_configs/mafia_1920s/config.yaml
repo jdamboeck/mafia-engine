@@ -24,21 +24,25 @@ formula_params:
 
   # fnm — the per-tile rent formula (mf-prg.bas:115):
   #   deffnm(ln) = 50 - 50*(ln=3 or ln=4) - 100*(ln=1)
-  # Evaluated to results:
-  #   fnm(1)      = -50   <-- NEGATIVE-RENT QUIRK: tile ln=1 is a premium unit
-  #                            that PAYS the player (negative rent). Faithful to
-  #                            the original; must be preserved exactly.
-  #   fnm(3)=fnm(4) = 0
-  #   fnm(ln)     = 50    for all other ln (2, 5, 6, 7, 8, 9)
+  # Evaluated with C64 relational semantics (true = -1):
+  #   fnm(1)        = 50 - 0 - 100*(-1) = 150  <-- premium tile, dearest rent
+  #   fnm(3)=fnm(4) = 50 - 50*(-1)      = 100
+  #   fnm(ln)       = 50                       for all other ln (2, 5..9)
+  #
+  # Corrected by the #47 fidelity audit. The previous values (-50/0/50) came
+  # from a true=+1 reading and produced a "negative-rent quirk" in which tile
+  # ln=1 PAID the tenant — which also made the affordability check at :10035
+  # (`ifka(sp)<x*p`) permanently false, i.e. dead code. Under true=-1 the tiers
+  # are an ordinary premium/standard/cheap ladder and that check is live.
   #
   # Encoded as a base plus explicit per-ln overrides. The engine's fnm(ln,
   # params) helper returns overrides[ln] if present, else base.
   fnm:
     base: 50
     overrides:
-      1: -50   # negative-rent quirk
-      3: 0
-      4: 0
+      1: 150   # premium tile
+      3: 100
+      4: 100
 
   # Game-balance numbers for the sph (casino) and waf (weapon shop) handlers
   # (KTD-10). Every tunable the new engine effects consume as a PARAMETER lives

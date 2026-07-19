@@ -17,8 +17,9 @@ Faithfulness notes
 - ALL game-balance numbers come from ``formula_params`` (KTD-10) — prices, caps, gain
   ranges, ratios, roll odds are read from config and passed into the effects, never
   hardcoded here.
-- Every relational term uses the ``true = +1`` porting convention (KTD-9; see
-  ``docs/solutions/.../basic-relational-boolean-is-plus-one-when-porting.md``).
+- Every relational term uses the C64 ``true = -1`` evaluation (see
+  ``docs/solutions/.../basic-relational-boolean-is-plus-one-when-porting.md``, which
+  the #47 fidelity audit reversed from the earlier, circular ``true = +1`` pin).
 - Stat gates are HANDLER branching, not shell guards (KTD-3): they test the CHOSEN
   gangster mid-handler, which the option-entry guard DSL cannot express.
 - No content-specific events (KTD-6): outcomes are reconstructable from the committed
@@ -185,25 +186,29 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
         x8 = ctx.state.config.score_mult
 
         if old == 0:
-            # 13065 — no old weapon: q=0, first weapon nudges score DOWN by x8 (gf<100).
+            # 13065 — no old weapon: q=0. `gf = gf - x8*(gf<100)` with the C64
+            # true=-1 evaluation is score UP by x8 while gf<100: arming a
+            # previously unarmed gangster raises the gang's notoriety.
             q = 0
             if active.gf < 100:
-                ctx.apply(ScoreChange(-x8))
+                ctx.apply(ScoreChange(x8))
         else:
             # 13070-13071 — trade-in offer on the OLD weapon's price, yes/no confirm.
             q = int(weapons[old]["price"] / params["trade_in_divisor"])
             yield ShowMessage("locations.waf.trade_in_offer", {"amount": q})
             if not (yield Confirm("locations.waf.trade_in_confirm")):
                 return False  # 13071 "n" -> back to the weapon list
-            # 13072/13073 — score sign by index comparison (KTD-9 true=+1):
-            #   new index x > old  -> DOWN by x8   (while gf<100)
-            #   new index x <= old -> UP by 2*x8   (while gf>0)
+            # 13072/13073 — score sign by index comparison, C64 true=-1.
+            # Weapon indices ascend in power/price (DATA 50100-50115), so
+            # `x > old` is an UPGRADE:
+            #   13072 upgrade    `gf - x8*(gf<100)`   -> UP by x8    (while gf<100)
+            #   13073 downgrade  `gf + x8*2*(gf>0)`   -> DOWN by 2*x8 (while gf>0)
             if x > old:
                 if active.gf < 100:
-                    ctx.apply(ScoreChange(-x8))
+                    ctx.apply(ScoreChange(x8))
             else:
                 if active.gf > 0:
-                    ctx.apply(ScoreChange(2 * x8))
+                    ctx.apply(ScoreChange(-2 * x8))
 
         # 13075 — settle: cash += q - new_price; assign the weapon to the gangster.
         # Use the picked index y directly (roster.index(g) could resolve to the wrong
@@ -277,11 +282,14 @@ def waf_train(ctx):
             return []
         yield ShowMessage("locations.waf.range_enter")
         ctx.apply(MoneyChange(-p))  # 13125 ka -= p
-        # 13125-13127 — ln-modified stat gains (KTD-9 true=+1), each capped at 99:
+        # 13125-13127 — ln-modified stat gains (C64 true=-1), each capped at 99:
         #   kr += 5 ; in += 3 - 2*(ln=1) ; bt += 2 - 3*(ln=2)
+        # A true relational is -1, so the ln-matching tile ADDS to the gain:
+        # in += 5 at ln=1, bt += 5 at ln=2. (The old true=+1 reading made the
+        # bt gain -1 — a training session that damaged the stat.)
         ctx.apply(StatChangeCapped("kraft", 5, cap=cap, gangster=y))
-        ctx.apply(StatChangeCapped("intelligenz", 3 - 2 * (1 if ln == 1 else 0), cap=cap, gangster=y))
-        ctx.apply(StatChangeCapped("brutalitaet", 2 - 3 * (1 if ln == 2 else 0), cap=cap, gangster=y))
+        ctx.apply(StatChangeCapped("intelligenz", 3 - 2 * (-1 if ln == 1 else 0), cap=cap, gangster=y))
+        ctx.apply(StatChangeCapped("brutalitaet", 2 - 3 * (-1 if ln == 2 else 0), cap=cap, gangster=y))
         # 13130 — score training reward x=1.
         ctx.apply(score_and_rank(1, params))
     return []

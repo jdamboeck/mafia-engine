@@ -9,7 +9,7 @@ Covers:
   seeds differ) — every roll flows through ``ctx.rng``, never ``random``.
 - The 500000 cheat branch is absent (cash always in the 5000-7000 band).
 - ``engine_api == 1`` validation via ``load_config``.
-- The ``fnm`` rent-formula params (fnm(1)==-50 negative-rent quirk).
+- The ``fnm`` rent-formula params (fnm(1)==150 premium tile).
 - Input-range validation (end_year, score_weight, player count).
 - Vehicle/rank entity data.
 """
@@ -142,12 +142,21 @@ def test_load_config_rejects_missing_version(tmp_path):
 # --- fnm rent formula ------------------------------------------------------
 
 
-def test_fnm_negative_rent_quirk():
+def test_fnm_rent_tiers():
+    # :115 `deffnm(ln) = 50 - 50*(ln=3 or ln=4) - 100*(ln=1)`, C64 true = -1:
+    #   ln=1   -> 50 - 0     - 100*(-1) = 150  (premium tile)
+    #   ln=3,4 -> 50 - 50*(-1)          = 100
+    #   else   -> 50
+    #
+    # #47 audit: this asserted -50/0/50 — a "negative-rent quirk" in which tile ln=1
+    # PAID the tenant. That came from the since-reversed true=+1 pin, and it also made
+    # the affordability check at :10035 (`ifka(sp)<x*p`) permanently false, i.e. dead
+    # code. Under the C64 reading these are an ordinary premium/standard/cheap ladder.
     cfg = load_config(CONFIG_PATH)
     params = cfg["formula_params"]["fnm"]
-    assert fnm(1, params) == -50  # negative-rent quirk — headline
-    assert fnm(3, params) == 0
-    assert fnm(4, params) == 0
+    assert fnm(1, params) == 150  # premium tile — headline
+    assert fnm(3, params) == 100
+    assert fnm(4, params) == 100
     assert fnm(2, params) == 50
     assert fnm(5, params) == 50
     for ln in (6, 7, 8, 9):

@@ -106,17 +106,15 @@ def _backdrop(name: str) -> tuple[int, ...]:
 def _completion_score(job_type: int) -> float:
     """The job-completion score bonus -- ports ``mf-prg.bas:25560``: ``x=3+3*(jo(sp)=2)``.
 
-    Every job type scores 3, EXCEPT the croupier job (type 2), which the source's
-    relational factor ``(jo(sp)=2)`` would evaluate to -1 under strict C64 semantics
-    (giving ``3+3*(-1)=0``), yet the plan's Open Questions explicitly resolves this
-    site to the RESEARCH interpretation (6) rather than the raw C64 evaluation --
-    "Default to 6 (interpretation + project convention agree)". This is the SAME
-    relational-sign landmine the ``basic-relational-boolean-is-plus-one-when-porting``
-    solution doc pins to ``true=+1`` (which ALSO gives 6 here: ``3+3*1=6``) -- both the
-    project's default convention and the plan's explicit resolution agree on 6, so
-    this is not a judgment call this port is making alone.
+    Every job type scores 3, EXCEPT the croupier job (type 2), which scores **0**:
+    the relational ``(jo(sp)=2)`` is -1 in C64 BASIC, giving ``3+3*(-1)=0``.
+
+    Corrected by the #47 fidelity audit. This previously returned 6, following the
+    research gloss and the since-reversed ``true=+1`` pin. 0 is also the reading that
+    makes design sense: the croupier is the one job that already paid an immediate
+    per-shift bonus (``:25125-25126``), so it earns no completion award on top.
     """
-    return 6.0 if job_type == JOB_CROUPIER else 3.0
+    return 0.0 if job_type == JOB_CROUPIER else 3.0
 
 
 def _fight(ctx, *, opponent: dict, backdrop: str):

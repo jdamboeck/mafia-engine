@@ -197,21 +197,26 @@ def _play_trajectory():
     obs["rented_months_after_rent"] = p.rented_months
 
     # ================================================================= #
-    # NEGATIVE-RENT QUIRK: renting fnm(1) == -50 CREDITS the player.      #
-    #    Fresh state + ln=1 tile so the credit is clean and isolated.     #
+    # PREMIUM TILE: renting fnm(1) == 150 costs triple the base rate.     #
+    #    Fresh state + ln=1 tile so the charge is clean and isolated.     #
+    #                                                                     #
+    # #47 audit: this block previously asserted a "negative-rent quirk"    #
+    # in which fnm(1) == -50 CREDITED the tenant +100 for 2 months. That   #
+    # came from the since-reversed true=+1 pin; :115 under C64 semantics   #
+    # is 50 - 100*(-1) = 150, an ordinary premium tier.                    #
     # ================================================================= #
     neg_state = _fresh_state()
-    neg_state = with_player(neg_state, 0, last_location=1)  # tile 1 -> fnm(1) == -50
+    neg_state = with_player(neg_state, 0, last_location=1)  # tile 1 -> fnm(1) == 150
     ka_before_neg = neg_state.players[0].ka
-    neg_rec = _Recorder(2)  # rent 2 months at the premium (paying) unit
+    neg_rec = _Recorder(2)  # rent 2 months at the premium unit
     neg_result = _drive_option(slw, "rent", neg_state, ln=1, recorder=neg_rec)
     assert neg_result.status == "completed"
     neg_state = neg_result.state
-    # MoneyChange(-(x*p)) = -(2 * -50) = +100 -> cash INCREASES. Faithful quirk.
-    assert neg_state.players[0].ka == ka_before_neg + 100
+    # MoneyChange(-(x*p)) = -(2 * 150) = -300 -> cash DECREASES.
+    assert neg_state.players[0].ka == ka_before_neg - 300
     assert neg_state.map.tenancy[1] == 0
-    obs["cash_after_negative_rent"] = neg_state.players[0].ka
-    obs["negative_rent_delta"] = neg_state.players[0].ka - ka_before_neg
+    obs["cash_after_premium_rent"] = neg_state.players[0].ka
+    obs["premium_rent_delta"] = neg_state.players[0].ka - ka_before_neg
 
     # ================================================================= #
     # B. Guard denials (zero effects; handler NEVER entered — KTD-8).     #
@@ -302,8 +307,8 @@ def test_vertical_slice_end_to_end():
     assert obs["tenancy_after_rent"] == {2: 0}
     assert obs["rented_months_after_rent"] == 2
 
-    # Negative-rent tile CREDITED exactly 100 (the faithful quirk).
-    assert obs["negative_rent_delta"] == +100
+    # Premium tile (fnm(1)==150) debited exactly 300 for 2 months.
+    assert obs["premium_rent_delta"] == -300
 
     # Walk bookkeeping.
     assert obs["po_after_slw_walk"] == 181 and obs["ms_after_slw_walk"] == 19

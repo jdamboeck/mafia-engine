@@ -42,7 +42,7 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "m
 
 
 # --------------------------------------------------------------------------- #
-# Placement — DATA 50400 stagger offsets, side anchors 129 (side1) / 111 (side2) #
+# Placement — DATA 50400 stagger offsets, side anchors 129 (side1) / 147 (side2) #
 # --------------------------------------------------------------------------- #
 def test_stagger_offsets_match_research_data_table():
     # mf-prg.bas:50400 — DATA 122,81,161,120,42,202,40,200,1,241
@@ -54,11 +54,18 @@ def test_side1_anchor_is_129():
     assert SIDE1_ANCHOR == 129
 
 
-def test_side2_anchor_is_111_under_pinned_true_plus_one_convention():
-    # i=2 -> (i=2) true -> contributes +1 (pinned porting convention, docs/solutions/
-    # architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md):
-    # 129 - 18*1 = 111.
-    assert SIDE2_ANCHOR == 111
+def test_side2_anchor_is_147_under_c64_true_is_minus_one():
+    # i=2 -> (i=2) is true = -1 in C64 BASIC: 129 - 18*(-1) = 147.
+    #
+    # #47 audit: this asserted 111 under the since-reversed true=+1 pin. The sign is
+    # settled structurally by the sibling expressions in the SAME line block, each of
+    # which is malformed under true=+1:
+    #   :30010 `2-4*(i=2)` is a colour code 0..15 -> 6 (blue), not -2
+    #   :30015 `poke211,-20*(i=2)` is a cursor COLUMN -> 20, not -20
+    #   :30108 `s=1-(s=1)` is the side toggle -> 2, not 0
+    # See docs/solutions/architecture-patterns/
+    # basic-relational-boolean-is-plus-one-when-porting.md.
+    assert SIDE2_ANCHOR == 147
 
 
 @pytest.mark.parametrize("slot,offset", list(enumerate(STAGGER_OFFSETS, start=1)))
@@ -68,7 +75,7 @@ def test_placement_position_side1_matches_anchor_plus_offset(slot, offset):
 
 @pytest.mark.parametrize("slot,offset", list(enumerate(STAGGER_OFFSETS, start=1)))
 def test_placement_position_side2_matches_anchor_plus_offset(slot, offset):
-    assert placement_position(SIDE2_ANCHOR, slot) == 111 + offset
+    assert placement_position(SIDE2_ANCHOR, slot) == 147 + offset
 
 
 def test_placement_positions_for_one_through_ten_fighters():
@@ -135,8 +142,8 @@ def test_build_enemy_side_fixed_kraft_brutalitaet_30():
 
 def test_build_enemy_side_placement_uses_side2_anchor():
     side = build_enemy_side(count=2, weapon=0, energie=5)
-    assert side[0].position == 111 + STAGGER_OFFSETS[0]
-    assert side[1].position == 111 + STAGGER_OFFSETS[1]
+    assert side[0].position == 147 + STAGGER_OFFSETS[0]
+    assert side[1].position == 147 + STAGGER_OFFSETS[1]
 
 
 def test_build_enemy_side_zero_count():

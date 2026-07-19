@@ -163,25 +163,30 @@ def test_range_default_ln_gains():
     assert ScoreAndRank(amount=1, rank_divisor=11.1) in result.effects
 
 
-def test_range_ln1_intelligence_plus_one():
-    # ln=1: int += 3 - 2 = 1 (KTD-9 true=+1).
+def test_range_ln1_intelligence_plus_five():
+    # :13126 `in = in + 3 - 2*(ln=1)`; at ln=1 the relational is true = -1, so
+    # in += 3 - 2*(-1) = 5. (#47 audit: this asserted 1 under the reversed pin.)
     st = _state(ln=1, rank=1, ka=100000)
     result = run_pure(
         HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
         state=st, rng=_StubRng(),
     )
-    assert StatChangeCapped("intelligenz", 1, cap=99, gangster=0) in result.effects
+    assert StatChangeCapped("intelligenz", 5, cap=99, gangster=0) in result.effects
     assert StatChangeCapped("kraft", 5, cap=99, gangster=0) in result.effects
 
 
-def test_range_ln2_brutality_net_minus_one():
-    # ln=2: brut += 2 - 3 = -1.
+def test_range_ln2_brutality_plus_five():
+    # :13127 `bt = bt + 2 - 3*(ln=2)`; at ln=2 -> bt += 2 - 3*(-1) = 5.
+    #
+    # #47 audit: this asserted -1 — i.e. that a paid shooting-range session made the
+    # gangster LESS brutal. That was the true=+1 reading; a training stat gain is
+    # never negative in the source.
     st = _state(ln=2, rank=1, ka=100000)
     result = run_pure(
         HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
         state=st, rng=_StubRng(),
     )
-    assert StatChangeCapped("brutalitaet", -1, cap=99, gangster=0) in result.effects
+    assert StatChangeCapped("brutalitaet", 5, cap=99, gangster=0) in result.effects
 
 
 def test_range_gains_cap_at_99():

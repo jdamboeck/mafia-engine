@@ -103,21 +103,21 @@ STAGGER_OFFSETS: tuple[int, ...] = (122, 81, 161, 120, 42, 202, 40, 200, 1, 241)
 
 #: Side anchors from ``mf-prg.bas:30000``: ``kp(i,j) = 129-18*(i=2) + p(j)``.
 #: Side 1 (i=1): ``(i=2)`` is false (0) -> anchor 129. Side 2 (i=2): ``(i=2)`` is
-#: true, and per this project's PINNED porting convention a true relational
-#: contributes +1, never the raw-C64 -1
-#: (docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md
-#: — "settled, not a judgment call", verified by the shipped `fnm` negative-rent
-#: quirk) -> anchor = 129 - 18*1 = 111. The oracle's OWN interpretation note for
-#: this exact line agrees: "129 for side 1, 129-18 for side 2" (=111), and the
-#: sibling colour expression on the same line block (`2-4*(i=2)`, mf-prg.bas:30010)
-#: is documented the same way (side 2 -> -2, not the raw-C64 +6). NOTE: this
-#: conflicts with this unit's own plan prose ("side anchors 129/147"), which reads
-#: as the raw C64 true=-1 evaluation (129-18*(-1)=147) — flagged in the U4 report
-#: for orchestrator review; KTD-9 resolves conflicts between decompiled code and
-#: prose/research-interpretation in favour of the decompiled code + pinned
-#: convention, so 111 is what ships.
+#: true, which in C64 BASIC is -1 -> anchor = 129 - 18*(-1) = 147.
+#:
+#: Corrected by the #47 fidelity audit (this previously shipped 111, from the
+#: since-reversed true=+1 pin). The sibling expressions in this same block decide
+#: the sign structurally, and all three fail under true=+1:
+#:   :30010 ``pokefr+kp(i,j),2-4*(i=2)`` — a C64 colour code (0..15). true=-1
+#:          gives 6 (blue) for side 2 vs 2 (red) for side 1; true=+1 gives -2.
+#:   :30015 ``poke211,-20*(i=2)`` — 211/$D3 is the KERNAL cursor COLUMN and
+#:          cannot be negative. true=-1 puts side 2's label at column 20 (the
+#:          right half of the 40-column screen); true=+1 gives -20.
+#:   :30108 ``s=1-(s=1)`` — the side toggle, which must map 1<->2. true=-1 gives
+#:          1->2 and 2->1; true=+1 gives 1->0, a nonexistent side.
+#: 147 also matches this unit's plan prose ("side anchors 129/147").
 SIDE1_ANCHOR = 129
-SIDE2_ANCHOR = 129 - 18  # 111, per the pinned true=+1 convention (see note above)
+SIDE2_ANCHOR = 129 + 18  # 147 — (i=2) is true = -1, so 129 - 18*(-1)
 
 
 def placement_position(anchor: int, slot: int) -> int:
@@ -578,13 +578,11 @@ class CombatFight:
         """The other side index.
 
         Ports the source's ``1-(s=1)`` side toggle (``mf-prg.bas:30106``, ``30108``,
-        ``30250``). This is a *structural* toggle, not a numeric formula with a
-        relational coefficient: the research interpretation for all three lines reads
-        it as "the opposing side" / "hand the turn to the other side", and porting
-        that documented prose result — rather than either raw evaluation — is exactly
-        what the pinned relational convention mandates
-        (docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md:
-        "port the prose result, not a raw C64 evaluation").
+        ``30250``). Under the C64 ``true = -1`` evaluation this computes directly:
+        ``s=1`` -> ``1-(-1) = 2`` and ``s=2`` -> ``1-0 = 1``. (This line is in fact one
+        of the structural proofs that the relational is -1 and not +1, which would give
+        ``1-1 = 0`` — a side that does not exist. See
+        docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md.)
         """
         return 2 if side == 1 else 1
 
@@ -827,14 +825,13 @@ class CombatFight:
         (:meth:`_ai_step`) rather than re-deriving the relational per site.
 
         (Relational-sign note, per docs/solutions/architecture-patterns/
-        basic-relational-boolean-is-plus-one-when-porting.md: that doc's binding
-        instruction is *"port the prose result, not a raw C64 evaluation"*. The prose
-        result here is pinned independently by the four literal sidestep guards, so no
-        sign convention needs to be applied to ``(1+2*(x=1))`` at all. For the record,
-        the raw C64 reading happens to agree — ``true=-1`` makes ``1+2*(x=1)`` equal
-        ``-x`` — while the ``true=+1`` reading would yield the nonsensical ``3`` for a
-        rightward step and an asymmetric ``1`` for a leftward one. This is a site where
-        the two readings diverge and the literals settle it; flagged for the record.)
+        basic-relational-boolean-is-plus-one-when-porting.md: the four literal sidestep
+        guards pin the rule independently of any sign convention, and the C64
+        ``true = -1`` evaluation agrees with them — it makes ``1+2*(x=1)`` equal
+        ``-x``, the exact reverse of the last step. The since-reversed ``true=+1``
+        pin would have yielded the nonsensical ``3`` for a rightward step and an
+        asymmetric ``1`` for a leftward one. This site was one of the five conflicts
+        that prompted the #47 audit; it is now simply consistent with the convention.)
 
         The seed value ``ri=-1`` (``30020``) is not neutral: it is a real leftward step,
         so a freshly-spawned enemy will not open the fight by stepping right. That is

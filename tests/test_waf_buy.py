@@ -392,32 +392,43 @@ def test_trade_in_decline_returns_to_weapon_list():
 
 
 # --------------------------------------------------------------------------- #
-# Trade-in score signs (R9, KTD-9 true=+1)                                    #
+# Trade-in score signs (R9) — C64 true=-1, corrected by the #47 fidelity audit  #
+#                                                                              #
+# These three tests previously asserted the exact opposite signs, encoding the  #
+# since-reversed true=+1 pin: they claimed that arming a gangster and buying a  #
+# BETTER weapon LOWERED the gang's notoriety, while DOWNGRADING raised it.      #
+# Weapon indices ascend in power and price (DATA 50100-50115: 0 `haende` 0$ ..  #
+# 7 `handgranaten` 10000$), and `gf` is notoriety — positive for successes      #
+# (x=2 won fights/heists), negative for failures (x=-2/-5/-10). The corrected   #
+# signs below are the C64 evaluation and the only ones consistent with that.    #
 # --------------------------------------------------------------------------- #
-def test_score_first_weapon_down_by_x8():
-    # Unarmed, gf<100 -> score DOWN by x8 (score_mult=1.0 -> -1).
+def test_score_first_weapon_up_by_x8():
+    # :13065 `gf = gf - x8*(gf<100)`; (gf<100) is true = -1 -> score UP by x8.
+    # Arming a previously unarmed gangster raises notoriety.
     st = _state(ln=2, ka=1000, gf=50.0, score_mult=1.0)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(-1.0) in result.effects
+    assert ScoreChange(1.0) in result.effects
 
 
-def test_score_new_index_higher_than_old_is_down():
-    # old weapon 1 (messer), buy revolver 5 (x=5 > old=1) -> DOWN by x8 (gf<100).
+def test_score_upgrade_new_index_higher_than_old_is_up():
+    # :13072 — old weapon 1 (messer), buy revolver 5. x=5 > old=1 is an UPGRADE
+    # (higher index = better weapon), so `gf - x8*(gf<100)` -> UP by x8.
     roster = (Gangster(name="g", weapon=1, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([5]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(-1.0) in result.effects
+    assert ScoreChange(1.0) in result.effects
 
 
-def test_score_new_index_not_higher_is_up_by_2x8():
-    # old weapon 5 (revolver), buy messer 1 (x=1 <= old=5) -> UP by 2*x8 (gf>0).
+def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
+    # :13073 — old weapon 5 (revolver), buy messer 1. x=1 <= old=5 is a DOWNGRADE,
+    # so `gf + x8*2*(gf>0)` with (gf>0) true = -1 -> DOWN by 2*x8.
     roster = (Gangster(name="g", weapon=5, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(2.0) in result.effects
+    assert ScoreChange(-2.0) in result.effects
 
 
 def test_score_gate_false_no_change():

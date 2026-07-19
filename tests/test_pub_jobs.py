@@ -290,16 +290,20 @@ def test_croupier_full_lifecycle_two_shifts_then_lump_sum():
 
 
 # --------------------------------------------------------------------------- #
-# The croupier completion score: 6, not the raw relational 0 or the generic 3 #
+# The croupier completion score: 0 (:25560 `x=3+3*(jo=2)`, relational true=-1)  #
 # --------------------------------------------------------------------------- #
-def test_croupier_completion_score_is_six():
+def test_croupier_completion_score_is_zero():
+    # #47 audit: this asserted 6, from the research gloss and the since-reversed
+    # true=+1 pin. The C64 evaluation is 3+3*(-1) = 0, which is also the reading
+    # that makes design sense — the croupier is the one job that already paid an
+    # immediate per-shift bonus (:25125-25126), so no completion award on top.
     from engine.effects import ScoreAndRank
 
     st = _state(jobs=Job(type=2, pending_pay=1200, months_left=1), ka=1000)
     rng = _StubRng(1, 300)
     result = run_pure(HANDLERS["job.shift"], _scripted(1), state=st, rng=rng)
     score_effects = [e for e in result.effects if isinstance(e, ScoreAndRank)]
-    assert score_effects == [ScoreAndRank(amount=6.0, rank_divisor=11.1)]
+    assert score_effects == [ScoreAndRank(amount=0.0, rank_divisor=11.1)]
 
 
 def test_non_croupier_completion_score_is_three():
