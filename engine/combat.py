@@ -77,8 +77,6 @@ __all__ = [
     "build_player_side",
     "build_enemy_side",
     "setup_combat",
-    "is_hit",
-    "damage_roll",
     "AiTarget",
     "ai_target",
     "CombatFight",
@@ -384,27 +382,12 @@ class RulesBundle:
         return tuple(dict.fromkeys(keys))
 
 
-def is_hit(rng: Any, *, ts: int, kraft: int) -> bool:
-    """Roll the two miss factors; return True iff the shot connects.
-
-    DEPRECATED (U2): superseded by the game's own ``hit_fn``
-    (``data/game_configs/mafia_1920s/combat_rules.py``), which carries this
-    docstring and its BASIC citation forward verbatim. Retained only until U2's
-    differential tests have proven the two equivalent; deleted in step 7.
-    """
-    weapon_factor = rng.range(ts) if ts > 0 else 0
-    craft_factor = rng.range(kraft // 10 + 1)
-    return weapon_factor != 0 and craft_factor != 0
-
-
-def damage_roll(rng: Any, *, tg: int, brutalitaet: int) -> int:
-    """Roll one hit's damage.
-
-    DEPRECATED (U2): superseded by the game's own ``damage_fn`` — see
-    :func:`is_hit`'s note. Deleted in step 7.
-    """
-    draw = rng.range(tg) if tg > 0 else 0
-    return int(draw + brutalitaet / 10) + 1
+# The hit/damage formulas that lived here (``is_hit``/``damage_roll``) are gone (U2):
+# they name this game's ``kraft``/``brutalitaet`` and so are POLICY, not mechanism.
+# They now live in ``data/game_configs/mafia_1920s/combat_rules.py`` as the rules
+# bundle's ``hit_fn``/``damage_fn``, reading the attacker's attributes by role. The
+# engine calls them through the bundle and never spells a stat name. The full-domain
+# differential in ``tests/test_combat_rules.py`` proved the move exact before deletion.
 
 
 # --------------------------------------------------------------------------- #

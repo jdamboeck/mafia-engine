@@ -24,8 +24,6 @@ from engine.combat import (
     DEFAULT_RANGE,
     RANGE_MELEE,
     STEP_RIGHT,
-    damage_roll,
-    is_hit,
 )
 from engine.effects import MoneyChange
 from engine.rng import Rng
@@ -177,51 +175,11 @@ def test_an_invented_weapon_is_melee_iff_its_range_is_adjacent_only():
     assert melee(42) is False  # out-reaches a neighbour -> ranged
 
 
-@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
-def test_hit_check_misses_when_either_factor_rolls_zero(weapon, ts, tg, wrange):
-    # 30247: miss iff int(rnd*ts(w))=0 OR int(rnd*(kr/10+1))=0.
-    kraft = 30  # -> kr/10+1 = 4 -> range(4)
-
-    # weapon factor zero -> miss (second factor not even reached in the source's OR,
-    # but the port draws both to keep the RNG log shape stable; assert the outcome).
-    rng = _StubRng(0, 1)
-    assert is_hit(rng, ts=ts, kraft=kraft) is False
-
-    # craft factor zero -> miss
-    rng = _StubRng(1, 0)
-    assert is_hit(rng, ts=ts, kraft=kraft) is False
-
-    # neither zero -> hit
-    rng = _StubRng(1, 1)
-    assert is_hit(rng, ts=ts, kraft=kraft) is True
-
-
-def test_hit_check_draw_arguments_are_ts_and_kraft_over_ten_plus_one():
-    rng = _StubRng(1, 1)
-    is_hit(rng, ts=5, kraft=37)
-    # int(37/10)+1 == 4 — BASIC's int() truncation on kr/10+1.
-    assert rng.calls == [("range", 5), ("range", 4)]
-
-
-@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
-def test_damage_bounds_per_weapon(weapon, ts, tg, wrange):
-    # 30255: y = int(rnd*tg(w) + bt/10) + 1.
-    # minimum: rnd draw 0, brutalitaet 0 -> 1
-    assert damage_roll(_StubRng(0), tg=tg, brutalitaet=0) == 1
-    # maximum: rnd draw tg-1, brutalitaet 99 -> (tg-1) + 9 + 1
-    assert damage_roll(_StubRng(tg - 1), tg=tg, brutalitaet=99) == tg + 9
-
-
-def test_damage_draw_uses_tg_and_truncates_brutalitaet_over_ten():
-    rng = _StubRng(3)
-    # int(3 + 35/10) + 1 = int(3 + 3.5) + 1 = 6 + 1 = 7
-    assert damage_roll(rng, tg=10, brutalitaet=35) == 7
-    assert rng.calls == [("range", 10)]
-
-
-def test_damage_is_never_zero():
-    for weapon, ts, tg, _wrange in WEAPON_TABLE:
-        assert damage_roll(_StubRng(0), tg=tg, brutalitaet=0) >= 1
+# The per-weapon hit/damage formula tests moved to tests/test_combat_rules.py when the
+# formulas moved out of the engine (U2): they now exercise the config's own hit_fn /
+# damage_fn — the live path — over the same WEAPON_TABLE ids, plus the full 0..99
+# attribute domain the engine copies never covered. The engine no longer defines a
+# hit or damage formula to test here.
 
 
 # --------------------------------------------------------------------------- #

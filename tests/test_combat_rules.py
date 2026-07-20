@@ -20,6 +20,7 @@ import pytest
 
 import data.game_configs.mafia_1920s.combat_rules as game_rules
 from engine.rng import Rng
+from tests.helpers import StubRng
 
 #: The full reachable stat domain (see module docstring).
 STAT_DOMAIN = range(0, 100)
@@ -88,6 +89,51 @@ def test_damage_roll_truncates_the_brutalitaet_bonus_and_always_costs_one():
     assert game_rules.damage_roll(9, {"ts": 0, "tg": 0}, Rng(1)) == 1
     assert game_rules.damage_roll(10, {"ts": 0, "tg": 0}, Rng(1)) == 2
     assert game_rules.damage_roll(25, {"ts": 0, "tg": 0}, Rng(1)) == 3
+
+
+@pytest.mark.parametrize("ts", [t for t in WEAPON_STAT_DOMAIN if t > 0])
+def test_hit_misses_when_either_factor_rolls_zero(ts):
+    """30247: a shot misses iff EITHER factor rolls 0. Moved from the engine's own
+    formula tests when the formula moved out (U2); now on the live config path.
+
+    ``ts`` is restricted to > 0 here: at ``ts == 0`` the weapon factor is a forced 0
+    (the draw is skipped entirely), so the "neither rolls zero" case cannot arise —
+    an unarmed weapon always misses, which ``test_unarmed_always_misses`` pins.
+    """
+    kraft = 30  # kr/10+1 = 4
+    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(0, 1)) is False  # weapon 0
+    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(1, 0)) is False  # craft 0
+    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(1, 1)) is True  # neither
+
+
+def test_unarmed_always_misses():
+    """``ts == 0`` forces the weapon factor to 0, so the shot never connects (the
+    craft factor is not even drawn)."""
+    rng = StubRng(1)  # would be a hit if the weapon factor were read
+    assert game_rules.is_hit(50, {"ts": 0, "tg": 0}, rng) is False
+    assert rng.calls == [("range", 6)]  # only the craft draw, bound int(50/10)+1
+
+
+def test_hit_draws_ts_then_kraft_over_ten_plus_one():
+    """The two factors are drawn with bounds ``ts`` and ``int(kr/10)+1`` in that order."""
+    rng = StubRng(1, 1)
+    game_rules.is_hit(37, {"ts": 5, "tg": 0}, rng)
+    assert rng.calls == [("range", 5), ("range", 4)]  # int(37/10)+1 == 4
+
+
+@pytest.mark.parametrize("tg", WEAPON_STAT_DOMAIN)
+def test_damage_bounds_and_never_zero(tg):
+    """30255: minimum hit is 1 (draw 0, bt 0); maximum is (tg-1) + 9 + 1."""
+    assert game_rules.damage_roll(0, {"ts": 0, "tg": tg}, StubRng(0)) == 1
+    hi_draw = max(tg - 1, 0)
+    assert game_rules.damage_roll(99, {"ts": 0, "tg": tg}, StubRng(hi_draw)) == hi_draw + 9 + 1
+
+
+def test_damage_draw_uses_tg_only():
+    """The damage roll draws once, bounded by ``tg`` — brutalitaet is not a draw."""
+    rng = StubRng(3)
+    assert game_rules.damage_roll(35, {"ts": 0, "tg": 10}, rng) == 7  # int(3 + 3.5) + 1
+    assert rng.calls == [("range", 10)]
 
 
 def test_bundle_declares_this_games_roles():
