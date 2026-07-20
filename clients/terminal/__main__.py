@@ -41,10 +41,22 @@ from clients.terminal import (
     DIM,
     RESET,
     TerminalInput,
+    check_resize,
+    hide_cursor,
+    install_sigwinch_handler,
     render_result,
+    show_cursor,
 )
+from clients.terminal.ascii_art import location_art, title_screen
 from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, fg, load_palette
-from clients.terminal.renderers import render_status_bar_from_state
+from clients.terminal.renderers import (
+    render_body,
+    render_header,
+    render_menu_option,
+    render_prompt,
+    render_screen_clear,
+    render_status_bar_from_state,
+)
 
 _CONFIG_DIR = (
     Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
@@ -271,18 +283,8 @@ def _run_location(
     through every handler call for this location. Any handler that draws
     (``ctx.rng.range``/``ctx.rng.hit``) needs a real :class:`Rng`, not ``None``.
     """
-    import sys as _sys
     if stdin is None:
-        stdin = _sys.stdin
-    from clients.terminal import hide_cursor, show_cursor
-    from clients.terminal.ascii_art import location_art
-    from clients.terminal.renderers import (
-        render_header,
-        render_body,
-        render_menu_option,
-        render_prompt,
-        render_screen_clear,
-    )
+        stdin = sys.stdin
 
     if not _shell_exists(location_key):
         # No state change, and no move spent beyond try_move's door-step charge.
@@ -371,11 +373,8 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
     non-cancellable (KTD-9), so a quit during the fight surrenders — losing it, and
     triggering the seizure — rather than escaping upkeep.
     """
-    import sys as _sys
     if stdin is None:
-        stdin = _sys.stdin
-    from clients.terminal import hide_cursor, show_cursor
-    from clients.terminal.renderers import render_body, render_header, render_screen_clear
+        stdin = sys.stdin
 
     result = run_upkeep(state, input_source=inp, rng=rng)
     new_state = result.state  # adopt (run_upkeep is pure)
@@ -428,8 +427,6 @@ def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rn
     real terminal ``inp`` so the shift's ``StartCombat`` fights render exactly like
     any other in-slice fight.
     """
-    from clients.terminal.renderers import render_header, render_screen_clear
-
     render_screen_clear(out)
     render_header("job", out)
     result = run_handler(HANDLERS["job.shift"], inp, state=state, rng=rng)
@@ -448,10 +445,6 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
     seeding contract — ownership may move to the server/driver when the network
     transport lands, per the plan's Open Questions).
     """
-    from clients.terminal import hide_cursor, show_cursor
-    from clients.terminal import check_resize, install_sigwinch_handler
-    from clients.terminal.ascii_art import title_screen
-
     out = sys.stdout
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cfg = load_game_config(_CONFIG_DIR)
@@ -542,11 +535,6 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
                     if getattr(payload, "turn_over", False):
                         break
 
-            from clients.terminal.renderers import (
-                render_header,
-                render_body,
-                render_screen_clear,
-            )
             p = state.players[state.clock.active_player]
             render_screen_clear(out)
             render_header("turn_over", out)
