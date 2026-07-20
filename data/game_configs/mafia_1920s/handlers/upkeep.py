@@ -116,7 +116,7 @@ _COLLECTORS_BACKDROP = "ks"
 
 
 def _weapon_stats() -> dict:
-    """This config's weapon id -> ``(ts, tg)`` table, for ``StartCombat.weapon_stats``.
+    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
 
     Matches ``kdh.py``/``jobs.py``'s fresh-per-call loader (KTD-7: a handler reads its
     OWN config's entity data, never the engine's).

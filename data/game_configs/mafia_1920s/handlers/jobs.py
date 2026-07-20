@@ -94,7 +94,7 @@ _KILLER_VICTIM = {"name": "opfer", "weapon": 0, "energie": 20}
 
 
 def _weapon_stats() -> dict:
-    """This config's weapon id -> ``(ts, tg)`` table, for ``StartCombat.weapon_stats``.
+    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
 
     Fresh per call (KTD-7: the config is frozen per game, so re-reading is harmless),
     mirroring ``waf.py``'s ``_weapons()``/``pub.py``'s ``_vehicles()`` pattern.

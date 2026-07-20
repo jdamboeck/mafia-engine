@@ -938,9 +938,12 @@ class TestInteractiveCombatThroughTerminalInput:
         return handler
 
     def _weapon_stats(self):
+        # Must stay a (ts, tg, range) triple: dropping `range` does not fail loudly —
+        # the engine falls back to DEFAULT_RANGE and every weapon silently becomes
+        # melee, so a ranged shot in these tests would never reach its target.
         cfg = load_game_config(_CONFIG_DIR)
         weapons = cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
-        return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
+        return {i: (w["ts"], w["tg"], w["range"]) for i, w in enumerate(weapons)}
 
     def _weapon_names(self):
         cfg = load_game_config(_CONFIG_DIR)

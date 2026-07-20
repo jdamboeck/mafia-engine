@@ -495,10 +495,12 @@ class CombatFight:
     rules with no client in the loop, and what keeps the future async transport a
     pure swap of the driver half.
 
-    ``weapon_stats`` maps a weapon id to its ``(ts, tg)`` pair — CONFIG data
-    (``data/game_configs/mafia_1920s/entities/weapons.yaml``, verbatim from
-    ``mf-prg.bas:50100-50115``), passed in rather than imported, because the engine
-    never reads a config's entity tables directly.
+    ``weapon_stats`` maps a weapon id to its ``(ts, tg, range)`` triple — CONFIG data
+    (``data/game_configs/mafia_1920s/entities/weapons.yaml``; ``ts``/``tg`` verbatim
+    from ``mf-prg.bas:50100-50115``, ``range`` derived from ``30215-30216``), passed
+    in rather than imported, because the engine never reads a config's entity tables
+    directly. A two-element ``(ts, tg)`` entry is still accepted; its range falls back
+    to :data:`DEFAULT_RANGE`.
     """
 
     def __init__(
@@ -513,7 +515,7 @@ class CombatFight:
         self._sides: list[list[Fighter]] = [list(side) for side in combat.sides]
         self._grid: tuple[int, ...] = tuple(combat.grid)
         self._rng = rng
-        self._weapon_stats: dict[int, tuple[int, int]] = dict(weapon_stats or {})
+        self._weapon_stats: dict[int, tuple[int, ...]] = dict(weapon_stats or {})
         self.active_side: int = combat.active_side or 1  # s (1 or 2)
         self.active_fighter: int = combat.active_fighter or 1  # f (1-based)
         self._losses: list[int] = list(combat.losses) or [0, 0]
