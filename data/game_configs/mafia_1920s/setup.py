@@ -186,16 +186,23 @@ def narrate_combat_outcome(
 
     ``winner`` is the side returned by ``StartCombat`` (1 == the acting player's
     roster, 2 == the scripted enemy, per ``engine.interactions._run_combat``).
-    Always yields the winner banner. ``with_losses`` additionally yields the
-    losses block (``combat.losses_heading`` + one ``combat.losses_line`` per side)
-    — every in-slice fight is one roster fighter vs. one scripted NPC, so "the
-    losing side's one fighter went down" is the exact per-side count, not an
-    approximation.
 
-    ``upkeep.py``'s debt-collectors fight passes ``with_losses=False``: a WON
-    fight there has no losses to report (the source's collectors flow prints no
-    losses block on a win, only the winner banner — see upkeep.py's own docstring
-    for why this narration is genuinely partial, not merely truncated for space).
+    The original prints this screen at ``:30500-30515`` UNCONDITIONALLY, for every
+    fight, win or lose — ``:30106``'s ``goto30500`` is the single exit from the
+    combat engine, and ``:5010``'s ``goto30000`` is the single entry every caller
+    uses. There is no caller-specific and no win-conditional branch.
+
+    ``with_losses=False`` is therefore NOT a fidelity exception — it is a known
+    deviation, see #50. It exists only because ``upkeep.py``'s debt-collectors
+    fight is the one in-slice fight with more than one enemy (``gz(0)=5``,
+    ``:4355``), and the per-side counts below are a 1v1 shortcut that would print
+    a confidently wrong number there.
+
+    ``count``: the original tracks REAL per-side death tallies in ``v(1)``/``v(2)``
+    (zeroed at ``:30100``, incremented at ``:30310`` per death). ``0 if winner
+    else 1`` reproduces that exactly for a one-fighter-per-side fight, which every
+    call site except the collectors currently is. Restoring the collectors' losses
+    block needs real tallies from ``_run_combat``, not this shortcut.
     """
     winner_name = player_name if winner == 1 else enemy_name
     yield ShowMessage("combat.winner_banner", {"name": winner_name})

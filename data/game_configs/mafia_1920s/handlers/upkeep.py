@@ -235,9 +235,15 @@ def upkeep_turn_start(ctx):
             )
 
             # Outcome narration (KTD-1: the invoking handler's job — _run_combat
-            # yields no final screen). Shared with jobs.py/kdh.py's own fights, but
-            # WITHOUT the losses block: a won collectors fight has nothing to report
-            # (see narrate_combat_outcome's docstring).
+            # yields no final screen). Shared with jobs.py/kdh.py's own fights.
+            #
+            # with_losses=False is a KNOWN DEVIATION (#50), not a faithful port.
+            # The original prints the losses block for EVERY fight (:30500-30515,
+            # reached unconditionally via :30106's goto30500). It is suppressed
+            # here only because this is the one in-slice fight with 5 enemies
+            # (gz(0)=5, :4355), and narrate_combat_outcome's per-side count is a
+            # 1v1 shortcut that would print a wrong tally. Restoring it needs real
+            # v(1)/v(2)-equivalent tallies from _run_combat.
             yield from narrate_combat_outcome(
                 winner=winner,
                 player_name=active.name,
