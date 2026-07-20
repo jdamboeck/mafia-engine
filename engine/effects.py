@@ -554,7 +554,7 @@ def _target_index(state: GameState, player: int | None) -> int:
     return idx
 
 
-def _clamp(value, floor, cap):
+def _clamp(value: int | float, floor: int | float, cap: int | float) -> int | float:
     """Return ``value`` bounded to ``[floor, cap]`` — the shared clamp shape.
 
     Every capped-stat branch (:class:`ScoreChange`, :class:`StatChangeCapped`,
