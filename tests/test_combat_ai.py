@@ -28,6 +28,7 @@ from __future__ import annotations
 import pytest
 
 from engine.combat import (
+    RANGE_MELEE,
     STEP_DOWN,
     STEP_LEFT,
     STEP_RIGHT,
@@ -35,7 +36,7 @@ from engine.combat import (
     ai_target,
 )
 from engine.interactions import CombatScreen, StartCombat, run
-from tests.helpers import WEAPON_STATS, StubRng, build_fight
+from tests.helpers import WEAPON_STATS, WEAPON_TABLE, StubRng, build_fight
 from tests.helpers import combat_fighter as _f
 
 # --------------------------------------------------------------------------- #
@@ -60,9 +61,17 @@ class _NeverMoveRng(_StubRng):
 #: test here (ai_take_turn et al.) only ever runs for the active fighter; see
 #: tests.helpers.build_fight's docstring for why each file keeps its own default
 #: rather than sharing one.
-def _fight(*, side1, side2, grid=(), rng=None, dir_memory=None, active=(2, 1)):
+def _fight(
+    *, side1, side2, grid=(), rng=None, dir_memory=None, weapon_stats=None, active=(2, 1)
+):
     return build_fight(
-        side1=side1, side2=side2, grid=grid, rng=rng, dir_memory=dir_memory, active=active
+        side1=side1,
+        side2=side2,
+        grid=grid,
+        rng=rng,
+        dir_memory=dir_memory,
+        weapon_stats=weapon_stats,
+        active=active,
     )
 
 
@@ -239,6 +248,45 @@ def test_non_melee_weapons_are_not_forced_to_close(weapon):
     )
     outcome = fight.ai_take_turn()
     assert outcome["action"] == "shoot"
+
+
+@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
+def test_the_close_distance_branch_fires_for_exactly_the_old_weapon_id_set(
+    weapon, ts, tg, wrange
+):
+    """Characterization: reach-derived melee picks the same weapons ``w<4`` did.
+
+    The two tests above assert the two halves against literal id lists; this one
+    re-derives the split from the branch itself for every id at once, so a change to
+    a weapon's ``range`` that silently moved it across the melee line would be caught
+    here rather than only in whichever list stopped being exhaustive.
+    """
+    fight = _fight(
+        side1=[_f(name="player", weapon=0, energie=99, position=_cell(5, 20))],
+        side2=[_f(name="cpu", weapon=weapon, position=_cell(5, 10))],
+        rng=_NeverMoveRng(1, 1, 0),  # the coin flip alone never forces a move
+    )
+    outcome = fight.ai_take_turn()
+    forced_to_close = outcome["action"] == "move"
+    assert forced_to_close == (weapon < 4)
+    assert forced_to_close == (wrange <= RANGE_MELEE)
+
+
+def test_an_invented_melee_weapon_forces_the_cpu_to_close():
+    """The AI's melee branch is attribute-driven: id 42 is in no weapon table.
+
+    It closes solely because the config said its reach is one cell — the engine no
+    longer knows this game's weapon ids at all.
+    """
+    stats = {42: (5, 10, 1), 43: (5, 10, 12)}
+    for weapon, expected in ((42, "move"), (43, "shoot")):
+        fight = _fight(
+            side1=[_f(name="player", weapon=0, energie=99, position=_cell(5, 20))],
+            side2=[_f(name="cpu", weapon=weapon, position=_cell(5, 10))],
+            rng=_NeverMoveRng(1, 1, 0),
+            weapon_stats=stats,
+        )
+        assert fight.ai_take_turn()["action"] == expected, f"weapon {weapon}"
 
 
 def test_melee_ai_closes_to_adjacency_then_attacks():

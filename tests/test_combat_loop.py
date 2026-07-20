@@ -20,14 +20,14 @@ import json
 import pytest
 
 from engine.combat import (
-    RANGE_HEAVY,
+    DEFAULT_RANGE,
     RANGE_MELEE,
-    RANGE_RANGED,
+    STEP_RIGHT,
     damage_roll,
     is_hit,
-    shot_range,
 )
 from engine.effects import MoneyChange
+from engine.rng import Rng
 from engine.interactions import (
     CANCEL,
     CombatScreen,
@@ -51,31 +51,119 @@ from tests.helpers import combat_fighter as _f
 _StubRng = StubRng
 
 
-def _fight(*, side1, side2, grid=(), rng=None):
-    return build_fight(side1=side1, side2=side2, grid=grid, rng=rng, active=(1, 1))
+def _fight(*, side1, side2, grid=(), rng=None, weapon_stats=None):
+    return build_fight(
+        side1=side1,
+        side2=side2,
+        grid=grid,
+        rng=rng,
+        weapon_stats=weapon_stats,
+        active=(1, 1),
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Formulas — per weapon id 0..8 (mf-prg.bas:30215-30216, 30247, 30255)         #
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize("weapon,ts,tg", WEAPON_TABLE)
-def test_shot_range_per_weapon(weapon, ts, tg):
-    # 30215: r=2; if w>3 then r=15.  30216: if w=6 or w=7 then r=20.
-    if weapon in (6, 7):
-        expected = RANGE_HEAVY
-    elif weapon > 3:
-        expected = RANGE_RANGED
-    else:
-        expected = RANGE_MELEE
-    assert shot_range(weapon) == expected
+@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
+def test_weapon_range_comes_from_config_data_not_the_weapon_id(weapon, ts, tg, wrange):
+    """The fight reports each weapon's reach straight from the supplied entity data.
+
+    ``wrange`` is the value the deleted ``shot_range`` function produced for this id
+    (30215: ``r=2``, widened to 15 by ``w>3``; 30216: 20 for ids 6/7 AFTER that
+    widening) — this is the differential that pinned the port when the hardcoded
+    ladder was replaced by ``weapons.yaml``'s ``range`` attribute.
+    """
+    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
+    assert fight.weapon_range(weapon) == wrange
 
 
-def test_range_constants_match_research_literals():
-    assert (RANGE_MELEE, RANGE_RANGED, RANGE_HEAVY) == (2, 15, 20)
+def test_grenades_reach_fifteen_not_twenty():
+    """Named guard for the widening edge: id 8 satisfies ``w>3`` but is not 6 or 7.
+
+    30215 widens it to 15 and 30216 never promotes it, so handgranaten carry the
+    RANGED reach despite outranking both heavies on damage.
+    """
+    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
+    assert fight.weapon_range(8) == 15
 
 
-@pytest.mark.parametrize("weapon,ts,tg", WEAPON_TABLE)
-def test_hit_check_misses_when_either_factor_rolls_zero(weapon, ts, tg):
+@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
+def test_melee_is_derived_from_reach_not_from_the_weapon_id(weapon, ts, tg, wrange):
+    """``range <= RANGE_MELEE`` selects exactly the source's ``w<4`` set (30415)."""
+    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
+    assert fight.is_melee(weapon) == (weapon < 4)
+    assert fight.is_melee(weapon) == (wrange <= RANGE_MELEE)
+
+
+def test_melee_reach_constant_matches_the_source_base_range():
+    # 30215's bare ``r=2`` — a weapon that reaches only its neighbour.
+    assert RANGE_MELEE == 2
+    assert DEFAULT_RANGE == RANGE_MELEE
+
+
+def test_a_weapon_the_config_never_mentions_falls_back_to_adjacent_reach():
+    """An unknown id is not a crash: it reaches one cell, exactly the source's base."""
+    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
+    assert fight.weapon_range(99) == DEFAULT_RANGE
+    assert fight.is_melee(99) is True
+
+
+# --------------------------------------------------------------------------- #
+# Reach in a real fight — the projectile actually stops where the data says     #
+# --------------------------------------------------------------------------- #
+def _shot_reached_a_target(*, weapon, distance, weapon_stats=None):
+    """Fire ``weapon`` right at an enemy ``distance`` cells away; did the shot arrive?
+
+    Determinism comes from the DATA, not from scripting draws: the travel loop
+    (30220-30226) runs BEFORE any roll, and a shot that never finds a target returns
+    at once without drawing. So an empty RNG log means "out of reach" and a non-empty
+    one means "the projectile got there and the hit roll was consulted" — a signal
+    that stays valid however the hit/damage draws are later reordered.
+    """
+    attacker = _f(weapon=weapon, position=100)
+    defender = _f(weapon=0, energie=99, position=100 + distance)
+    rng = Rng(seed=1234)
+    fight = _fight(
+        side1=[attacker], side2=[defender], rng=rng, weapon_stats=weapon_stats
+    )
+    fight.shoot(STEP_RIGHT)
+    return bool(rng.log)
+
+
+@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
+def test_shot_reaches_exactly_as_far_as_the_weapons_range_and_no_further(
+    weapon, ts, tg, wrange
+):
+    # The last cell inside reach is hit; one cell beyond it is not.
+    assert _shot_reached_a_target(weapon=weapon, distance=wrange) is True
+    assert _shot_reached_a_target(weapon=weapon, distance=wrange + 1) is False
+
+
+def test_an_invented_weapon_fires_as_far_as_its_own_range_says():
+    """A weapon this game never defined still works — the engine holds no id table.
+
+    Id 42 exists nowhere in ``weapons.yaml``; it reaches 7 cells purely because the
+    config handed the fight ``(ts, tg, range)`` saying so.
+    """
+    invented = {42: (5, 10, 7)}
+    assert _shot_reached_a_target(weapon=42, distance=7, weapon_stats=invented) is True
+    assert _shot_reached_a_target(weapon=42, distance=8, weapon_stats=invented) is False
+
+
+def test_an_invented_weapon_is_melee_iff_its_range_is_adjacent_only():
+    """Melee is a property of reach, so an invented weapon inherits it from data."""
+    stats = {40: (5, 10, 1), 41: (5, 10, 2), 42: (5, 10, 3)}
+    fight = _fight(
+        side1=[_f(position=10)], side2=[_f(position=300)], weapon_stats=stats
+    )
+    assert fight.is_melee(40) is True  # reaches less than a full melee step
+    assert fight.is_melee(41) is True  # reaches exactly the adjacent cell
+    assert fight.is_melee(42) is False  # out-reaches a neighbour -> ranged
+
+
+@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
+def test_hit_check_misses_when_either_factor_rolls_zero(weapon, ts, tg, wrange):
     # 30247: miss iff int(rnd*ts(w))=0 OR int(rnd*(kr/10+1))=0.
     kraft = 30  # -> kr/10+1 = 4 -> range(4)
 
@@ -100,8 +188,8 @@ def test_hit_check_draw_arguments_are_ts_and_kraft_over_ten_plus_one():
     assert rng.calls == [("range", 5), ("range", 4)]
 
 
-@pytest.mark.parametrize("weapon,ts,tg", WEAPON_TABLE)
-def test_damage_bounds_per_weapon(weapon, ts, tg):
+@pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
+def test_damage_bounds_per_weapon(weapon, ts, tg, wrange):
     # 30255: y = int(rnd*tg(w) + bt/10) + 1.
     # minimum: rnd draw 0, brutalitaet 0 -> 1
     assert damage_roll(_StubRng(0), tg=tg, brutalitaet=0) == 1
@@ -117,7 +205,7 @@ def test_damage_draw_uses_tg_and_truncates_brutalitaet_over_ten():
 
 
 def test_damage_is_never_zero():
-    for weapon, ts, tg in WEAPON_TABLE:
+    for weapon, ts, tg, _wrange in WEAPON_TABLE:
         assert damage_roll(_StubRng(0), tg=tg, brutalitaet=0) >= 1
 
 

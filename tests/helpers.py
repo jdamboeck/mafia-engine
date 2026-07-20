@@ -249,22 +249,26 @@ def run_pure(handler, input_source, *, state, rng=None):
 # --------------------------------------------------------------------------- #
 # Combat fixtures — shared by tests/test_combat_loop.py and tests/test_combat_ai.py #
 # --------------------------------------------------------------------------- #
-#: The weapon table verbatim from mf-prg.bas:50100-50115 — (id, ts, tg). Both combat
-#: test modules exercised every one of these rows independently before this hoist;
-#: kept as one table so the two files can never silently drift apart on it.
-WEAPON_TABLE: tuple[tuple[int, int, int], ...] = (
-    (0, 2, 2),  # haende
-    (1, 3, 5),  # messer
-    (2, 4, 3),  # knueppel
-    (3, 4, 4),  # schlagkette
-    (4, 2, 7),  # wurfsterne
-    (5, 5, 10),  # revolver
-    (6, 5, 12),  # gewehr
-    (7, 6, 15),  # maschinenpistole
-    (8, 7, 18),  # handgranaten
+#: The weapon table for the reference title — ``(id, ts, tg, range)``. ``ts``/``tg``
+#: are verbatim from mf-prg.bas:50100-50115; ``range`` is derived from 30215-30216
+#: (2 for ids 0-3, 15 for ids > 3, then 20 for ids 6/7 — so id 8 lands on 15, not 20).
+#: Both combat test modules exercised every one of these rows independently before
+#: this hoist; kept as one table so the two files can never silently drift apart.
+WEAPON_TABLE: tuple[tuple[int, int, int, int], ...] = (
+    (0, 2, 2, 2),  # haende
+    (1, 3, 5, 2),  # messer
+    (2, 4, 3, 2),  # knueppel
+    (3, 4, 4, 2),  # schlagkette
+    (4, 2, 7, 15),  # wurfsterne
+    (5, 5, 10, 15),  # revolver
+    (6, 5, 12, 20),  # gewehr
+    (7, 6, 15, 20),  # maschinenpistole
+    (8, 7, 18, 15),  # handgranaten
 )
 
-WEAPON_STATS: dict[int, tuple[int, int]] = {w: (ts, tg) for w, ts, tg in WEAPON_TABLE}
+WEAPON_STATS: dict[int, tuple[int, int, int]] = {
+    w: (ts, tg, rng) for w, ts, tg, rng in WEAPON_TABLE
+}
 
 
 class StubRng:
@@ -301,6 +305,7 @@ def build_fight(
     grid=(),
     rng=None,
     dir_memory=None,
+    weapon_stats=None,
     active: tuple[int, int],
 ) -> CombatFight:
     """Build a :class:`~engine.combat.CombatFight` for a scripted test.
@@ -312,6 +317,10 @@ def build_fight(
     silently pick one file's convention for the other — each module's own thin
     ``_fight`` wrapper supplies its own default explicitly instead of relying on this
     one, so neither file's behavior moved when this builder was hoisted out of both.
+
+    ``weapon_stats`` defaults to the reference title's table (:data:`WEAPON_STATS`);
+    pass a different mapping to fight with weapons this game never defined, which is
+    how the attribute-agnostic paths (reach, melee) are tested without game data.
     """
     return CombatFight(
         CombatState(
@@ -322,5 +331,5 @@ def build_fight(
             active_fighter=active[1],
         ),
         rng=rng,
-        weapon_stats=WEAPON_STATS,
+        weapon_stats=WEAPON_STATS if weapon_stats is None else weapon_stats,
     )

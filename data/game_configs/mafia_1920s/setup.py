@@ -125,16 +125,20 @@ def load_combat_backdrop(path: str | Path) -> tuple[int, ...]:
     return tuple(cells)
 
 
-def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int]]:
-    """This config's weapon id -> ``(ts, tg)`` table, for ``StartCombat.weapon_stats``.
+def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int, int]]:
+    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
 
     ``path`` points at ``entities/weapons.yaml``. Shared by every combat-starting
     handler (``jobs.py``, ``upkeep.py``, ``kdh.py``) — each needs the same
-    ``{id: (ts, tg)}`` shape derived from :func:`load_weapons`, so the derivation
-    lives here once rather than as a private per-handler copy.
+    ``{id: (ts, tg, range)}`` shape derived from :func:`load_weapons`, so the
+    derivation lives here once rather than as a private per-handler copy.
+
+    ``range`` travels this path with ``ts``/``tg`` because it is entity data like
+    them: the engine holds no weapon taxonomy of its own, so a weapon's reach — and
+    with it whether the AI treats it as melee — has to arrive from the config.
     """
     weapons = load_weapons(path)
-    return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
+    return {i: (w["ts"], w["tg"], w["range"]) for i, w in enumerate(weapons)}
 
 
 # --- fnm rent formula ------------------------------------------------------

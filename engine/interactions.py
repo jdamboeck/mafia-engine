@@ -117,8 +117,10 @@ class StartCombat:
         The backdrop's linear 521-cell wall/scenery code array (config data). An
         empty tuple is a legal open arena.
     ``weapon_stats``
-        Mapping ``weapon id -> (ts, tg)`` from the config's weapon table. Passed in
-        because the engine never reads a config's entity tables itself.
+        Mapping ``weapon id -> (ts, tg, range)`` from the config's weapon table —
+        accuracy, damage, and shot travel distance in cells. Passed in because the
+        engine never reads a config's entity tables itself. A two-element ``(ts, tg)``
+        entry is still accepted and falls back to :data:`engine.combat.DEFAULT_RANGE`.
     ``dir_memory``
         Optional per-enemy-fighter direction memory seed (``ri()``), consumed by
         U6's AI; harmless to omit. Keyed by 0-based fighter index (the source's

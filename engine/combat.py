@@ -58,8 +58,7 @@ __all__ = [
     "SIDE2_ANCHOR",
     "STAGGER_OFFSETS",
     "RANGE_MELEE",
-    "RANGE_RANGED",
-    "RANGE_HEAVY",
+    "DEFAULT_RANGE",
     "STEP_LEFT",
     "STEP_RIGHT",
     "STEP_UP",
@@ -72,7 +71,6 @@ __all__ = [
     "build_player_side",
     "build_enemy_side",
     "setup_combat",
-    "shot_range",
     "is_hit",
     "damage_roll",
     "AiTarget",
@@ -281,14 +279,23 @@ def setup_combat(
 
 
 # --------------------------------------------------------------------------- #
-# Shot ranges + the two combat rolls (U5)                                     #
+# Melee reach + the two combat rolls (U5)                                     #
 # --------------------------------------------------------------------------- #
-#: Base shot range for weapon ids 0..3 (``mf-prg.bas:30215``: ``r=2``).
+#: Longest range that still reaches only the ADJACENT cell — the engine's definition
+#: of a melee weapon. A shot steps one cell per range point (``mf-prg.bas:30220``),
+#: so anything at or below this can never out-reach a neighbour, and a fighter
+#: carrying it must close the distance to attack at all.
+#:
+#: This replaces the source's own melee test, which spelled the same set out as a
+#: weapon-id comparison (``30415``: ``orgw(...)<4``) because the original's range
+#: table was a hardcoded ladder (``30215``: ``r=2`` widened to 15 by ``ifw>3``).
+#: Per-weapon ranges are CONFIG data now, so the taxonomy is derived, not enumerated
+#: — verified equivalent across all nine of the reference title's weapons.
 RANGE_MELEE = 2
-#: Range for weapon ids > 3 (``mf-prg.bas:30215``: ``ifw>3thenr=15``).
-RANGE_RANGED = 15
-#: Range for the two heavy weapons (``mf-prg.bas:30216``: ``ifw=6orw=7thenr=20``).
-RANGE_HEAVY = 20
+
+#: The default range for a weapon whose config omits one, matching the source's own
+#: base ``r=2`` (``mf-prg.bas:30215``) — an unspecified weapon reaches one cell.
+DEFAULT_RANGE = RANGE_MELEE
 
 #: Linear step deltas for the four grid directions (``mf-prg.bas:30130-30133`` and
 #: ``30206-30209``): left/right are ±1, up/down are ∓ one row width (±40). These are
@@ -298,22 +305,6 @@ STEP_RIGHT = 1
 STEP_UP = -GRID_COLS
 STEP_DOWN = GRID_COLS
 STEPS: tuple[int, ...] = (STEP_LEFT, STEP_RIGHT, STEP_UP, STEP_DOWN)
-
-
-def shot_range(weapon: int) -> int:
-    """Return a shot's travel range in cells for ``weapon``.
-
-    Ports ``mf-prg.bas:30215-30216`` exactly and in the source's order:
-    ``r=2`` base, ``ifw>3thenr=15``, then ``ifw=6orw=7thenr=20``. The last test
-    runs *after* the ``w>3`` widening, so ids 6 and 7 end at 20 even though they
-    also satisfy ``w>3``.
-    """
-    r = RANGE_MELEE
-    if weapon > 3:
-        r = RANGE_RANGED
-    if weapon in (6, 7):
-        r = RANGE_HEAVY
-    return r
 
 
 def is_hit(rng: Any, *, ts: int, kraft: int) -> bool:
@@ -566,7 +557,30 @@ class CombatFight:
 
     def weapon_stats(self, weapon: int) -> tuple[int, int]:
         """``(ts, tg)`` for ``weapon``; ``(0, 0)`` if the config omits it."""
-        return self._weapon_stats.get(weapon, (0, 0))
+        stats = self._weapon_stats.get(weapon)
+        if stats is None:
+            return (0, 0)
+        return (stats[0], stats[1])
+
+    def weapon_range(self, weapon: int) -> int:
+        """``weapon``'s shot travel range in cells; :data:`DEFAULT_RANGE` if omitted.
+
+        The range is CONFIG data (this game's values are derived from
+        ``mf-prg.bas:30215-30216``), carried in as the third element of the weapon's
+        ``weapon_stats`` entry so an invented weapon brings its own reach.
+        """
+        stats = self._weapon_stats.get(weapon)
+        if stats is None or len(stats) < 3:
+            return DEFAULT_RANGE
+        return stats[2]
+
+    def is_melee(self, weapon: int) -> bool:
+        """True iff ``weapon`` reaches no further than the adjacent cell.
+
+        The derived replacement for the source's hardcoded ``orgw(...)<4``
+        (``mf-prg.bas:30415``) — see :data:`RANGE_MELEE`.
+        """
+        return self.weapon_range(weapon) <= RANGE_MELEE
 
     # -- activation cursor (mf-prg.bas:30105-30109) ------------------------- #
     def _opposing(self, side: int) -> int:
@@ -665,7 +679,8 @@ class CombatFight:
 
         The whole ``mf-prg.bas:30200-30310`` attack block:
 
-        - ``30215-30216`` — the weapon's travel range (:func:`shot_range`).
+        - ``30215-30216`` — the weapon's travel range, now CONFIG data
+          (:meth:`weapon_range`).
         - ``30220-30225`` — step the projectile one cell per range point; it stops on
           leaving the grid, on a wall (:func:`blocks_shot` — codes 160/156 only), or
           when the range is exhausted. Scenery and friendly fighters are OVERFLOWN:
@@ -694,7 +709,7 @@ class CombatFight:
         # -- projectile travel (30220-30226) -------------------------------- #
         p = attacker.position
         target_index: int | None = None
-        for _ in range(shot_range(attacker.weapon)):
+        for _ in range(self.weapon_range(attacker.weapon)):
             p += direction
             if blocks_shot(p, self._grid):
                 return miss
@@ -776,7 +791,9 @@ class CombatFight:
         near_adjacent = target.abs_dx == 1 or target.abs_dy == 1
         if not near_adjacent:
             # 30415: 50% roll OR a melee weapon forces the close-distance branch.
-            melee = self.active.weapon < 4
+            # The source spelled "melee" as ``orgw(...)<4``; a weapon that cannot
+            # out-reach a neighbour is the same set, without the id taxonomy.
+            melee = self.is_melee(self.active.weapon)
             forced_move = self._rng.range(2) == 0 if self._rng is not None else False
             if forced_move or melee:
                 return self._ai_move(target)

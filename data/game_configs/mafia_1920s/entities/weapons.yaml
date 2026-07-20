@@ -9,7 +9,21 @@
 #   price  — purchase price (wp)
 #   ts     — accuracy / treffgenauigkeit (used by the spec-sheet accuracy bucket)
 #   tg     — damage / durchschlagskraft (used by the spec-sheet effect bucket)
+#   range  — shot travel range in combat cells (see below)
 #   ws     — weapon sound index
+#
+# `range` is DERIVED from the combat lines 30215-30216, NOT from the DATA table.
+# The source computes it per shot, in this order:
+#   r=2                     -> base, every weapon                     (30215)
+#   ifw>3thenr=15           -> widens ids 4..8                        (30215)
+#   ifw=6orw=7thenr=20      -> heavy, AFTER the widening              (30216)
+# so ids 0-3 = 2, ids 4/5/8 = 15, ids 6/7 = 20. Note id 8 (handgranaten) lands on
+# 15, not 20: it satisfies `w>3` but is not one of the two `w=6 or w=7` heavies.
+#
+# `range` is also what makes a weapon MELEE: `range <= 2` reaches only the adjacent
+# cell, which is exactly the set the source's AI branch tests with `orgw(...)<4`
+# (30415). There is deliberately no separate `melee` flag — it would be redundant
+# data that can drift from `range`.
 #
 # Stat-requirement metadata (req_int / req_kraft / req_brut) is DERIVED from the
 # buy-guard lines 13050-13060, NOT from the DATA table. It is the minimum stat a
@@ -20,13 +34,13 @@
 #
 # Order is significant: list index == in-game weapon index (0..8).
 weapons:
-  # idx  name                price   ts  tg   ws   req_int req_kraft req_brut
-  - {name: "haende",           price: 0,     ts: 2, tg: 2,  ws: 1,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 0 — bare hands, unarmed
-  - {name: "messer",           price: 50,    ts: 3, tg: 5,  ws: 0,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 1
-  - {name: "knueppel",         price: 100,   ts: 4, tg: 3,  ws: 1,  req_int: 0,  req_kraft: 20, req_brut: 0}   # 2 — x in {2,3}: kraft
-  - {name: "schlagkette",      price: 500,   ts: 4, tg: 4,  ws: 4,  req_int: 0,  req_kraft: 20, req_brut: 40}  # 3 — x=3: kraft + brut
-  - {name: "wurfsterne",       price: 3000,  ts: 2, tg: 7,  ws: 0,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 4
-  - {name: "revolver",         price: 4000,  ts: 5, tg: 10, ws: 2,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 5
-  - {name: "gewehr",           price: 4500,  ts: 5, tg: 12, ws: 2,  req_int: 40, req_kraft: 0,  req_brut: 0}   # 6 — x>5: int
-  - {name: "maschinenpistole", price: 8000,  ts: 6, tg: 15, ws: 10, req_int: 40, req_kraft: 0,  req_brut: 0}   # 7 — x>5: int
-  - {name: "handgranaten",     price: 10000, ts: 7, tg: 18, ws: 3,  req_int: 40, req_kraft: 0,  req_brut: 40}  # 8 — x>5 & x>6: int + brut
+  # idx  name                price   ts  tg   range ws  req_int req_kraft req_brut
+  - {name: "haende",           price: 0,     ts: 2, tg: 2,  range:  2, ws: 1,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 0 — bare hands, unarmed
+  - {name: "messer",           price: 50,    ts: 3, tg: 5,  range:  2, ws: 0,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 1
+  - {name: "knueppel",         price: 100,   ts: 4, tg: 3,  range:  2, ws: 1,  req_int: 0,  req_kraft: 20, req_brut: 0}   # 2 — x in {2,3}: kraft
+  - {name: "schlagkette",      price: 500,   ts: 4, tg: 4,  range:  2, ws: 4,  req_int: 0,  req_kraft: 20, req_brut: 40}  # 3 — x=3: kraft + brut
+  - {name: "wurfsterne",       price: 3000,  ts: 2, tg: 7,  range: 15, ws: 0,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 4
+  - {name: "revolver",         price: 4000,  ts: 5, tg: 10, range: 15, ws: 2,  req_int: 0,  req_kraft: 0,  req_brut: 0}   # 5
+  - {name: "gewehr",           price: 4500,  ts: 5, tg: 12, range: 20, ws: 2,  req_int: 40, req_kraft: 0,  req_brut: 0}   # 6 — x>5: int
+  - {name: "maschinenpistole", price: 8000,  ts: 6, tg: 15, range: 20, ws: 10, req_int: 40, req_kraft: 0,  req_brut: 0}   # 7 — x>5: int
+  - {name: "handgranaten",     price: 10000, ts: 7, tg: 18, range: 15, ws: 3,  req_int: 40, req_kraft: 0,  req_brut: 40}  # 8 — x>5 & x>6: int + brut
