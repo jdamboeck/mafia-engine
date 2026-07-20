@@ -195,7 +195,21 @@ layer legitimately knows.
 
 The engine's check is vocabulary-free: it compares *the bundle's own
 declarations* against *the data it was handed*. It never needs to know a key is
-spelled `kraft`.
+spelled `kraft`. With per-capability roles (KTD-3) it also checks the *side*: a
+`defender`-side role must resolve on the target, not the attacker.
+
+**The declaration is the extension point — say so, and keep it the only one.**
+Review raised the risk that `attrs` becomes an untyped `GameState 2.0`
+(`aim`, `grit`, `morale`, `panic`, `bleeding`…). The declared-set check is what
+prevents it: an attribute nobody declared **fails at construction**, so `attrs`
+cannot accrete silently.
+
+That is deliberately *not* a component system. `product-and-scope.md:76` — *"the
+engine should remain untouched unless a second config proves a real shared
+seam"* — rules out building typed `MovementComponent`/`MoraleComponent`
+machinery for a config set of one. When a second game needs structured
+extensions, they slot in **behind the same declaration**, which is why naming it
+now matters: the door stays open without walking through it.
 
 ### 2.2d Value enforcement — the engine offers, the game opts in
 
@@ -398,6 +412,25 @@ and returns a plain dict. The driver owns `yield`/`.send()`.
 That separation is why everything here is a thin layer rather than a parallel
 implementation. It stays.
 
+### 2.5a What this engine is — an active-turn tactical engine
+
+State it plainly, because the plan otherwise implies more genericity than the
+code has: **one combatant acts at a time.** The activation cursor
+(`active_side`/`active_fighter`) appears 35 times in `engine/combat.py`;
+`advance_activation` mutates it in place; `_run_combat`'s loop is flat, one
+iteration per activation.
+
+That is faithful — the source is strictly sequential (`mf-prg.bas:30105-30110`:
+`f=f+1`, side toggle, skip-if-down, no interrupt anywhere). It is also a real
+boundary: simultaneous turns, reaction fire, overwatch, interrupts, and traps
+all contradict it and would need the loop reworked.
+
+Naming it does three things: it stops someone building overwatch on a loop that
+cannot express it; it justifies `parent_index` in U7's schema (the one
+pre-emptive concession, because only the *recording format* is expensive to
+change after the fact); and it makes "tactical combat system" in
+`product-and-scope.md:20` mean something checkable rather than aspirational.
+
 ### 2.6 Why now, and not just the two bug fixes
 
 The honest counterfactual is **ship U3+U4 alone**: they close #50 and fix the AI
@@ -518,16 +551,31 @@ in terms of `Combatant`, so 113 `Gangster` references in `tests/` and 6 in
 
 ```
 RulesBundle
-  roles    : {"vitality": "energie", "accuracy": "kraft", "damage": "brutalitaet"}
-  hit      : (attacker, equipment, rng) -> bool
-  damage   : (attacker, equipment, rng) -> int
-  move     : (combatant, direction, grid) -> int | None
+  vitality : "energie"                      # the one engine-named role
+  hit      : {roles: {attacker: "kraft"},        fn: (attacker, equipment, rng) -> bool}
+  damage   : {roles: {attacker: "brutalitaet"},  fn: (attacker, equipment, rng) -> int}
+  move     : {roles: {},                         fn: (combatant, direction, grid) -> int|None}
   equipment_stats : (handle) -> Mapping[str, int]
 ```
 
 Passed to `CombatFight.__init__` beside `rng`, exactly as `weapon_stats` is
 today. No global registry — two differently-ruled fights must coexist for the
-simulator. A scenario overrides one field to build KTD-6's zero-variance weapon.
+simulator. A scenario overrides one entry to build KTD-6's zero-variance weapon.
+
+**Roles group per capability, not one flat map.** A flat
+`{"accuracy": "kraft", "damage": "brutalitaet"}` cannot express *whose*
+attribute a role reads. Mafia only ever reads the **attacker's** — verified: the
+formulas take `kraft` and `brutalitaet` from `attacker` and nothing else
+(`engine/combat.py:711`, `:715`). So a flat map works for this title and would
+need a breaking change the first time a genre sibling wants a defender-side
+`evasion` or a turn-order `initiative`.
+
+Per-capability role sets cost one indirection now and avoid that rewrite. This
+is a **genre-contract** decision, not a Mafia one
+(`product-and-scope.md:20`) — and it is free because `roles` exists nowhere in
+code yet; it is plan-only, so its shape is still open.
+
+Two roles today. The structure, not the size, is what is being fixed.
 
 ### KTD-4 — Per-entity rules become entity data
 
@@ -1058,8 +1106,10 @@ no client and no draw scripting.
 
 **Requirements** R10, R11, R14, R15 · **Dependencies** U5
 
-**Files** `engine/interactions.py`, `engine/combat.py`, `engine/scenario.py`,
-`tests/helpers.py`, `tests/test_combat_loop.py`, `tests/test_driver.py`,
+**Files** `engine/interactions.py`, `engine/combat.py` (split `ai_take_turn` →
+`ai_decide`; add `CombatView`), `engine/scenario.py`, `tests/helpers.py`,
+`tests/test_combat_loop.py`, `tests/test_combat_ai.py` (the AI suite calls
+`ai_take_turn` directly — see the migration note), `tests/test_driver.py`,
 `tests/test_simulation.py` (create)
 
 **Approach** The dispatch site (`engine/interactions.py:682-694`) is already a
@@ -1073,9 +1123,27 @@ if driver.kind == "human":
     raw = input_source(screen)          # the ONLY suspending path
     action, argument = _parse_combat_response(raw)
 else:
-    action, argument = driver.decide(fight)   # ai / policy / replay
-# the apply-action block below (:708-730) is UNCHANGED
+    action, argument = driver.decide(view)    # ai / policy / replay — DECIDE ONLY
+# the apply-action block below (:708-730) is UNCHANGED, and is now the
+# single place any action is executed, whoever chose it
 ```
+
+**⚠ Decide and execute must be split — this is a bug fix, not future-proofing.**
+`ai_take_turn` (`engine/combat.py:732`) **already executes**: it calls
+`self.shoot(direction)` and returns the result. Wiring it behind a `decide()`
+that returns `(action, argument)` for the apply-block to run would execute the
+action **twice**.
+
+So U6 splits it:
+
+- `ai_decide(view) -> (action, argument)` — the targeting/movement choice, no
+  mutation. This is `ai_take_turn` minus its one `self.shoot(...)` call.
+- The dispatcher executes, via the apply-block every other driver already uses.
+
+One mutation site moves (`combat.py:~800`). Every driver kind then obeys the
+same contract: **choose, return, and let one place apply.** That uniformity is
+what lets `replay` be a driver at all — a replay driver *must not* execute,
+since the recorded result is the thing being reproduced.
 
 **The generator boundary — settled, not deferred.** `yield` cannot cross a plain
 function call, so a "callable driver" cannot suspend. Dispatch therefore stays
@@ -1088,9 +1156,22 @@ side's turns**, not that drivers run outside the generator.
 | Kind | How it answers |
 |---|---|
 | `human` | *No callable.* Its presence tells the loop to yield a `CombatScreen`. |
-| `ai` | Wraps `fight.ai_take_turn()` |
-| `policy` | `Callable[[CombatFight], tuple[str, Any]]` |
+| `ai` | `fight.ai_decide(view)` — the split-out chooser, no mutation |
+| `policy` | `Callable[[CombatView], tuple[str, Any]]` |
 | `replay` | Reserved here so **U7 need not touch this dispatch again** |
+
+**`CombatView` — the read-only argument every non-human driver receives.** Once
+`decide` cannot execute, handing it the mutable `CombatFight` is both
+unnecessary and an invitation: a driver could call `shoot` directly and bypass
+the single apply-block, breaking recording (U7) silently.
+
+`CombatView` exposes what a decision needs and nothing else — `sides`, `grid`,
+`active_side`, `active_fighter`, `hostile_to`, and the equipment-stats lookup.
+No mutators. `ai_target` (`engine/combat.py:434`) already reads only these, so
+it ports unchanged.
+
+This is also the seam a second game's AI plugs into (`product-and-scope.md:76` —
+a genre-level extension surface, not an internal argument).
 
 **`StartCombat` accepts a `Scenario` — resolved here, as U5 defers.** U5 leaves
 handlers unpacking a scenario into four kwargs to avoid editing this dataclass
@@ -1157,6 +1238,21 @@ A second driving path is how suites drift.
 - Surrender preserved: quit/EOF from a human driver still surrenders. (The
   *codebase's* KTD-2 — "Combat prompts are non-cancellable",
   `engine/interactions.py:171`.)
+- **No double-execution:** an AI activation that shoots applies damage exactly
+  once. Assert the target's vitality drops by one hit's worth, not two — the
+  concrete regression the decide/execute split exists to prevent.
+- `ai_decide` is **pure**: calling it twice on the same view returns the same
+  choice and leaves the fight unchanged (no `down` flips, no vitality change).
+- A driver handed a `CombatView` cannot mutate — `shoot`/`try_move`/
+  `advance_activation` are absent from its surface.
+- Characterization: for every existing `ai_take_turn` case, `ai_decide` +
+  dispatcher execution produces an identical outcome.
+
+**Migration note — 29 call sites.** `tests/test_combat_ai.py` calls
+`ai_take_turn` 29 times (engine has 3). Keep `ai_take_turn` as a thin
+`ai_decide` + execute wrapper so the AI suite migrates **without edits** — it is
+the characterization pin for U4 and must stay untouched to prove side-2 behavior
+is unchanged. Retire the wrapper only after the suite is green on the split.
 
 **The boss-survival question is now bounded** (modelled during planning from the
 real formulas and stats — see §9). Expected damage per activation:
@@ -1338,6 +1434,9 @@ doubles as the seek key:
 ```
 ActivationEvent
   kind: "activation";  index: int;  side: int;  fighter_index: int
+  parent_index: int | None   # None for a normal activation; set when this event
+                             # happened INSIDE another (reaction fire, interrupt,
+                             # overwatch, a trap firing on someone's move)
   driver_kind: str                # "human" | "ai" | "policy" | "replay"
   decision: {action, argument}
   draws: [{method, args, value}]  # every RNG call, IN ORDER
@@ -1356,6 +1455,25 @@ snapshot fields; a dispatcher on `event.kind` gains a case and nothing else
 changes. `index` and `snapshot` live on **every** variant, so seeking never
 special-cases which kind sits at an index. Nothing uses this yet — but
 retrofitting it later means rewriting every recording.
+
+**`parent_index` reserves the same room for out-of-turn events.** The source's
+activation loop is strictly sequential — `f=f+1`, side toggle, skip-if-down
+(`mf-prg.bas:30105-30110`) — with **no interrupt or reaction anywhere in the
+fidelity surface**. So nothing in this arc sets `parent_index`, and it stays
+`None` on every recorded event.
+
+It is reserved anyway because this is a **genre** engine
+(`product-and-scope.md:20` names the tactical combat system as reusable core),
+and reaction fire / overwatch / interrupts are the obvious genre-sibling
+mechanics. A flat monotonic `index` cannot express "this happened *inside*
+activation 7". Adding that later would invalidate every existing recording —
+precisely the durability KTD-7/KTD-8 exist to protect. One nullable field now
+makes reactions a **code** change later instead of a **format** change.
+
+The engine's own loop obstructions (`advance_activation` mutating the cursor in
+place, `_run_combat` being flat one-iteration-per-activation) are *code* and can
+change any time. Only the recording format is expensive after the fact — so it
+is the only thing pre-emptively shaped.
 
 **Shape versioning** reuses `SCHEMA_VERSION` (`engine/effects.py:40`). On
 mismatch, treat every snapshot as absent (discard, do not attempt-and-hope),
@@ -1387,7 +1505,14 @@ may not flip the outcome; the per-activation check catches it either way).
 
 **Serialization: JSON**, matching the codebase's existing commitment
 (`CombatScreen.to_json()`, round-tripped in `tests/test_combat_loop.py:370`).
-Use `engine.state.json_safe` for snapshots. Recordings are run artifacts, not
+Use `engine.state.json_safe` for snapshots.
+
+**Never hand-roll a second snapshot serializer.** A recording's snapshot must go
+through the *same* `json_safe` path save/load uses. Two serializers for one
+state graph drift silently, and the divergence surfaces far from its cause —
+exactly the `SpawnFighter` failure (`9df2091`), where the live path worked while
+a second reconstruction path flattened `Fighter` into a plain dict. If a
+snapshot needs a field `json_safe` does not emit, fix `json_safe`. Recordings are run artifacts, not
 versioned game content — **not** under `data/game_configs/`. U7 defines
 `save(path)`/`load(path)` and stays agnostic; U8 picks the directory.
 
@@ -1598,7 +1723,40 @@ into its own plan.
   combat setup through effects for replay fidelity is a real option this plan
   does not take.
 
-### 7.3 Out of scope
+### 7.3 Standing design rules (beyond this plan)
+
+Under a genre contract these surfaces are public to every future title, so two
+rules outlive this arc:
+
+- **`CombatFight` stays thin.** New responsibilities become *collaborators*, not
+  methods. Currently 939 lines / 23 methods — no split now, and this plan adds
+  only `hostile_to` plus the `ai_decide` extraction. But status effects,
+  interrupts, reactions, and simultaneous events all land here by default, and
+  each is a candidate scheduler/resolver of its own rather than another branch.
+- **One place executes an action.** After U6 the apply-block in `_run_combat` is
+  the single execution site; drivers choose and return. Any future actor —
+  reaction, trap, environmental effect — routes through it rather than calling
+  `shoot`/`try_move` directly. That is what keeps recording (U7) complete by
+  construction.
+
+### 7.4 Reviewed and deferred
+
+An external architecture review (plan-only, no code access) raised eleven
+points. Six are adopted above. The rest are deferred, each against the project's
+own brake — `product-and-scope.md:76`: *"the engine should remain untouched
+unless a second config proves a real shared seam."*
+
+| Raised | Verdict | Why |
+|---|---|---|
+| Make `RulesBundle` declarative/inspectable so tooling can analyse formulas | **Deferred** | KTD-6 already bounds this: config supplies formulas as callables, recordings carry inputs+draws so replay recomputes. An expression language for `int(draw + bt/10) + 1` buys inspectability nothing has asked for and costs a mini-language with no stack trace. The guard DSL's restraint is the precedent |
+| Introduce a `CombatAction` class hierarchy | **Deferred** | The abstraction exists as `(action, argument)` — `_parse_combat_response` (`engine/interactions.py:734`) already normalizes to it and the protocol specifies it. Four actions total. A class per action is more surface, not less |
+| Split `Scenario` into Definition/Instance/Input/Settings | **Deferred** | The growth list (music, weather, spawn waves, rewards) is post-fidelity content. `Scenario` today is fight-only by KTD-1 — consequences are the caller's. Revisit if a second config needs it |
+| Pass a narrowed `CombatContext` instead of the whole combatant to formulas | **Deferred** | Plausible, but the current shape was chosen so adding an attribute never changes an engine signature. Both are defensible; churning now buys nothing |
+| Rename `CombatFight` for genre accuracy | **Deferred** | The naming concern is real; §2's active-turn boundary statement captures the substance without a rename touching 939 lines and 29 test call sites |
+
+Recorded so a later reviewer sees the reasoning rather than re-deriving it.
+
+### 7.5 Out of scope
 
 Combat rule changes, new weapons or enemy types, balance tuning, network
 transport, a scenario editor UI.
