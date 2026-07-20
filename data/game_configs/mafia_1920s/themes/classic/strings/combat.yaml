@@ -38,9 +38,18 @@ combat:
   # 30116/1300 print the stat block using labels sourced elsewhere in game-text.yaml's
   # spec-sheet vocabulary -- reused here for consistency).
   panel_weapon: "waffe: {weapon}"
-  panel_energy: "energie: {energie}"
-  panel_kraft: "kraft: {kraft}"
-  panel_brutalitaet: "brutalitaet: {brutalitaet}"
+
+  # U2: the panel's attribute rows are THEME-declared. `panel_attrs` chooses which
+  # attributes appear and in what order; each is labelled by its own
+  # `panel_attr_<key>` template. The renderer reads the fighter's opaque `attrs` map
+  # and knows none of these names -- so this game's German stat vocabulary lives
+  # here, in presentation, and a different game re-declares its own without touching
+  # the client. (`intelligenz` is carried in `attrs` but deliberately not listed:
+  # the original's panel does not show it.)
+  panel_attrs: [energie, kraft, brutalitaet]
+  panel_attr_energie: "energie: {value}"
+  panel_attr_kraft: "kraft: {value}"
+  panel_attr_brutalitaet: "brutalitaet: {value}"
 
   # Action prompt shown above the key legend.
   action_prompt: "deine aktion:"

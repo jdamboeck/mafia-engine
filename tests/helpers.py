@@ -38,6 +38,9 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
+from dataclasses import replace
+
+from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
 from engine.combat import CombatFight
 from engine.effects import commit
 from engine.interactions import run
@@ -288,9 +291,18 @@ class StubRng:
 
 
 def combat_fighter(**kw) -> Fighter:
-    """A :class:`~engine.state.Fighter` with sane combat-test defaults, overridable."""
+    """A :class:`~engine.state.Fighter` with sane combat-test defaults, overridable.
+
+    Equips from the reference title's weapon table by default (amendment A1: every
+    combatant enters a fight already carrying its equipment), so a fighter built here
+    and dropped straight into a ``StartCombat`` fights correctly. Pass ``equipment=``
+    to override, or a ``weapon`` id the default table knows. ``build_fight`` leaves an
+    already-equipped fighter untouched, so this does not double-resolve.
+    """
     base = dict(name="f", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100)
     base.update(kw)
+    if "equipment" not in base and base["weapon"] in WEAPON_STATS:
+        base["equipment"] = equipper(WEAPON_STATS)(base["weapon"])
     return Fighter(**base)
 
 
@@ -302,6 +314,7 @@ def build_fight(
     rng=None,
     dir_memory=None,
     weapon_stats=None,
+    rules=None,
     active: tuple[int, int],
 ) -> CombatFight:
     """Build a :class:`~engine.combat.CombatFight` for a scripted test.
@@ -317,15 +330,33 @@ def build_fight(
     ``weapon_stats`` defaults to the reference title's table (:data:`WEAPON_STATS`);
     pass a different mapping to fight with weapons this game never defined, which is
     how the attribute-agnostic paths (reach, melee) are tested without game data.
+
+    The table is used ONCE, here, to equip each fighter (amendment A1) — it is not
+    handed to the fight. Callers keep writing ``weapon=<id>``; this resolves the id
+    while the table is still in scope, so the fight itself never holds a lookup that
+    could disagree with the roster.
+
+    A fighter that ALREADY carries an ``equipment`` mapping is left as-is: a test that
+    hand-builds equipment (e.g. one deliberately missing ``range``) is describing the
+    combatant directly, and re-resolving its id from the table would overwrite that.
     """
+    table = WEAPON_STATS if weapon_stats is None else weapon_stats
+    equip = equipper(table)
+
+    def equipped(f):
+        return f if f.equipment else replace(f, equipment=equip(f.weapon))
+
     return CombatFight(
         CombatState(
-            sides=(tuple(side1), tuple(side2)),
+            sides=(
+                tuple(equipped(f) for f in side1),
+                tuple(equipped(f) for f in side2),
+            ),
             grid=tuple(grid),
             dir_memory=dict(dir_memory or {}),
             active_side=active[0],
             active_fighter=active[1],
         ),
         rng=rng,
-        weapon_stats=WEAPON_STATS if weapon_stats is None else weapon_stats,
+        rules=build_rules() if rules is None else rules,
     )

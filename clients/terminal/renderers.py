@@ -269,8 +269,20 @@ def render_fighter_panel(
     out: TextIO,
 ) -> None:
     """Render the active fighter's stat panel (``mf-prg.bas:30115-30116``): name,
-    weapon, energy, kraft, brutalitaet -- resolved through the theme's
+    weapon, then one line per attribute -- all resolved through the theme's
     ``combat.panel_*`` keys (zero hardcoded display text, CLAUDE.md).
+
+    **U2: this renderer no longer knows any game's attribute names.** It reads the
+    wire payload's opaque ``attrs`` map and asks the theme which attributes to show,
+    in what order, under ``combat.panel_attrs`` -- a list of attribute keys. Each is
+    rendered through ``combat.panel_attr_<key>``, so the theme owns both the
+    selection and the label. A game with ``aim``/``grit`` instead of
+    ``kraft``/``brutalitaet`` needs no change here.
+
+    Attributes the theme does not list are not displayed -- the panel is a curated
+    view, not a dump. An unknown/unresolvable key is skipped rather than raising, so
+    a theme that lists an attribute this fighter lacks degrades to a shorter panel
+    instead of taking down the screen mid-fight.
     """
     fighter = payload.get("fighter")
     pal = _get_palette()
@@ -281,14 +293,34 @@ def render_fighter_panel(
     weapon_name = weapon_names[weapon_id] if 0 <= weapon_id < len(weapon_names) else str(weapon_id)
     out.write(f"{fg('light_grey', pal)}{name}{RESET_FG}\n")
     out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
-    out.write(
-        resolver.resolve("combat.panel_energy", {"energie": fighter.get("energie", 0)}) + "\n"
-    )
-    out.write(resolver.resolve("combat.panel_kraft", {"kraft": fighter.get("kraft", 0)}) + "\n")
-    out.write(
-        resolver.resolve("combat.panel_brutalitaet", {"brutalitaet": fighter.get("brutalitaet", 0)})
-        + "\n"
-    )
+
+    attrs = fighter.get("attrs") or {}
+    for key in _panel_attr_keys(resolver):
+        if key not in attrs:
+            continue
+        out.write(resolver.resolve(f"combat.panel_attr_{key}", {"value": attrs[key]}) + "\n")
+
+
+def _panel_attr_keys(resolver: Any) -> list:
+    """The attribute keys the theme wants on the panel, in display order.
+
+    Returns an empty list when the theme declares none -- a theme that has not opted
+    in renders name + weapon only, rather than guessing at this game's stat names.
+
+    Read off the resolver's ``tree`` rather than through ``resolve()``, because this
+    key holds a LIST, and ``resolve()`` is a template-formatting call that rejects any
+    non-string leaf by contract. A comma-separated string is also accepted, so a theme
+    format that cannot express a list still works.
+    """
+    tree = getattr(resolver, "tree", None)
+    declared = None
+    if isinstance(tree, dict):
+        declared = (tree.get("combat") or {}).get("panel_attrs")
+    if declared is None:
+        return []
+    if isinstance(declared, str):
+        return [k.strip() for k in declared.split(",") if k.strip()]
+    return list(declared)
 
 
 def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:

@@ -22,6 +22,11 @@ game: the engine owns **mechanism**, the game supplies **policy**. On that
 foundation, build scenario-driven fights, per-side control, full replay, and a
 terminal debug tool.
 
+> **Read `2026-07-20-003-amendments.md` alongside this plan.** Execution has
+> superseded parts of it — most importantly **A1**: combatants carry their
+> already-constructed equipment and the engine holds **no** weapon table, which
+> replaces `equipment_stats(handle)` and every `weapon_stats` mention below.
+
 ---
 
 ## 1. Summary

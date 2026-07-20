@@ -29,7 +29,6 @@ save and rebuilt as read-only on load, so a restored state is as immutable as a 
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, is_dataclass
@@ -93,11 +92,18 @@ _EFFECT_TYPES: dict[str, type] = _build_effect_types()
 
 
 def _effect_to_dict(effect: Any) -> dict:
-    """Serialize a frozen Effect dataclass to a type-tagged plain dict."""
+    """Serialize a frozen Effect dataclass to a type-tagged plain dict.
+
+    Walks with :func:`~engine.state.json_safe`, NOT ``dataclasses.asdict``. Since U2
+    a nested :class:`~engine.state.Fighter` carries an ``attrs`` mapping held as a
+    read-only ``mappingproxy``, and ``asdict`` deepcopies internally — ``mappingproxy``
+    is not picklable, so it cannot walk a frozen graph at all. ``json_safe`` is the
+    engine's declared inverse of that frozen form and unwraps it correctly.
+    """
     tag = type(effect).__name__
     if tag not in _EFFECT_TYPES:
         raise TypeError(f"cannot serialize unknown effect type {tag!r}")
-    return {"_type": tag, **dataclasses.asdict(effect)}
+    return {"_type": tag, **json_safe(effect)}
 
 
 #: Effect fields holding a nested dataclass, by effect type and field name.

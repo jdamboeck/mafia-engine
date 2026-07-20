@@ -100,6 +100,7 @@ from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
+from ..combat_rules import build_rules, equipper
 from ..setup import load_combat_backdrop, narrate_combat_outcome, weapon_stats_by_id
 from .pub import ARMS_DEAL_TIP
 
@@ -226,11 +227,12 @@ def upkeep_turn_start(ctx):
                 enemy_energie=debt_params["kdh_collectors_energie"],
                 enemy_name=_COLLECTOR_NAME,
                 grid=_backdrop(_COLLECTORS_BACKDROP),
+                equip=equipper(_weapon_stats()),
             )
             winner = yield StartCombat(
                 sides=combat_state.sides,
                 grid=combat_state.grid,
-                weapon_stats=_weapon_stats(),
+                rules=build_rules(),
                 dir_memory=combat_state.dir_memory,
             )
 

@@ -14,6 +14,7 @@ import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
+from typing import Any
 
 #: Shared empty read-only mapping — a safe immutable default (R2).
 _EMPTY_MAP: Mapping = MappingProxyType({})
@@ -55,7 +56,7 @@ def tuple_replace(items, idx: int, value) -> tuple:
     return items[:idx] + (value,) + items[idx + 1 :]
 
 
-def json_safe(value):
+def json_safe(value) -> Any:
     """Recursively convert a frozen state graph into plain JSON-safe containers.
 
     The inverse of :func:`freeze`: read-only mappings unwrap to ``dict`` and tuples
@@ -66,6 +67,13 @@ def json_safe(value):
     Lives here rather than in ``engine.persistence`` because it is generic
     graph-walking, not save-format logic: persistence serializes with it, and the
     test purity harness snapshots state values with it.
+
+    Returns ``Any`` deliberately: the return shape is a function of the *input's*
+    runtime shape (dataclass/Mapping -> ``dict``, list/tuple -> ``list``, scalar ->
+    itself), which no single static type expresses. Callers that know their input is
+    a dataclass — :func:`engine.persistence._effect_to_dict` unpacking with ``**`` —
+    rely on that. A narrower lie (``dict``) would break the scalar and list branches
+    for every other caller.
     """
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return {f.name: json_safe(getattr(value, f.name)) for f in dataclasses.fields(value)}
@@ -96,7 +104,7 @@ def _coerce_readonly(instance, *field_names) -> None:
 
 
 __all__ = [
-    "Gangster",
+    "Combatant",
     "Job",
     "Debt",
     "Business",
@@ -120,11 +128,69 @@ __all__ = [
 ]
 
 
+#: The gangster attribute names this game carries in ``attrs`` (U2). Named fields
+#: stay as the ergonomic construction/read surface; ``attrs`` is the opaque map the
+#: engine passes to a config's formulas without ever inspecting a key.
+COMBATANT_ATTR_NAMES: tuple[str, ...] = ("energie", "kraft", "intelligenz", "brutalitaet")
+
+#: The subset of the above a Fighter carries onto the combat grid.
+FIGHTER_ATTR_NAMES: tuple[str, ...] = ("energie", "kraft", "brutalitaet")
+
+
+def _derive_attrs(instance, field_names: tuple[str, ...]) -> None:
+    """Populate ``instance.attrs`` from its named attribute fields (U2).
+
+    **Derived, never dual-written.** ``engine.effects._with_gangster`` rebuilds via
+    ``dataclasses.replace``, which updates the NAMED field only — so any hand-synced
+    ``attrs`` would silently go stale on the first effect and surface far from its
+    cause. Deriving here means ``replace()`` regenerates the map on every rebuild and
+    the two copies cannot drift by construction.
+
+    An explicitly-passed ``attrs`` is merged UNDER the named fields, so a config may
+    carry extra attributes the dataclass has no field for (the genre-engine case)
+    while the named fields stay authoritative for the ones it does.
+    """
+    supplied = dict(getattr(instance, "attrs", None) or {})
+    supplied.update({name: getattr(instance, name) for name in field_names})
+    object.__setattr__(instance, "attrs", MappingProxyType(supplied))
+
+
 @dataclass(frozen=True)
-class Gangster:
-    """A single gangster in a player's roster.
+class Combatant:
+    """A single roster member — the engine's blueprint for anything that can fight (KTD-2).
+
+    The engine addresses this through FOUR slots and knows nothing else about it:
+
+    ``position``/``down``
+        Structural. The engine cannot sequence activations, compute a line of fire,
+        or find a winner without them. (Carried by :class:`Fighter`, the on-grid
+        form; a roster member off the grid has no position.)
+    ``attrs``
+        The OPAQUE extension point — a ``name -> int`` map the engine passes to a
+        config's formulas and never inspects. ``kraft``/``brutalitaet``/``intelligenz``
+        are NOT engine slots: they live here, and adding another is a config-only
+        change.
+    ``identity`` / ``equipment``
+        Opaque label and opaque equipment handle (the latter passed to the rules
+        bundle's ``equipment_stats``).
+
+    The depleting resource is named by the game's :class:`~engine.combat.RulesBundle`
+    (``vitality``), not by the engine — the engine only ever subtracts from it and
+    clamps at zero.
+
+    The named fields below are this reference title's, kept as the ergonomic
+    construction surface (and re-exported to the config as ``Gangster``); the engine
+    itself reads them only through ``attrs``.
 
     Unpacks the original packed 8-char ``ge$`` stat string into plain ints.
+
+    Unpacks the original packed 8-char ``ge$`` stat string into plain ints.
+
+    ``attrs`` (U2) is the same stats as an opaque ``name -> int`` map. The engine
+    reads combat attributes ONLY through it, resolving names a config's rules bundle
+    declares (``kraft``, ``brutalitaet``, …) — so adding an attribute is a config-only
+    change. It is derived from the named fields at construction; see
+    :func:`_derive_attrs` for why it must never be written by hand.
     """
 
     name: str = ""
@@ -133,6 +199,22 @@ class Gangster:
     kraft: int = 0  # strength stat (gangster stat "kraft"); rolled 10-50 at setup
     intelligenz: int = 0  # mf-prg.bas:311 quirk "in = x OR 30"; roll happens at setup
     brutalitaet: int = 0  # brutality (mf-prg.bas:312); later a combat damage bonus
+    attrs: Mapping[str, int] = _EMPTY_MAP  # derived — see class docstring
+
+    def __post_init__(self):
+        _derive_attrs(self, COMBATANT_ATTR_NAMES)
+
+
+#: Backwards-compatible alias for the reference title's roster member (U2 step 6).
+#:
+#: ``Combatant`` is the ENGINE's blueprint name; ``Gangster`` is this game's word for
+#: it, re-exported by ``data/game_configs/mafia_1920s`` so the config's own code (and
+#: the ~113 existing test references) keep resolving without a mass rename. The alias
+#: lives here rather than as a separate config-side dataclass because ``Player.roster``
+#: is typed on it and ``engine.persistence`` reconstructs it — a genuinely separate
+#: class would need the engine to import from the config, inverting the layer rule.
+#: The engine itself never spells ``Gangster``; only this one definition line does.
+Gangster = Combatant
 
 
 @dataclass(frozen=True)
@@ -221,7 +303,7 @@ class Player:
     named after the player, ``gn$(i,1)=sp$(i)`` — first-array-slot, i.e. index 0 here).
     There is no separate parallel "player stat" representation: the boss's
     kraft/intelligenz/brutalitaet/energie/weapon live entirely on this one
-    ``Gangster`` entry, and every roster-length check (``gz(sp)``, e.g. the pub's
+    ``Combatant`` entry, and every roster-length check (``gz(sp)``, e.g. the pub's
     10-gangster cap at :12105) counts the boss too. Later hires are appended after
     it. This is already how :func:`data.game_configs.mafia_1920s.setup.new_game`
     and every roster read site (``engine/conditions.py``'s ``gang_size``,
@@ -239,7 +321,7 @@ class Player:
     vehicle: int = 0  # transport type index (tm)
     speed: int = 0
     ms: int = 0  # movement points (mf-prg.bas:1012); ms=0 forces turn end
-    roster: tuple[Gangster, ...] = ()  # roster[0] is always the boss (see class docstring)
+    roster: tuple[Combatant, ...] = ()  # roster[0] is always the boss (see class docstring)
     jobs: Job = field(default_factory=Job)
     debt: Debt = field(default_factory=Debt)
     business: Business = field(default_factory=Business)
@@ -292,6 +374,37 @@ class Fighter:
     brutalitaet: int = 0
     position: int = 0  # linear cell 0..520 on the 40×13 combat grid (CLAUDE.md)
     down: bool = False  # kp(s,f)<0 in the source — energy reached 0
+    attrs: Mapping[str, int] = _EMPTY_MAP  # derived — see Combatant's class docstring
+    #: This fighter's CONSTRUCTED equipment: the stat mapping itself, not a key into
+    #: a table the engine would have to hold (amendment A1). The game builds it from
+    #: its own entity data before the fight starts, so combat reads no equipment data
+    #: from outside the roster and there is no second source to disagree with.
+    equipment: Mapping[str, int] = _EMPTY_MAP
+    #: Which roster entry this fighter IS, for mapping the outcome back (amendment A1).
+    #: A fight consumes a roster and returns consequences — vitality loss, who went
+    #: down — that the caller has to apply to the right gangster. ``None`` for a
+    #: fighter with no roster entry (every NPC/enemy).
+    #:
+    #: The engine never interprets it: it carries the value through and hands it back,
+    #: exactly as it does ``attrs``. It exists because the alternative is matching on
+    #: POSITION, which is only correct while side 1's order happens to equal roster
+    #: order — an assumption nothing enforces and a scenario (U5) can break outright.
+    roster_id: int | None = None
+
+    def __post_init__(self):
+        _derive_attrs(self, FIGHTER_ATTR_NAMES)
+        _coerce_readonly(self, "equipment")
+
+    # -- KTD-2 blueprint slots ------------------------------------------------ #
+    # The engine addresses a combatant through the four blueprint slots, not through
+    # this game's field names. ``position``/``down``/``attrs``/``equipment`` already
+    # carry their blueprint names; the alias below keeps engine code from spelling a
+    # game-specific one. It is a property rather than a renamed field because the
+    # 113 existing ``name=``/``weapon=`` construction sites stay valid that way.
+    @property
+    def identity(self) -> str:
+        """The combatant's opaque label (this game: the gangster/NPC name)."""
+        return self.name
 
 
 @dataclass(frozen=True)

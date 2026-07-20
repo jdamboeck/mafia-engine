@@ -906,13 +906,24 @@ class TestTwoPlayerAlternation:
 
 class TestInteractiveCombatThroughTerminalInput:
     def _fight_handler(self, sides, *, cpu_sides=()):
+        from dataclasses import replace
+
+        from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
         from engine.interactions import StartCombat
+
+        # Equip every combatant from this config's own table before the fight starts
+        # (amendment A1): a StartCombat's fighters carry their constructed equipment,
+        # the engine holds no weapon table to resolve an id against.
+        equip = equipper(self._weapon_stats())
+        equipped = tuple(
+            tuple(replace(f, equipment=equip(f.weapon)) for f in side) for side in sides
+        )
 
         def handler(ctx):
             winner = yield StartCombat(
-                sides=sides,
+                sides=equipped,
                 grid=(),
-                weapon_stats=self._weapon_stats(),
+                rules=build_rules(),
                 cpu_sides=cpu_sides,
             )
             return winner

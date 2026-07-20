@@ -54,6 +54,7 @@ from engine.effects import JobClear, JobSet, MoneyChange
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 
+from ..combat_rules import build_rules, equipper
 from ..setup import (
     load_combat_backdrop,
     narrate_combat_outcome,
@@ -143,11 +144,12 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
         enemy_energie=opponent["energie"],
         enemy_name=opponent["name"],
         grid=_backdrop(backdrop),
+        equip=equipper(_weapon_stats()),
     )
     winner = yield StartCombat(
         sides=combat_state.sides,
         grid=combat_state.grid,
-        weapon_stats=_weapon_stats(),
+        rules=build_rules(),
         dir_memory=combat_state.dir_memory,
     )
     # Outcome narration (KTD-1: the invoking handler's job -- _run_combat yields no

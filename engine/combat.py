@@ -42,10 +42,15 @@ no display text.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from types import MappingProxyType
 from typing import Any
 
 from engine.state import CombatState, Fighter
+
+#: Shared empty role map — a bundle that declares no roles for a capability.
+_EMPTY_ROLES: Mapping[str, str] = MappingProxyType({})
 
 __all__ = [
     "GRID_COLS",
@@ -58,6 +63,7 @@ __all__ = [
     "SIDE2_ANCHOR",
     "STAGGER_OFFSETS",
     "RANGE_MELEE",
+    "RulesBundle",
     "DEFAULT_RANGE",
     "STEP_LEFT",
     "STEP_RIGHT",
@@ -200,8 +206,12 @@ def build_player_side(roster: Any) -> tuple[Fighter, ...]:
             brutalitaet=g.brutalitaet,
             position=pos,
             down=False,
+            equipment=getattr(g, "equipment", None) or {},
+            # The roster slot this fighter came from, so the outcome maps back to the
+            # right gangster by identity rather than by position (amendment A1).
+            roster_id=slot,
         )
-        for g, pos in zip(roster, positions)
+        for slot, (g, pos) in enumerate(zip(roster, positions))
     )
 
 
@@ -250,6 +260,7 @@ def setup_combat(
     enemy_energie: int,
     enemy_name: str = "",
     grid: tuple[int, ...] = (),
+    equip: Any = None,
 ) -> CombatState:
     """Build the initial :class:`~engine.state.CombatState` for a new fight.
 
@@ -265,9 +276,18 @@ def setup_combat(
     pre-decoded — see this module's docstring); an empty ``grid`` (fidelity-deviation
     fallback) still produces a legally-playable open arena, since :func:`can_move_onto`
     treats any cell past the end of a short ``grid`` as open ground (code 32).
+
+    ``equip`` is the GAME's ``weapon id -> stat mapping`` constructor, called once per
+    fighter here so every combatant enters the fight already carrying its equipment
+    (amendment A1). It is a parameter rather than an engine table because resolving a
+    weapon id is entity knowledge the engine does not have — and because building the
+    equipment HERE, once, is what stops a second copy existing to disagree later.
     """
     side1 = build_player_side(roster)
     side2 = build_enemy_side(enemy_count, enemy_weapon, enemy_energie, name=enemy_name)
+    if equip is not None:
+        side1 = tuple(replace(f, equipment=equip(f.weapon)) for f in side1)
+        side2 = tuple(replace(f, equipment=equip(f.weapon)) for f in side2)
     dir_memory = {i: -1 for i in range(len(side2))}
     return CombatState(
         sides=(side1, side2),
@@ -309,28 +329,68 @@ STEP_DOWN = GRID_COLS
 STEPS: tuple[int, ...] = (STEP_LEFT, STEP_RIGHT, STEP_UP, STEP_DOWN)
 
 
+# --------------------------------------------------------------------------- #
+# The rules bundle — how a game answers the engine's combat questions (U2)     #
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class RulesBundle:
+    """The formulas and attribute roles a fight runs on — supplied by the GAME (KTD-3).
+
+    The engine owns *when* a hit test happens and what its result means; it does not
+    own the formula. A config passes one of these to :class:`CombatFight` beside its
+    ``rng``, exactly as it already passes ``weapon_stats``. There is deliberately no
+    global registry: two differently-ruled fights must be able to coexist in one
+    process (a genre-engine requirement, not a hypothetical — a scenario harness runs
+    several at once).
+
+    **Roles group per capability, not one flat map.** ``hit_roles`` and
+    ``damage_roles`` each map a *participant* role name ("attacker") to the attribute
+    key that capability reads off that participant. A single flat ``{role: key}`` map
+    could not express WHOSE attribute a role reads. The reference title only ever
+    reads the attacker's, but the genre contract needs defender-side ``evasion`` or
+    ``initiative`` later, and that must not be a breaking change.
+
+    Fields:
+
+    ``vitality``
+        The attribute key the engine depletes and tests for termination — the ONE
+        engine-named role. Everything else the engine passes through opaquely.
+    ``hit_roles`` / ``hit_fn``
+        The hit test's role map and its formula ``(attacker, equipment, rng) -> bool``.
+    ``damage_roles`` / ``damage_fn``
+        The damage roll's role map and its formula ``(attacker, equipment, rng) -> int``.
+    There is deliberately **no** ``equipment_stats`` entry (amendment A1): equipment
+    stats live on the combatant, so a formula reads them off the attacker it was
+    handed. A bundle-held lookup would be a second source able to disagree with the
+    roster about what a weapon does.
+    """
+
+    vitality: str = "vitality"
+    hit_roles: Mapping[str, str] = _EMPTY_ROLES
+    hit_fn: Any = None
+    damage_roles: Mapping[str, str] = _EMPTY_ROLES
+    damage_fn: Any = None
+
+    def required_keys(self) -> tuple[str, ...]:
+        """Every attribute key this bundle will read off a combatant.
+
+        Used at fight construction to reject a bundle whose roles name a key no
+        combatant carries — surfacing the mismatch with both names, rather than as
+        a ``KeyError`` several activations deep inside a formula.
+        """
+        keys = [self.vitality]
+        keys.extend(self.hit_roles.values())
+        keys.extend(self.damage_roles.values())
+        return tuple(dict.fromkeys(keys))
+
+
 def is_hit(rng: Any, *, ts: int, kraft: int) -> bool:
     """Roll the two miss factors; return True iff the shot connects.
 
-    Ports ``mf-prg.bas:30247``: ``ifint(rnd(1)*ts(w))=0orint(rnd(1)*(kr/10+1))=0goto30235``
-    — the shot MISSES if EITHER factor rolls 0, so it hits iff NEITHER does.
-    ``rng.range(n)`` is exactly the source's ``int(rnd(1)*n)``.
-
-    ``ts`` is the weapon's accuracy (config data, ``mf-prg.bas:50100-50115``) and
-    ``kraft`` is the **attacker's** kraft: ``30246`` loads ``a=ks(s):b=f`` — the
-    ACTIVE side and fighter, i.e. the attacker — before this roll, and the CPU
-    branch ``30245`` substitutes the attacker's fixed ``kr=30``. (The research
-    interpretation layer glosses this factor as "dodge by craft"; per KTD-9 the
-    decompiled code wins, and the code unambiguously loads the attacker.)
-
-    Both factors are drawn unconditionally, even though BASIC's ``or`` short-circuits
-    past the second when the first is already 0. Drawing both keeps the RNG log
-    shape stable per shot, which is what makes a seeded replay reproducible — a
-    fidelity-neutral deviation (the outcome is identical either way, since a miss
-    is a miss) that the behavioral bar explicitly permits.
-
-    ``int(kr/10+1)`` is BASIC's truncation, so the second factor's bound is
-    ``kraft // 10 + 1`` — never 0, so ``rng.range`` is always called legally.
+    DEPRECATED (U2): superseded by the game's own ``hit_fn``
+    (``data/game_configs/mafia_1920s/combat_rules.py``), which carries this
+    docstring and its BASIC citation forward verbatim. Retained only until U2's
+    differential tests have proven the two equivalent; deleted in step 7.
     """
     weapon_factor = rng.range(ts) if ts > 0 else 0
     craft_factor = rng.range(kraft // 10 + 1)
@@ -340,15 +400,8 @@ def is_hit(rng: Any, *, ts: int, kraft: int) -> bool:
 def damage_roll(rng: Any, *, tg: int, brutalitaet: int) -> int:
     """Roll one hit's damage.
 
-    Ports ``mf-prg.bas:30255``: ``y=int(rnd(1)*tg(w)+bt/10)+1``. Note where the
-    ``int()`` sits — it wraps the WHOLE sum, not just the random term, so the
-    fractional part of ``bt/10`` can still carry the sum past an integer boundary.
-    ``tg`` is the weapon's damage rating (config data) and ``bt`` is the
-    **attacker's** brutalitaet (loaded with kraft at ``30246``; fixed 30 for the
-    CPU at ``30245``).
-
-    The trailing ``+1`` makes damage at least 1 on every hit — a connecting shot
-    always costs the target energy.
+    DEPRECATED (U2): superseded by the game's own ``damage_fn`` — see
+    :func:`is_hit`'s note. Deleted in step 7.
     """
     draw = rng.range(tg) if tg > 0 else 0
     return int(draw + brutalitaet / 10) + 1
@@ -497,12 +550,11 @@ class CombatFight:
     rules with no client in the loop, and what keeps the future async transport a
     pure swap of the driver half.
 
-    ``weapon_stats`` maps a weapon id to its ``(ts, tg, range)`` triple — CONFIG data
-    (``data/game_configs/mafia_1920s/entities/weapons.yaml``; ``ts``/``tg`` verbatim
-    from ``mf-prg.bas:50100-50115``, ``range`` derived from ``30215-30216``), passed
-    in rather than imported, because the engine never reads a config's entity tables
-    directly. A two-element ``(ts, tg)`` entry is still accepted; its range falls back
-    to :data:`DEFAULT_RANGE`.
+    **The fight holds no equipment table** (amendment A1). Every combatant arrives
+    carrying its own constructed ``equipment`` mapping, built by the game from its
+    entity data before the fight starts. There is therefore no handle to resolve, no
+    lookup to miss, and — crucially — no second source that can disagree with the
+    roster about what a weapon does.
     """
 
     def __init__(
@@ -510,20 +562,79 @@ class CombatFight:
         combat: CombatState,
         *,
         rng: Any = None,
-        weapon_stats: Any = None,
+        rules: Any = None,
     ) -> None:
         # Fighters are frozen dataclasses; the working copy is a list-of-lists so a
         # step/damage rebuilds one Fighter in place without touching the frozen graph.
         self._sides: list[list[Fighter]] = [list(side) for side in combat.sides]
         self._grid: tuple[int, ...] = tuple(combat.grid)
         self._rng = rng
-        self._weapon_stats: dict[int, tuple[int, ...]] = dict(weapon_stats or {})
         self.active_side: int = combat.active_side or 1  # s (1 or 2)
         self.active_fighter: int = combat.active_fighter or 1  # f (1-based)
         self._losses: list[int] = list(combat.losses) or [0, 0]
         self._result_flag: int = combat.result_flag
         self.finished: bool = False
         self.dir_memory: dict = dict(combat.dir_memory)
+        # No engine-side default that NAMES an attribute: a bundle-less fight is a
+        # fight with no formulas, which is a caller error the moment a shot is fired.
+        # (The reference title's bundle lives in its own config, never here.)
+        self._rules: RulesBundle = rules if rules is not None else RulesBundle()
+        self._check_roles()
+
+    def _check_roles(self) -> None:
+        """Reject a bundle naming an attribute key no combatant carries (U2).
+
+        Fails HERE, at construction, naming both the role and the missing key —
+        rather than as a bare ``KeyError`` several activations deep inside a
+        formula, where the message would name neither the fight nor the bundle.
+        """
+        # A bundle-less fight declares no formulas, so it reads no attributes and
+        # has nothing to validate. It can still be moved through and surrendered —
+        # which is exactly what the driver's cancel/EOF tests do — and only a SHOT
+        # would fail, at the point the missing formula is actually needed.
+        if self._rules.hit_fn is None and self._rules.damage_fn is None:
+            return
+        required = self._rules.required_keys()
+        if not required:
+            return
+        for side_idx, side in enumerate(self._sides, start=1):
+            for f_idx, fighter in enumerate(side):
+                for key in required:
+                    if key not in fighter.attrs:
+                        role = self._role_for(key)
+                        raise ValueError(
+                            f"combat rules declare role {role!r} -> attribute {key!r}, "
+                            f"but fighter {f_idx} on side {side_idx} ({fighter.identity!r}) "
+                            f"carries no such attribute (has: "
+                            f"{sorted(fighter.attrs)})"
+                        )
+
+    def _role_for(self, key: str) -> str:
+        """The role name a required attribute key was declared under (for errors)."""
+        if key == self._rules.vitality:
+            return "vitality"
+        for capability, roles in (
+            ("hit", self._rules.hit_roles),
+            ("damage", self._rules.damage_roles),
+        ):
+            for role, attr in roles.items():
+                if attr == key:
+                    return f"{capability}.{role}"
+        return key
+
+    def _attr(self, fighter: Fighter, roles: Mapping[str, str], role: str) -> int:
+        """Resolve one declared role to the value it names on ``fighter``.
+
+        The engine never spells an attribute name itself: it looks up which key the
+        config's bundle assigned to this role and reads that key out of the opaque
+        ``attrs`` map. :meth:`_check_roles` has already guaranteed the key is present.
+        """
+        return fighter.attrs[roles[role]]
+
+    @property
+    def vitality_key(self) -> str:
+        """The attribute the fight depletes — the one engine-named role (KTD-2)."""
+        return self._rules.vitality
 
     # -- read-only views ---------------------------------------------------- #
     @property
@@ -556,32 +667,35 @@ class CombatFight:
             f.position for side in self._sides for f in side if not f.down and f is not exclude
         )
 
-    def weapon_stats(self, weapon: int) -> tuple[int, int]:
-        """``(ts, tg)`` for ``weapon``; ``(0, 0)`` if the config omits it."""
-        stats = self._weapon_stats.get(weapon)
-        if stats is None:
-            return (0, 0)
-        return (stats[0], stats[1])
+    def equipment_stats(self, combatant: Fighter) -> Mapping[str, int]:
+        """``combatant``'s own equipment stats, for the game's formulas.
 
-    def weapon_range(self, weapon: int) -> int:
-        """``weapon``'s shot travel range in cells; :data:`DEFAULT_RANGE` if omitted.
-
-        The range is CONFIG data (this game's values are derived from
-        ``mf-prg.bas:30215-30216``), carried in as the third element of the weapon's
-        ``weapon_stats`` entry so an invented weapon brings its own reach.
+        A read off the roster, not a lookup (amendment A1). The old form took a
+        *handle* and resolved it through a table the fight held, which meant two
+        sources for one fact: a caller could hand the fight one table and the rules
+        bundle another, and the fight would then compute damage from one while
+        reading reach from the other. Nothing raised — it just used the wrong
+        numbers. Reading the combatant's own equipment removes the second source
+        rather than guarding against the disagreement.
         """
-        stats = self._weapon_stats.get(weapon)
-        if stats is None or len(stats) < 3:
-            return DEFAULT_RANGE
-        return stats[2]
+        return combatant.equipment
 
-    def is_melee(self, weapon: int) -> bool:
-        """True iff ``weapon`` reaches no further than the adjacent cell.
+    def equipment_range(self, combatant: Fighter) -> int:
+        """``combatant``'s shot travel range in cells (``mf-prg.bas:30215-30216``).
+
+        Range is entity data the game put on the equipment (U1); the engine holds no
+        weapon taxonomy of its own. A combatant whose equipment omits ``range`` gets
+        :data:`DEFAULT_RANGE` — the source's own base ``r=2``.
+        """
+        return combatant.equipment.get("range", DEFAULT_RANGE)
+
+    def is_melee(self, combatant: Fighter) -> bool:
+        """True iff ``combatant``'s equipment reaches no further than the next cell.
 
         The derived replacement for the source's hardcoded ``orgw(...)<4``
         (``mf-prg.bas:30415``) — see :data:`RANGE_MELEE`.
         """
-        return self.weapon_range(weapon) <= RANGE_MELEE
+        return self.equipment_range(combatant) <= RANGE_MELEE
 
     # -- activation cursor (mf-prg.bas:30105-30109) ------------------------- #
     def _opposing(self, side: int) -> int:
@@ -711,12 +825,12 @@ class CombatFight:
 
         attacker = self.active
         enemy_side = self._opposing(self.active_side)
-        ts, tg = self.weapon_stats(attacker.weapon)
+        equipment = self.equipment_stats(attacker)
 
         # -- projectile travel (30220-30226) -------------------------------- #
         p = attacker.position
         target_index: int | None = None
-        for _ in range(self.weapon_range(attacker.weapon)):
+        for _ in range(self.equipment_range(attacker)):
             p += direction
             if blocks_shot(p, self._grid):
                 return miss
@@ -729,16 +843,23 @@ class CombatFight:
         if target_index is None:
             return miss
 
-        # -- hit check (30245-30247), attacker's stats ---------------------- #
-        if not is_hit(self._rng, ts=ts, kraft=attacker.kraft):
+        # -- hit check (30245-30247): the GAME's formula, on the GAME's roles - #
+        hit_input = self._attr(attacker, self._rules.hit_roles, "attacker")
+        if not self._rules.hit_fn(hit_input, equipment, self._rng):
             return miss
 
         # -- damage (30255) and application (30260/30275, clamp at 0) ------- #
-        damage = damage_roll(self._rng, tg=tg, brutalitaet=attacker.brutalitaet)
+        damage_input = self._attr(attacker, self._rules.damage_roles, "attacker")
+        damage = self._rules.damage_fn(damage_input, equipment, self._rng)
         target = self._sides[enemy_side - 1][target_index]
-        energie = max(0, target.energie - damage)
-        downed = energie == 0
-        self._replace_fighter(enemy_side, target_index, energie=energie, down=downed)
+        # The ONE engine invariant on the depleting resource: subtract and clamp at
+        # zero. The engine does not know what the resource means, only that reaching
+        # zero terminates a combatant.
+        vitality = max(0, target.attrs[self.vitality_key] - damage)
+        downed = vitality == 0
+        self._replace_fighter(
+            enemy_side, target_index, **{self.vitality_key: vitality}, down=downed
+        )
         if downed:
             # v(x)=v(x)+1 (mf-prg.bas:30310) — the STRUCK side takes the loss.
             self._losses[enemy_side - 1] += 1
@@ -800,7 +921,7 @@ class CombatFight:
             # 30415: 50% roll OR a melee weapon forces the close-distance branch.
             # The source spelled "melee" as ``orgw(...)<4``; a weapon that cannot
             # out-reach a neighbour is the same set, without the id taxonomy.
-            melee = self.is_melee(self.active.weapon)
+            melee = self.is_melee(self.active)
             forced_move = self._rng.range(2) == 0 if self._rng is not None else False
             if forced_move or melee:
                 return self._ai_move(target)

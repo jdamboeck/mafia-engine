@@ -19,6 +19,7 @@ import json
 
 import pytest
 
+from data.game_configs.mafia_1920s.combat_rules import build_rules
 from engine.combat import (
     DEFAULT_RANGE,
     RANGE_MELEE,
@@ -37,7 +38,7 @@ from engine.interactions import (
     run,
 )
 from engine.state import CombatState
-from tests.helpers import WEAPON_STATS, WEAPON_TABLE, StubRng, build_fight
+from tests.helpers import WEAPON_TABLE, StubRng, build_fight
 from tests.helpers import combat_fighter as _f
 
 # --------------------------------------------------------------------------- #
@@ -74,8 +75,8 @@ def test_weapon_range_comes_from_config_data_not_the_weapon_id(weapon, ts, tg, w
     widening) — this is the differential that pinned the port when the hardcoded
     ladder was replaced by ``weapons.yaml``'s ``range`` attribute.
     """
-    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
-    assert fight.weapon_range(weapon) == wrange
+    fight = _fight(side1=[_f(weapon=weapon, position=10)], side2=[_f(weapon=weapon, position=300)])
+    assert fight.equipment_range(fight.sides[0][0]) == wrange
 
 
 def test_grenades_reach_fifteen_not_twenty():
@@ -84,16 +85,17 @@ def test_grenades_reach_fifteen_not_twenty():
     30215 widens it to 15 and 30216 never promotes it, so handgranaten carry the
     RANGED reach despite outranking both heavies on damage.
     """
-    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
-    assert fight.weapon_range(8) == 15
+    fight = _fight(side1=[_f(weapon=8, position=10)], side2=[_f(weapon=8, position=300)])
+    assert fight.equipment_range(fight.sides[0][0]) == 15
 
 
 @pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
 def test_melee_is_derived_from_reach_not_from_the_weapon_id(weapon, ts, tg, wrange):
     """``range <= RANGE_MELEE`` selects exactly the source's ``w<4`` set (30415)."""
-    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
-    assert fight.is_melee(weapon) == (weapon < 4)
-    assert fight.is_melee(weapon) == (wrange <= RANGE_MELEE)
+    fight = _fight(side1=[_f(weapon=weapon, position=10)], side2=[_f(weapon=weapon, position=300)])
+    combatant = fight.sides[0][0]
+    assert fight.is_melee(combatant) == (weapon < 4)
+    assert fight.is_melee(combatant) == (wrange <= RANGE_MELEE)
 
 
 def test_melee_reach_constant_matches_the_source_base_range():
@@ -102,11 +104,19 @@ def test_melee_reach_constant_matches_the_source_base_range():
     assert DEFAULT_RANGE == RANGE_MELEE
 
 
-def test_a_weapon_the_config_never_mentions_falls_back_to_adjacent_reach():
-    """An unknown id is not a crash: it reaches one cell, exactly the source's base."""
-    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)])
-    assert fight.weapon_range(99) == DEFAULT_RANGE
-    assert fight.is_melee(99) is True
+def test_a_combatant_whose_equipment_omits_range_falls_back_to_adjacent_reach():
+    """A weapon object with no ``range`` key reaches one cell, the source's base.
+
+    This is the fallback in the ENGINE (``equipment.get("range", DEFAULT_RANGE)``),
+    not a table lookup — a combatant built with a range-less equipment mapping, which
+    is what an old two-element ``(ts, tg)`` config produced before U1 added range.
+    """
+    from engine.state import Fighter
+
+    bare = Fighter(weapon=0, position=10, equipment={"ts": 5, "tg": 10})
+    fight = _fight(side1=[bare], side2=[_f(weapon=0, position=300)])
+    assert fight.equipment_range(fight.sides[0][0]) == DEFAULT_RANGE
+    assert fight.is_melee(fight.sides[0][0]) is True
 
 
 # --------------------------------------------------------------------------- #
@@ -122,7 +132,10 @@ def _shot_reached_a_target(*, weapon, distance, weapon_stats=None):
     that stays valid however the hit/damage draws are later reordered.
     """
     attacker = _f(weapon=weapon, position=100)
-    defender = _f(weapon=0, energie=99, position=100 + distance)
+    # The defender carries the ATTACKER's weapon id: with equipment constructed at
+    # setup (amendment A1) every fighter's id must exist in the table, and a custom
+    # table defines only its own invented ids.
+    defender = _f(weapon=weapon, energie=99, position=100 + distance)
     rng = Rng(seed=1234)
     fight = _fight(side1=[attacker], side2=[defender], rng=rng, weapon_stats=weapon_stats)
     fight.shoot(STEP_RIGHT)
@@ -150,10 +163,18 @@ def test_an_invented_weapon_fires_as_far_as_its_own_range_says():
 def test_an_invented_weapon_is_melee_iff_its_range_is_adjacent_only():
     """Melee is a property of reach, so an invented weapon inherits it from data."""
     stats = {40: (5, 10, 1), 41: (5, 10, 2), 42: (5, 10, 3)}
-    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)], weapon_stats=stats)
-    assert fight.is_melee(40) is True  # reaches less than a full melee step
-    assert fight.is_melee(41) is True  # reaches exactly the adjacent cell
-    assert fight.is_melee(42) is False  # out-reaches a neighbour -> ranged
+
+    def melee(wid):
+        fight = _fight(
+            side1=[_f(weapon=wid, position=10)],
+            side2=[_f(weapon=wid, position=300)],
+            weapon_stats=stats,
+        )
+        return fight.is_melee(fight.sides[0][0])
+
+    assert melee(40) is True  # reaches less than a full melee step
+    assert melee(41) is True  # reaches exactly the adjacent cell
+    assert melee(42) is False  # out-reaches a neighbour -> ranged
 
 
 @pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
@@ -419,7 +440,7 @@ def _spec(**kw):
     base = dict(
         sides=_combat_state().sides,
         grid=(),
-        weapon_stats=WEAPON_STATS,
+        rules=build_rules(),
     )
     base.update(kw)
     return base

@@ -116,11 +116,14 @@ class StartCombat:
     ``grid``
         The backdrop's linear 521-cell wall/scenery code array (config data). An
         empty tuple is a legal open arena.
-    ``weapon_stats``
-        Mapping ``weapon id -> (ts, tg, range)`` from the config's weapon table —
-        accuracy, damage, and shot travel distance in cells. Passed in because the
-        engine never reads a config's entity tables itself. A two-element ``(ts, tg)``
-        entry is still accepted and falls back to :data:`engine.combat.DEFAULT_RANGE`.
+    ``rules``
+        The game's :class:`~engine.combat.RulesBundle` (U2) — the hit/damage formulas
+        and the attribute roles they read. Passed in because the engine owns *when* a
+        hit test happens, never the formula or the attribute names it reads.
+
+        There is no ``weapon_stats`` field (amendment A1): each combatant in ``sides``
+        arrives carrying its own constructed ``equipment`` mapping, so equipment data
+        travels with the roster rather than as a parallel table the engine resolves.
     ``dir_memory``
         Optional per-enemy-fighter direction memory seed (``ri()``), consumed by
         U6's AI; harmless to omit. Keyed by 0-based fighter index (the source's
@@ -140,7 +143,7 @@ class StartCombat:
 
     sides: Any = ((), ())
     grid: Any = ()
-    weapon_stats: Any = None
+    rules: Any = None
     dir_memory: Any = None
     #: ``None`` means "use the default" (side 2); an explicit ``()`` means "no CPU
     #: side at all" — the two are deliberately distinguishable, so a hot-seat fight
@@ -651,23 +654,41 @@ def _run_combat(
             dir_memory=dict(start.dir_memory or {}),
         ),
         rng=ctx.rng,
-        weapon_stats=start.weapon_stats,
+        rules=start.rules,
     )
-    pre_energie = [f.energie for f in fight.sides[0]]
+    # The depleting resource is whatever the GAME's bundle named it (U2) — the driver
+    # reads it out of the opaque attrs map rather than spelling this game's field.
+    vitality = fight.vitality_key
+    # A fight whose combatants do not carry the declared vitality attribute buffers no
+    # roster delta — there is no resource to have depleted. (Reachable only for a
+    # bundle-less fight, which can be surrendered but never fired a shot; a real
+    # bundle's key is validated at fight construction.)
+    tracks_vitality = all(vitality in f.attrs for f in fight.sides[0])
+    pre_vitality = [f.attrs[vitality] for f in fight.sides[0]] if tracks_vitality else []
 
     def _finish(winner: int) -> int:
         # #44 — buffer the roster's persistent energy/down consequence BEFORE handing
         # the winner back, so it commits atomically with the invoking handler's own
         # entry-point effects (one shared ctx, one atomic buffer).
+        if not tracks_vitality:
+            return winner
         for i, f in enumerate(fight.sides[0]):
-            if f.energie != pre_energie[i]:
-                ctx.apply(
-                    EnergyChange(
-                        amount=f.energie - pre_energie[i],
-                        cap=max(pre_energie[i], f.energie),
-                        gangster=i,
-                    )
+            now = f.attrs[vitality]
+            if now == pre_vitality[i]:
+                continue
+            # Address the gangster this fighter IS, not the slot it happens to sit in
+            # (amendment A1). These coincide today because build_player_side maps
+            # roster order onto placement order 1:1 — but a fighter without a roster
+            # entry must not write to gangster 0 just because it is first.
+            if f.roster_id is None:
+                continue
+            ctx.apply(
+                EnergyChange(
+                    amount=now - pre_vitality[i],
+                    cap=max(pre_vitality[i], now),
+                    gangster=f.roster_id,
                 )
+            )
         return winner
 
     message: Any = None

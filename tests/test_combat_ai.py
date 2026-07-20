@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import pytest
 
+from data.game_configs.mafia_1920s.combat_rules import build_rules
 from engine.combat import (
     RANGE_MELEE,
     STEP_DOWN,
@@ -36,7 +37,7 @@ from engine.combat import (
     ai_target,
 )
 from engine.interactions import CombatScreen, StartCombat, run
-from tests.helpers import WEAPON_STATS, WEAPON_TABLE, StubRng, build_fight
+from tests.helpers import WEAPON_TABLE, StubRng, build_fight
 from tests.helpers import combat_fighter as _f
 
 # --------------------------------------------------------------------------- #
@@ -650,7 +651,7 @@ def _ai_spec(**kw):
             (_f(name="thug", weapon=5, energie=20, position=_cell(5, 20)),),
         ),
         grid=(),
-        weapon_stats=WEAPON_STATS,
+        rules=build_rules(),
     )
     base.update(kw)
     return base
