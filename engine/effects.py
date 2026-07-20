@@ -554,6 +554,28 @@ def _target_index(state: GameState, player: int | None) -> int:
     return idx
 
 
+def _clamp(value, floor, cap):
+    """Return ``value`` bounded to ``[floor, cap]`` — the shared clamp shape.
+
+    Every capped-stat branch (:class:`ScoreChange`, :class:`StatChangeCapped`,
+    :class:`ScoreAndRank`, :class:`EnergyChange`) computed ``max(floor, min(cap,
+    value))`` inline; naming it once does not change any branch's floor/cap
+    arguments or rounding — ``int``/``float`` inputs behave exactly as the inline
+    expression did.
+    """
+    return max(floor, min(cap, value))
+
+
+def _validate_stat(stat: str) -> None:
+    """Raise ``ValueError`` if ``stat`` is not one of :data:`_STAT_NAMES`.
+
+    Shared by :class:`StatChange` and :class:`StatChangeCapped`, which both
+    validate the same field name against the same set before touching a gangster.
+    """
+    if stat not in _STAT_NAMES:
+        raise ValueError(f"unknown gangster stat {stat!r}; expected one of {_STAT_NAMES}")
+
+
 def _with_player(state: GameState, idx: int, **field_changes) -> GameState:
     """Return a new ``GameState`` with ``state.players[idx]`` field-updated (KTD-3).
 
@@ -641,7 +663,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
     if isinstance(effect, ScoreChange):
         idx = _target_index(state, effect.player)
         # Clamp intrinsic to gf: cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
-        gf = max(0.0, min(100.0, state.players[idx].gf + effect.amount))
+        gf = _clamp(state.players[idx].gf + effect.amount, 0.0, 100.0)
         return _with_player(state, idx, gf=gf)
 
     if isinstance(effect, MsChange):
@@ -667,25 +689,19 @@ def _apply(state: GameState, effect: Any) -> GameState:
         return _with_player(state, idx, po=effect.cell)  # absolute city-map cell
 
     if isinstance(effect, StatChange):
-        if effect.stat not in _STAT_NAMES:
-            raise ValueError(
-                f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
-            )
+        _validate_stat(effect.stat)
         idx = _target_index(state, effect.player)
         g = _gangster_at(state, idx, effect.gangster)
         raised = getattr(g, effect.stat) + effect.amount
         return _with_gangster(state, idx, effect.gangster, **{effect.stat: raised})
 
     if isinstance(effect, StatChangeCapped):
-        if effect.stat not in _STAT_NAMES:
-            raise ValueError(
-                f"unknown gangster stat {effect.stat!r}; expected one of {_STAT_NAMES}"
-            )
+        _validate_stat(effect.stat)
         idx = _target_index(state, effect.player)
         g = _gangster_at(state, idx, effect.gangster)
         raised = getattr(g, effect.stat) + effect.amount
         # cap/floor are config-supplied (KTD-10) — the engine hardcodes no 99.
-        capped = max(effect.floor, min(effect.cap, raised))
+        capped = _clamp(raised, effect.floor, effect.cap)
         return _with_gangster(state, idx, effect.gangster, **{effect.stat: capped})
 
     if isinstance(effect, AssignWeapon):
@@ -698,7 +714,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
         idx = _target_index(state, effect.player)
         p = state.players[idx]
         # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
-        gf = max(0.0, min(100.0, p.gf + effect.amount * state.config.score_mult))
+        gf = _clamp(p.gf + effect.amount * state.config.score_mult, 0.0, 100.0)
         # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
         return _with_player(state, idx, gf=gf, nr=int(gf / effect.rank_divisor) + 1)
 
@@ -730,7 +746,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
         # en=en+int(kr/10)+1 (mf-prg.bas:4015), capped at [0, cap] (:4020's ifen>xthenen=x
         # is an upper clamp only in the source; a floor of 0 is the engine's own sane
         # bound — energie has no documented negative-regen path this unit).
-        raised = max(0, min(effect.cap, g.energie + effect.amount))
+        raised = _clamp(g.energie + effect.amount, 0, effect.cap)
         return _with_gangster(state, idx, effect.gangster, energie=raised)
 
     if isinstance(effect, RankCommit):
