@@ -1,9 +1,10 @@
 # Agent working conventions
 
 This file orients a fresh agent session working on the Mafia engine. Read it
-first. It captures **how** the work runs; **what** to build lives in the plan
-(`docs/plans/2026-07-12-001-design-first-vertical-slice-deepening-plan.md`,
-§ Execution Workflow) and the authoritative design in `docs/design/`.
+first. It captures **how** the work runs; **what** to build lives in the active
+plan (see `CLAUDE.md` § Current state — currently
+`docs/plans/2026-07-20-003-refactor-combat-engine-foundation-plan.md`) and the
+authoritative design in `docs/design/`.
 
 ## Environment setup (get to a green tree first)
 

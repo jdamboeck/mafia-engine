@@ -12,22 +12,24 @@ per-unit tracking board. Implementation runs unit-by-unit against a plan.
 operating manual: the one-orchestrator/one-subagent execution model, the green-tree rule,
 commit + branch conventions, and how to pick up the next unit. Then:
 
-1. **The active plan** is `docs/plans/current-action-plan.md` (State/Event Foundation,
-   Tasks T1–T9). It refactors the action/result spine (`EngineResult`, semantic events vs.
-   primitive effects, pure movement, `run_option()`) and must land **before** any further
-   unit or content work. Do not edit the plan body during execution — progress lives in
-   git and the board, not the doc.
-   The previous plan, `docs/plans/2026-07-12-001-design-first-vertical-slice-deepening-plan.md`,
-   is **deferred, not cancelled**: its remaining units U10 (terminal client) and U12
-   (save/load) resume after the current plan — and after the protocol-stress content
-   (`sph`, `waf`) it names as next — with U12 building on the new effects-stream replay
-   vocabulary (see the current plan's "Replay semantics" note).
-2. **The tracking board** is GitHub Issues on the `origin` remote (one open issue per
-   unfinished unit/task, `dep:` labels). `gh issue list` shows the board; the next task is
-   the earliest in the current plan's suggested order (`T1 → T2 → T3 → T4 → T5 → T6 → T7 →
-   T8 → T9`) whose dependency issues are all closed. Close a task's issue when its commit
-   lands green. U10/U12 stay open but deferred — do not pick them up while any T-issue is
-   open. (If there is no remote, the board is `docs/PROGRESS.md` instead.)
+1. **The active plan** is
+   `docs/plans/2026-07-20-003-refactor-combat-engine-foundation-plan.md`
+   (Combat Engine Foundation, U1–U8 + U6a). It makes the engine attribute-agnostic
+   (no game vocabulary in `engine/`), then builds scenarios, per-side drivers,
+   data-defined encounters, recording/replay, and a terminal debug tool. Do not edit
+   the plan body during execution — progress lives in git and the board, not the doc.
+   Two earlier drafts of this work (`2026-07-20-001`, `2026-07-20-002`) are marked
+   `artifact_readiness: superseded` and must not be executed.
+2. **The tracking board** is GitHub Issues on the `origin` remote. `gh issue list`
+   shows it. Four issues are open — **#45, #49, #50, #51** — and the active plan
+   dispositions all four: it closes #50 (U3) and explicitly defers #45/#49/#51 with
+   rationale (see its §7.2). Close an issue when its commit lands green. (If there
+   is no remote, the board is `docs/PROGRESS.md` instead.)
+
+   **Landed, do not re-open:** the State/Event Foundation (T1–T9,
+   `docs/plans/current-action-plan.md`), the first-slice deepening plan
+   (`2026-07-12-001-…`, including U10 terminal client and U12 save/load), and the
+   armed-closure plan (`2026-07-18-002-…`).
 3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).
 4. **Setup / green-tree gate:** `pip install -e '.[dev]'` then `make check` (→ `pytest` +
    soft lint). Never dispatch a subagent or commit on a red tree.

@@ -49,6 +49,67 @@ A turn that is replaced by working an active pub job — no map movement, no loc
 
 A job runs for a fixed number of shifts and pays its full wage once, as a lump sum after the final successful shift; a lost shift fight ends the job unpaid. There is no monthly wage.
 
+## Combat
+
+> Planned vocabulary. These terms are defined by the active plan
+> (`docs/plans/2026-07-20-003-refactor-combat-engine-foundation-plan.md`) and
+> land as its units do; the entries are recorded up front so naming stays
+> consistent during implementation.
+
+### Combatant
+The engine's blueprint for anything that fights: the minimum any implementation
+needs, plus a structure the game extends. Four slots — `position` (grid cell,
+absent when off-grid), `down` (out of the fight), `vitality` (the depleting
+resource whose exhaustion means down), and `attrs` (an opaque map the engine
+carries but never reads).
+
+A game supplies the concrete type. In mafia_1920s that is the **Gangster**,
+whose `attrs` hold kraft, brutalitaet, and intelligenz. The engine never learns
+those names: it asks the Rules Bundle for a roll and applies the result.
+*Avoid:* Fighter (the pre-refactor engine name for the same concept)
+
+### Vitality
+The depleting resource whose exhaustion takes a Combatant out of a fight. Named
+by the engine because termination depends on it — everything else about a
+combatant is opaque. The game decides what it is called in its own vocabulary
+(`energie` in mafia_1920s) and what depletes it.
+
+### Rules Bundle
+The game's combat policy, handed to the engine at fight construction: which
+attribute fills which engine role (accuracy, damage, vitality), and the formulas
+that turn a roll into a hit or a damage number. The engine owns the mechanism —
+sequence, apply, clamp, detect termination — and calls into the bundle for every
+value it cannot derive itself.
+
+### Scenario
+A complete description of one fight as a value: the two sides, the arena grid,
+the Rules Bundle, and an optional seed. Constructible without any game state,
+which is what lets the same fight run in-game, headlessly in a simulation, or in
+the debug tool. Carries the fight only — never its rewards or penalties, which
+belong to whatever invoked it.
+
+### Encounter
+A Scenario declared in config data rather than assembled in handler code, plus
+optional outcome declarations. The fight setup is always declarable; a
+consequence needing live state or belonging to a surrounding flow stays in the
+handler, and the Encounter simply omits it.
+
+### Driver
+Whatever decides a side's next move: a human at a client, the AI routine, a
+policy function, or a replay log. Assigned per side, so a fight can be
+human-vs-AI, AI-vs-AI, human-vs-human, or policy-driven, and reassignable
+mid-fight.
+
+Distinct from the **Gang** (the roster that wins or loses) and the **Controlling
+Player** (who owns that gang). A human-owned gang may be driven by AI without
+changing ownership; combat knows only the driver.
+
+### Combat Result
+A finished fight's outcome: the winning side and the per-side losses. What the
+engine hands back to whatever started the fight, which then applies the
+consequences.
+
 ## Flagged ambiguities
 
 - Older design prose said effects are "committed as events" — the terms are now distinct: Effects mutate and replay; Semantic Events are audit-only and never replay.
+- **Fighter** and **Gangster** were separate engine dataclasses with overlapping fields. They are one concept at two layers: **Combatant** is the engine's blueprint, **Gangster** the game's filling of it. Use Combatant for the engine-level term; reserve Gangster for mafia_1920s' concrete entity.

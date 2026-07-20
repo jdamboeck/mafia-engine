@@ -54,7 +54,7 @@ Interaction catalog:
 | `PromptInt` | `key`, `min`, `max` | `int` or cancel | Driver enforces range/type validation. |
 | `PromptChoice` | `key`, `options[]` | chosen index/id or cancel | Menus, submenus, gangster picker. |
 | `Confirm` | `key` | `bool` or cancel | Yes/no. |
-| `StartCombat` | `fighters`, `arena` | `CombatResult` | Suspends turn and runs combat sub-FSM. |
+| `StartCombat` | `scenario` (fighters, arena, rules — one payload) | `CombatResult` | Suspends turn and runs combat sub-FSM. |
 | `LoadSubState` | `kind`, `params` | sub-state result | Nested minigames such as safe-cracking. |
 
 Shared BASIC subroutines become engine helpers/interactions: wait, yes/no, not-enough-money, gangster picker, score update, combat entry, and similar common routines.
@@ -160,7 +160,8 @@ Behavioral fidelity means matching probabilities and formulas, not the original 
 GameState
 ├── players: list[Player]
 │   ├── cash, score, rank, map position, vehicle, speed, movement points
-│   ├── roster: list[Gangster]
+│   ├── roster: list[Combatant]   # engine blueprint; the game supplies the
+│   │                             # concrete type — `Gangster` in mafia_1920s
 │   ├── jobs, debt, business, contraband, wanted, tips, safe skill
 ├── map: grid, tenancy, special cells
 ├── combat: enemy roster, 40x13 grid, direction memory, result flag
