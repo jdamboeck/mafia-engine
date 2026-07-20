@@ -647,9 +647,23 @@ class TestEofMidHandlerExitsCleanly:
         # the wager prompt is answered (no crash, no infinite loop).
         keys = walk + ["", "0"]
 
-        # Must return (not hang) and must not raise.
+        # The protection here is STRUCTURAL: run_play returning at all proves the EOF
+        # neither raised nor hung, which is the whole point of the test. The old
+        # `assert isinstance(output, str)` was dead weight (run_play always returns
+        # StringIO.getvalue()), so assert the two things the EOF path really does
+        # determine: the run terminated cleanly, and it did NOT resolve the gamble.
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
-        assert isinstance(output, str)
+        low = output.lower()
+        # "bye." is play()'s clean-exit line (a show-cursor escape follows it, so
+        # match on containment, not suffix).
+        assert "bye." in low, "the client did not exit cleanly on EOF"
+        assert "gewonnen" not in low and "verloren" not in low, (
+            "EOF must abandon the gamble, not resolve it"
+        )
+        # NOTE (#51): despite this test's name and the comment above, `keys` does not
+        # actually reach sph's wager prompt — the walk ends on the map. The EOF is
+        # therefore exercised at the map loop, not mid-handler. The assertions above
+        # are true and meaningful as written; naming/coverage fix tracked in #51.
 
     def test_eof_at_map_loop_quits_cleanly(self, monkeypatch):
         """No keys at all after the title dismiss: the map loop's very first
@@ -688,7 +702,13 @@ class TestUnimplementedDoorGracefulDenial:
         walk = walk_keys_across_turns(state, city, vehicles, sgl_cell)
         # No follow-up keys needed: denial is immediate and returns straight to the map.
         output = run_play(monkeypatch, seed=42, stdin_keys=walk)
-        assert "closed for renovations" in output or "sgl" in output.lower()
+        # Assert the denial text itself, NOT `or "sgl" in output`: the map's status-bar
+        # location legend renders "sgl" on every map screen, so that disjunct was
+        # satisfied regardless of what the guard printed (verified — replacing the
+        # whole message with unrelated text kept this test green).
+        assert "closed for renovations" in output, (
+            "the unimplemented-door guard printed no denial message"
+        )
 
     def test_sgl_shell_file_does_not_exist_yet(self):
         """Documents WHY the guard is needed (regression bait for whichever unit lands
