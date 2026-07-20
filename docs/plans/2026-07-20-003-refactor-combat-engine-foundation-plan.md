@@ -64,10 +64,22 @@ untouched. That is currently false.
 39 references to game-specific stat names sit inside `engine/`. A game without
 a stat called `kraft` cannot use this engine.
 
-**The computational surface is small, though.** The engine actually *computes*
-with a game stat in **five lines**: two miss factors in `is_hit`, two draws in
-`damage_roll`, and the energy subtraction in `shoot`. The rest is docstrings,
-construction, and pass-through. This is surgical, not a rewrite.
+**The computational surface is small, though.** In `engine/combat.py` the
+engine *computes* with a game stat in **three lines** (`:711`, `:715`, `:717`) —
+the hit check, the damage roll, and the vitality subtraction. The rest of that
+file is docstrings, construction, and pass-through.
+
+**But combat is not the whole surface.** Two other modules read those fields,
+and both are in U2's scope:
+
+| Site | What it does |
+|---|---|
+| `engine/interactions.py:659,666,669,670` | `_finish` diffs pre/post energy to buffer `EnergyChange` |
+| `engine/effects.py:695,702,749` | `StatChange`/`StatChangeCapped` read stats **by name string** via `getattr`; `EnergyChange` reads `g.energie` |
+
+Nine lines across three modules, none of them algorithmically deep. Still
+surgical — but "five lines in one file" would have sent an implementer looking
+in the wrong place.
 
 ### 2.2 The blueprint boundary — what the engine actually uses
 
@@ -783,9 +795,41 @@ does not help mid-unit, and several of these break each other if reordered.
    Equivalence is proven *before* anything moves.
 3. Add `attrs` to `Gangster` and `Fighter` **alongside** existing named fields,
    both populated. Nothing reads `attrs` yet; green.
+
+   **⚠ Dual-write hazard — this step is not as safe as it reads.**
+   `_with_gangster` (`engine/effects.py:620`) rebuilds via
+   `dataclasses.replace(g, **field_changes)`, so `replace(g, energie=5)` updates
+   the **named field only** and leaves `attrs["energie"]` stale. Every effect
+   applied during steps 3–5 silently desynchronises the two copies, and nothing
+   fails until step 6 switches the reader.
+
+   Do **not** hand-sync at call sites. Derive `attrs` in `__post_init__` from
+   the named fields so `replace()` regenerates it on every rebuild and the two
+   cannot drift by construction. The graph already runs a `_coerce_readonly`
+   `__post_init__` (`engine/state/__init__.py`), so this extends an existing
+   hook rather than adding one.
 4. Update **both** persistence reconstruction sites for the new field; green.
-5. Switch readers to the map: `shoot` (`combat.py:711,715,717`) and `_finish`
-   (`interactions.py:659,666,669,670`); green.
+5. Switch readers to the map: `shoot` (`combat.py:711,715,717`), `_finish`
+   (`interactions.py:659,666,669,670`), **and the four `effects.py` branches
+   below**; green.
+
+   **`effects.py` mutates gangster stats by name — four branches, two shapes.**
+   The plan elsewhere treats `EnergyChange` as a rename-only follow-on. It is
+   not: `:749` reads `g.energie` and `:750` writes `energie=` through
+   `_with_gangster`. Worse, `StatChange`/`StatChangeCapped` (`:695`, `:702`) use
+   **`getattr(g, effect.stat)`** — attribute access by *name string* on a
+   dataclass. Once stats live in `attrs`, `getattr` resolves nothing and both
+   branches break.
+
+   | Branch | Today | After |
+   |---|---|---|
+   | `StatChange` `:695-696` | `getattr(g, effect.stat)` + `replace(**{stat: v})` | read/write through `attrs` |
+   | `StatChangeCapped` `:702-705` | same, plus `_clamp` | same, clamp unchanged |
+   | `EnergyChange` `:749-750` | `g.energie`, `energie=` | vitality slot, not a named field |
+   | `AssignWeapon` `:711` | `weapon=` | unchanged — equipment is a blueprint slot |
+
+   `AssignWeapon` is the control: it stays as-is, which confirms the boundary is
+   about *attributes*, not about every gangster field.
 6. Move `Gangster` across the layer boundary. `Combatant` stays in
    `engine/state/`; `Gangster` moves to `data/game_configs/mafia_1920s/`,
    re-exported. `build_player_side` stops copying field-by-field and attaches
@@ -838,6 +882,15 @@ margin. ~700 pairs per formula — exhaustible in milliseconds.
   surfacing far from its cause as an `AttributeError`. Two sites, two tests.
 - `intelligenz` survives a fight round-trip untouched — the map must not drop
   unread keys.
+- **Dual-write coherence (steps 3–5):** after any `_with_gangster` rebuild, the
+  named field and its `attrs` entry agree. Assert directly —
+  `replace(g, energie=5)` yields `attrs["energie"] == 5`. This is the one
+  failure that stays green until step 6 and then surfaces far from its cause.
+- **`getattr`-by-name still resolves:** a `StatChange(stat="kraft", amount=+5)`
+  raises the gangster's kraft by exactly 5, read back through whichever access
+  path step 5 settled on. Same for `StatChangeCapped` including its clamp.
+- `AssignWeapon` is unaffected — equipment is a blueprint slot, not an
+  attribute. Included as the control case.
 - **Finding 4:** `ENEMY_KRAFT`/`ENEMY_BRUTALITAET` (`engine/combat.py:213-214`)
   no longer exist. NPC stat defaults come from the scenario or the rules bundle,
   so the engine names neither the stat nor its value. A scenario inventing an
@@ -877,6 +930,12 @@ margin. ~700 pairs per formula — exhaustible in milliseconds.
 - `data/game_configs/mafia_1920s/setup.py` (modify — `narrate_combat_outcome`)
 - `tests/test_combat_loop.py`, `tests/test_upkeep.py`, `tests/test_kdh.py`,
   `tests/test_pub_jobs.py`, `tests/test_debt_default.py` (modify)
+- **`tests/test_substate.py` (2 sites), `tests/test_client_loop.py` (1),
+  `tests/test_driver.py` (1)** — these also `yield StartCombat` and consume its
+  return. Easy to miss: they are driver/substate tests, not combat tests, so a
+  search scoped to combat files skips them. **Seven** test files touch
+  `StartCombat` in total; changing the return type breaks any that bind the
+  yielded value.
 
 **Approach** `CombatFight.losses` (`engine/combat.py:544`) already tracks real
 `v(1)`/`v(2)` tallies, incremented at `:722`. **U3 does not touch `CombatFight`
@@ -1825,6 +1884,8 @@ transport, a scenario editor UI.
 | Existing save files become unreadable | **Already handled — add nothing.** `engine/persistence.py:257`'s `_check_version` raises on a schema version this build cannot read, so old saves fail loudly rather than silently mis-loading. Bump `SCHEMA_VERSION` with the shape change; do not build a migration path this slice |
 | The wire shape changes and the client silently renders blanks | Explicit decision required in U2 (see its test scenarios): either flatten `attrs` back onto the panel payload, or move the renderer to `attrs`. Asserted by a before/after byte-identical panel test — the plan's grep guard scans only `engine/` and cannot catch this |
 | U2's step 6 (the entity move) goes wrong | Steps 1–5 land and are green first; 1–4 are individually committable |
+| **`attrs` and named fields drift during steps 3–5** | `dataclasses.replace` updates only the named field. Derive `attrs` in `__post_init__` so a rebuild regenerates it; assert coherence after every `_with_gangster`. This failure stays *green* until step 6, then surfaces far from its cause — the `9df2091` shape |
+| **`getattr(g, effect.stat)` silently stops resolving** | `StatChange`/`StatChangeCapped` address stats by name string (`effects.py:695`, `:702`). Covered by an explicit test per branch, with `AssignWeapon` as the untouched control |
 | The `ai_target` fix changes side-2 behavior | Characterization-first; any existing test needing an edit means the change is wrong |
 | Driver abstraction breaks suspend semantics | The human driver stays a generator; the boundary is settled in U6, not deferred |
 | A 1-vs-5 player win may be unreachable | Unverified. U6 determines it empirically; the #49 guard is written outcome-agnostically so it holds either way |
