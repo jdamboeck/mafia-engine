@@ -58,17 +58,26 @@ _PARAMS = {
 class _StubRng:
     """Scripted RNG: returns queued values, records every call (determinism gate).
 
-    NOT swapped for ``tests.helpers.StubRng`` (unlike ``test_kdh.py``): two tests
-    below (``test_win_changes_nothing_and_the_fight_recurs_next_turn`` and
-    ``test_the_fight_actually_re_fires_on_the_following_turn``) construct this with
-    ZERO scripted values and rely on the resulting exhaustion to unwind the run
-    silently. That reliance is itself a latent bug this simplification pass found
-    but does not fix (out of scope — see the handoff report). The shared
-    ``StubRng``'s stricter ``AssertionError``-on-exhaustion is behaviorally
-    correct and exposes it; switching would turn those two tests red for a
-    reason unrelated to this file's assigned scope, so this file keeps its own
-    permissive (``StopIteration``-raising) copy until that test bug is fixed
-    on its own.
+    NOT swapped for ``tests.helpers.StubRng`` (unlike ``test_kdh.py``) — and the
+    reason is a live test bug, not a stub-compatibility detail (see #49).
+
+    ``test_win_changes_nothing_and_the_fight_recurs_next_turn`` and
+    ``test_the_fight_actually_re_fires_on_the_following_turn`` construct this
+    with ZERO scripted values. The fight therefore never resolves: the RNG
+    exhausts on the first draw, ``StopIteration`` unwinds the combat generator,
+    and the run ends having emitted only ``upkeep.turn_banner`` and
+    ``upkeep.debt_collectors_intro`` — no ``combat.winner_banner`` at all.
+
+    Both tests then PASS VACUOUSLY. They assert that cash, debt and the expired
+    counter survive untouched, and those hold because *nothing happened*, not
+    because a win preserved them. The test named "win changes nothing" never
+    reaches a win.
+
+    The shared ``StubRng`` raises ``AssertionError`` on exhaustion, which is
+    correct and turns both red — it is the messenger. Keeping this permissive
+    copy preserves the status quo until the tests are rewritten to actually
+    drive a fight to a win; adopting the strict stub is part of that fix, not
+    a prerequisite for it.
     """
 
     def __init__(self, *values):
