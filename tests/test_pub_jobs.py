@@ -15,8 +15,11 @@ replaces an employed player's turn):
   croupier picks a trick 1-3, caught with probability 1/(6-trick), immediate bonus on
   success, a fight when caught; killer always fights. Lost fight -> job cleared
   unpaid, score -2. Successful shift decrements months_left; at 0 the full wage pays
-  out once with the completion score (6 for croupier per the plan's Open Questions
-  resolution, 3 for every other type).
+  out once with the completion score. ``:25560`` is ``x=3+3*(jo(sp)=2)``, so under the
+  C64 ``true=-1`` evaluation a croupier scores 0 and every other type scores 3. (The
+  plan's Open Questions had defaulted this to 6 under the since-reversed ``true=+1``
+  pin; the #47 fidelity audit corrected it — see
+  ``test_croupier_completion_score_is_zero`` below.)
 """
 
 from __future__ import annotations
@@ -325,3 +328,41 @@ def test_post_fight_roster_energy_persists_on_loss():
     assert final_energy != roster[0].energie
     energy_effects = [e for e in result.effects if isinstance(e, EnergyChange)]
     assert energy_effects[0].gangster == 0
+
+
+def test_croupier_caught_but_wins_the_fight_completes_the_shift():
+    """A shift fight that is WON drives the success branch (``won = winner == 1``).
+
+    Every other fight scenario in this file scripts an immediate surrender, so the
+    loss branch is well covered and the win branch — the shift counting as
+    successful and decrementing ``months_left`` — was never exercised end to end.
+    A flipped comparison or a ``_fight`` return-value inversion would have shipped
+    silently, because the loss tests surrender before the winner is ever read.
+
+    The script must aim: ``_parse_combat_response`` turns a bare ``"shoot"`` into
+    ``("shoot", None)``, a directionless shot that never fires. Setup places the
+    boss at 251 and the croupier's 10-energy ``spieler`` (``mf-prg.bas:25135``) at
+    269 — same row, target to the right — so ``STEP_RIGHT`` is the aim that lands.
+    """
+    from engine.combat import STEP_RIGHT
+
+    st = _state(
+        jobs=Job(type=2, pending_pay=1200, months_left=2),
+        roster=(Gangster(name="boss", weapon=6, energie=99, kraft=50, brutalitaet=50),),
+    )
+    # trick=3 (catch chance 1/3), then shoot right until the opponent drops. Seed 1
+    # is caught-then-won; a real Rng is needed because a fight makes many draws.
+    src = _scripted(*([3] + [("shoot", STEP_RIGHT)] * 120))
+    result = run_pure(HANDLERS["job.shift"], src, state=st, rng=Rng(1))
+
+    assert result.status == "completed"
+    assert "job.shift_croupier_caught" in [m.key for m in src.messages()], (
+        "this test is only meaningful if the catch branch actually fired"
+    )
+    assert not [e for e in result.effects if isinstance(e, JobClear)], (
+        "a won shift must not clear the job"
+    )
+    kept = [e for e in result.effects if isinstance(e, JobSet)]
+    assert kept and kept[0].months_left == 1, (
+        f"a won shift decrements months_left 2 -> 1; got {kept}"
+    )

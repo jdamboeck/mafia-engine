@@ -35,9 +35,12 @@ Faithfulness notes
 -------------------
 - ALL game-balance numbers (stock/price/capacity/tip-price ranges) come from
   ``formula_params`` (KTD-10) — nothing here is a bare literal.
-- Every relational term uses the ``true = +1`` porting convention (KTD-9); none of this
-  unit's ported expressions contain a relational factor that needed one (spot-checked
-  against the oracle per the plan's landmine note — no conflict found).
+- Relational terms use the C64 ``true = -1`` evaluation (the #47 fidelity audit
+  reversed the earlier, circularly-justified ``true = +1`` pin — see
+  ``docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md``).
+  None of this module's ported expressions contains a relational factor, so the
+  reversal changed nothing here; the note stays because a future addition to this
+  file will need the right convention.
 - KTD-7: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
   and this config's OWN ``..setup`` helpers.
 - No content-specific events (KTD-6): outcomes are reconstructable from the committed
