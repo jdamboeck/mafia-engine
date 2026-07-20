@@ -1516,10 +1516,17 @@ snapshot needs a field `json_safe` does not emit, fix `json_safe`. Recordings ar
 versioned game content — **not** under `data/game_configs/`. U7 defines
 `save(path)`/`load(path)` and stays agnostic; U8 picks the directory.
 
-**Test scenarios**
-- A recorded fight replays to an identical `CombatResult`.
-- Replay reproduces every intermediate state, not just the outcome.
-- Every RNG draw is carried; replay consumes them in order.
+**Test scenarios** — all use **one shared fixture**: the kdh ambush (1v1,
+`seed=42`), recorded once and reused. Without a named fixture each scenario
+invents its own fight and the suite stops comparing like with like.
+
+- A recorded fight replays to an identical `CombatResult` — same winner, same
+  `losses` tuple.
+- Replay reproduces every intermediate state, not just the outcome: assert the
+  combatant vitalities at **every** activation index, not only the last.
+- Every RNG draw is carried; replay consumes them in order. Assert the recorded
+  draw count equals the live fight's draw count — an off-by-one here is exactly
+  what silently desynchronises a replay.
 - A mid-fight handoff appears as an event and replays correctly.
 - **Fidelity detector:** replaying against a deliberately altered formula
   diverges, and `at_index` names the activation.
@@ -1606,15 +1613,38 @@ compute it in the client.**
 rather than using real names. Verify whether U3's narration work fixes this
 upstream; if not, do not let debug mode inherit the placeholder.
 
-**Test scenarios**
-- A scenario file loads and produces a runnable `Scenario`.
-- A live fight renders and resolves via scripted stdin.
-- A recording loads and steps forward one activation per keypress.
-- Autoplay advances to the end and stops.
-- Debug mode names every calculation input for at least one shot.
-- A scenario fight leaves no persistent state — no roster mutation, nothing
-  written.
-- A malformed scenario file fails with a clear error, not a crash.
+**Test scenarios** — the terminal tool has no fidelity oracle (no BASIC line
+says what a debug dump prints), so these must name concrete values or they will
+be written as "it didn't crash".
+
+- Loading `content/scenarios/kdh_ambush.yaml` produces a `Scenario` whose
+  `sides` equal `Scenario.from_encounter("kdh_ambush", …)` — the same
+  differential shape U6a uses, so the file path and the in-game path cannot
+  diverge.
+- `play --scenario kdh_ambush --seed 42` over scripted stdin resolves to a
+  winner and prints a losses block; the seed makes the outcome assertable, not
+  merely "it ran".
+- `watch --recording <fixture>` renders activation 0, and **one keypress
+  advances to exactly activation 1** — assert the rendered activation index,
+  not that output changed.
+- `b` at activation 5 renders activation 4 with state identical to a forward
+  replay to 4 (proves the snapshot seek matches the decision log — KTD-8's
+  invariant, exercised through the tool).
+- Autoplay from activation 0 on an N-activation recording stops at N-1 and
+  **does not wrap** — assert the final index.
+- `--debug` on a known shot prints every input the hit and damage rolls
+  consumed: both draws with their bounds, the accuracy and damage attribute
+  values, and the resulting damage. Assert the *values*, pinned to the seed —
+  this is the unit's whole purpose (R13) and the one scenario most likely to
+  degrade into "some text appeared".
+- A `--debug` frame for an activation whose recording has `parent_index` set
+  renders it as nested under its parent. **Skip until reactions exist** — noted
+  so the renderer is not written assuming a flat list.
+- A scenario fight constructs no `GameState` and writes no file — assert both,
+  since "leaves no persistent state" is otherwise unfalsifiable.
+- A scenario file with an unknown weapon id fails at load with a message naming
+  the id — not a `KeyError` mid-fight (§2.2c's third seam, surfaced where a
+  human meets it).
 
 **Verification** A fight is playable, watchable, and steppable, with every
 calculation visible in debug mode.
@@ -1754,7 +1784,29 @@ unless a second config proves a real shared seam."*
 | Pass a narrowed `CombatContext` instead of the whole combatant to formulas | **Deferred** | Plausible, but the current shape was chosen so adding an attribute never changes an engine signature. Both are defensible; churning now buys nothing |
 | Rename `CombatFight` for genre accuracy | **Deferred** | The naming concern is real; §2's active-turn boundary statement captures the substance without a rename touching 939 lines and 29 test call sites |
 
+**Tripwires — what would flip a deferral.** A deferral nobody can test becomes
+"never," and then the deferred thing is a rewrite. Each of the above has a
+checkable trigger:
+
+| Deferral | Adopt it when… |
+|---|---|
+| `attrs` → typed extension objects | a **second config** declares its own attribute set; **or** an attribute needs a non-`int` value; **or** two attributes must change together atomically (that is a component, not two keys) |
+| `Scenario` splits into Definition / Instance / Settings | a field is needed by the **loader** but not the **fight** — rewards, music, difficulty, spawn waves. That is the responsibility boundary, and it is visible in code review |
+| Rule models become inspectable alongside callbacks | a consumer needs a formula's **shape** without executing it — a balance tool, an AI planner, a combat editor. None exists; each is recognizable on arrival |
+| `CombatAction` classes replace `(action, argument)` | the action set outgrows a flat tuple — an action carrying more than one argument, or a config adding actions the engine does not know |
+| Split `CombatFight` into collaborators | a new mechanic (reactions, status effects, interrupts) needs its own state across activations, rather than one more branch in an existing method |
+
 Recorded so a later reviewer sees the reasoning rather than re-deriving it.
+
+**Review history.** Two passes of the same external review (plan-only, no code
+access) have run. Pass 1 raised eleven points — six adopted, five deferred
+above. Pass 2 re-raised four already-adopted items (`CombatView`, thin
+`CombatFight`, `Scenario` split, inspectable rules) and asked for one new thing:
+*criteria* for the deferrals rather than the deferrals themselves. That is the
+tripwire table. `CombatAction` was raised in both passes and declined in both —
+the action set is closed at four by the port's fidelity constraint
+(`mf-prg.bas:30125-30155` has no reload, no skills, no wait beyond `pass`), and
+the coupling it targets was removed by U6's decide/execute split instead.
 
 ### 7.5 Out of scope
 
