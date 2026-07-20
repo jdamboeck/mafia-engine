@@ -22,9 +22,7 @@ from engine.config_loader import load_game_config
 from engine.locations import HANDLERS
 from engine.types import ConfigValidationError, validate_config, validate_vehicle
 
-CONFIG_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-)
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 
 def test_load_game_config_registers_handler_and_exposes_new_game():
@@ -87,9 +85,7 @@ def _write_minimal_config(pkg_dir: Path, marker: int) -> None:
     (pkg_dir / "config.yaml").write_text(
         "engine_api: 1\nentities: {}\nformula_params: {}\nsetup: {}\ninput_ranges: {}\n"
     )
-    (pkg_dir / "__init__.py").write_text(
-        f"def new_game(*args, **kwargs):\n    return {marker}\n"
-    )
+    (pkg_dir / "__init__.py").write_text(f"def new_game(*args, **kwargs):\n    return {marker}\n")
 
 
 def test_same_basename_configs_at_different_paths_do_not_collide(tmp_path):

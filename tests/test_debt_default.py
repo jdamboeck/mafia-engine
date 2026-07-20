@@ -94,9 +94,11 @@ class _StubRng:
 
 
 def _state(*, debt=None, ka=100000, roster=None, business=None):
-    roster = roster if roster is not None else [
-        Gangster(name="alcapone", energie=40, kraft=30, brutalitaet=30)
-    ]
+    roster = (
+        roster
+        if roster is not None
+        else [Gangster(name="alcapone", energie=40, kraft=30, brutalitaet=30)]
+    )
     player = Player(
         name="alcapone",
         ka=ka,
@@ -109,8 +111,6 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
         clock=Clock(active_player=0, player_count=1),
         config=Config(formula_params=_PARAMS),
     )
-
-
 
 
 def _debt_effects(result):
@@ -267,9 +267,7 @@ def test_the_fight_actually_re_fires_on_the_following_turn():
     first = run_upkeep(st, input_source=_scripted(*(["pass"] * 400)), rng=_StubRng())
     assert first.state.players[0].ka == 8000  # survived turn 1
 
-    second = run_upkeep(
-        first.state, input_source=_scripted("surrender"), rng=_StubRng()
-    )
+    second = run_upkeep(first.state, input_source=_scripted("surrender"), rng=_StubRng())
     # Turn 2 fought again — and this time lost, so the seizure fired.
     assert second.state.players[0].ka == 0
     assert second.state.players[0].debt == Debt(amount=0, months=0)

@@ -59,7 +59,9 @@ def _state(*, ka=100000, rank=1, ms=5, roster=None, jobs=None):
         ka=ka,
         rank=rank,
         ms=ms,
-        roster=roster if roster is not None else (Gangster(name="g0", energie=5, kraft=30, brutalitaet=30),),
+        roster=roster
+        if roster is not None
+        else (Gangster(name="g0", energie=5, kraft=30, brutalitaet=30),),
         jobs=jobs if jobs is not None else Job(),
     )
     return GameState(
@@ -67,8 +69,6 @@ def _state(*, ka=100000, rank=1, ms=5, roster=None, jobs=None):
         clock=Clock(active_player=0, player_count=1),
         config=Config(formula_params=_PARAMS),
     )
-
-
 
 
 # --------------------------------------------------------------------------- #

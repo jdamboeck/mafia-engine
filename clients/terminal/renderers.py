@@ -60,7 +60,9 @@ def _term_width() -> int:
 _PAL: dict[str, tuple[int, int, int]] | None = None
 
 
-def _get_palette(config_dir: Path | None = None, theme: str = "classic") -> dict[str, tuple[int, int, int]]:
+def _get_palette(
+    config_dir: Path | None = None, theme: str = "classic"
+) -> dict[str, tuple[int, int, int]]:
     global _PAL
     if _PAL is None:
         if config_dir is not None:
@@ -68,6 +70,7 @@ def _get_palette(config_dir: Path | None = None, theme: str = "classic") -> dict
         else:
             # Fallback: load from the known default config path.
             from clients.terminal import _DEFAULT_CONFIG_DIR
+
             _PAL = load_palette(_DEFAULT_CONFIG_DIR, theme)
     return _PAL
 
@@ -107,10 +110,7 @@ def render_header(text: str, out: TextIO) -> None:
     left_pad = pad_total // 2
     right_pad = pad_total - left_pad
     pal = _get_palette()
-    out.write(
-        f"{fg('light_grey', pal)}╔{'═' * left_pad}  {text}  {'═' * right_pad}╗"
-        f"{RESET_FG}\n"
-    )
+    out.write(f"{fg('light_grey', pal)}╔{'═' * left_pad}  {text}  {'═' * right_pad}╗{RESET_FG}\n")
 
 
 def render_subheader(text: str, out: TextIO) -> None:
@@ -121,8 +121,7 @@ def render_subheader(text: str, out: TextIO) -> None:
     right_pad = pad_total - left_pad
     pal = _get_palette()
     out.write(
-        f"{DIM}{fg('light_grey', pal)}{'─' * left_pad}  {text}  {'─' * right_pad}"
-        f"{RESET_ALL}\n"
+        f"{DIM}{fg('light_grey', pal)}{'─' * left_pad}  {text}  {'─' * right_pad}{RESET_ALL}\n"
     )
 
 
@@ -142,8 +141,7 @@ def render_menu_option(index: int, label: str, out: TextIO) -> None:
     """Numbered menu option: blue index, light grey label."""
     pal = _get_palette()
     out.write(
-        f"  {fg('light_blue', pal)}{index}){RESET_FG} "
-        f"{fg('light_grey', pal)}{label}{RESET_FG}\n"
+        f"  {fg('light_blue', pal)}{index}){RESET_FG} {fg('light_grey', pal)}{label}{RESET_FG}\n"
     )
 
 
@@ -168,9 +166,7 @@ def render_status_bar(
     bar = f" {player_name} │ cash {cash}$ │ pos {pos} │ ms {ms} "
     padded = bar.center(width)
     pal = _get_palette()
-    out.write(
-        f"{REVERSE}{bg('brown', pal)}{fg('light_grey', pal)}{padded}{RESET_ALL}\n"
-    )
+    out.write(f"{REVERSE}{bg('brown', pal)}{fg('light_grey', pal)}{padded}{RESET_ALL}\n")
 
 
 def render_status_bar_from_state(state: Any, out: TextIO) -> None:
@@ -282,17 +278,15 @@ def render_fighter_panel(
         return
     name = fighter.get("name", "")
     weapon_id = fighter.get("weapon", 0)
-    weapon_name = (
-        weapon_names[weapon_id] if 0 <= weapon_id < len(weapon_names) else str(weapon_id)
-    )
+    weapon_name = weapon_names[weapon_id] if 0 <= weapon_id < len(weapon_names) else str(weapon_id)
     out.write(f"{fg('light_grey', pal)}{name}{RESET_FG}\n")
     out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
-    out.write(resolver.resolve("combat.panel_energy", {"energie": fighter.get("energie", 0)}) + "\n")
+    out.write(
+        resolver.resolve("combat.panel_energy", {"energie": fighter.get("energie", 0)}) + "\n"
+    )
     out.write(resolver.resolve("combat.panel_kraft", {"kraft": fighter.get("kraft", 0)}) + "\n")
     out.write(
-        resolver.resolve(
-            "combat.panel_brutalitaet", {"brutalitaet": fighter.get("brutalitaet", 0)}
-        )
+        resolver.resolve("combat.panel_brutalitaet", {"brutalitaet": fighter.get("brutalitaet", 0)})
         + "\n"
     )
 
@@ -336,4 +330,6 @@ def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:
     losses = payload.get("losses") or [0, 0]
     out.write(resolver.resolve("combat.losses_heading") + "\n")
     for i, count in enumerate(losses, start=1):
-        out.write(resolver.resolve("combat.losses_line", {"name": f"side {i}", "count": count}) + "\n")
+        out.write(
+            resolver.resolve("combat.losses_line", {"name": f"side {i}", "count": count}) + "\n"
+        )

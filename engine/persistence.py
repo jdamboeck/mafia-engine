@@ -150,9 +150,7 @@ def _restore_numeric_keys(value: Any) -> Any:
     """
     if isinstance(value, Mapping):
         restored = {k: _restore_numeric_keys(v) for k, v in value.items()}
-        if restored and all(
-            isinstance(k, str) and _is_int_literal(k) for k in restored
-        ):
+        if restored and all(isinstance(k, str) and _is_int_literal(k) for k in restored):
             restored = {int(k): v for k, v in restored.items()}
         return MappingProxyType(restored)  # read-only: R2 holds after load too
     if isinstance(value, list):
@@ -210,9 +208,7 @@ def _combat_from_dict(raw: dict) -> CombatState:
     ``map.tenancy``, so it goes through the same :func:`_restore_int_keys` restoration.
     """
     restored = dict(raw)
-    restored["sides"] = tuple(
-        tuple(Fighter(**f) for f in side) for side in raw["sides"]
-    )
+    restored["sides"] = tuple(tuple(Fighter(**f) for f in side) for side in raw["sides"])
     restored["dir_memory"] = _restore_int_keys(raw["dir_memory"])
     return CombatState(**restored)
 
@@ -289,13 +285,13 @@ def save_game(
     lines = [json.dumps(header)]
     for effect in effect_log:
         lines.append(
-            json.dumps({"kind": "effect", "version": SCHEMA_VERSION, "effect": _effect_to_dict(effect)})
+            json.dumps(
+                {"kind": "effect", "version": SCHEMA_VERSION, "effect": _effect_to_dict(effect)}
+            )
         )
     for draw in rng_log:
         # rng.log tuples are (method, args, value); JSON turns the tuple into a list.
-        lines.append(
-            json.dumps({"kind": "rng", "version": SCHEMA_VERSION, "draw": list(draw)})
-        )
+        lines.append(json.dumps({"kind": "rng", "version": SCHEMA_VERSION, "draw": list(draw)}))
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -314,9 +310,7 @@ def load_game(path: str | Path) -> SaveData:
     """Load a save: parse the JSONL, verify versions, reconstruct snapshot + logs."""
     path = Path(path)
     records = [
-        json.loads(line)
-        for line in path.read_text(encoding="utf-8").splitlines()
-        if line.strip()
+        json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
     if not records or records[0].get("kind") != "header":
         raise ValueError(f"{path}: missing header record")
@@ -371,9 +365,7 @@ def resume_pending_action(save: SaveData, location, *, live_input, rng=None):
     if pending is None:
         raise ValueError("save has no pending_action to resume")
     if pending["location_key"] != location.key:
-        raise ValueError(
-            f"pending action location {pending['location_key']!r} != {location.key!r}"
-        )
+        raise ValueError(f"pending action location {pending['location_key']!r} != {location.key!r}")
 
     replayed = iter(pending["responses_so_far"])
 

@@ -29,8 +29,6 @@ from engine.substates import SUBSTATES, register_substate
 from tests.helpers import scripted
 
 
-
-
 @pytest.fixture(autouse=True)
 def _clean_substates():
     """Snapshot/restore SUBSTATES so per-test registrations don't leak."""

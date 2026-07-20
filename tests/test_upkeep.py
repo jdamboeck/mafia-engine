@@ -33,7 +33,9 @@ load_game_config(_CONFIG_DIR)
 
 
 def _state(*, roster=None, rank=1, nr=1, gf=0.0, name="alcapone", gang_name="the outfit"):
-    roster = roster if roster is not None else [Gangster(name=name, energie=5, kraft=15, brutalitaet=30)]
+    roster = (
+        roster if roster is not None else [Gangster(name=name, energie=5, kraft=15, brutalitaet=30)]
+    )
     player = Player(name=name, gang_name=gang_name, rank=rank, nr=nr, gf=gf, roster=roster)
     return GameState(
         players=[player],
@@ -194,7 +196,9 @@ def test_run_pure_clean_for_the_registered_handler():
 # --------------------------------------------------------------------------- #
 def test_upkeep_only_touches_the_active_player():
     p0 = Player(name="p0", rank=1, nr=1, roster=[Gangster(energie=5, kraft=10, brutalitaet=10)])
-    p1 = Player(name="p1", rank=1, nr=3, gf=25.0, roster=[Gangster(energie=5, kraft=10, brutalitaet=10)])
+    p1 = Player(
+        name="p1", rank=1, nr=3, gf=25.0, roster=[Gangster(energie=5, kraft=10, brutalitaet=10)]
+    )
     state = GameState(
         players=[p0, p1], clock=Clock(active_player=1, player_count=2), config=Config()
     )

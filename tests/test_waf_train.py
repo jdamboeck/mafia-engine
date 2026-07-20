@@ -127,7 +127,9 @@ def test_venue_gate_rank_below_5_range_only():
     # picking, it goes straight to the range cost (no second PromptChoice).
     st = _state(rank=4)
     seen = _observe(
-        HANDLERS["waf.train"], st, _StubRng(),
+        HANDLERS["waf.train"],
+        st,
+        _StubRng(),
         {PromptChoice: [0], Confirm: [False]},  # pick gangster 0, decline range
     )
     prompt_choices = [i for i in seen if isinstance(i, PromptChoice)]
@@ -137,7 +139,9 @@ def test_venue_gate_rank_below_5_range_only():
 def test_venue_gate_rank_5_offers_choice():
     st = _state(rank=5)
     seen = _observe(
-        HANDLERS["waf.train"], st, _StubRng(),
+        HANDLERS["waf.train"],
+        st,
+        _StubRng(),
         {PromptChoice: [0, 0], Confirm: [False]},  # gangster 0, venue=range(0), decline
     )
     prompt_choices = [i for i in seen if isinstance(i, PromptChoice)]
@@ -152,8 +156,10 @@ def test_range_default_ln_gains():
     # ln=3 (default): kr+5, int+3, brut+2. Cost 800+200*1 = 1000. Score x=1.
     st = _state(ln=3, rank=1, ka=100000)
     result = run_pure(
-        HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
-        state=st, rng=_StubRng(),
+        HANDLERS["waf.train"],
+        _source({PromptChoice: [0], Confirm: [True]}),
+        state=st,
+        rng=_StubRng(),
     )
     assert result.status == "completed"
     assert MoneyChange(-1000) in result.effects
@@ -168,8 +174,10 @@ def test_range_ln1_intelligence_plus_five():
     # in += 3 - 2*(-1) = 5. (#47 audit: this asserted 1 under the reversed pin.)
     st = _state(ln=1, rank=1, ka=100000)
     result = run_pure(
-        HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
-        state=st, rng=_StubRng(),
+        HANDLERS["waf.train"],
+        _source({PromptChoice: [0], Confirm: [True]}),
+        state=st,
+        rng=_StubRng(),
     )
     assert StatChangeCapped("intelligenz", 5, cap=99, gangster=0) in result.effects
     assert StatChangeCapped("kraft", 5, cap=99, gangster=0) in result.effects
@@ -183,8 +191,10 @@ def test_range_ln2_brutality_plus_five():
     # never negative in the source.
     st = _state(ln=2, rank=1, ka=100000)
     result = run_pure(
-        HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
-        state=st, rng=_StubRng(),
+        HANDLERS["waf.train"],
+        _source({PromptChoice: [0], Confirm: [True]}),
+        state=st,
+        rng=_StubRng(),
     )
     assert StatChangeCapped("brutalitaet", 5, cap=99, gangster=0) in result.effects
 
@@ -195,8 +205,10 @@ def test_range_gains_cap_at_99():
     roster = (Gangster(name="g", kraft=98, intelligenz=10, brutalitaet=10),)
     st = _state(ln=3, rank=1, ka=100000, roster=roster)
     result = run_pure(
-        HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
-        state=st, rng=_StubRng(),
+        HANDLERS["waf.train"],
+        _source({PromptChoice: [0], Confirm: [True]}),
+        state=st,
+        rng=_StubRng(),
     )
     assert result.state.players[0].roster[0].kraft == 99  # 98+5 clamped
 
@@ -204,8 +216,10 @@ def test_range_gains_cap_at_99():
 def test_range_declined_no_effects():
     st = _state(ln=3, rank=1, ka=100000)
     result = run_pure(
-        HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [False]}),
-        state=st, rng=_StubRng(),
+        HANDLERS["waf.train"],
+        _source({PromptChoice: [0], Confirm: [False]}),
+        state=st,
+        rng=_StubRng(),
     )
     assert result.effects == []
 
@@ -213,8 +227,10 @@ def test_range_declined_no_effects():
 def test_range_unaffordable_no_effects():
     st = _state(ln=3, rank=1, ka=100)  # need 1000
     result = run_pure(
-        HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
-        state=st, rng=_StubRng(),
+        HANDLERS["waf.train"],
+        _source({PromptChoice: [0], Confirm: [True]}),
+        state=st,
+        rng=_StubRng(),
     )
     assert result.effects == []
     assert result.state.players[0].ka == 100
@@ -231,7 +247,8 @@ def test_camp_gains_each_stat_by_own_fnr_draw():
     result = run_pure(
         HANDLERS["waf.train"],
         _source({PromptChoice: [0, 1], Confirm: [True]}),  # gangster 0, venue camp, confirm
-        state=st, rng=rng,
+        state=st,
+        rng=rng,
     )
     assert result.status == "completed"
     assert MoneyChange(-5000) in result.effects
@@ -247,7 +264,8 @@ def test_camp_unaffordable_no_effects():
     result = run_pure(
         HANDLERS["waf.train"],
         _source({PromptChoice: [0, 1], Confirm: [True]}),
-        state=st, rng=_StubRng(8, 8, 8),
+        state=st,
+        rng=_StubRng(8, 8, 8),
     )
     assert result.effects == []
 
@@ -260,8 +278,10 @@ def test_stat_effects_apply_before_score():
     # (mirrors 13125-13127 -> 13130).
     st = _state(ln=3, rank=1, ka=100000)
     result = run_pure(
-        HANDLERS["waf.train"], _source({PromptChoice: [0], Confirm: [True]}),
-        state=st, rng=_StubRng(),
+        HANDLERS["waf.train"],
+        _source({PromptChoice: [0], Confirm: [True]}),
+        state=st,
+        rng=_StubRng(),
     )
     types = [type(e).__name__ for e in result.effects]
     assert types.index("ScoreAndRank") == len(types) - 1  # score is last

@@ -90,11 +90,13 @@ def test_option_with_neither_handler_nor_consequences_raises():
 def test_option_with_both_handler_and_consequences_raises():
     bad = {
         "key": "x",
-        "options": [{
-            "id": "o",
-            "handler": "test.dummy",
-            "resolve": {"consequences": []},
-        }],
+        "options": [
+            {
+                "id": "o",
+                "handler": "test.dummy",
+                "resolve": {"consequences": []},
+            }
+        ],
     }
     with pytest.raises(ValueError):
         load_location(bad)

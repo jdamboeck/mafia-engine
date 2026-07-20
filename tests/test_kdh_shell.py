@@ -109,16 +109,24 @@ def test_kdh_strings_resolve_for_every_key_the_handler_emits():
 
 def test_kdh_strings_verbatim():
     data = yaml.safe_load(_KDH_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.kdh.pay_old_debts_first") == "'zahle erstmal deine alten schulden ab!'"
+    assert (
+        _get(data, "locations.kdh.pay_old_debts_first")
+        == "'zahle erstmal deine alten schulden ab!'"
+    )
     assert _get(data, "locations.kdh.borrow_grace_notice") == (
         "'du hast 6 monate zeit, die schulden zurueck zu zahlen!'"
     )
     assert _get(data, "locations.kdh.repay_full") == "'du hast die schulden zurueckgezahlt!'"
     assert _get(data, "locations.kdh.already_own_a_shop") == "'du hast schon ein kreditgeschaeft!'"
-    assert _get(data, "locations.kdh.pay_own_debts_first") == "'zahle erstmal deine eigenen schulden!'"
+    assert (
+        _get(data, "locations.kdh.pay_own_debts_first") == "'zahle erstmal deine eigenen schulden!'"
+    )
     assert _get(data, "locations.kdh.bought") == "'der laden gehoert nun dir!'"
     assert _get(data, "locations.kdh.not_your_shop") == "'dieser laden gehoert dir nicht!'"
-    assert _get(data, "locations.kdh.debts_paid_on_time") == "'alle schuldner haben puenktlich gezahlt!'"
+    assert (
+        _get(data, "locations.kdh.debts_paid_on_time")
+        == "'alle schuldner haben puenktlich gezahlt!'"
+    )
 
 
 def test_kdh_upkeep_shop_income_strings_present():

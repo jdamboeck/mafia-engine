@@ -14,9 +14,7 @@ import pytest
 
 from engine.config_loader import load_game_config
 
-CONFIG_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-)
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 
 @pytest.fixture(scope="session")

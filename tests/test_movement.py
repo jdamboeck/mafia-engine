@@ -43,9 +43,7 @@ from engine.movement import (
 )
 from engine.state import Clock, Config, Gangster, GameState, MapState, Player
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-)
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
 _PUB_SHELL = _CONFIG_DIR / "content" / "locations" / "pub.yaml"
 _PUB_STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "pub.yaml"
@@ -155,9 +153,7 @@ def test_out_of_bounds_rejects_move():
     assert st.players[0].ms == before.players[0].ms
     assert res.state is st
     # oob has no valid target cell -> the event's target is None.
-    assert res.events == [
-        MoveBlocked(player=0, from_cell=0, target=None, delta=LEFT, reason="oob")
-    ]
+    assert res.events == [MoveBlocked(player=0, from_cell=0, target=None, delta=LEFT, reason="oob")]
     assert res.effects == []
 
 
@@ -212,9 +208,7 @@ def test_enter_slw_via_door_target():
     assert res.state.players[0].last_la == 1
     # Events + effects: EnterLocation event, SetEntryContext + MsChange effects.
     assert res.events == [
-        EnterLocation(
-            player=0, from_cell=162, door_cell=122, delta=UP, la=1, ln=1
-        )
+        EnterLocation(player=0, from_cell=162, door_cell=122, delta=UP, la=1, ln=1)
     ]
     assert res.effects == [SetEntryContext(la=1, ln=1), MsChange(-ENTER_COST)]
 
@@ -227,7 +221,7 @@ def test_enter_charges_5ms_unconditionally_and_can_go_negative():
     res = try_move(st, _city(), UP)  # target 122 = slw door
     assert res.payload.kind == "enter"
     assert res.state.players[0].ms == -2  # 3 - 5, not clamped, not blocked
-    assert res.payload.turn_over is True   # ms <= 0 ends the turn
+    assert res.payload.turn_over is True  # ms <= 0 ends the turn
     assert st.players[0].ms == 3  # input untouched
 
 
@@ -258,9 +252,7 @@ def test_handler_forced_ms_zero_ends_turn():
     assert st.players[0].po == 162  # unchanged
     # A blocked move emits an event with zero effects.
     assert res.events == [
-        MoveBlocked(
-            player=0, from_cell=162, target=163, delta=RIGHT, reason="turn_over"
-        )
+        MoveBlocked(player=0, from_cell=162, target=163, delta=RIGHT, reason="turn_over")
     ]
     assert res.effects == []
 

@@ -48,6 +48,7 @@ def city():
 
 # --- grid shape -----------------------------------------------------------
 
+
 def test_grid_is_40x25_and_1000_cells(city):
     grid = city["grid"]
     assert len(grid) == 25, "city map has 25 rows"
@@ -62,6 +63,7 @@ def test_grid_codes_are_bytes(city):
 
 
 # --- door lookup ----------------------------------------------------------
+
 
 def _door_by_cell(city):
     return {d["cell"]: d for d in city["doors"]}
@@ -117,6 +119,7 @@ def test_map_uses_expected_c64_code_vocabulary(city):
 
 
 # --- special event cells --------------------------------------------------
+
 
 def test_special_event_cells_present_and_flagged(city):
     special = city["special_cells"]

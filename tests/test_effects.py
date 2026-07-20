@@ -94,7 +94,6 @@ def make_state(active_player: int = 0):
     )
 
 
-
 def _with_second_gangster(state, gangster):
     """Return ``state`` with ``gangster`` appended to player 0's roster.
 

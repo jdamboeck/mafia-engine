@@ -37,9 +37,7 @@ from engine.strings import Resolver
 
 from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
 
-_DEFAULT_CONFIG_DIR = (
-    Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
-)
+_DEFAULT_CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 
 __all__ = [
     "TerminalInput",
@@ -369,6 +367,7 @@ def render_result(result: Any, out: TextIO) -> None:
     if result.status == "cancelled":
         return
     from clients.terminal.renderers import render_status_bar_from_state
+
     render_status_bar_from_state(result.state, out)
 
 

@@ -74,10 +74,27 @@ def test_config_loads_with_waf_registered_and_strings_present():
 
     # Every key the handler emits must resolve.
     for key in [
-        "weapon_prompt", "grenades_in", "gangster_prompt", "too_dumb", "too_weak",
-        "not_brutal", "trade_in_offer", "trade_in_confirm", "bought", "spec_sheet",
-        "no_gangster", "train_prompt", "venue_prompt", "venue_range", "venue_camp",
-        "range_cost", "range_enter", "confirm", "camp_cost", "camp_enter", "camp_done",
+        "weapon_prompt",
+        "grenades_in",
+        "gangster_prompt",
+        "too_dumb",
+        "too_weak",
+        "not_brutal",
+        "trade_in_offer",
+        "trade_in_confirm",
+        "bought",
+        "spec_sheet",
+        "no_gangster",
+        "train_prompt",
+        "venue_prompt",
+        "venue_range",
+        "venue_camp",
+        "range_cost",
+        "range_enter",
+        "confirm",
+        "camp_cost",
+        "camp_enter",
+        "camp_done",
     ]:
         assert get(f"locations.waf.{key}"), f"missing string for {key}"
     # The bucketed ts$/tg$ label arrays are present (A2). YAML keeps the numeric bucket

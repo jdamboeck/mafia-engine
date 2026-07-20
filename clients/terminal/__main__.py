@@ -58,9 +58,7 @@ from clients.terminal.renderers import (
     render_status_bar_from_state,
 )
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
-)
+_CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
@@ -87,6 +85,7 @@ def _read_key() -> str:
     try:
         import termios
         import tty
+
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)  # raises termios.error on a non-TTY
     except Exception:
@@ -105,6 +104,7 @@ def _read_key() -> str:
         raise KeyboardInterrupt
     return ch.lower()
 
+
 # Layout config loaded once at import time.
 _LAYOUT_PATH = Path(__file__).parent / "layout.yaml"
 try:
@@ -122,7 +122,7 @@ _CODE_TO_CHAR: dict[int, str] = {
     160: "\u2588",  # █  full block          — building (432 cells)
     224: "\u2588",  # █  full block          — building secondary (19 cells)
     156: "\u2591",  # ░  light shade         — street textured (359 cells)
-     32: " ",       #    space               — open / background (92 cells)
+    32: " ",  #    space               — open / background (92 cells)
     163: "\u2592",  # ▒  medium shade        — park / vegetation (28 cells)
     # --- water (10 cells) ---
     229: "\u2590",  # ▐  right half block
@@ -247,14 +247,14 @@ def render_map(city, city_raw: dict, state, out) -> None:
     border_h = "═" * cols
     out.write(f"{bg}{fg(border_color, _PAL)}╔{border_h}╗{RESET_FG}{RESET_BG}\n")
     for line in lines:
-        out.write(f"{bg}{fg(border_color, _PAL)}║{RESET_FG}{line}{fg(border_color, _PAL)}║{RESET_FG}{RESET_BG}\n")
+        out.write(
+            f"{bg}{fg(border_color, _PAL)}║{RESET_FG}{line}{fg(border_color, _PAL)}║{RESET_FG}{RESET_BG}\n"
+        )
     out.write(f"{bg}{fg(border_color, _PAL)}╚{border_h}╝{RESET_FG}{RESET_BG}\n")
 
     # Legend
     legend_parts = [f"{player_char} you"]
-    for loc_key, lchar, lcolor in sorted(
-        {v for v in door_info.values()}, key=lambda x: x[0]
-    ):
+    for loc_key, lchar, lcolor in sorted({v for v in door_info.values()}, key=lambda x: x[0]):
         legend_parts.append(f"{fg(lcolor, _PAL)}{lchar}{RESET} {loc_key}")
     out.write("   ".join(legend_parts) + "\n")
 
@@ -344,9 +344,7 @@ def _run_location(
     if chosen.id == "leave":
         return state
 
-    result = run_option(
-        shell, chosen.id, state, ln=ln, input_source=inp, rng=rng
-    )
+    result = run_option(shell, chosen.id, state, ln=ln, input_source=inp, rng=rng)
     render_result(result, out)
     return result.state  # adopt (run_option is pure)
 
@@ -384,9 +382,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
     render_header("upkeep", out)
     render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out)
 
-    promoted = next(
-        (e for e in result.effects if isinstance(e, RankCommit)), None
-    )
+    promoted = next((e for e in result.effects if isinstance(e, RankCommit)), None)
     if promoted is not None:
         cfg = load_game_config(_CONFIG_DIR)
         ranks = cfg.module.load_ranks(_CONFIG_DIR / cfg.config["entities"]["ranks"])
@@ -455,9 +451,7 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
     city = load_city(city_raw)
     la_to_key = _door_location_map(city_raw)
 
-    vehicles = cfg.module.load_vehicles(
-        _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-    )
+    vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
     weapon_names = [
         w["name"] for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
     ]

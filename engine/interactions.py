@@ -556,10 +556,7 @@ def _run_substate(
 
     factory = SUBSTATES.get(load.kind)
     if factory is None:
-        raise ValueError(
-            f"unknown sub-state kind {load.kind!r}; "
-            f"registered: {sorted(SUBSTATES)}"
-        )
+        raise ValueError(f"unknown sub-state kind {load.kind!r}; registered: {sorted(SUBSTATES)}")
 
     child = factory(ctx, load.params)
     interaction = next(child)  # prime the child to its first yield
@@ -645,9 +642,7 @@ def _run_combat(
     from engine.effects import EnergyChange
     from engine.state import CombatState
 
-    cpu_sides = (
-        DEFAULT_CPU_SIDES if start.cpu_sides is None else tuple(start.cpu_sides)
-    )
+    cpu_sides = DEFAULT_CPU_SIDES if start.cpu_sides is None else tuple(start.cpu_sides)
 
     fight = CombatFight(
         CombatState(

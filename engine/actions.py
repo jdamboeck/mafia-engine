@@ -172,11 +172,7 @@ def run_option(
         commit_result = commit(state, effects)
         return EngineResult(
             state=commit_result.state,
-            events=[
-                LocationActionCompleted(
-                    location_key=location.key, option_id=option_id
-                )
-            ],
+            events=[LocationActionCompleted(location_key=location.key, option_id=option_id)],
             effects=commit_result.effects,
             status="completed",
         )
@@ -190,15 +186,11 @@ def run_option(
     result = run(option.handler, input_source, state=state, rng=rng)
 
     if result.status == "cancelled":
-        lifecycle = LocationActionCancelled(
-            location_key=location.key, option_id=option_id
-        )
+        lifecycle = LocationActionCancelled(location_key=location.key, option_id=option_id)
     else:
         # Clean completion. slw.rent's rejection paths (x<=0, insufficient cash) return
         # with status="completed" and NO machine-readable rejection marker, so there is
         # no unambiguous signal to emit LocationActionRejected — treat as completed
         # (see the T7 report note).
-        lifecycle = LocationActionCompleted(
-            location_key=location.key, option_id=option_id
-        )
+        lifecycle = LocationActionCompleted(location_key=location.key, option_id=option_id)
     return dataclasses.replace(result, events=[*result.events, lifecycle])

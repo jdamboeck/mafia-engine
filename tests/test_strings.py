@@ -14,9 +14,7 @@ from pathlib import Path
 
 import pytest
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-)
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 
 from engine.strings import Resolver, MissingKeyError  # noqa: E402
@@ -57,9 +55,7 @@ def test_merges_keys_across_multiple_string_files():
 # --------------------------------------------------------------------------- #
 def test_runtime_override_deep_merges_over_default():
     r = _resolver()
-    overridden = r.with_override(
-        {"locations": {"slw": {"no_room": "OVERRIDDEN"}}}
-    )
+    overridden = r.with_override({"locations": {"slw": {"no_room": "OVERRIDDEN"}}})
     # The overridden key returns the override...
     assert overridden.resolve("locations.slw.no_room") == "OVERRIDDEN"
     # ...but a non-overridden sibling still resolves to the default (deep merge, not replace).
@@ -101,6 +97,6 @@ def test_resolver_is_headless():
             imported += [a.name for a in node.names]
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.append(node.module)
-    assert not any(
-        m.startswith(("clients", "server")) for m in imported
-    ), f"the shared resolver must stay headless; imports were {imported}"
+    assert not any(m.startswith(("clients", "server")) for m in imported), (
+        f"the shared resolver must stay headless; imports were {imported}"
+    )

@@ -101,9 +101,7 @@ def scripted(*answers):
 
     source.seen = seen
     source.messages = lambda: [i for i in seen if isinstance(i, ShowMessage)]
-    source.message_keys = lambda: [
-        i.key for i in seen if isinstance(i, ShowMessage)
-    ]
+    source.message_keys = lambda: [i.key for i in seen if isinstance(i, ShowMessage)]
     return source
 
 
@@ -115,9 +113,7 @@ def with_player(state, idx: int = 0, **field_changes):
     here so the arrange step stays one readable line.
     """
     new_player = dataclasses.replace(state.players[idx], **field_changes)
-    return dataclasses.replace(
-        state, players=tuple_replace(state.players, idx, new_player)
-    )
+    return dataclasses.replace(state, players=tuple_replace(state.players, idx, new_player))
 
 
 def with_clock(state, **field_changes):
@@ -136,7 +132,9 @@ def with_tenancy(state, tenancy=None, *, ln=None, owner=None):
     mapping and quietly reopen the write path the freeze exists to close.
     """
     if (tenancy is None) == (ln is None):
-        raise TypeError("with_tenancy takes either a tenancy mapping or ln=/owner=, not both or neither")
+        raise TypeError(
+            "with_tenancy takes either a tenancy mapping or ln=/owner=, not both or neither"
+        )
     if ln is not None:
         tenancy = {**state.map.tenancy, ln: owner}
     return dataclasses.replace(
@@ -146,9 +144,7 @@ def with_tenancy(state, tenancy=None, *, ln=None, owner=None):
 
 def with_config(state, **field_changes):
     """Return ``state`` with ``config`` field-updated (frozen-graph test setup idiom)."""
-    return dataclasses.replace(
-        state, config=dataclasses.replace(state.config, **field_changes)
-    )
+    return dataclasses.replace(state, config=dataclasses.replace(state.config, **field_changes))
 
 
 def _shape(value):

@@ -210,28 +210,36 @@ def try_move(state, city: City, delta: int) -> EngineResult:
     # :2005 — the turn ends when ms <= 0. If already over, no move happens.
     if player.ms <= 0:
         event = MoveBlocked(
-            player=active, from_cell=from_cell, target=target, delta=delta,
+            player=active,
+            from_cell=from_cell,
+            target=target,
+            delta=delta,
             reason="turn_over",
         )
-        payload = MoveResult(
-            kind="turn_over", turn_over=True, from_cell=from_cell, delta=delta
-        )
+        payload = MoveResult(kind="turn_over", turn_over=True, from_cell=from_cell, delta=delta)
         return EngineResult(
-            state=state, events=[event], effects=[], status="turn_over",
+            state=state,
+            events=[event],
+            effects=[],
+            status="turn_over",
             payload=payload,
         )
 
     # :2030 — bounds. An out-of-bounds step has no valid target (event target None).
     if target < _MIN_CELL or target > _MAX_CELL:
         event = MoveBlocked(
-            player=active, from_cell=from_cell, target=None, delta=delta,
+            player=active,
+            from_cell=from_cell,
+            target=None,
+            delta=delta,
             reason="oob",
         )
-        payload = MoveResult(
-            kind="oob", turn_over=player.ms <= 0, from_cell=from_cell, delta=delta
-        )
+        payload = MoveResult(kind="oob", turn_over=player.ms <= 0, from_cell=from_cell, delta=delta)
         return EngineResult(
-            state=state, events=[event], effects=[], status="blocked",
+            state=state,
+            events=[event],
+            effects=[],
+            status="blocked",
             payload=payload,
         )
 
@@ -239,16 +247,20 @@ def try_move(state, city: City, delta: int) -> EngineResult:
     if city.code(target) == STREET_CODE:
         result = commit(state, [SetPosition(target), MsChange(-STEP_COST)])
         new_player = result.state.players[active]
-        event = MoveStep(
-            player=active, from_cell=from_cell, to_cell=target, delta=delta
-        )
+        event = MoveStep(player=active, from_cell=from_cell, to_cell=target, delta=delta)
         payload = MoveResult(
-            kind="step", turn_over=new_player.ms <= 0, target=target,
-            from_cell=from_cell, delta=delta,
+            kind="step",
+            turn_over=new_player.ms <= 0,
+            target=target,
+            from_cell=from_cell,
+            delta=delta,
         )
         return EngineResult(
-            state=result.state, events=[event], effects=result.effects,
-            status="completed", payload=payload,
+            state=result.state,
+            events=[event],
+            effects=result.effects,
+            status="completed",
+            payload=payload,
         )
 
     # :2045-2060 — otherwise try to ENTER a location via the door table.
@@ -258,45 +270,71 @@ def try_move(state, city: City, delta: int) -> EngineResult:
         # The ln seam: SetEntryContext records last_la/last_location BEFORE the
         # location's handler runs. po does NOT move onto the door — entering is the
         # action (mf-prg.bas:2060). ms -= 5 unconditionally (may go negative).
-        result = commit(
-            state, [SetEntryContext(la=la, ln=ln), MsChange(-ENTER_COST)]
-        )
+        result = commit(state, [SetEntryContext(la=la, ln=ln), MsChange(-ENTER_COST)])
         new_player = result.state.players[active]
         event = EnterLocation(
-            player=active, from_cell=from_cell, door_cell=target, delta=delta,
-            la=la, ln=ln,
+            player=active,
+            from_cell=from_cell,
+            door_cell=target,
+            delta=delta,
+            la=la,
+            ln=ln,
         )
         payload = MoveResult(
-            kind="enter", turn_over=new_player.ms <= 0, la=la, ln=ln, target=target,
-            from_cell=from_cell, delta=delta,
+            kind="enter",
+            turn_over=new_player.ms <= 0,
+            la=la,
+            ln=ln,
+            target=target,
+            from_cell=from_cell,
+            delta=delta,
         )
         return EngineResult(
-            state=result.state, events=[event], effects=result.effects,
-            status="completed", payload=payload,
+            state=result.state,
+            events=[event],
+            effects=result.effects,
+            status="completed",
+            payload=payload,
         )
 
     # la=13/14 event cells — OUT OF SCOPE this unit: detect and skip (no-op).
     if city.is_special(target):
         payload = MoveResult(
-            kind="special", turn_over=player.ms <= 0, target=target,
-            from_cell=from_cell, delta=delta,
+            kind="special",
+            turn_over=player.ms <= 0,
+            target=target,
+            from_cell=from_cell,
+            delta=delta,
         )
         return EngineResult(
-            state=state, events=[], effects=[], status="not_implemented",
+            state=state,
+            events=[],
+            effects=[],
+            status="not_implemented",
             payload=payload,
         )
 
     # :2050 — not 156, not a door, not special -> a WALL: reject the move.
     event = MoveBlocked(
-        player=active, from_cell=from_cell, target=target, delta=delta,
+        player=active,
+        from_cell=from_cell,
+        target=target,
+        delta=delta,
         reason="wall",
     )
     payload = MoveResult(
-        kind="wall", turn_over=player.ms <= 0, target=target,
-        from_cell=from_cell, delta=delta,
+        kind="wall",
+        turn_over=player.ms <= 0,
+        target=target,
+        from_cell=from_cell,
+        delta=delta,
     )
     return EngineResult(
-        state=state, events=[event], effects=[], status="blocked", payload=payload,
+        state=state,
+        events=[event],
+        effects=[],
+        status="blocked",
+        payload=payload,
     )
 
 

@@ -21,9 +21,7 @@ class TestLoadPalette:
     def test_loads_from_config_dir(self, tmp_path: Path) -> None:
         rdr = tmp_path / "themes" / "classic" / "renderer"
         rdr.mkdir(parents=True)
-        (rdr / "palette.yaml").write_text(
-            "black: [0, 0, 0]\nred: [255, 0, 0]\n", encoding="utf-8"
-        )
+        (rdr / "palette.yaml").write_text("black: [0, 0, 0]\nred: [255, 0, 0]\n", encoding="utf-8")
         pal = load_palette(tmp_path, theme="classic")
         assert pal["black"] == (0, 0, 0)
         assert pal["red"] == (255, 0, 0)
@@ -44,9 +42,7 @@ class TestLoadPalette:
     def test_merges_with_fallback(self, tmp_path: Path) -> None:
         rdr = tmp_path / "themes" / "classic" / "renderer"
         rdr.mkdir(parents=True)
-        (rdr / "palette.yaml").write_text(
-            "red: [100, 0, 0]\n", encoding="utf-8"
-        )
+        (rdr / "palette.yaml").write_text("red: [100, 0, 0]\n", encoding="utf-8")
         pal = load_palette(tmp_path, theme="classic")
         # Overridden.
         assert pal["red"] == (100, 0, 0)
@@ -88,4 +84,5 @@ class TestResetConstants:
 
     def test_legacy_reset_alias(self) -> None:
         from clients.terminal.palette import RESET
+
         assert RESET == RESET_ALL

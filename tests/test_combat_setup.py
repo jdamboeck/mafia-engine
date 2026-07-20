@@ -341,7 +341,9 @@ def test_combat_backdrop_cell_520_present_and_in_domain():
 # --------------------------------------------------------------------------- #
 def test_combat_state_json_safe_roundtrip():
     roster = [Gangster(name="capone", weapon=5, energie=5, kraft=15, brutalitaet=20)]
-    combat = setup_combat(roster, enemy_count=2, enemy_weapon=1, enemy_energie=5, enemy_name="ganove")
+    combat = setup_combat(
+        roster, enemy_count=2, enemy_weapon=1, enemy_energie=5, enemy_name="ganove"
+    )
     state = GameState(combat=combat)
     snapshot = json_safe(state)
     restored = state_from_dict(snapshot)

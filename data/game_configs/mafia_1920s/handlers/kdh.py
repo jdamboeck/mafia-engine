@@ -293,9 +293,7 @@ def kdh_capital(ctx):
     capital = active.business.shop_capital
     cap_max = params["kdh_capital_max"]
     yield ShowMessage("locations.kdh.capital_status", {"capital": capital, "max": cap_max})
-    x = yield PromptInt(
-        "locations.kdh.capital_prompt", min=-capital, max=cap_max - capital
-    )
+    x = yield PromptInt("locations.kdh.capital_prompt", min=-capital, max=cap_max - capital)
     if x == 0:
         return []
 

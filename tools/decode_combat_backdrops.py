@@ -38,9 +38,7 @@ CELL_COUNT = 521  # engine.combat.CELL_COUNT — the kept 0..520 combat-grid bou
 ENGINE_ROOT = Path(__file__).resolve().parent.parent
 RESEARCH_ROOT = ENGINE_ROOT.parent / "research"
 SRC = RESEARCH_ROOT / "src"
-OUT_DIR = (
-    ENGINE_ROOT / "data" / "game_configs" / "mafia_1920s" / "content" / "combat"
-)
+OUT_DIR = ENGINE_ROOT / "data" / "game_configs" / "mafia_1920s" / "content" / "combat"
 
 #: The three in-slice combat backdrops (kdh debt-default/collect, and the two other
 #: combat-triggering entry points this slice's Assumptions name — ks/kp/km).

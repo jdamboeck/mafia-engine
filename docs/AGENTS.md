@@ -13,8 +13,10 @@ pip install -e '.[dev]'   # pytest (+ ruff for lint); pyyaml is a runtime dep
 make check                # → pytest + soft lint; must be green before any work
 ```
 
-`make check` runs `pytest` plus a **soft** lint (`ruff` only if installed, so the
-gate stays green on a machine without dev extras). The research knowledge base is
+`make check` runs `pytest` plus lint (`ruff check` **and** `ruff format --check`).
+The lint is soft only on ruff's *absence* — a machine without dev extras skips it
+and stays green. When ruff is installed both checks are **hard**, so formatting
+drift fails the gate rather than accumulating silently. The research knowledge base is
 a sibling checkout at `../research/` — handlers port from the BASIC line blocks
 it cites; confirm it is present before starting a handler unit.
 

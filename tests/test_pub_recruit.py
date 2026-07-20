@@ -186,9 +186,7 @@ def test_candidate_draw_rerolls_a_duplicate_within_the_same_batch():
         5,  # candidate 2 draw: duplicate of 5, reroll
         7,  # candidate 2 draw: id 7, ok
     )
-    result = run_pure(
-        HANDLERS["pub.recruit"], _scripted(False, False), state=st, rng=rng
-    )
+    result = run_pure(HANDLERS["pub.recruit"], _scripted(False, False), state=st, rng=rng)
     assert result.status == "completed"
     assert rng.calls == [
         ("range", 4),
@@ -241,9 +239,7 @@ def test_broke_path_shows_not_enough_money_no_state_change():
 def test_multi_candidate_batch_hires_both():
     st = _state(rank=5, ka=100000)
     rng = _StubRng(2, 0, 1)  # offered=2, candidate ids 0 then 1
-    result = run_pure(
-        HANDLERS["pub.recruit"], _scripted(True, True), state=st, rng=rng
-    )
+    result = run_pure(HANDLERS["pub.recruit"], _scripted(True, True), state=st, rng=rng)
     assert result.status == "completed"
     assert len(result.state.players[0].roster) == 3  # boss + 2 hires
     assert result.state.flags.hired_gangsters == (0, 1)
@@ -266,9 +262,7 @@ def test_ninth_hire_succeeds_tenth_is_denied_mid_batch():
         0,  # candidate 1: id 0
         1,  # candidate 2: id 1 -- drawn, but the mid-batch cap check fires first
     )
-    result = run_pure(
-        HANDLERS["pub.recruit"], _scripted(True, True), state=st, rng=rng
-    )
+    result = run_pure(HANDLERS["pub.recruit"], _scripted(True, True), state=st, rng=rng)
     assert result.status == "completed"
     # The ninth hire (roster 9 -> 10) succeeds...
     assert len(result.state.players[0].roster) == 10

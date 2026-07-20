@@ -52,8 +52,6 @@ def _state(*, ka=5000, active=0, players=1):
     )
 
 
-
-
 def test_menu_cancel_returns_no_effect():
     # PromptChoice cancelled (choice 0 in the source == cancel via CANCEL sentinel).
     st = _state(ka=5000)

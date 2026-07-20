@@ -68,7 +68,9 @@ def _player(
         ka=ka,
         debt=debt if debt is not None else Debt(),
         business=business if business is not None else Business(),
-        roster=roster if roster is not None else (Gangster(name=name, energie=10, kraft=30, brutalitaet=30),),
+        roster=roster
+        if roster is not None
+        else (Gangster(name=name, energie=10, kraft=30, brutalitaet=30),),
         last_location=last_location,
     )
 
@@ -79,8 +81,6 @@ def _state(players, *, active=0):
         clock=Clock(active_player=active, player_count=len(players)),
         config=Config(formula_params=_PARAMS),
     )
-
-
 
 
 # --------------------------------------------------------------------------- #
@@ -343,9 +343,7 @@ def test_capital_deposit_settles():
 
 
 def test_capital_withdrawal_settles_no_afford_check():
-    st = _state(
-        [_player(ka=0, business=Business(shop_tile=1, shop_capital=1000), last_location=1)]
-    )
+    st = _state([_player(ka=0, business=Business(shop_tile=1, shop_capital=1000), last_location=1)])
     result = run_pure(HANDLERS["kdh.capital"], _scripted(-400), state=st, rng=_StubRng())
     assert result.effects == [MoneyChange(400), ShopChange(capital_delta=-400)]
     assert result.state.players[0].business.shop_capital == 600
@@ -396,7 +394,9 @@ def test_collect_ambush_probability_is_2_in_3_not_1_in_3():
 
 
 def test_collect_loss_costs_nothing():
-    st = _state([_player(ka=1000, business=Business(shop_tile=1, shop_capital=500), last_location=1)])
+    st = _state(
+        [_player(ka=1000, business=Business(shop_tile=1, shop_capital=500), last_location=1)]
+    )
     rng = _StubRng(1)  # ambush fires
     result = run_pure(HANDLERS["kdh.collect"], _scripted("surrender"), state=st, rng=rng)
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
@@ -409,7 +409,14 @@ def test_collect_win_loots_500_to_1499_and_scores_2():
     the loot lands in the documented 500-1499 range and the score effect is +2."""
     roster = (Gangster(name="p0", energie=100, kraft=50, brutalitaet=50, weapon=8),)
     st = _state(
-        [_player(ka=1000, business=Business(shop_tile=1, shop_capital=500), roster=roster, last_location=1)]
+        [
+            _player(
+                ka=1000,
+                business=Business(shop_tile=1, shop_capital=500),
+                roster=roster,
+                last_location=1,
+            )
+        ]
     )
     rng = Rng(7)
     keys = ["pass"] * 60 + ["surrender"]

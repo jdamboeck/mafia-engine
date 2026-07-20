@@ -89,11 +89,13 @@ class TestScreenContext:
 class TestSigwinch:
     def test_check_resize_default_false(self) -> None:
         import clients.terminal as term
+
         term._resize_pending = False
         assert check_resize() is False
 
     def test_check_resize_returns_true_when_set(self) -> None:
         import clients.terminal as term
+
         term._resize_pending = True
         assert check_resize() is True
         # Should clear after check.
@@ -101,6 +103,7 @@ class TestSigwinch:
 
     def test_install_handler(self) -> None:
         import signal
+
         # Should not raise.
         install_sigwinch_handler()
         # Verify handler is installed (if SIGWINCH exists on this platform).

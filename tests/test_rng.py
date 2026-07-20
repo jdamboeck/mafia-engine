@@ -16,6 +16,7 @@ from engine.rng import Rng
 # Determinism (happy path)
 # ---------------------------------------------------------------------------
 
+
 def _script(rng: Rng) -> list[int]:
     """Run a fixed script of mixed draws, returning the drawn values."""
     out: list[int] = []
@@ -42,6 +43,7 @@ def test_different_seeds_diverge():
 # ---------------------------------------------------------------------------
 # Bounds (happy path + edges)
 # ---------------------------------------------------------------------------
+
 
 def test_range_bounds():
     rng = Rng(7)
@@ -82,6 +84,7 @@ def test_hit_single_value():
 # ---------------------------------------------------------------------------
 # Log correctness (the KTD-6 seam)
 # ---------------------------------------------------------------------------
+
 
 def test_log_length_matches_public_calls():
     rng = Rng(42)
@@ -126,6 +129,7 @@ def test_log_records_method_and_args():
 # ---------------------------------------------------------------------------
 # Error paths (must NOT append to the log)
 # ---------------------------------------------------------------------------
+
 
 def test_range_zero_raises_and_does_not_log():
     rng = Rng(1)

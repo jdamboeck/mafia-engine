@@ -34,15 +34,11 @@ def test_ms_change_converts():
 
 
 def test_money_change_converts():
-    assert effect_from_dict({"type": "money_change", "amount": -50}) == MoneyChange(
-        amount=-50
-    )
+    assert effect_from_dict({"type": "money_change", "amount": -50}) == MoneyChange(amount=-50)
 
 
 def test_score_change_converts():
-    assert effect_from_dict({"type": "score_change", "amount": 3}) == ScoreChange(
-        amount=3
-    )
+    assert effect_from_dict({"type": "score_change", "amount": 3}) == ScoreChange(amount=3)
 
 
 def test_stat_change_capped_converts():
@@ -57,9 +53,7 @@ def test_stat_change_capped_missing_required_cap_raises():
 
 
 def test_assign_weapon_converts():
-    assert effect_from_dict(
-        {"type": "assign_weapon", "weapon": 5}
-    ) == AssignWeapon(weapon=5)
+    assert effect_from_dict({"type": "assign_weapon", "weapon": 5}) == AssignWeapon(weapon=5)
 
 
 def test_score_and_rank_converts():
@@ -78,24 +72,22 @@ def test_teleport_converts():
 
 
 def test_set_position_converts():
-    assert effect_from_dict({"type": "set_position", "cell": 42}) == SetPosition(
-        cell=42
-    )
+    assert effect_from_dict({"type": "set_position", "cell": 42}) == SetPosition(cell=42)
 
 
 def test_set_entry_context_converts():
-    assert effect_from_dict(
-        {"type": "set_entry_context", "la": 1, "ln": 4}
-    ) == SetEntryContext(la=1, ln=4)
+    assert effect_from_dict({"type": "set_entry_context", "la": 1, "ln": 4}) == SetEntryContext(
+        la=1, ln=4
+    )
 
 
 # --------------------------------------------------------------------------- #
 # Optional fields: present overrides default, absent uses the default        #
 # --------------------------------------------------------------------------- #
 def test_optional_player_present():
-    assert effect_from_dict(
-        {"type": "money_change", "amount": 10, "player": 1}
-    ) == MoneyChange(amount=10, player=1)
+    assert effect_from_dict({"type": "money_change", "amount": 10, "player": 1}) == MoneyChange(
+        amount=10, player=1
+    )
 
 
 def test_optional_player_absent_uses_default():

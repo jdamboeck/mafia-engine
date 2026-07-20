@@ -65,8 +65,7 @@ class HandlerFunc(Protocol):
     returning a generator satisfies it. Used to document/annotate the registry.
     """
 
-    def __call__(self, ctx: "Ctx") -> "Generator[Interaction, Any, list]":
-        ...
+    def __call__(self, ctx: "Ctx") -> "Generator[Interaction, Any, list]": ...
 
 
 # --- Entity contracts ------------------------------------------------------
@@ -119,9 +118,7 @@ def validate_rank(entry: Any, index: int | None = None) -> str:
     """Validate one rank entry is a name string. Returns it on success."""
     where = f"rank[{index}]" if index is not None else "rank"
     if not isinstance(entry, str):
-        raise ConfigValidationError(
-            f"{where} must be a string name, got {type(entry).__name__}"
-        )
+        raise ConfigValidationError(f"{where} must be a string name, got {type(entry).__name__}")
     return entry
 
 
@@ -210,9 +207,7 @@ def validate_config(cfg: Any) -> dict:
     clear message on any violation; returns the dict on success.
     """
     if not isinstance(cfg, dict):
-        raise ConfigValidationError(
-            f"config must be a mapping, got {type(cfg).__name__}"
-        )
+        raise ConfigValidationError(f"config must be a mapping, got {type(cfg).__name__}")
 
     api = cfg.get("engine_api")
     if api is None:
@@ -233,7 +228,6 @@ def validate_config(cfg: Any) -> dict:
             )
         if not isinstance(cfg[key], key_type):
             raise ConfigValidationError(
-                f"config key {key!r} must be {key_type.__name__}, "
-                f"got {type(cfg[key]).__name__}."
+                f"config key {key!r} must be {key_type.__name__}, got {type(cfg[key]).__name__}."
             )
     return cfg

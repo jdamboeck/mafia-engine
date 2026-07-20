@@ -250,9 +250,7 @@ class TestWafBuyThroughClient:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=1)
         walk = walk_keys_across_turns(state, city, vehicles, cell)
@@ -306,9 +304,7 @@ class TestSlwRentThroughClient:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
         # ln=2 has a positive base rent (50$/month) per config.yaml's fnm overrides
         # (ln=1 is the negative-rent quirk tile, ln=3/4 are rent-free).
@@ -336,9 +332,7 @@ class TestPubDrinkThroughClient:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
         cell = find_door_cell(city_raw, "pub", ln=4)
         walk = walk_keys_across_turns(state, city, vehicles, cell)
@@ -354,9 +348,7 @@ class TestPubDrinkThroughClient:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
         cell = find_door_cell(city_raw, "pub", ln=4)
         walk = walk_keys_across_turns(state, city, vehicles, cell)
@@ -547,9 +539,7 @@ class TestJobShiftThroughClient:
         assert "deine aktion:" in output  # the combat-screen action prompt (U7 wire)
         # No third "move: W/A/S/D" prompt appears between the two turn-over screens
         # -- the employed turn never reached the map loop at all.
-        turn_over_positions = [
-            i for i in range(len(output)) if output.startswith("turn_over", i)
-        ]
+        turn_over_positions = [i for i in range(len(output)) if output.startswith("turn_over", i)]
         assert len(turn_over_positions) >= 2
         between = output[turn_over_positions[0] : turn_over_positions[1]]
         assert "move: W/A/S/D" not in between
@@ -694,9 +684,7 @@ class TestUnimplementedDoorGracefulDenial:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
         sgl_cell = find_door_cell(city_raw, "sgl")
         walk = walk_keys_across_turns(state, city, vehicles, sgl_cell)
@@ -735,9 +723,7 @@ class TestKdhLocationThroughClient:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
         kdh_cell = find_door_cell(city_raw, "kdh")
         walk = walk_keys_across_turns(state, city, vehicles, kdh_cell)
@@ -781,9 +767,7 @@ class TestKdhLocationThroughClient:
                     debt=overrides.pop("debt", Debt()),
                     business=overrides.pop("business", Business()),
                     roster=(
-                        Gangster(
-                            name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8
-                        ),
+                        Gangster(name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8),
                     ),
                 ),
             ),
@@ -872,9 +856,7 @@ class TestTwoPlayerAlternation:
         cfg = load_game_config(_CONFIG_DIR)
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        state = cfg.module.new_game(
-            seed=7, end_year=1930, score_weight=1.0, players=players
-        )
+        state = cfg.module.new_game(seed=7, end_year=1930, score_weight=1.0, players=players)
         assert state.clock.active_player == 0
 
         # Walk player 0 all the way to turn_over (BFS one stepping move at a time,
@@ -1080,8 +1062,16 @@ class TestInteractiveCombatThroughTerminalInput:
 
         def _sides():
             return (
-                (Fighter(name="hero", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100),),
-                (Fighter(name="thug", weapon=0, energie=15, kraft=10, brutalitaet=10, position=101),),
+                (
+                    Fighter(
+                        name="hero", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100
+                    ),
+                ),
+                (
+                    Fighter(
+                        name="thug", weapon=0, energie=15, kraft=10, brutalitaet=10, position=101
+                    ),
+                ),
             )
 
         keys = ["f", "d"] * 8
@@ -1119,9 +1109,7 @@ class TestWholeSessionDeterminism:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(seed, players=players)
         cell = find_door_cell(city_raw, "pub", ln=4)
         walk = walk_keys_across_turns(state, city, vehicles, cell)
@@ -1178,9 +1166,7 @@ class TestTurnOverScreenRendersNoRawDataclassRepr:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
         # Walk until the movement budget runs out -- that IS the turn-over screen.
         cell = find_door_cell(city_raw, "kdh", ln=1)
@@ -1216,9 +1202,7 @@ class TestTurnOverScreenRendersCorrectValues:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(
-            _CONFIG_DIR / cfg.config["entities"]["vehicles"]
-        )
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = new_state(42)
 
         # Walk until the movement budget runs out -- that IS the turn-over screen.
@@ -1341,9 +1325,7 @@ class TestDebtDefaultThroughClient:
                     debt=overrides.pop("debt", Debt()),
                     business=Business(),
                     roster=(
-                        Gangster(
-                            name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8
-                        ),
+                        Gangster(name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8),
                     ),
                 ),
             ),

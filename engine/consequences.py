@@ -91,8 +91,7 @@ def effect_from_dict(raw: dict) -> object:
     effect_cls = EFFECT_TYPES.get(type_name)
     if effect_cls is None:
         raise ValueError(
-            f"unknown consequence type {type_name!r}; expected one of "
-            f"{sorted(EFFECT_TYPES)}"
+            f"unknown consequence type {type_name!r}; expected one of {sorted(EFFECT_TYPES)}"
         )
 
     required, optional = _field_sets(effect_cls)
@@ -110,8 +109,7 @@ def effect_from_dict(raw: dict) -> object:
     missing = required - given_keys
     if missing:
         raise ValueError(
-            f"consequence type {type_name!r} is missing required field(s) "
-            f"{sorted(missing)}"
+            f"consequence type {type_name!r} is missing required field(s) {sorted(missing)}"
         )
 
     return effect_cls(**given)

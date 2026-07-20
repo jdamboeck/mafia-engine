@@ -127,9 +127,7 @@ def _parse_option(raw: dict) -> Option:
             )
         consequences = resolve["consequences"]
         if not isinstance(consequences, list):
-            raise ValueError(
-                f"option {opt_id!r} consequences must be a list: {consequences!r}"
-            )
+            raise ValueError(f"option {opt_id!r} consequences must be a list: {consequences!r}")
 
     return Option(
         id=opt_id,

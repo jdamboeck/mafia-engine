@@ -26,9 +26,8 @@ import yaml
 def _yaml_load(path: Path):
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-)
+
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 
 from engine.interactions import (  # noqa: E402
@@ -234,9 +233,7 @@ def test_map_repl_adopts_state_and_ends_on_quit():
 
     cfg = load_game_config(_CONFIG_DIR)
     city = load_city(_yaml_load(_CITY_YAML))
-    state = cfg.module.new_game(
-        seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")]
-    )
+    state = cfg.module.new_game(seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")])
     state = with_player(state, 0, po=141)  # a known walkable cell (per the slice test)
 
     keys = iter(["down", "quit"])

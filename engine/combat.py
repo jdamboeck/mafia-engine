@@ -212,7 +212,9 @@ ENEMY_KRAFT = 30
 ENEMY_BRUTALITAET = 30
 
 
-def build_enemy_side(count: int, weapon: int, energie: int, *, name: str = "") -> tuple[Fighter, ...]:
+def build_enemy_side(
+    count: int, weapon: int, energie: int, *, name: str = ""
+) -> tuple[Fighter, ...]:
     """Build side 2 (the NPC/enemy party) from a ``StartCombat`` spec.
 
     Ports the combat-launch helper ``mf-prg.bas:5000``: every enemy fighter is armed
@@ -551,10 +553,7 @@ class CombatFight:
     def occupied(self, *, exclude: Fighter | None = None) -> frozenset[int]:
         """Cells held by a standing fighter (downed ones vacate — ``30310`` pokes 32)."""
         return frozenset(
-            f.position
-            for side in self._sides
-            for f in side
-            if not f.down and f is not exclude
+            f.position for side in self._sides for f in side if not f.down and f is not exclude
         )
 
     def weapon_stats(self, weapon: int) -> tuple[int, int]:
@@ -700,7 +699,13 @@ class CombatFight:
         ``target_index`` (0-based, ``None`` on a miss), and ``downed`` — so the driver
         can narrate the shot without re-deriving what happened.
         """
-        miss = {"hit": False, "damage": 0, "target_side": None, "target_index": None, "downed": False}
+        miss = {
+            "hit": False,
+            "damage": 0,
+            "target_side": None,
+            "target_index": None,
+            "downed": False,
+        }
         if direction not in STEPS:
             return miss
 

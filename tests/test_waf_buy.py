@@ -262,7 +262,9 @@ def test_unaffordable_weapon_shows_not_enough_and_reprompts():
     # then cancel.
     st = _state(ln=2, ka=100)
     seen = _observe(
-        HANDLERS["waf.buy"], st, _StubRng(),
+        HANDLERS["waf.buy"],
+        st,
+        _StubRng(),
         {PromptInt: [5, CANCEL]},
     )
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
@@ -271,7 +273,9 @@ def test_unaffordable_weapon_shows_not_enough_and_reprompts():
     assert sum(isinstance(i, PromptInt) for i in seen) == 2
 
     # Effect-level: nothing committed (cancelled).
-    result = run_pure(HANDLERS["waf.buy"], lambda i: CANCEL, state=_state(ln=2, ka=100), rng=_StubRng())
+    result = run_pure(
+        HANDLERS["waf.buy"], lambda i: CANCEL, state=_state(ln=2, ka=100), rng=_StubRng()
+    )
     assert result.status == "cancelled"
 
 
@@ -282,7 +286,9 @@ def test_spec_sheet_shown_then_continues_to_gangster_pick():
     st = _state(ln=2, ka=100000)
     # pick messer (1), then cancel the gangster pick.
     seen = _observe(
-        HANDLERS["waf.buy"], st, _StubRng(),
+        HANDLERS["waf.buy"],
+        st,
+        _StubRng(),
         {PromptInt: [1], PromptChoice: [CANCEL]},
     )
     # The weapon-spec LoadSubState was yielded, then the parent continued to a gangster
@@ -316,7 +322,9 @@ def test_stat_gate_intelligence_blocks_then_passes():
     # ln=1 grenade roll forced miss; weapon 6; gangster 0 (fails), gangster 1 (passes);
     # both unarmed so no trade-in confirm.
     seen = _observe(
-        HANDLERS["waf.buy"], st, _StubRng(1),  # grenade miss
+        HANDLERS["waf.buy"],
+        st,
+        _StubRng(1),  # grenade miss
         {PromptInt: [6], PromptChoice: [0, 1]},
     )
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
@@ -326,10 +334,15 @@ def test_stat_gate_intelligence_blocks_then_passes():
     result = run_pure(
         HANDLERS["waf.buy"],
         _by_type_source({PromptInt: [6], PromptChoice: [0, 1]}),
-        state=_state(ln=1, rank=6, ka=100000, roster=(
-            Gangster(name="dumb", intelligenz=39),
-            Gangster(name="smart", intelligenz=40),
-        )),
+        state=_state(
+            ln=1,
+            rank=6,
+            ka=100000,
+            roster=(
+                Gangster(name="dumb", intelligenz=39),
+                Gangster(name="smart", intelligenz=40),
+            ),
+        ),
         rng=_StubRng(1),
     )
     assert result.status == "completed"
@@ -342,7 +355,9 @@ def test_stat_gate_kraft_and_brutality():
     st = _state(ln=2, roster=roster, ka=100000)
     # weapon 3; gangster 0 fails kraft (19 < 20), then cancel the re-shown gangster pick.
     seen = _observe(
-        HANDLERS["waf.buy"], st, _StubRng(),
+        HANDLERS["waf.buy"],
+        st,
+        _StubRng(),
         {PromptInt: [3], PromptChoice: [0, CANCEL]},
     )
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
@@ -449,7 +464,9 @@ def test_empty_roster_loops_back_to_weapon_list_no_empty_picker():
     # weapon cancel ends the buy with no effects and no gangster PromptChoice ever shown.
     st = _state(ln=2, ka=1000, roster=())
     seen = _observe(
-        HANDLERS["waf.buy"], st, _StubRng(),
+        HANDLERS["waf.buy"],
+        st,
+        _StubRng(),
         {PromptInt: [1, CANCEL]},  # pick messer -> loops back (empty roster) -> cancel
     )
     assert not any(isinstance(i, PromptChoice) for i in seen)  # no empty picker presented

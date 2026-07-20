@@ -41,9 +41,7 @@ from engine.locations import load_location
 from engine.movement import DOWN, LEFT, load_city, try_move
 from tests.helpers import run_pure, scripted as _scripted, with_player
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-)
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 # Load mafia_1920s BY PATH so its slw.rent / pub.recruit handlers register into
 # engine.locations.HANDLERS (same load mechanism as test_slice_integration.py).

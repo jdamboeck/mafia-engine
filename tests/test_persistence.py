@@ -141,9 +141,7 @@ def test_replay_reproduces_final_state_without_rerolling(tmp_path: Path):
     live_final = commit(base, effect_log).state
 
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(
-        save_path, base, effect_log=effect_log, rng_log=list(rng.log), seed=SEED
-    )
+    persistence.save_game(save_path, base, effect_log=effect_log, rng_log=list(rng.log), seed=SEED)
     loaded = persistence.load_game(save_path)
 
     replayed_final = persistence.replay(loaded)
@@ -161,9 +159,7 @@ def test_semantic_events_excluded_from_replay_log(tmp_path: Path):
 
     save_path = tmp_path / "game.jsonl"
     # Even if a caller hands events, save_game must not fold them into replay.
-    persistence.save_game(
-        save_path, base, effect_log=effect_log, rng_log=[], seed=SEED
-    )
+    persistence.save_game(save_path, base, effect_log=effect_log, rng_log=[], seed=SEED)
     loaded = persistence.load_game(save_path)
     assert persistence.replay(loaded) == live_final
     # No 'event' records in the persisted log.
@@ -210,9 +206,7 @@ def test_mid_slw_rent_save_resume_matches_uninterrupted(tmp_path: Path):
     )
     loaded = persistence.load_game(save_path)
 
-    resumed = persistence.resume_pending_action(
-        loaded, slw, live_input=_Recorder(2), rng=None
-    )
+    resumed = persistence.resume_pending_action(loaded, slw, live_input=_Recorder(2), rng=None)
     assert resumed.status == "completed"
     # Same committed effects as the uninterrupted run, and identical resulting state.
     assert resumed.effects == ref.effects
@@ -272,9 +266,7 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     effect = SpawnFighter(fighter=Fighter(name="Al", position=100, energie=30), side=1)
     state = _fresh_state()
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(
-        save_path, state, effect_log=[effect], rng_log=[], seed=SEED
-    )
+    persistence.save_game(save_path, state, effect_log=[effect], rng_log=[], seed=SEED)
 
     loaded = persistence.load_game(save_path)
     restored = loaded.effect_log[0]

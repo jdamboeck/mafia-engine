@@ -35,10 +35,7 @@ from clients.terminal.renderers import (
 )
 from tests.helpers import make_walk_script, with_player
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "data" / "game_configs" / "mafia_1920s"
-)
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 
 class TestSmokeRenderPipeline:
@@ -211,9 +208,7 @@ class TestMapDisplayWidth:
         )
         city = load_city(city_raw)
         cfg = load_game_config(_CONFIG_DIR)
-        state = cfg.module.new_game(
-            seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")]
-        )
+        state = cfg.module.new_game(seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")])
         state = with_player(state, 0, po=141)
         buf = io.StringIO()
         render_map(city, city_raw, state, buf)
@@ -229,9 +224,7 @@ class TestMapDisplayWidth:
         # Lines 27+ are legend/status — skip those
         for i, line in enumerate(lines[:27]):
             clean = ansi_re.sub("", line)
-            assert len(clean) == 42, (
-                f"Line {i}: visible width {len(clean)} != 42  ({clean!r})"
-            )
+            assert len(clean) == 42, f"Line {i}: visible width {len(clean)} != 42  ({clean!r})"
 
     def test_no_wide_chars_in_map(self):
         import re
@@ -244,9 +237,7 @@ class TestMapDisplayWidth:
             clean = ansi_re.sub("", line)
             for ch in clean:
                 if unicodedata.east_asian_width(ch) == "W":
-                    assert False, (
-                        f"Line {i}: wide char {ch!r} U+{ord(ch):04X}"
-                    )
+                    assert False, f"Line {i}: wide char {ch!r} U+{ord(ch):04X}"
 
 
 class TestScreenCodeMapping:
@@ -264,9 +255,7 @@ class TestScreenCodeMapping:
 
         for code, char in _CODE_TO_CHAR.items():
             eaw = unicodedata.east_asian_width(char)
-            assert eaw != "W", (
-                f"Code {code}: char {char!r} U+{ord(char):04X} is wide (EAW={eaw})"
-            )
+            assert eaw != "W", f"Code {code}: char {char!r} U+{ord(char):04X} is wide (EAW={eaw})"
 
 
 class TestQuitVocabulary:
@@ -329,13 +318,13 @@ class TestTurnOverQuit:
 
         cfg = load_game_config(tmain._CONFIG_DIR)
         city_raw = yaml.safe_load(
-            (tmain._CONFIG_DIR / "content" / "map" / "city.yaml").read_text(
-                encoding="utf-8"
-            )
+            (tmain._CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
         )
         city = load_city(city_raw)
         state = cfg.module.new_game(
-            seed=42, end_year=1930, score_weight=1.0,
+            seed=42,
+            end_year=1930,
+            score_weight=1.0,
             players=[("alcapone", "the outfit")],
         )
         keys = []

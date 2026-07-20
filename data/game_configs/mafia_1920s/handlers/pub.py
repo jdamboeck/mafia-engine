@@ -197,7 +197,9 @@ def pub_drink(ctx):
     if ln == _ALCOHOL_TILE:
         # --- BUY path: :12020-12035 ---------------------------------------
         stock = ctx.rng.hit(params["pub_alcohol_stock_min"], params["pub_alcohol_stock_max"])
-        price = ctx.rng.hit(params["pub_alcohol_buy_price_min"], params["pub_alcohol_buy_price_max"])
+        price = ctx.rng.hit(
+            params["pub_alcohol_buy_price_min"], params["pub_alcohol_buy_price_max"]
+        )
 
         # :12025 — cap the offer by the vehicle's free barrel capacity.
         vehicles = _vehicles()

@@ -72,9 +72,7 @@ def test_score_and_rank_divisor_is_a_parameter_not_hardcoded():
 def test_score_and_rank_explicit_player_targeting():
     p0 = Player(name="p0", gf=50.0, roster=[Gangster()])
     p1 = Player(name="p1", gf=20.0, roster=[Gangster()])
-    state = GameState(
-        players=[p0, p1], clock=Clock(active_player=0), config=Config(score_mult=1.0)
-    )
+    state = GameState(players=[p0, p1], clock=Clock(active_player=0), config=Config(score_mult=1.0))
     out = apply(state, ScoreAndRank(amount=5, rank_divisor=11.1, player=1))
     assert out.players[1].gf == 25.0
     assert out.players[0].gf == 50.0  # active untouched

@@ -124,17 +124,13 @@ def _shot_reached_a_target(*, weapon, distance, weapon_stats=None):
     attacker = _f(weapon=weapon, position=100)
     defender = _f(weapon=0, energie=99, position=100 + distance)
     rng = Rng(seed=1234)
-    fight = _fight(
-        side1=[attacker], side2=[defender], rng=rng, weapon_stats=weapon_stats
-    )
+    fight = _fight(side1=[attacker], side2=[defender], rng=rng, weapon_stats=weapon_stats)
     fight.shoot(STEP_RIGHT)
     return bool(rng.log)
 
 
 @pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
-def test_shot_reaches_exactly_as_far_as_the_weapons_range_and_no_further(
-    weapon, ts, tg, wrange
-):
+def test_shot_reaches_exactly_as_far_as_the_weapons_range_and_no_further(weapon, ts, tg, wrange):
     # The last cell inside reach is hit; one cell beyond it is not.
     assert _shot_reached_a_target(weapon=weapon, distance=wrange) is True
     assert _shot_reached_a_target(weapon=weapon, distance=wrange + 1) is False
@@ -154,9 +150,7 @@ def test_an_invented_weapon_fires_as_far_as_its_own_range_says():
 def test_an_invented_weapon_is_melee_iff_its_range_is_adjacent_only():
     """Melee is a property of reach, so an invented weapon inherits it from data."""
     stats = {40: (5, 10, 1), 41: (5, 10, 2), 42: (5, 10, 3)}
-    fight = _fight(
-        side1=[_f(position=10)], side2=[_f(position=300)], weapon_stats=stats
-    )
+    fight = _fight(side1=[_f(position=10)], side2=[_f(position=300)], weapon_stats=stats)
     assert fight.is_melee(40) is True  # reaches less than a full melee step
     assert fight.is_melee(41) is True  # reaches exactly the adjacent cell
     assert fight.is_melee(42) is False  # out-reaches a neighbour -> ranged
@@ -226,7 +220,11 @@ def test_activation_walks_side_one_then_side_two():
 
 def test_downed_fighters_are_skipped():
     fight = _fight(
-        side1=[_f(name="a", position=10), _f(name="b", position=11, down=True), _f(name="c", position=12)],
+        side1=[
+            _f(name="a", position=10),
+            _f(name="b", position=11, down=True),
+            _f(name="c", position=12),
+        ],
         side2=[_f(name="x", position=300)],
     )
     fight.advance_activation()
@@ -586,9 +584,7 @@ def test_scripted_seeded_fight_has_a_deterministic_transcript():
     script = iter([("shoot", +1), ("shoot", +1)])
 
     def src(interaction):
-        transcript.append(
-            (interaction.active_side, interaction.active_fighter, interaction.prompt)
-        )
+        transcript.append((interaction.active_side, interaction.active_fighter, interaction.prompt))
         return next(script)
 
     # Each shot: two hit-factor draws (both non-zero) + one damage draw (0 -> 1 damage).

@@ -41,18 +41,8 @@ GRID_ROWS = 25
 ENGINE_ROOT = Path(__file__).resolve().parent.parent
 RESEARCH_ROOT = ENGINE_ROOT.parent / "research"
 KARTE = RESEARCH_ROOT / "src" / "karte"
-DATA_STRUCTURES = (
-    RESEARCH_ROOT / "research-data" / "pass-2" / "data-structures.yaml"
-)
-OUT = (
-    ENGINE_ROOT
-    / "data"
-    / "game_configs"
-    / "mafia_1920s"
-    / "content"
-    / "map"
-    / "city.yaml"
-)
+DATA_STRUCTURES = RESEARCH_ROOT / "research-data" / "pass-2" / "data-structures.yaml"
+OUT = ENGINE_ROOT / "data" / "game_configs" / "mafia_1920s" / "content" / "map" / "city.yaml"
 
 # Dynamic event-overlay cells (mf-prg.bas:2002-2003); la 13/14 win flows.
 SPECIAL_CELLS = [
@@ -65,9 +55,7 @@ def decode_screen_codes(karte: Path) -> list[int]:
     """Return the 1000 row-major cell codes (the karte file's first 1KB, reversed)."""
     data = karte.read_bytes()
     if len(data) != SCREEN_FILE_SIZE:
-        raise ValueError(
-            f"{karte.name}: {len(data)} bytes, expected {SCREEN_FILE_SIZE}"
-        )
+        raise ValueError(f"{karte.name}: {len(data)} bytes, expected {SCREEN_FILE_SIZE}")
     return list(data[:SCREEN_CODES][::-1])
 
 
@@ -78,19 +66,15 @@ def decode_color_ram(karte: Path) -> list[int]:
     """
     data = karte.read_bytes()
     if len(data) != SCREEN_FILE_SIZE:
-        raise ValueError(
-            f"{karte.name}: {len(data)} bytes, expected {SCREEN_FILE_SIZE}"
-        )
-    return [b & 0x0F for b in data[SCREEN_CODES:SCREEN_CODES * 2][::-1]]
+        raise ValueError(f"{karte.name}: {len(data)} bytes, expected {SCREEN_FILE_SIZE}")
+    return [b & 0x0F for b in data[SCREEN_CODES : SCREEN_CODES * 2][::-1]]
 
 
 def to_grid(codes: list[int]) -> list[list[int]]:
     """Fold 1000 row-major codes into a 25-row x 40-col grid."""
     if len(codes) != SCREEN_CODES:
         raise ValueError(f"expected {SCREEN_CODES} codes, got {len(codes)}")
-    return [
-        codes[r * GRID_COLS : (r + 1) * GRID_COLS] for r in range(GRID_ROWS)
-    ]
+    return [codes[r * GRID_COLS : (r + 1) * GRID_COLS] for r in range(GRID_ROWS)]
 
 
 def _find_key(node: object, key: str) -> object | None:
@@ -187,7 +171,9 @@ def main() -> None:
         )
         yaml.safe_dump(payload, fh, sort_keys=False, default_flow_style=None)
 
-    print(f"wrote {OUT} ({len(doors)} doors, {len(SPECIAL_CELLS)} special cells, color_grid included)")
+    print(
+        f"wrote {OUT} ({len(doors)} doors, {len(SPECIAL_CELLS)} special cells, color_grid included)"
+    )
 
 
 if __name__ == "__main__":

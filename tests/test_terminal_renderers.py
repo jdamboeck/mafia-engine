@@ -147,10 +147,28 @@ def _payload(**overrides):
     base = {
         "version": 1,
         "sides": [
-            [{"name": "hero", "weapon": 5, "energie": 20, "kraft": 30,
-              "brutalitaet": 30, "position": 100, "down": False}],
-            [{"name": "thug", "weapon": 0, "energie": 5, "kraft": 10,
-              "brutalitaet": 10, "position": 141, "down": False}],
+            [
+                {
+                    "name": "hero",
+                    "weapon": 5,
+                    "energie": 20,
+                    "kraft": 30,
+                    "brutalitaet": 30,
+                    "position": 100,
+                    "down": False,
+                }
+            ],
+            [
+                {
+                    "name": "thug",
+                    "weapon": 0,
+                    "energie": 5,
+                    "kraft": 10,
+                    "brutalitaet": 10,
+                    "position": 141,
+                    "down": False,
+                }
+            ],
         ],
         "grid": [],
         "active_side": 1,
@@ -158,8 +176,15 @@ def _payload(**overrides):
         "losses": [0, 0],
         "prompt": "action",
         "message": None,
-        "fighter": {"name": "hero", "weapon": 5, "energie": 20, "kraft": 30,
-                    "brutalitaet": 30, "position": 100, "down": False},
+        "fighter": {
+            "name": "hero",
+            "weapon": 5,
+            "energie": 20,
+            "kraft": 30,
+            "brutalitaet": 30,
+            "position": 100,
+            "down": False,
+        },
     }
     base.update(overrides)
     return base
@@ -203,6 +228,7 @@ class TestRenderCombatGrid:
         lines = buf.getvalue().rstrip("\n").split("\n")
         assert len(lines) == 13
         import re
+
         ansi_re = re.compile(r"\033\[[0-9;]*m")
         for line in lines:
             assert len(ansi_re.sub("", line)) == 40
@@ -213,6 +239,7 @@ class TestRenderCombatGrid:
         render_combat_grid(_payload(), buf)
         import re
         import unicodedata
+
         ansi_re = re.compile(r"\033\[[0-9;]*m")
         clean = ansi_re.sub("", buf.getvalue())
         for ch in clean:
@@ -235,6 +262,7 @@ class TestRenderCombatGrid:
         row, col = divmod(141, 40)
         lines = buf.getvalue().rstrip("\n").split("\n")
         import re
+
         ansi_re = re.compile(r"\033\[[0-9;]*m")
         clean_row = ansi_re.sub("", lines[row])
         assert clean_row[col] == "x"
@@ -252,9 +280,12 @@ class TestRenderFighterPanel:
     def test_shows_stats_and_weapon_name(self) -> None:
         _setup()
         buf = _out()
-        render_fighter_panel(_payload(), _FakeResolver(), ["haende", "messer", "knueppel",
-                                                            "schlagkette", "wurfsterne",
-                                                            "revolver"], buf)
+        render_fighter_panel(
+            _payload(),
+            _FakeResolver(),
+            ["haende", "messer", "knueppel", "schlagkette", "wurfsterne", "revolver"],
+            buf,
+        )
         val = buf.getvalue()
         assert "hero" in val
         assert "revolver" in val  # weapon id 5 resolved to its name
@@ -284,7 +315,13 @@ class TestRenderCombatMessage:
     def test_miss_dict_resolves_to_miss_key(self) -> None:
         _setup()
         buf = _out()
-        msg = {"hit": False, "damage": 0, "target_side": None, "target_index": None, "downed": False}
+        msg = {
+            "hit": False,
+            "damage": 0,
+            "target_side": None,
+            "target_index": None,
+            "downed": False,
+        }
         render_combat_message(_payload(message=msg), _FakeResolver(), buf)
         assert "verfehlt" in buf.getvalue()
 

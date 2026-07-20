@@ -61,9 +61,7 @@ class _NeverMoveRng(_StubRng):
 #: test here (ai_take_turn et al.) only ever runs for the active fighter; see
 #: tests.helpers.build_fight's docstring for why each file keeps its own default
 #: rather than sharing one.
-def _fight(
-    *, side1, side2, grid=(), rng=None, dir_memory=None, weapon_stats=None, active=(2, 1)
-):
+def _fight(*, side1, side2, grid=(), rng=None, dir_memory=None, weapon_stats=None, active=(2, 1)):
     return build_fight(
         side1=side1,
         side2=side2,
@@ -119,7 +117,10 @@ def test_target_direction_codes_are_step_deltas():
 
 def test_downed_side_one_fighters_are_not_targeted():
     fight = _fight(
-        side1=[_f(name="down", position=_cell(5, 11), down=True), _f(name="up", position=_cell(5, 20))],
+        side1=[
+            _f(name="down", position=_cell(5, 11), down=True),
+            _f(name="up", position=_cell(5, 20)),
+        ],
         side2=[_f(name="cpu", position=_cell(5, 10))],
     )
     t = ai_target(fight)
@@ -251,9 +252,7 @@ def test_non_melee_weapons_are_not_forced_to_close(weapon):
 
 
 @pytest.mark.parametrize("weapon,ts,tg,wrange", WEAPON_TABLE)
-def test_the_close_distance_branch_fires_for_exactly_the_old_weapon_id_set(
-    weapon, ts, tg, wrange
-):
+def test_the_close_distance_branch_fires_for_exactly_the_old_weapon_id_set(weapon, ts, tg, wrange):
     """Characterization: reach-derived melee picks the same weapons ``w<4`` did.
 
     The two tests above assert the two halves against literal id lists; this one

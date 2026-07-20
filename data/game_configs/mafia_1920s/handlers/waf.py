@@ -288,8 +288,12 @@ def waf_train(ctx):
         # in += 5 at ln=1, bt += 5 at ln=2. (The old true=+1 reading made the
         # bt gain -1 — a training session that damaged the stat.)
         ctx.apply(StatChangeCapped("kraft", 5, cap=cap, gangster=y))
-        ctx.apply(StatChangeCapped("intelligenz", 3 - 2 * (-1 if ln == 1 else 0), cap=cap, gangster=y))
-        ctx.apply(StatChangeCapped("brutalitaet", 2 - 3 * (-1 if ln == 2 else 0), cap=cap, gangster=y))
+        ctx.apply(
+            StatChangeCapped("intelligenz", 3 - 2 * (-1 if ln == 1 else 0), cap=cap, gangster=y)
+        )
+        ctx.apply(
+            StatChangeCapped("brutalitaet", 2 - 3 * (-1 if ln == 2 else 0), cap=cap, gangster=y)
+        )
         # 13130 — score training reward x=1.
         ctx.apply(score_and_rank(1, params))
     return []

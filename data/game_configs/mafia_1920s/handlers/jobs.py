@@ -60,6 +60,7 @@ from ..setup import (
     score_and_rank,
     weapon_stats_by_id,
 )
+
 # Job type ids -- shared with pub.py's take-job handler (mf-prg.bas:12305's ON-GOTO
 # dispatch order). Imported (not re-declared as separate literals) so the two
 # modules cannot drift apart on what each job type id means.

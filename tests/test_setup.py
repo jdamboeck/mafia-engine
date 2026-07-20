@@ -74,9 +74,7 @@ def test_starting_values_in_range():
 
 def test_intelligenz_or30_quirk_over_many_seeds():
     for seed in range(200):
-        gs = new_game(
-            seed=seed, end_year=1978, score_weight=1.0, players=[("P", "G")]
-        )
+        gs = new_game(seed=seed, end_year=1978, score_weight=1.0, players=[("P", "G")])
         assert gs.players[0].roster[0].intelligenz in INTEL_ROLLS
 
 
@@ -100,9 +98,7 @@ def test_different_seeds_differ():
     # Collect stats across a spread of seeds; they must not all be identical.
     sigs = set()
     for seed in range(30):
-        gs = new_game(
-            seed=seed, end_year=1978, score_weight=1.0, players=[("P", "G")]
-        )
+        gs = new_game(seed=seed, end_year=1978, score_weight=1.0, players=[("P", "G")])
         g = gs.players[0].roster[0]
         sigs.add((gs.players[0].ka, g.kraft, g.intelligenz, g.brutalitaet))
     assert len(sigs) > 1
@@ -110,9 +106,7 @@ def test_different_seeds_differ():
 
 def test_cheat_branch_absent_cash_band():
     for seed in range(300):
-        gs = new_game(
-            seed=seed, end_year=1978, score_weight=1.0, players=[("P", "G")]
-        )
+        gs = new_game(seed=seed, end_year=1978, score_weight=1.0, players=[("P", "G")])
         assert 5000 <= gs.players[0].ka <= 7000
         assert gs.players[0].ka != 500000
 

@@ -12,11 +12,16 @@ from pathlib import Path
 import yaml
 
 import sys
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 _THEME_DIR = (
     Path(__file__).resolve().parents[1]
-    / "data" / "game_configs" / "mafia_1920s" / "themes" / "classic"
+    / "data"
+    / "game_configs"
+    / "mafia_1920s"
+    / "themes"
+    / "classic"
 )
 
 # Regex for {param} placeholders in resolved strings.
@@ -79,6 +84,4 @@ def test_no_unresolved_placeholders_in_final_strings():
             # Just verify the string is well-formed (no stray { or }).
             opens = val.count("{")
             closes = val.count("}")
-            assert opens == closes, (
-                f"mismatched braces in {key}: {opens} opens, {closes} closes"
-            )
+            assert opens == closes, f"mismatched braces in {key}: {opens} opens, {closes} closes"

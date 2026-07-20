@@ -27,12 +27,7 @@ from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, Gangster, GameState, MapState, Player, freeze
 from tests.helpers import run_pure, scripted as _scripted
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "data"
-    / "game_configs"
-    / "mafia_1920s"
-)
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 # Load the mafia_1920s config BY PATH so its "slw.rent" handler registers (the
 # config is not a pip-installed package — see engine.config_loader).

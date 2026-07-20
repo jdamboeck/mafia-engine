@@ -86,7 +86,5 @@ class Resolver:
                 raise MissingKeyError(f"no theme string for key {key!r}")
             node = node[segment]
         if not isinstance(node, str):
-            raise MissingKeyError(
-                f"key {key!r} resolves to a subtree, not a template string"
-            )
+            raise MissingKeyError(f"key {key!r} resolves to a subtree, not a template string")
         return node.format(**(params or {}))

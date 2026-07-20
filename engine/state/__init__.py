@@ -326,9 +326,7 @@ class CombatState:
 
     def __post_init__(self):
         _coerce_readonly(self, "grid", "dir_memory", "losses")
-        object.__setattr__(
-            self, "sides", tuple(tuple(side) for side in self.sides)
-        )
+        object.__setattr__(self, "sides", tuple(tuple(side) for side in self.sides))
 
 
 @dataclass(frozen=True)

@@ -49,13 +49,9 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
-        config=Config(
-            formula_params=freeze({"fnm": {"base": 50, "overrides": {1: -50}}})
-        ),
+        config=Config(formula_params=freeze({"fnm": {"base": 50, "overrides": {1: -50}}})),
         map=MapState(tenancy=freeze(tenancy or {})),
     )
-
-
 
 
 # --------------------------------------------------------------------------- #
@@ -91,9 +87,7 @@ def test_guard_denied_returns_blocked_with_no_effects_and_unchanged_state():
     assert result.effects == []
     assert result.state is st  # exact unchanged input object
     assert result.events == [
-        OptionDenied(
-            location_key="slw", option_id="rent", reason_key="locations.slw.no_room"
-        )
+        OptionDenied(location_key="slw", option_id="rent", reason_key="locations.slw.no_room")
     ]
     assert result.payload == DeniedResult(
         location_key="slw",
@@ -146,9 +140,7 @@ def test_consequence_option_commits_effects_and_completes():
 
     assert result.status == "completed"
     assert result.effects == [MsChange(-3), MoneyChange(10)]
-    assert result.events == [
-        LocationActionCompleted(location_key="slw", option_id="leave")
-    ]
+    assert result.events == [LocationActionCompleted(location_key="slw", option_id="leave")]
     # Effects were committed against a fresh copy: input unchanged, new state mutated.
     assert st.players[0].ka == 5000  # input untouched
     assert result.state.players[0].ka == 5010
@@ -195,9 +187,7 @@ def test_handler_option_completes_and_appends_lifecycle_event():
     assert result.effects == [MoneyChange(-100), SetTenancy(2)]
     assert result.state.players[0].ka == 4900
     # The generic lifecycle event is APPENDED after the handler's own events (none here).
-    assert result.events[-1] == LocationActionCompleted(
-        location_key="slw", option_id="rent"
-    )
+    assert result.events[-1] == LocationActionCompleted(location_key="slw", option_id="rent")
 
 
 def test_handler_option_requires_input_source():
@@ -207,9 +197,7 @@ def test_handler_option_requires_input_source():
 
 
 def test_handler_cancel_appends_cancelled_event_with_empty_effects():
-    loc = Location(
-        key="slw", options=[Option(id="c", handler=_cancellable_handler)]
-    )
+    loc = Location(key="slw", options=[Option(id="c", handler=_cancellable_handler)])
     st = _state(ka=5000, ln=2)
     # Confirm -> True, then cancel the PromptInt -> driver unwinds the handler.
     result = run_option(loc, "c", st, ln=2, input_source=_scripted(True, CANCEL))
@@ -217,20 +205,14 @@ def test_handler_cancel_appends_cancelled_event_with_empty_effects():
     assert result.status == "cancelled"
     assert result.effects == []
     assert result.state is st  # driver returns the ORIGINAL state on cancel
-    assert result.events == [
-        LocationActionCancelled(location_key="slw", option_id="c")
-    ]
+    assert result.events == [LocationActionCancelled(location_key="slw", option_id="c")]
 
 
 def test_handler_completed_preserves_handler_payload():
     loc = Location(key="slw", options=[Option(id="rent", handler=_rent_like_handler)])
-    result = run_option(
-        loc, "rent", _state(ka=5000, ln=2), ln=2, input_source=_scripted(0)
-    )
+    result = run_option(loc, "rent", _state(ka=5000, ln=2), ln=2, input_source=_scripted(0))
     # x<=0 quiet return: completed, zero effects, payload carries handler return.
     assert result.status == "completed"
     assert result.effects == []
     assert result.payload is not None  # HandlerResult passthrough preserved
-    assert result.events[-1] == LocationActionCompleted(
-        location_key="slw", option_id="rent"
-    )
+    assert result.events[-1] == LocationActionCompleted(location_key="slw", option_id="rent")

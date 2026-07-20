@@ -31,6 +31,7 @@ Usage:
   python scripts/oracle.py conclude 12103,12105 "a player can own at most 5 gangsters"
   python scripts/oracle.py verify "damage is at least 1 on a hit"
 """
+
 from __future__ import annotations
 
 import json
@@ -40,8 +41,11 @@ from pathlib import Path
 try:
     import yaml
 except ImportError:
-    print("Error: PyYAML required. Use the research venv: "
-          "../research/.venv/bin/python3 scripts/oracle.py ...", file=sys.stderr)
+    print(
+        "Error: PyYAML required. Use the research venv: "
+        "../research/.venv/bin/python3 scripts/oracle.py ...",
+        file=sys.stderr,
+    )
     sys.exit(2)
 
 
@@ -49,6 +53,7 @@ except ImportError:
 def find_research_root() -> Path:
     """Find ../research/ from anywhere in the engine repo, or via env override."""
     import os
+
     env = os.environ.get("MAFIA_RESEARCH")
     if env and (Path(env) / "research-data").is_dir():
         return Path(env)
@@ -58,8 +63,10 @@ def find_research_root() -> Path:
         for cand in (base / "research", base.parent / "research", base):
             if (cand / "research-data" / "pass-3" / "knowledge-graph.yaml").is_file():
                 return cand
-    print("Error: could not locate the research project. Set MAFIA_RESEARCH=/path/to/research",
-          file=sys.stderr)
+    print(
+        "Error: could not locate the research project. Set MAFIA_RESEARCH=/path/to/research",
+        file=sys.stderr,
+    )
     sys.exit(2)
 
 
@@ -123,9 +130,11 @@ def cmd_line(n: int) -> int:
     else:
         print(f"SOURCE  : (no line {n} in the program — line numbers are sparse)")
     if doc:
-        print(f"MEANING : {doc.get('description','(undocumented)')}")
-        print(f"CATEGORY: {doc.get('category','?')}  |  confidence: {doc.get('confidence','?')}"
-              f"  |  provenance: {doc.get('provenance','?')}")
+        print(f"MEANING : {doc.get('description', '(undocumented)')}")
+        print(
+            f"CATEGORY: {doc.get('category', '?')}  |  confidence: {doc.get('confidence', '?')}"
+            f"  |  provenance: {doc.get('provenance', '?')}"
+        )
     else:
         print("MEANING : (no documented interpretation for this line)")
     return 0 if (src or doc) else 1
@@ -166,24 +175,26 @@ def cmd_search(text: str) -> int:
     # 1) BASIC line docs
     docs = line_docs()
     src = bas_lines()
-    ld_hits = [(n, d) for n, d in docs.items()
-               if t in str(d.get("description", "")).lower() or t in src.get(n, "").lower()]
+    ld_hits = [
+        (n, d)
+        for n, d in docs.items()
+        if t in str(d.get("description", "")).lower() or t in src.get(n, "").lower()
+    ]
     if ld_hits:
         print(f"## BASIC lines ({len(ld_hits)})  — line numbers only; NOT the source")
         for n, d in sorted(ld_hits)[:25]:
             # Deliberately short: a snippet of the INTERPRETATION, not the source.
             # Do not conclude from this — run `quote <n>` / `line <n>` to read the code.
-            print(f"  {n:>6}  {str(d.get('description',''))[:72]}…")
+            print(f"  {n:>6}  {str(d.get('description', ''))[:72]}…")
         if len(ld_hits) > 25:
-            print(f"  … {len(ld_hits)-25} more (narrow the search)")
+            print(f"  … {len(ld_hits) - 25} more (narrow the search)")
         hits += len(ld_hits)
     # 2) KG nodes
-    node_hits = [n for n in _iter_nodes()
-                 if t in json.dumps(n, default=str).lower()]
+    node_hits = [n for n in _iter_nodes() if t in json.dumps(n, default=str).lower()]
     if node_hits:
         print(f"\n## Knowledge-graph nodes ({len(node_hits)})")
         for n in node_hits[:20]:
-            print(f"  {n.get('id'):32} [{n.get('type')}]  {n.get('name','')[:50]}")
+            print(f"  {n.get('id'):32} [{n.get('type')}]  {n.get('name', '')[:50]}")
         hits += len(node_hits)
     if not hits:
         print(f"(no matches for '{text}')")
@@ -193,7 +204,7 @@ def cmd_search(text: str) -> int:
     print("Do NOT draw a conclusion, cap, number, or rule from a snippet above.")
     print("Read the actual line first:  oracle.py quote <n>   (verbatim BASIC)")
     print("                             oracle.py line  <n>   (source + meaning)")
-    print("                             oracle.py conclude <n> \"<your claim>\"")
+    print('                             oracle.py conclude <n> "<your claim>"')
     print("!" * 70)
     return 0
 
@@ -211,10 +222,10 @@ def _node_by(key: str):
 
 
 def _print_node(n: dict) -> None:
-    print(f"# {n.get('id')}  [{n.get('type')}]  —  {n.get('name','')}")
-    print(f"\n{n.get('description','')}\n")
-    print(f"source           : {n.get('source','?')}")
-    print(f"verified         : {n.get('verified')}  ({n.get('verification_method','?')})")
+    print(f"# {n.get('id')}  [{n.get('type')}]  —  {n.get('name', '')}")
+    print(f"\n{n.get('description', '')}\n")
+    print(f"source           : {n.get('source', '?')}")
+    print(f"verified         : {n.get('verified')}  ({n.get('verification_method', '?')})")
     if n.get("verification_note"):
         print(f"verification note: {n['verification_note']}")
     ev = n.get("evidence")
@@ -224,7 +235,7 @@ def _print_node(n: dict) -> None:
         for e in ev:
             ref = e.get("ref", "?")
             detail = e.get("quote") or e.get("note") or ""
-            print(f"  [{e.get('kind','?'):11}] {ref}")
+            print(f"  [{e.get('kind', '?'):11}] {ref}")
             if detail:
                 print(f"                {str(detail)[:120]}")
 
@@ -253,14 +264,16 @@ def cmd_verify(text: str) -> int:
         print(f"No knowledge-graph evidence matches '{text}'.")
         print("This claim is NOT backed by the research — treat it as unverified.")
         return 1
-    print(f"# Evidence for: \"{text}\"\n")
+    print(f'# Evidence for: "{text}"\n')
     print("The research is source-backed; check the claim against these cited facts:\n")
     for _, n in scored[:3]:
         _print_node(n)
         print()
-    print("VERDICT RULE: a claim is CONFIRMED only if it matches the cited BASIC line / "
-          "byte evidence above. If it contradicts them, the claim is WRONG. If nothing "
-          "above addresses it, it is UNVERIFIED (not in the research).")
+    print(
+        "VERDICT RULE: a claim is CONFIRMED only if it matches the cited BASIC line / "
+        "byte evidence above. If it contradicts them, the claim is WRONG. If nothing "
+        "above addresses it, it is UNVERIFIED (not in the research)."
+    )
     return 0
 
 
@@ -290,9 +303,12 @@ def cmd_conclude(spec: str, claim: str) -> int:
     lines = _parse_line_spec(spec)
     present = [n for n in lines if n in src]
     if not present:
-        print(f"REFUSED: none of the cited line(s) {spec} exist in the program. "
-              "You cannot conclude from lines that aren't there — re-check with "
-              "`oracle.py search <keyword>` and cite real lines.", file=sys.stderr)
+        print(
+            f"REFUSED: none of the cited line(s) {spec} exist in the program. "
+            "You cannot conclude from lines that aren't there — re-check with "
+            "`oracle.py search <keyword>` and cite real lines.",
+            file=sys.stderr,
+        )
         return 1
     print(f'# Claim under test:\n  "{claim}"\n')
     print("## Verbatim source (this — not a summary — is what you must cite):\n")
@@ -301,8 +317,10 @@ def cmd_conclude(spec: str, claim: str) -> int:
         d = docs.get(n, {})
         if d.get("description"):
             prov = d.get("provenance", "?")
-            print(f"         ↳ interpretation ({prov}, conf {d.get('confidence','?')}): "
-                  f"{d['description']}")
+            print(
+                f"         ↳ interpretation ({prov}, conf {d.get('confidence', '?')}): "
+                f"{d['description']}"
+            )
     missing = [n for n in lines if n not in src]
     if missing:
         print(f"\n  (requested but absent — sparse numbering: {missing})")
@@ -321,20 +339,28 @@ def cmd_conclude(spec: str, claim: str) -> int:
 def cmd_status() -> int:
     cov = _find_key(_load("research-data/source-coverage.yaml"), "source_coverage")
     if not cov:
-        print("Error: source-coverage.yaml missing/unreadable in the research project.",
-              file=sys.stderr)
+        print(
+            "Error: source-coverage.yaml missing/unreadable in the research project.",
+            file=sys.stderr,
+        )
         return 2
     b = cov["basic"]
     print("# Mafia research — final state (earned + gated, not self-certified)\n")
-    print(f"BASIC understood : {b['understood_pct']}%  ({b['understood_lines']}/{b['total_lines']} lines)")
+    print(
+        f"BASIC understood : {b['understood_pct']}%  ({b['understood_lines']}/{b['total_lines']} lines)"
+    )
     print(f"Binary interpreted: {cov['binary']['interpreted_pct']}%")
     rl = cov["levels"]["reachability_level"]
-    print(f"Dead code        : {rl['unreachable']}  (reachable {rl['reachable']}, {rl['data_blocks']} DATA blocks)")
+    print(
+        f"Dead code        : {rl['unreachable']}  (reachable {rl['reachable']}, {rl['data_blocks']} DATA blocks)"
+    )
     nodes = _iter_nodes()
     verified = sum(1 for n in nodes if n.get("verified"))
     print(f"Knowledge graph  : {len(nodes)} nodes, {verified} verified (source-backed)")
-    print("\nAuthority: every answer traces to mf-prg.bas:<line> or a byte/$addr. "
-          "See ../research/docs/recreation-readiness.html and docs/timeline.md.")
+    print(
+        "\nAuthority: every answer traces to mf-prg.bas:<line> or a byte/$addr. "
+        "See ../research/docs/recreation-readiness.html and docs/timeline.md."
+    )
     return 0
 
 

@@ -548,9 +548,7 @@ def _target_index(state: GameState, player: int | None) -> int:
     """
     idx = player if player is not None else state.clock.active_player
     if idx < 0 or idx >= len(state.players):
-        raise IndexError(
-            f"player index {idx} out of range (have {len(state.players)} players)"
-        )
+        raise IndexError(f"player index {idx} out of range (have {len(state.players)} players)")
     return idx
 
 
@@ -602,8 +600,7 @@ def _gangster_at(state: GameState, idx: int, g_idx: int) -> Gangster:
     player = state.players[idx]
     if g_idx < 0 or g_idx >= len(player.roster):
         raise IndexError(
-            f"gangster index {g_idx} out of range "
-            f"(player has {len(player.roster)} gangsters)"
+            f"gangster index {g_idx} out of range (player has {len(player.roster)} gangsters)"
         )
     return player.roster[g_idx]
 
@@ -618,9 +615,7 @@ def _with_gangster(state: GameState, idx: int, g_idx: int, **field_changes) -> G
     """
     player = state.players[idx]
     new_gangster = replace(_gangster_at(state, idx, g_idx), **field_changes)
-    return _with_player(
-        state, idx, roster=tuple_replace(player.roster, g_idx, new_gangster)
-    )
+    return _with_player(state, idx, roster=tuple_replace(player.roster, g_idx, new_gangster))
 
 
 def _mapping_set(mapping, key, value) -> MappingProxyType:
@@ -850,8 +845,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, (WantedChange, Jail)):
         raise NotImplementedError(
-            f"{type(effect).__name__} is declared but its application is exercised in a "
-            "later unit."
+            f"{type(effect).__name__} is declared but its application is exercised in a later unit."
         )
 
     raise TypeError(f"Unknown effect type: {type(effect).__name__!r}")

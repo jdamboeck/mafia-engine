@@ -50,9 +50,7 @@ from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, UP, load_city, try_move
 from tests.helpers import with_player, with_tenancy
 
-_CONFIG_DIR = (
-    Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-)
+_CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 # Load the mafia_1920s config BY PATH so its "slw.rent" / "pub.recruit" handlers
 # register into engine.locations.HANDLERS (the config is deliberately not a
@@ -342,12 +340,8 @@ def test_slice_is_deterministic_same_seed():
 def test_different_seed_diverges_starting_stats():
     """A light divergence check (full setup determinism was proven in U8): a
     different seed yields different starting stats."""
-    s1 = new_game(
-        seed=1, end_year=1930, score_weight=1.0, players=[("a", "g")]
-    ).players[0]
-    s2 = new_game(
-        seed=999, end_year=1930, score_weight=1.0, players=[("a", "g")]
-    ).players[0]
+    s1 = new_game(seed=1, end_year=1930, score_weight=1.0, players=[("a", "g")]).players[0]
+    s2 = new_game(seed=999, end_year=1930, score_weight=1.0, players=[("a", "g")]).players[0]
     g1, g2 = s1.roster[0], s2.roster[0]
     # At least one rolled quantity differs across the two seeds.
     assert (s1.ka, g1.kraft, g1.brutalitaet) != (s2.ka, g2.kraft, g2.brutalitaet)
@@ -368,6 +362,5 @@ def test_headless_no_clients_import():
     after = {m for m in sys.modules if m == "clients" or m.startswith("clients.")}
     new_client_modules = after - before
     assert not new_client_modules, (
-        f"the slice imported {sorted(new_client_modules)} from clients — "
-        "it must be fully headless"
+        f"the slice imported {sorted(new_client_modules)} from clients — it must be fully headless"
     )

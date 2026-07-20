@@ -50,8 +50,6 @@ def _state(*, ka=100000, rank=4, tip_target=0, roster=None):
     )
 
 
-
-
 # --------------------------------------------------------------------------- #
 # Guard matrix: rank guard on tips                                            #
 # --------------------------------------------------------------------------- #
@@ -213,9 +211,7 @@ def test_arms_deal_total_loss_clears_tip_no_cash_effect():
     st = _state(tip_target=4, ka=1000)
     rng = _StubRng(0)  # range(5)==0 -> total loss
     result = run_upkeep(st, rng=rng)
-    assert [e for e in result.effects if isinstance(e, (TipClear, MoneyChange))] == [
-        TipClear()
-    ]
+    assert [e for e in result.effects if isinstance(e, (TipClear, MoneyChange))] == [TipClear()]
     assert result.state.players[0].tip_target == 0
     assert result.state.players[0].ka == 1000  # unchanged -- stake was already spent
 

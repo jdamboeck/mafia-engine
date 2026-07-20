@@ -68,6 +68,7 @@ _MAX_DEPTH = 2
 
 # --- The eval context: resolvable variables --------------------------------
 
+
 def _active(state):
     """The active player: ``state.players[state.clock.active_player]`` (orig ``sp``)."""
     return state.players[state.clock.active_player]
@@ -80,10 +81,9 @@ def _tenancy(state, ln):
     raises a clear :class:`ValueError`.
     """
     if ln is None:
-        raise ValueError(
-            "guard variable 'tenancy' requires a tile context (ln), but ln is None"
-        )
+        raise ValueError("guard variable 'tenancy' requires a tile context (ln), but ln is None")
     return state.map.tenancy.get(ln, 0)
+
 
 #: The single documented mapping of guard-variable name -> resolver ``(state, ln)``.
 #: Extend the DSL's readable surface by adding an entry here. An unknown variable
@@ -116,8 +116,7 @@ class _Context:
         resolver = VARIABLE_RESOLVERS.get(name)
         if resolver is None:
             raise ValueError(
-                f"unknown guard variable {name!r}; "
-                f"known variables: {sorted(VARIABLE_RESOLVERS)}"
+                f"unknown guard variable {name!r}; known variables: {sorted(VARIABLE_RESOLVERS)}"
             )
         return resolver(self._state, self._ln)
 
@@ -133,6 +132,7 @@ def build_context(state, ln: int | None = None) -> _Context:
 
 
 # --- Structural validation -------------------------------------------------
+
 
 def _is_leaf(node: dict) -> bool:
     return "var" in node
@@ -171,9 +171,7 @@ def _validate_node(node: Any, depth: int) -> None:
         raise ValueError(f"guard node must be a dict, got {type(node).__name__}: {node!r}")
 
     if "not" in node:
-        raise ValueError(
-            "the guard DSL has no NOT; restructure the guard to avoid negation"
-        )
+        raise ValueError("the guard DSL has no NOT; restructure the guard to avoid negation")
 
     if _is_leaf(node):
         _check_leaf(node)
@@ -210,6 +208,7 @@ def validate(guard: dict | None) -> None:
 
 # --- Evaluation ------------------------------------------------------------
 
+
 def _resolve_operand(value: Any, context: _Context) -> Any:
     """Resolve a leaf's ``value``: a literal, or ``{"var": name}`` on the RHS."""
     if isinstance(value, dict) and "var" in value:
@@ -219,9 +218,7 @@ def _resolve_operand(value: Any, context: _Context) -> Any:
 
 def _eval_node(node: dict, context: _Context, depth: int) -> bool:
     if "not" in node:
-        raise ValueError(
-            "the guard DSL has no NOT; restructure the guard to avoid negation"
-        )
+        raise ValueError("the guard DSL has no NOT; restructure the guard to avoid negation")
 
     if _is_leaf(node):
         _check_leaf(node)  # strict leaf keys + known op + value present
@@ -237,8 +234,7 @@ def _eval_node(node: dict, context: _Context, depth: int) -> bool:
             # available_options must guess about. validate() can't catch this
             # (it doesn't know runtime value types), so it surfaces here.
             raise ValueError(
-                f"guard comparison failed for op {node['op']!r} on "
-                f"{left!r} vs {right!r}: {exc}"
+                f"guard comparison failed for op {node['op']!r} on {left!r} vs {right!r}: {exc}"
             ) from exc
 
     key = _connective_key(node)

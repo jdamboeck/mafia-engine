@@ -262,19 +262,13 @@ def new_game(
     # --- validate inputs (setup owns range validation) ---------------------
     yr = ranges["end_year"]
     if not (yr["min"] <= end_year <= yr["max"]):
-        raise ValueError(
-            f"end_year must be in [{yr['min']}, {yr['max']}], got {end_year}"
-        )
+        raise ValueError(f"end_year must be in [{yr['min']}, {yr['max']}], got {end_year}")
     sw = ranges["score_weight"]
     if not (sw["min"] <= score_weight <= sw["max"]):
-        raise ValueError(
-            f"score_weight must be in [{sw['min']}, {sw['max']}], got {score_weight}"
-        )
+        raise ValueError(f"score_weight must be in [{sw['min']}, {sw['max']}], got {score_weight}")
     pc = ranges["player_count"]
     if not (pc["min"] <= len(players) <= pc["max"]):
-        raise ValueError(
-            f"player count must be in [{pc['min']}, {pc['max']}], got {len(players)}"
-        )
+        raise ValueError(f"player count must be in [{pc['min']}, {pc['max']}], got {len(players)}")
 
     # --- entity tables -----------------------------------------------------
     vehicles = load_vehicles(cfg_dir / cfg["entities"]["vehicles"])
