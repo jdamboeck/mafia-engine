@@ -23,7 +23,6 @@ from engine.combat import (
     RANGE_HEAVY,
     RANGE_MELEE,
     RANGE_RANGED,
-    CombatFight,
     damage_roll,
     is_hit,
     shot_range,
@@ -37,59 +36,23 @@ from engine.interactions import (
     StartCombat,
     run,
 )
-from engine.state import CombatState, Fighter
+from engine.state import CombatState
+from tests.helpers import WEAPON_STATS, WEAPON_TABLE, StubRng, build_fight
+from tests.helpers import combat_fighter as _f
 
 # --------------------------------------------------------------------------- #
 # Helpers                                                                     #
 # --------------------------------------------------------------------------- #
 
-
-class _StubRng:
-    """Scripted RNG: returns queued values, records every call (determinism gate)."""
-
-    def __init__(self, *values):
-        self._values = list(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        if not self._values:
-            raise AssertionError(f"stub rng exhausted at range({n}); calls={self.calls}")
-        return self._values.pop(0)
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        if not self._values:
-            raise AssertionError(f"stub rng exhausted at hit({a},{b}); calls={self.calls}")
-        return self._values.pop(0)
-
-
-#: The weapon table verbatim from mf-prg.bas:50100-50115 — (id, ts, tg).
-WEAPON_TABLE = (
-    (0, 2, 2),  # haende
-    (1, 3, 5),  # messer
-    (2, 4, 3),  # knueppel
-    (3, 4, 4),  # schlagkette
-    (4, 2, 7),  # wurfsterne
-    (5, 5, 10),  # revolver
-    (6, 5, 12),  # gewehr
-    (7, 6, 15),  # maschinenpistole
-    (8, 7, 18),  # handgranaten
-)
+#: This module exercises side 1 acting — CombatState's own default cursor
+#: (active_side=1, active_fighter=1) — unlike tests/test_combat_ai.py's CPU-side
+#: default; see tests.helpers.build_fight's docstring for why the two files each
+#: keep their own thin wrapper rather than sharing one default.
+_StubRng = StubRng
 
 
 def _fight(*, side1, side2, grid=(), rng=None):
-    return CombatFight(
-        CombatState(sides=(tuple(side1), tuple(side2)), grid=tuple(grid)),
-        rng=rng,
-        weapon_stats={w: (ts, tg) for w, ts, tg in WEAPON_TABLE},
-    )
-
-
-def _f(**kw):
-    base = dict(name="f", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100)
-    base.update(kw)
-    return Fighter(**base)
+    return build_fight(side1=side1, side2=side2, grid=grid, rng=rng, active=(1, 1))
 
 
 # --------------------------------------------------------------------------- #
@@ -370,7 +333,7 @@ def _spec(**kw):
     base = dict(
         sides=_combat_state().sides,
         grid=(),
-        weapon_stats={w: (ts, tg) for w, ts, tg in WEAPON_TABLE},
+        weapon_stats=WEAPON_STATS,
     )
     base.update(kw)
     return base

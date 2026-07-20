@@ -32,50 +32,17 @@ from engine.combat import (
     STEP_LEFT,
     STEP_RIGHT,
     STEP_UP,
-    CombatFight,
     ai_target,
 )
 from engine.interactions import CombatScreen, StartCombat, run
-from engine.state import CombatState, Fighter
+from tests.helpers import WEAPON_STATS, StubRng, build_fight
+from tests.helpers import combat_fighter as _f
 
 # --------------------------------------------------------------------------- #
 # Helpers (mirroring tests/test_combat_loop.py's idiom)                        #
 # --------------------------------------------------------------------------- #
 
-#: The weapon table verbatim from mf-prg.bas:50100-50115 — (id, ts, tg).
-WEAPON_TABLE = (
-    (0, 2, 2),  # haende      (melee, gw<4)
-    (1, 3, 5),  # messer      (melee)
-    (2, 4, 3),  # knueppel    (melee)
-    (3, 4, 4),  # schlagkette (melee)
-    (4, 2, 7),  # wurfsterne
-    (5, 5, 10),  # revolver
-    (6, 5, 12),  # gewehr
-    (7, 6, 15),  # maschinenpistole
-    (8, 7, 18),  # handgranaten
-)
-
-WEAPON_STATS = {w: (ts, tg) for w, ts, tg in WEAPON_TABLE}
-
-
-class _StubRng:
-    """Scripted RNG: returns queued values, records every call (determinism gate)."""
-
-    def __init__(self, *values):
-        self._values = list(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        if not self._values:
-            raise AssertionError(f"stub rng exhausted at range({n}); calls={self.calls}")
-        return self._values.pop(0)
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        if not self._values:
-            raise AssertionError(f"stub rng exhausted at hit({a},{b}); calls={self.calls}")
-        return self._values.pop(0)
+_StubRng = StubRng
 
 
 class _NeverMoveRng(_StubRng):
@@ -88,25 +55,15 @@ class _NeverMoveRng(_StubRng):
         return super().range(n)
 
 
-def _f(**kw):
-    base = dict(name="f", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100)
-    base.update(kw)
-    return Fighter(**base)
-
-
+#: This module exercises side 2/the CPU acting by default — unlike
+#: tests/test_combat_loop.py's side-1 default — because the AI decision layer under
+#: test here (ai_take_turn et al.) only ever runs for the active fighter; see
+#: tests.helpers.build_fight's docstring for why each file keeps its own default
+#: rather than sharing one.
 def _fight(*, side1, side2, grid=(), rng=None, dir_memory=None, active=(2, 1)):
-    fight = CombatFight(
-        CombatState(
-            sides=(tuple(side1), tuple(side2)),
-            grid=tuple(grid),
-            dir_memory=dict(dir_memory or {}),
-            active_side=active[0],
-            active_fighter=active[1],
-        ),
-        rng=rng,
-        weapon_stats=WEAPON_STATS,
+    return build_fight(
+        side1=side1, side2=side2, grid=grid, rng=rng, dir_memory=dir_memory, active=active
     )
-    return fight
 
 
 def _cell(row, col):

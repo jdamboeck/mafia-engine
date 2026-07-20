@@ -209,13 +209,11 @@ class CombatScreen:
             "losses": list(self.losses),
             "prompt": self.prompt,
             "message": json_safe(self.message) if self.message is not None else None,
-            "fighter": self._active_fighter_panel(),
+            "fighter": self._active_fighter_panel(json_safe),
         }
 
-    def _active_fighter_panel(self) -> Any:
+    def _active_fighter_panel(self, json_safe: Callable[[Any], Any]) -> Any:
         """The active fighter's own stats/weapon panel (``mf-prg.bas:30115-30116``)."""
-        from engine.state import json_safe
-
         side = self.sides[self.active_side - 1] if self.sides else ()
         if not side or self.active_fighter - 1 >= len(side):
             return None

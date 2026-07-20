@@ -42,7 +42,7 @@ no display text.
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 
 from engine.state import CombatState, Fighter
@@ -388,6 +388,7 @@ AI_HUNTS_SIDE = 1
 DEFAULT_CPU_SIDES: tuple[int, ...] = (2,)
 
 
+@dataclass(frozen=True)
 class AiTarget:
     """The nearest hostile fighter, as ``cr`` reports it through ``ua``..``ua+3``.
 
@@ -412,28 +413,22 @@ class AiTarget:
 
     ``side``/``index`` locate the chosen fighter for the caller; the original has no
     equivalent (it only ever needs the deltas), so they are port bookkeeping.
+
+    A frozen dataclass, matching every other value type in this module/``engine.state``
+    (e.g. :class:`~engine.state.Fighter`) rather than a hand-rolled ``__slots__`` class.
     """
 
-    __slots__ = ("side", "index", "x", "y", "abs_dx", "abs_dy")
-
-    def __init__(self, *, side: int, index: int, x: int, y: int, abs_dx: int, abs_dy: int) -> None:
-        self.side = side
-        self.index = index
-        self.x = x
-        self.y = y
-        self.abs_dx = abs_dx
-        self.abs_dy = abs_dy
+    side: int
+    index: int
+    x: int
+    y: int
+    abs_dx: int
+    abs_dy: int
 
     @property
     def distance(self) -> int:
         """The ``cr`` distance metric ``dy*40 + dx`` (the ``$ECF0`` table)."""
         return self.abs_dy * GRID_COLS + self.abs_dx
-
-    def __repr__(self) -> str:  # pragma: no cover - debugging aid
-        return (
-            f"AiTarget(side={self.side}, index={self.index}, x={self.x}, y={self.y}, "
-            f"abs_dx={self.abs_dx}, abs_dy={self.abs_dy})"
-        )
 
 
 def ai_target(fight: "CombatFight") -> AiTarget | None:
@@ -463,7 +458,7 @@ def ai_target(fight: "CombatFight") -> AiTarget | None:
     """
     hostile = fight.sides[AI_HUNTS_SIDE - 1]
     origin = fight.active.position
-    ox, oy = divmod(origin, GRID_COLS)[1], divmod(origin, GRID_COLS)[0]
+    oy, ox = divmod(origin, GRID_COLS)
 
     best: AiTarget | None = None
     for index, other in enumerate(hostile):
@@ -527,7 +522,7 @@ class CombatFight:
         self._sides: list[list[Fighter]] = [list(side) for side in combat.sides]
         self._grid: tuple[int, ...] = tuple(combat.grid)
         self._rng = rng
-        self._weapon_stats = dict(weapon_stats or {})
+        self._weapon_stats: dict[int, tuple[int, int]] = dict(weapon_stats or {})
         self.active_side: int = combat.active_side or 1  # s (1 or 2)
         self.active_fighter: int = combat.active_fighter or 1  # f (1-based)
         self._losses: list[int] = list(combat.losses) or [0, 0]
@@ -571,7 +566,7 @@ class CombatFight:
 
     def weapon_stats(self, weapon: int) -> tuple[int, int]:
         """``(ts, tg)`` for ``weapon``; ``(0, 0)`` if the config omits it."""
-        return tuple(self._weapon_stats.get(weapon, (0, 0)))  # type: ignore[return-value]
+        return self._weapon_stats.get(weapon, (0, 0))
 
     # -- activation cursor (mf-prg.bas:30105-30109) ------------------------- #
     def _opposing(self, side: int) -> int:
@@ -648,6 +643,13 @@ class CombatFight:
         The caller supplies ``step`` as one of :data:`STEPS`; the row-width deltas
         mean a left/right step can cross a row boundary exactly as the source's
         linear screen addressing does (the original has no per-row clamp either).
+        """
+        return self._commit_step(step)
+
+    def _commit_step(self, step: int) -> bool:
+        """Validate one linear step and commit it if legal; shared by :meth:`try_move`
+        and :meth:`_ai_step`, which layer their own pre/post rules (direction memory)
+        around this common validate-then-``_replace_fighter`` core.
         """
         if step not in STEPS:
             return False
@@ -897,11 +899,8 @@ class CombatFight:
             return False
         if not self._dir_memory_allows(step):
             return False
-        fighter = self.active
-        target_cell = fighter.position + step
-        if not can_move_onto(target_cell, self._grid, self.occupied(exclude=fighter)):
+        if not self._commit_step(step):
             return False
-        self._replace_fighter(self.active_side, self.active_fighter - 1, position=target_cell)
         self.dir_memory[self.active_fighter - 1] = step  # 30492: ri(f)=p
         return True
 

@@ -38,10 +38,11 @@ from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
 
+from engine.combat import CombatFight
 from engine.effects import commit
 from engine.interactions import run
 from engine.persistence import state_from_dict
-from engine.state import json_safe, tuple_replace
+from engine.state import CombatState, Fighter, json_safe, tuple_replace
 
 
 def make_walk_script(keys: list[str]) -> io.StringIO:
@@ -243,3 +244,83 @@ def run_pure(handler, input_source, *, state, rng=None):
         )
 
     return result
+
+
+# --------------------------------------------------------------------------- #
+# Combat fixtures — shared by tests/test_combat_loop.py and tests/test_combat_ai.py #
+# --------------------------------------------------------------------------- #
+#: The weapon table verbatim from mf-prg.bas:50100-50115 — (id, ts, tg). Both combat
+#: test modules exercised every one of these rows independently before this hoist;
+#: kept as one table so the two files can never silently drift apart on it.
+WEAPON_TABLE: tuple[tuple[int, int, int], ...] = (
+    (0, 2, 2),  # haende
+    (1, 3, 5),  # messer
+    (2, 4, 3),  # knueppel
+    (3, 4, 4),  # schlagkette
+    (4, 2, 7),  # wurfsterne
+    (5, 5, 10),  # revolver
+    (6, 5, 12),  # gewehr
+    (7, 6, 15),  # maschinenpistole
+    (8, 7, 18),  # handgranaten
+)
+
+WEAPON_STATS: dict[int, tuple[int, int]] = {w: (ts, tg) for w, ts, tg in WEAPON_TABLE}
+
+
+class StubRng:
+    """Scripted RNG: returns queued values, records every call (determinism gate)."""
+
+    def __init__(self, *values):
+        self._values = list(values)
+        self.calls = []
+
+    def range(self, n):
+        self.calls.append(("range", n))
+        if not self._values:
+            raise AssertionError(f"stub rng exhausted at range({n}); calls={self.calls}")
+        return self._values.pop(0)
+
+    def hit(self, a, b):
+        self.calls.append(("hit", a, b))
+        if not self._values:
+            raise AssertionError(f"stub rng exhausted at hit({a},{b}); calls={self.calls}")
+        return self._values.pop(0)
+
+
+def combat_fighter(**kw) -> Fighter:
+    """A :class:`~engine.state.Fighter` with sane combat-test defaults, overridable."""
+    base = dict(name="f", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100)
+    base.update(kw)
+    return Fighter(**base)
+
+
+def build_fight(
+    *,
+    side1,
+    side2,
+    grid=(),
+    rng=None,
+    dir_memory=None,
+    active: tuple[int, int],
+) -> CombatFight:
+    """Build a :class:`~engine.combat.CombatFight` for a scripted test.
+
+    ``active`` (``(active_side, active_fighter)``) is REQUIRED rather than defaulted
+    here: ``tests/test_combat_loop.py`` exercises side 1 acting (``CombatState``'s own
+    default) while ``tests/test_combat_ai.py`` exercises side 2/the CPU acting
+    (``(2, 1)``) at nearly every one of its 33 call sites. A shared default would
+    silently pick one file's convention for the other — each module's own thin
+    ``_fight`` wrapper supplies its own default explicitly instead of relying on this
+    one, so neither file's behavior moved when this builder was hoisted out of both.
+    """
+    return CombatFight(
+        CombatState(
+            sides=(tuple(side1), tuple(side2)),
+            grid=tuple(grid),
+            dir_memory=dict(dir_memory or {}),
+            active_side=active[0],
+            active_fighter=active[1],
+        ),
+        rng=rng,
+        weapon_stats=WEAPON_STATS,
+    )
