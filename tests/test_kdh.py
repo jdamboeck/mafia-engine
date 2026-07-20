@@ -27,7 +27,7 @@ from engine.locations import HANDLERS
 from engine.rng import Rng
 from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
 from engine.upkeep import UPKEEP_HANDLER_KEY
-from tests.helpers import run_pure, scripted as _scripted
+from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -52,22 +52,6 @@ _PARAMS = {
     "kdh_ambush_score": 2.0,
     "kdh_income_quiet_roll": 3,
 }
-
-
-class _StubRng:
-    """Scripted RNG: returns queued values, records every call (determinism gate)."""
-
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        return next(self._it)
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        return next(self._it)
 
 
 def _player(

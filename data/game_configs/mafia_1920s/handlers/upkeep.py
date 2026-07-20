@@ -100,7 +100,7 @@ from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
-from ..setup import load_combat_backdrop, weapon_stats_by_id
+from ..setup import load_combat_backdrop, narrate_combat_outcome, weapon_stats_by_id
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
@@ -235,9 +235,15 @@ def upkeep_turn_start(ctx):
             )
 
             # Outcome narration (KTD-1: the invoking handler's job — _run_combat
-            # yields no final screen). Reuses the combat.* keys U7 exported.
-            winner_name = active.name if winner == 1 else _COLLECTOR_NAME
-            yield ShowMessage("combat.winner_banner", {"name": winner_name})
+            # yields no final screen). Shared with jobs.py/kdh.py's own fights, but
+            # WITHOUT the losses block: a won collectors fight has nothing to report
+            # (see narrate_combat_outcome's docstring).
+            yield from narrate_combat_outcome(
+                winner=winner,
+                player_name=active.name,
+                enemy_name=_COLLECTOR_NAME,
+                with_losses=False,
+            )
 
             if winner == 2:
                 # :4365-4370 — lost: `ka(sp)=0:kr(sp)=0:kz(sp)=0`. The seizure takes

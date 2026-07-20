@@ -56,7 +56,20 @@ _PARAMS = {
 
 
 class _StubRng:
-    """Scripted RNG: returns queued values, records every call (determinism gate)."""
+    """Scripted RNG: returns queued values, records every call (determinism gate).
+
+    NOT swapped for ``tests.helpers.StubRng`` (unlike ``test_kdh.py``): two tests
+    below (``test_win_changes_nothing_and_the_fight_recurs_next_turn`` and
+    ``test_the_fight_actually_re_fires_on_the_following_turn``) construct this with
+    ZERO scripted values and rely on the resulting exhaustion to unwind the run
+    silently. That reliance is itself a latent bug this simplification pass found
+    but does not fix (out of scope — see the handoff report). The shared
+    ``StubRng``'s stricter ``AssertionError``-on-exhaustion is behaviorally
+    correct and exposes it; switching would turn those two tests red for a
+    reason unrelated to this file's assigned scope, so this file keeps its own
+    permissive (``StopIteration``-raising) copy until that test bug is fixed
+    on its own.
+    """
 
     def __init__(self, *values):
         self._it = iter(values)

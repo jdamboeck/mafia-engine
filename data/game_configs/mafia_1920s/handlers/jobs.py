@@ -54,7 +54,12 @@ from engine.effects import JobClear, JobSet, MoneyChange
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 
-from ..setup import load_combat_backdrop, score_and_rank, weapon_stats_by_id
+from ..setup import (
+    load_combat_backdrop,
+    narrate_combat_outcome,
+    score_and_rank,
+    weapon_stats_by_id,
+)
 # Job type ids -- shared with pub.py's take-job handler (mf-prg.bas:12305's ON-GOTO
 # dispatch order). Imported (not re-declared as separate literals) so the two
 # modules cannot drift apart on what each job type id means.
@@ -145,22 +150,16 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
         dir_memory=combat_state.dir_memory,
     )
     # Outcome narration (KTD-1: the invoking handler's job -- _run_combat yields no
-    # final screen). Reuse the SAME theme keys U7 exported for this (combat.
-    # winner_banner/losses_heading/losses_line) -- ShowMessage's (key, params) shape
-    # means the generic client renderer (clients/terminal/__init__.py's
-    # render_message) resolves these with no special-case wiring, exactly like every
-    # other ported string in this codebase.
-    winner_name = opponent["name"] if winner == 2 else active.name
-    yield ShowMessage("combat.winner_banner", {"name": winner_name})
-    yield ShowMessage("combat.losses_heading")
+    # final screen). Shared with kdh.py/upkeep.py's own fights (narrate_combat_outcome
+    # -- ShowMessage's (key, params) shape means the generic client renderer resolves
+    # these with no special-case wiring, exactly like every other ported string).
     # Every shift fight is exactly one roster fighter vs. one scripted NPC
     # (enemy_count=1, mf-prg.bas:25035/25135/25210's gz(0)=1) -- so "the losing side's
     # one fighter went down" is the EXACT per-side count here, not an approximation
     # that would need _run_combat to hand back real per-side tallies.
-    for i in (1, 2):
-        count = 0 if i == winner else 1
-        name = active.name if i == 1 else opponent["name"]
-        yield ShowMessage("combat.losses_line", {"name": name, "count": count})
+    yield from narrate_combat_outcome(
+        winner=winner, player_name=active.name, enemy_name=opponent["name"]
+    )
     return winner
 
 

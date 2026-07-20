@@ -60,7 +60,12 @@ from engine.effects import DebtChange, DebtClear, MoneyChange, ShopChange
 from engine.interactions import Confirm, PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 
-from ..setup import load_combat_backdrop, load_weapons, score_and_rank
+from ..setup import (
+    load_combat_backdrop,
+    narrate_combat_outcome,
+    score_and_rank,
+    weapon_stats_by_id,
+)
 
 __all__ = ["kdh_borrow", "kdh_repay", "kdh_trade", "kdh_capital", "kdh_collect"]
 
@@ -79,11 +84,10 @@ _AMBUSH_BACKDROP = "ks"
 def _weapon_stats() -> dict:
     """This config's weapon id -> ``(ts, tg)`` table, for ``StartCombat.weapon_stats``.
 
-    Matches ``jobs.py``'s/``waf.py``'s own fresh-per-call loader (KTD-7: a handler
-    reads its OWN config's entity data, never the engine's).
+    Matches ``jobs.py``'s/``upkeep.py``'s/``waf.py``'s own fresh-per-call loader
+    (KTD-7: a handler reads its OWN config's entity data, never the engine's).
     """
-    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
-    return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
+    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
 
 
 def _backdrop(name: str) -> tuple[int, ...]:
@@ -363,14 +367,10 @@ def kdh_collect(ctx):
     )
 
     # Outcome narration (KTD-1: the invoking handler's job — _run_combat yields no
-    # final screen). Reuses the same combat.* theme keys jobs.py exports for this.
-    winner_name = active.name if winner == 1 else _AMBUSHER_NAME
-    yield ShowMessage("combat.winner_banner", {"name": winner_name})
-    yield ShowMessage("combat.losses_heading")
-    for i in (1, 2):
-        count = 0 if i == winner else 1
-        name = active.name if i == 1 else _AMBUSHER_NAME
-        yield ShowMessage("combat.losses_line", {"name": name, "count": count})
+    # final screen). Shared with jobs.py/upkeep.py's own fights.
+    yield from narrate_combat_outcome(
+        winner=winner, player_name=active.name, enemy_name=_AMBUSHER_NAME
+    )
 
     if winner == 2:
         # :15315 — lost: a plain, silent return, no cost.

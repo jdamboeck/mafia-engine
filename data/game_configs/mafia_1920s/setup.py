@@ -28,6 +28,7 @@ import yaml
 
 from engine.config_loader import load_config
 from engine.effects import ScoreAndRank
+from engine.interactions import ShowMessage
 from engine.rng import Rng
 from engine.state import Clock, Config, Gangster, GameState, Player
 from engine.types import validate_rank, validate_vehicle, validate_weapon
@@ -42,6 +43,7 @@ __all__ = [
     "weapon_stats_by_id",
     "fnm",
     "score_and_rank",
+    "narrate_combat_outcome",
 ]
 
 # Default config location: this config's own directory.
@@ -170,6 +172,40 @@ def score_and_rank(x: float, params: dict) -> ScoreAndRank:
     the original (KTD-5).
     """
     return ScoreAndRank(amount=x, rank_divisor=params["rank_divisor"])
+
+
+# --- combat-outcome narration -----------------------------------------------
+
+
+def narrate_combat_outcome(
+    *, winner: int, player_name: str, enemy_name: str, with_losses: bool = True
+):
+    """Yield the post-fight outcome screen shared by ``jobs.py``, ``kdh.py``, and
+    ``upkeep.py`` (KTD-1: narrating the outcome is the invoking handler's job —
+    ``_run_combat`` itself yields no final screen).
+
+    ``winner`` is the side returned by ``StartCombat`` (1 == the acting player's
+    roster, 2 == the scripted enemy, per ``engine.interactions._run_combat``).
+    Always yields the winner banner. ``with_losses`` additionally yields the
+    losses block (``combat.losses_heading`` + one ``combat.losses_line`` per side)
+    — every in-slice fight is one roster fighter vs. one scripted NPC, so "the
+    losing side's one fighter went down" is the exact per-side count, not an
+    approximation.
+
+    ``upkeep.py``'s debt-collectors fight passes ``with_losses=False``: a WON
+    fight there has no losses to report (the source's collectors flow prints no
+    losses block on a win, only the winner banner — see upkeep.py's own docstring
+    for why this narration is genuinely partial, not merely truncated for space).
+    """
+    winner_name = player_name if winner == 1 else enemy_name
+    yield ShowMessage("combat.winner_banner", {"name": winner_name})
+    if not with_losses:
+        return
+    yield ShowMessage("combat.losses_heading")
+    for side in (1, 2):
+        count = 0 if side == winner else 1
+        name = player_name if side == 1 else enemy_name
+        yield ShowMessage("combat.losses_line", {"name": name, "count": count})
 
 
 # --- new-game setup --------------------------------------------------------
