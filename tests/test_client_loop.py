@@ -203,12 +203,24 @@ class TestSphGambleThroughClient:
         return walk + ["", "0", "0", "100"]
 
     def test_gamble_completes_and_pays_out(self, monkeypatch):
-        """Playing sph's gamble through the client must not crash and must show a payout."""
+        """Playing sph's gamble through the client must not crash and must show a payout.
+
+        Asserts the RESOLVED outcome text and the exact cash values, not merely that
+        a "$" appears somewhere: the status bar renders ``cash {N}$`` on virtually
+        every screen, so a "$"-anywhere assertion passes even when the gamble's
+        win/loss narration is deleted outright (verified — it kept the whole suite
+        green). Seed 42 wins 50$ on a 100$ poker wager: 5500$ -> 5550$.
+        """
         keys = self._walk_and_play_keys()
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
-        # Regression for rng=None: previously an uncaught AttributeError propagated out
-        # of play() and pytest would report an exception, not a clean return.
-        assert "won" in output.lower() or "lost" in output.lower() or "$" in output
+        low = output.lower()
+        # The win narration itself (themes/classic/strings/sph.yaml: "du hast
+        # {amount}$ gewonnen!"). Deleting the ShowMessage now fails this test.
+        assert "gewonnen" in low, "sph's win narration never reached the client"
+        assert "verloren" not in low, "seed 42 wins; a loss string means the seed drifted"
+        # The payout actually landed: cash before and after the wager.
+        assert "cash 5500$" in low
+        assert "cash 5550$" in low
 
     def test_same_seed_twice_is_deterministic(self, monkeypatch):
         keys = self._walk_and_play_keys()
