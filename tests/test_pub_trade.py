@@ -22,7 +22,7 @@ from engine.config_loader import load_game_config
 from engine.effects import BarrelChange, MoneyChange, ScoreAndRank
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Contraband, Gangster, GameState, Player
-from tests.helpers import run_pure, scripted as _scripted
+from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -36,22 +36,6 @@ _PARAMS = {
     "pub_alcohol_sell_price_min": 10,
     "pub_alcohol_sell_price_max": 29,
 }
-
-
-class _StubRng:
-    """rng.range(n)/rng.hit(a,b) return scripted values; records the args."""
-
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        return next(self._it)
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        return next(self._it)
 
 
 def _state(*, ka=100000, ln=4, vehicle=0, barrels=0, score_mult=1.0, gf=0.0):

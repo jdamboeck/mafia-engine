@@ -54,7 +54,7 @@ from engine.effects import JobClear, JobSet, MoneyChange
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 
-from ..setup import load_combat_backdrop, load_weapons, score_and_rank
+from ..setup import load_combat_backdrop, score_and_rank, weapon_stats_by_id
 # Job type ids -- shared with pub.py's take-job handler (mf-prg.bas:12305's ON-GOTO
 # dispatch order). Imported (not re-declared as separate literals) so the two
 # modules cannot drift apart on what each job type id means.
@@ -94,8 +94,7 @@ def _weapon_stats() -> dict:
     Fresh per call (KTD-7: the config is frozen per game, so re-reading is harmless),
     mirroring ``waf.py``'s ``_weapons()``/``pub.py``'s ``_vehicles()`` pattern.
     """
-    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
-    return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
+    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
 
 
 def _backdrop(name: str) -> tuple[int, ...]:

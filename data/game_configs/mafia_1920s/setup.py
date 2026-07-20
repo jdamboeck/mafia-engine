@@ -39,6 +39,7 @@ __all__ = [
     "load_weapons",
     "load_gangster_candidates",
     "load_combat_backdrop",
+    "weapon_stats_by_id",
     "fnm",
     "score_and_rank",
 ]
@@ -120,6 +121,18 @@ def load_combat_backdrop(path: str | Path) -> tuple[int, ...]:
     """
     cells = _load_yaml(path)["cells"]
     return tuple(cells)
+
+
+def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int]]:
+    """This config's weapon id -> ``(ts, tg)`` table, for ``StartCombat.weapon_stats``.
+
+    ``path`` points at ``entities/weapons.yaml``. Shared by every combat-starting
+    handler (``jobs.py``, ``upkeep.py``, ``kdh.py``) — each needs the same
+    ``{id: (ts, tg)}`` shape derived from :func:`load_weapons`, so the derivation
+    lives here once rather than as a private per-handler copy.
+    """
+    weapons = load_weapons(path)
+    return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
 
 
 # --- fnm rent formula ------------------------------------------------------

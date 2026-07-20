@@ -61,6 +61,8 @@ Read from the active player's ``last_location`` field, exactly as ``slw``/``waf`
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from engine.effects import (
     BarrelChange,
     GangsterMarkHired,
@@ -75,7 +77,9 @@ from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from engine.state import Gangster
 
-from ..setup import load_vehicles, score_and_rank
+from ..setup import load_gangster_candidates, load_vehicles, score_and_rank
+
+_CONFIG_DIR = Path(__file__).resolve().parents[1]
 
 __all__ = ["pub_drink", "pub_recruit", "pub_tip", "pub_job"]
 
@@ -151,20 +155,12 @@ def _vehicles():
     Mirrors ``waf.py``'s ``_weapons()`` pattern: read relative to this module's config
     directory, fresh per call (the config is frozen per game, so this is harmless).
     """
-    from pathlib import Path
-
-    cfg_dir = Path(__file__).resolve().parents[1]
-    return load_vehicles(cfg_dir / "entities" / "vehicles.yaml")
+    return load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
 
 
 def _gangster_candidates():
     """Load the 30 recruit candidates (U9). Same fresh-per-call pattern as ``_vehicles()``."""
-    from pathlib import Path
-
-    from ..setup import load_gangster_candidates
-
-    cfg_dir = Path(__file__).resolve().parents[1]
-    return load_gangster_candidates(cfg_dir / "entities" / "gangsters.yaml")
+    return load_gangster_candidates(_CONFIG_DIR / "entities" / "gangsters.yaml")
 
 
 # --------------------------------------------------------------------------- #

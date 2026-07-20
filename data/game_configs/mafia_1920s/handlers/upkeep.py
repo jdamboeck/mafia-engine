@@ -100,7 +100,7 @@ from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
-from ..setup import load_combat_backdrop, load_weapons
+from ..setup import load_combat_backdrop, weapon_stats_by_id
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
@@ -121,8 +121,7 @@ def _weapon_stats() -> dict:
     Matches ``kdh.py``/``jobs.py``'s fresh-per-call loader (KTD-7: a handler reads its
     OWN config's entity data, never the engine's).
     """
-    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
-    return {i: (w["ts"], w["tg"]) for i, w in enumerate(weapons)}
+    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
 
 
 def _backdrop(name: str) -> tuple[int, ...]:

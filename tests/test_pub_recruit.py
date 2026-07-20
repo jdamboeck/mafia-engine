@@ -30,7 +30,7 @@ from engine.config_loader import load_game_config
 from engine.effects import GangsterMarkHired, MoneyChange, RosterAppend
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Flags, Gangster, GameState, MapState, Player
-from tests.helpers import run_pure, scripted as _scripted
+from tests.helpers import StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -38,21 +38,11 @@ load_game_config(_CONFIG_DIR)
 _GANGSTERS = yaml.safe_load((_CONFIG_DIR / "entities" / "gangsters.yaml").read_text())["gangsters"]
 
 
-class _StubRng:
-    """rng.range(n) returns scripted values in order; records the args."""
-
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        return next(self._it)
+class _StubRng(StubRng):
+    """``pub.recruit`` never calls ``rng.hit()`` — assert loudly if it ever does."""
 
     def hit(self, a, b):  # pragma: no cover — recruit never calls hit()
         raise AssertionError("pub.recruit should not call rng.hit()")
-
-
 
 
 def _state(
