@@ -187,21 +187,21 @@ def blocks_shot(cell: int, grid: tuple[int, ...]) -> bool:
 def build_player_side(roster: Any) -> tuple[Fighter, ...]:
     """Build side 1 from the active player's roster (boss first, KTD-6).
 
-    Each roster :class:`~engine.state.Gangster` becomes one :class:`~engine.state.Fighter`
-    carrying its own name/weapon/energie/kraft/brutalitaet, placed at
-    :data:`SIDE1_ANCHOR`. ``roster[0]`` is always the boss (``Player`` docstring,
-    ``mf-prg.bas:300``) — this function does not reorder it, it only maps roster order
-    onto placement-slot order 1:1 (``mf-prg.bas:30000``'s ``forj=1togz(ks(i))`` walks
-    the roster in its stored order).
+    Each roster :class:`~engine.state.Combatant` becomes one
+    :class:`~engine.state.Fighter` carrying its ``vitality`` slot and opaque ``attrs``
+    WHOLESALE — the function names no game stat, it copies the two blueprint carriers
+    the engine already reads through (amendment A5). ``roster[0]`` is always the boss
+    (``Player`` docstring, ``mf-prg.bas:300``) — this function does not reorder it, it
+    only maps roster order onto placement-slot order 1:1 (``mf-prg.bas:30000``'s
+    ``forj=1togz(ks(i))`` walks the roster in its stored order).
     """
     positions = placement_positions(SIDE1_ANCHOR, len(roster))
     return tuple(
         Fighter(
             name=g.name,
             weapon=g.weapon,
-            energie=g.energie,
-            kraft=g.kraft,
-            brutalitaet=g.brutalitaet,
+            vitality=g.vitality,
+            attrs=dict(g.attrs),
             position=pos,
             down=False,
             equipment=getattr(g, "equipment", None) or {},
@@ -213,33 +213,32 @@ def build_player_side(roster: Any) -> tuple[Fighter, ...]:
     )
 
 
-#: Fixed enemy stats (mf-prg.bas:30245: `ifks(s)=0thenbt=30:kr=30` — the computer
-#: opponent's hit-chance/damage rolls use fixed kraft=30, brutalitaet=30 instead of
-#: reading a gangster's stats).
-ENEMY_KRAFT = 30
-ENEMY_BRUTALITAET = 30
-
-
 def build_enemy_side(
-    count: int, weapon: int, energie: int, *, name: str = ""
+    count: int,
+    weapon: int,
+    vitality: int,
+    *,
+    attrs: Mapping[str, int] | None = None,
+    name: str = "",
 ) -> tuple[Fighter, ...]:
     """Build side 2 (the NPC/enemy party) from a ``StartCombat`` spec.
 
     Ports the combat-launch helper ``mf-prg.bas:5000``: every enemy fighter is armed
-    with the SAME ``weapon`` and starts with the SAME ``energie`` (``fori=1togz(0):
+    with the SAME ``weapon`` and starts with the SAME ``vitality`` (``fori=1togz(0):
     gw(0,i)=w:ec(i)=e:next`` — one weapon/energy value broadcast across the whole
-    enemy roster, not per-fighter). kraft/brutalitaet are the fixed 30/30
-    (``mf-prg.bas:30245``) — enemies never read gangster stats. Placed at
-    :data:`SIDE2_ANCHOR`.
+    enemy roster, not per-fighter). The non-vitality stats come from ``attrs`` supplied
+    by the CALLER — the source's fixed ``bt=30:kr=30`` (``mf-prg.bas:30245``) is config
+    data now, so the engine names neither the stat nor its value (amendment A5,
+    Finding 4). Placed at :data:`SIDE2_ANCHOR`.
     """
     positions = placement_positions(SIDE2_ANCHOR, count)
+    enemy_attrs = dict(attrs or {})
     return tuple(
         Fighter(
             name=name,
             weapon=weapon,
-            energie=energie,
-            kraft=ENEMY_KRAFT,
-            brutalitaet=ENEMY_BRUTALITAET,
+            vitality=vitality,
+            attrs=enemy_attrs,
             position=pos,
             down=False,
         )
@@ -255,7 +254,8 @@ def setup_combat(
     *,
     enemy_count: int,
     enemy_weapon: int,
-    enemy_energie: int,
+    enemy_vitality: int,
+    enemy_attrs: Mapping[str, int] | None = None,
     enemy_name: str = "",
     grid: tuple[int, ...] = (),
     equip: Any = None,
@@ -270,6 +270,10 @@ def setup_combat(
     activation start lands on fighter 1). Losses start at ``(0, 0)`` (``v(1)=0:v(2)=0``,
     :30100) and ``result_flag`` starts unset (0).
 
+    The enemy party enters with ``enemy_vitality`` (its ``vitality`` slot) and the
+    non-vitality stats in ``enemy_attrs`` — both CALLER-supplied config data. The
+    engine names no enemy stat and holds no fixed enemy value (amendment A5).
+
     ``grid`` is the backdrop's linear 521-cell wall/scenery code array (config data,
     pre-decoded — see this module's docstring); an empty ``grid`` (fidelity-deviation
     fallback) still produces a legally-playable open arena, since :func:`can_move_onto`
@@ -282,7 +286,9 @@ def setup_combat(
     equipment HERE, once, is what stops a second copy existing to disagree later.
     """
     side1 = build_player_side(roster)
-    side2 = build_enemy_side(enemy_count, enemy_weapon, enemy_energie, name=enemy_name)
+    side2 = build_enemy_side(
+        enemy_count, enemy_weapon, enemy_vitality, attrs=enemy_attrs, name=enemy_name
+    )
     if equip is not None:
         side1 = tuple(replace(f, equipment=equip(f.weapon)) for f in side1)
         side2 = tuple(replace(f, equipment=equip(f.weapon)) for f in side2)
@@ -350,34 +356,35 @@ class RulesBundle:
 
     Fields:
 
-    ``vitality``
-        The attribute key the engine depletes and tests for termination — the ONE
-        engine-named role. Everything else the engine passes through opaquely.
     ``hit_roles`` / ``hit_fn``
         The hit test's role map and its formula ``(attacker, equipment, rng) -> bool``.
     ``damage_roles`` / ``damage_fn``
         The damage roll's role map and its formula ``(attacker, equipment, rng) -> int``.
-    There is deliberately **no** ``equipment_stats`` entry (amendment A1): equipment
-    stats live on the combatant, so a formula reads them off the attacker it was
-    handed. A bundle-held lookup would be a second source able to disagree with the
-    roster about what a weapon does.
+    There is deliberately **no** ``vitality`` entry (amendment A5): the depleting
+    resource is the engine's :attr:`~engine.state.Fighter.vitality` SLOT, which the
+    engine reads and writes directly. A bundle field naming which attrs key held it
+    was a second name for one thing — it drove a lookup the slot makes unnecessary.
+    There is likewise **no** ``equipment_stats`` entry (amendment A1): equipment stats
+    live on the combatant, so a formula reads them off the attacker it was handed. A
+    bundle-held lookup would be a second source able to disagree with the roster about
+    what a weapon does.
     """
 
-    vitality: str = "vitality"
     hit_roles: Mapping[str, str] = _EMPTY_ROLES
     hit_fn: Any = None
     damage_roles: Mapping[str, str] = _EMPTY_ROLES
     damage_fn: Any = None
 
     def required_keys(self) -> tuple[str, ...]:
-        """Every attribute key this bundle will read off a combatant.
+        """Every ``attrs`` key this bundle will read off a combatant.
 
         Used at fight construction to reject a bundle whose roles name a key no
         combatant carries — surfacing the mismatch with both names, rather than as
-        a ``KeyError`` several activations deep inside a formula.
+        a ``KeyError`` several activations deep inside a formula. ``vitality`` is NOT
+        here: it is a Fighter SLOT the engine addresses directly, always present, never
+        an ``attrs`` key to validate (amendment A5).
         """
-        keys = [self.vitality]
-        keys.extend(self.hit_roles.values())
+        keys = list(self.hit_roles.values())
         keys.extend(self.damage_roles.values())
         return tuple(dict.fromkeys(keys))
 
@@ -594,8 +601,6 @@ class CombatFight:
 
     def _role_for(self, key: str) -> str:
         """The role name a required attribute key was declared under (for errors)."""
-        if key == self._rules.vitality:
-            return "vitality"
         for capability, roles in (
             ("hit", self._rules.hit_roles),
             ("damage", self._rules.damage_roles),
@@ -613,11 +618,6 @@ class CombatFight:
         ``attrs`` map. :meth:`_check_roles` has already guaranteed the key is present.
         """
         return fighter.attrs[roles[role]]
-
-    @property
-    def vitality_key(self) -> str:
-        """The attribute the fight depletes — the one engine-named role (KTD-2)."""
-        return self._rules.vitality
 
     # -- read-only views ---------------------------------------------------- #
     @property
@@ -836,13 +836,12 @@ class CombatFight:
         damage = self._rules.damage_fn(damage_input, equipment, self._rng)
         target = self._sides[enemy_side - 1][target_index]
         # The ONE engine invariant on the depleting resource: subtract and clamp at
-        # zero. The engine does not know what the resource means, only that reaching
-        # zero terminates a combatant.
-        vitality = max(0, target.attrs[self.vitality_key] - damage)
+        # zero. The engine addresses it as the ``vitality`` SLOT (amendment A5) — it
+        # does not know what the resource means, only that reaching zero terminates a
+        # combatant.
+        vitality = max(0, target.vitality - damage)
         downed = vitality == 0
-        self._replace_fighter(
-            enemy_side, target_index, **{self.vitality_key: vitality}, down=downed
-        )
+        self._replace_fighter(enemy_side, target_index, vitality=vitality, down=downed)
         if downed:
             # v(x)=v(x)+1 (mf-prg.bas:30310) — the STRUCK side takes the loss.
             self._losses[enemy_side - 1] += 1

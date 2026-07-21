@@ -151,22 +151,20 @@ def _payload(**overrides):
                 {
                     "name": "hero",
                     "weapon": 5,
-                    "energie": 20,
-                    "kraft": 30,
-                    "brutalitaet": 30,
+                    "vitality": 20,
                     "position": 100,
                     "down": False,
+                    "attrs": {"kraft": 30, "brutalitaet": 30},
                 }
             ],
             [
                 {
                     "name": "thug",
                     "weapon": 0,
-                    "energie": 5,
-                    "kraft": 10,
-                    "brutalitaet": 10,
+                    "vitality": 5,
                     "position": 141,
                     "down": False,
+                    "attrs": {"kraft": 10, "brutalitaet": 10},
                 }
             ],
         ],
@@ -179,13 +177,12 @@ def _payload(**overrides):
         "fighter": {
             "name": "hero",
             "weapon": 5,
-            "energie": 20,
-            "kraft": 30,
-            "brutalitaet": 30,
+            # A5: vitality is a top-level SLOT; the panel renders it first, labelled by
+            # the theme. The non-vitality stats live in the opaque attrs map.
+            "vitality": 20,
             "position": 100,
             "down": False,
-            # U2: the panel renders from this opaque map, not the named fields.
-            "attrs": {"energie": 20, "kraft": 30, "brutalitaet": 30, "intelligenz": 17},
+            "attrs": {"kraft": 30, "brutalitaet": 30, "intelligenz": 17},
         },
     }
     base.update(overrides)
@@ -207,9 +204,10 @@ class _FakeResolver:
             "losses_heading": "verluste der spieler:",
             "losses_line": "{name}: {count}",
             "panel_weapon": "waffe: {weapon}",
-            # U2: theme-declared panel attributes (mirrors the classic theme).
-            "panel_attrs": ["energie", "kraft", "brutalitaet"],
-            "panel_attr_energie": "energie: {value}",
+            # A5: vitality is a slot rendered first, labelled by the theme; the rest are
+            # theme-declared attrs (mirrors the classic theme).
+            "panel_vitality": "energie: {value}",
+            "panel_attrs": ["kraft", "brutalitaet"],
             "panel_attr_kraft": "kraft: {value}",
             "panel_attr_brutalitaet": "brutalitaet: {value}",
             "action_prompt": "deine aktion:",
@@ -395,7 +393,13 @@ class TestFighterPanelIsAttributeAgnostic:
 
         _setup()
         buf = _out()
-        fighter = Fighter(name="hero", weapon=5, energie=20, kraft=30, brutalitaet=44, position=10)
+        fighter = Fighter(
+            name="hero",
+            weapon=5,
+            vitality=20,
+            attrs={"kraft": 30, "brutalitaet": 44},
+            position=10,
+        )
         resolver = Resolver.from_config("data/game_configs/mafia_1920s")
         render_fighter_panel({"fighter": json_safe(fighter)}, resolver, self._weapons(), buf)
         assert buf.getvalue() == self.EXPECTED

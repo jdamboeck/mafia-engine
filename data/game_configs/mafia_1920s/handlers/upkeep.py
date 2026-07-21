@@ -224,7 +224,11 @@ def upkeep_turn_start(ctx):
                 # :4355 — bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"
                 enemy_count=debt_params["kdh_collectors_count"],
                 enemy_weapon=debt_params["kdh_collectors_weapon"],
-                enemy_energie=debt_params["kdh_collectors_energie"],
+                enemy_vitality=debt_params["kdh_collectors_energie"],
+                enemy_attrs={
+                    "kraft": debt_params["enemy_kraft"],
+                    "brutalitaet": debt_params["enemy_brutalitaet"],
+                },
                 enemy_name=_COLLECTOR_NAME,
                 grid=_backdrop(_COLLECTORS_BACKDROP),
                 equip=equipper(_weapon_stats()),

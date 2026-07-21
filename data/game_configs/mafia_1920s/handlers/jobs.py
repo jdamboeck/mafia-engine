@@ -137,11 +137,19 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
 
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
+    params = ctx.state.config.formula_params
     combat_state = setup_combat(
         active.roster,
         enemy_count=1,
         enemy_weapon=opponent["weapon"],
-        enemy_energie=opponent["energie"],
+        # This game names the vitality slot "energie" (A5); the config maps it here.
+        enemy_vitality=opponent["energie"],
+        # The fixed CPU-enemy stats (mf-prg.bas:30245) are config data now (A5) —
+        # the engine holds neither the stat name nor the value.
+        enemy_attrs={
+            "kraft": params["enemy_kraft"],
+            "brutalitaet": params["enemy_brutalitaet"],
+        },
         enemy_name=opponent["name"],
         grid=_backdrop(backdrop),
         equip=equipper(_weapon_stats()),

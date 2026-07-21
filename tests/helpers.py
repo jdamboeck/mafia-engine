@@ -299,7 +299,18 @@ def combat_fighter(**kw) -> Fighter:
     to override, or a ``weapon`` id the default table knows. ``build_fight`` leaves an
     already-equipped fighter untouched, so this does not double-resolve.
     """
-    base = dict(name="f", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100)
+    # A5: the engine names no game stat — vitality is a slot, kraft/brutalitaet live in
+    # attrs. This game maps its "energie" onto the vitality slot at construction; this
+    # helper does the same fold so callers can pass the game's words ergonomically
+    # (``energie=``/``kraft=``/``brutalitaet=``) exactly as a Gangster accepts them.
+    attrs = {"kraft": 30, "brutalitaet": 30}
+    for game_stat in ("kraft", "brutalitaet", "intelligenz"):
+        if game_stat in kw:
+            attrs[game_stat] = kw.pop(game_stat)
+    if "attrs" in kw:
+        attrs.update(kw.pop("attrs"))
+    vitality = kw.pop("energie", kw.pop("vitality", 20))
+    base = dict(name="f", weapon=5, vitality=vitality, attrs=attrs, position=100)
     base.update(kw)
     if "equipment" not in base and base["weapon"] in WEAPON_STATS:
         base["equipment"] = equipper(WEAPON_STATS)(base["weapon"])

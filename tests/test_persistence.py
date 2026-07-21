@@ -263,7 +263,7 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     from engine.effects import SpawnFighter
     from engine.state import Fighter
 
-    effect = SpawnFighter(fighter=Fighter(name="Al", position=100, energie=30), side=1)
+    effect = SpawnFighter(fighter=Fighter(name="Al", position=100, vitality=30), side=1)
     state = _fresh_state()
     save_path = tmp_path / "game.jsonl"
     persistence.save_game(save_path, state, effect_log=[effect], rng_log=[], seed=SEED)
@@ -275,5 +275,5 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     )
     assert restored.fighter.name == "Al"
     assert restored.fighter.position == 100
-    assert restored.fighter.energie == 30
+    assert restored.fighter.vitality == 30
     assert restored.side == 1

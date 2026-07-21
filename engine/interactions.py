@@ -656,24 +656,18 @@ def _run_combat(
         rng=ctx.rng,
         rules=start.rules,
     )
-    # The depleting resource is whatever the GAME's bundle named it (U2) — the driver
-    # reads it out of the opaque attrs map rather than spelling this game's field.
-    vitality = fight.vitality_key
-    # A fight whose combatants do not carry the declared vitality attribute buffers no
-    # roster delta — there is no resource to have depleted. (Reachable only for a
-    # bundle-less fight, which can be surrendered but never fired a shot; a real
-    # bundle's key is validated at fight construction.)
-    tracks_vitality = all(vitality in f.attrs for f in fight.sides[0])
-    pre_vitality = [f.attrs[vitality] for f in fight.sides[0]] if tracks_vitality else []
+    # The depleting resource is the engine's ``vitality`` SLOT (amendment A5) — the
+    # driver reads it directly and never spells this game's word for it. Every Fighter
+    # carries the slot, so there is nothing to guard: a bundle-less fight (surrendered
+    # without a shot) simply sees an unchanged ``vitality`` and buffers no delta.
+    pre_vitality = [f.vitality for f in fight.sides[0]]
 
     def _finish(winner: int) -> int:
         # #44 — buffer the roster's persistent energy/down consequence BEFORE handing
         # the winner back, so it commits atomically with the invoking handler's own
         # entry-point effects (one shared ctx, one atomic buffer).
-        if not tracks_vitality:
-            return winner
         for i, f in enumerate(fight.sides[0]):
-            now = f.attrs[vitality]
+            now = f.vitality
             if now == pre_vitality[i]:
                 continue
             # Address the gangster this fighter IS, not the slot it happens to sit in

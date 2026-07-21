@@ -755,6 +755,9 @@ class TestKdhLocationThroughClient:
             "kdh_ambush_loot_max": 1499,
             "kdh_ambush_score": 2.0,
             "kdh_income_quiet_roll": 3,
+            # A5/Finding 4: the fixed CPU-enemy stats are config data now.
+            "enemy_kraft": 30,
+            "enemy_brutalitaet": 30,
         }
 
     def _state(self, **overrides):
@@ -971,8 +974,24 @@ class TestInteractiveCombatThroughTerminalInput:
         from engine.state import Fighter
 
         sides = (
-            (Fighter(name="hero", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100),),
-            (Fighter(name="thug", weapon=0, energie=1, kraft=10, brutalitaet=10, position=101),),
+            (
+                Fighter(
+                    name="hero",
+                    weapon=5,
+                    vitality=20,
+                    attrs={"kraft": 30, "brutalitaet": 30},
+                    position=100,
+                ),
+            ),
+            (
+                Fighter(
+                    name="thug",
+                    weapon=0,
+                    vitality=1,
+                    attrs={"kraft": 10, "brutalitaet": 10},
+                    position=101,
+                ),
+            ),
         )
         handler = self._fight_handler(sides, cpu_sides=())
         # side 1 shoots right (thug is immediately adjacent at 101); thug (1 energy,
@@ -1027,8 +1046,24 @@ class TestInteractiveCombatThroughTerminalInput:
         from engine.state import Fighter
 
         sides = (
-            (Fighter(name="hero", weapon=0, energie=20, kraft=30, brutalitaet=30, position=100),),
-            (Fighter(name="thug", weapon=0, energie=20, kraft=10, brutalitaet=10, position=101),),
+            (
+                Fighter(
+                    name="hero",
+                    weapon=0,
+                    vitality=20,
+                    attrs={"kraft": 30, "brutalitaet": 30},
+                    position=100,
+                ),
+            ),
+            (
+                Fighter(
+                    name="thug",
+                    weapon=0,
+                    vitality=20,
+                    attrs={"kraft": 10, "brutalitaet": 10},
+                    position=101,
+                ),
+            ),
         )
         handler = self._fight_handler(sides, cpu_sides=())
         # 'd' (move right onto the occupied cell 101) is illegal -> re-prompt; then
@@ -1046,8 +1081,24 @@ class TestInteractiveCombatThroughTerminalInput:
         from engine.state import Fighter
 
         sides = (
-            (Fighter(name="hero", weapon=0, energie=20, kraft=30, brutalitaet=30, position=100),),
-            (Fighter(name="thug", weapon=0, energie=20, kraft=10, brutalitaet=10, position=200),),
+            (
+                Fighter(
+                    name="hero",
+                    weapon=0,
+                    vitality=20,
+                    attrs={"kraft": 30, "brutalitaet": 30},
+                    position=100,
+                ),
+            ),
+            (
+                Fighter(
+                    name="thug",
+                    weapon=0,
+                    vitality=20,
+                    attrs={"kraft": 10, "brutalitaet": 10},
+                    position=200,
+                ),
+            ),
         )
         handler = self._fight_handler(sides, cpu_sides=())
         inp, out, rng = self._client(["surrender"])
@@ -1062,8 +1113,24 @@ class TestInteractiveCombatThroughTerminalInput:
         from engine.state import Fighter
 
         sides = (
-            (Fighter(name="hero", weapon=0, energie=20, kraft=30, brutalitaet=30, position=100),),
-            (Fighter(name="thug", weapon=0, energie=20, kraft=10, brutalitaet=10, position=200),),
+            (
+                Fighter(
+                    name="hero",
+                    weapon=0,
+                    vitality=20,
+                    attrs={"kraft": 30, "brutalitaet": 30},
+                    position=100,
+                ),
+            ),
+            (
+                Fighter(
+                    name="thug",
+                    weapon=0,
+                    vitality=20,
+                    attrs={"kraft": 10, "brutalitaet": 10},
+                    position=200,
+                ),
+            ),
         )
         handler = self._fight_handler(sides, cpu_sides=())
         inp, out, rng = self._client([])  # no keys at all -> immediate EOF
@@ -1079,12 +1146,20 @@ class TestInteractiveCombatThroughTerminalInput:
             return (
                 (
                     Fighter(
-                        name="hero", weapon=5, energie=20, kraft=30, brutalitaet=30, position=100
+                        name="hero",
+                        weapon=5,
+                        vitality=20,
+                        attrs={"kraft": 30, "brutalitaet": 30},
+                        position=100,
                     ),
                 ),
                 (
                     Fighter(
-                        name="thug", weapon=0, energie=15, kraft=10, brutalitaet=10, position=101
+                        name="thug",
+                        weapon=0,
+                        vitality=15,
+                        attrs={"kraft": 10, "brutalitaet": 10},
+                        position=101,
                     ),
                 ),
             )
@@ -1325,6 +1400,9 @@ class TestDebtDefaultThroughClient:
             "kdh_collectors_count": 5,
             "kdh_collectors_weapon": 3,
             "kdh_collectors_energie": 30,
+            # A5/Finding 4: the fixed CPU-enemy stats are config data now.
+            "enemy_kraft": 30,
+            "enemy_brutalitaet": 30,
         }
 
     def _state(self, **overrides):

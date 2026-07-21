@@ -19,8 +19,6 @@ import pytest
 
 from engine.combat import (
     CELL_COUNT,
-    ENEMY_BRUTALITAET,
-    ENEMY_KRAFT,
     GRID_COLS,
     MAX_CELL,
     SIDE1_ANCHOR,
@@ -108,8 +106,11 @@ def test_build_player_side_boss_first_with_equipped_weapon():
     assert len(side) == 2
     assert side[0].name == "capone"  # roster[0] is always the boss, KTD-6
     assert side[0].weapon == 5
-    assert side[0].kraft == 15
-    assert side[0].brutalitaet == 20
+    # The engine names no game stat: the roster member's stats ride onto the Fighter's
+    # ``vitality`` slot + opaque ``attrs`` wholesale (A5).
+    assert side[0].vitality == 5
+    assert side[0].attrs["kraft"] == 15
+    assert side[0].attrs["brutalitaet"] == 20
     assert side[0].position == 129 + STAGGER_OFFSETS[0]
     assert side[1].name == "thug1"
     assert side[1].position == 129 + STAGGER_OFFSETS[1]
@@ -125,30 +126,29 @@ def test_build_player_side_empty_roster():
 # --------------------------------------------------------------------------- #
 def test_build_enemy_side_uniform_weapon_and_energy():
     # mf-prg.bas:5000 — fori=1togz(0):gw(0,i)=w:ec(i)=e:next (one w/e for all enemies)
-    side = build_enemy_side(count=3, weapon=2, energie=8, name="ganove")
+    side = build_enemy_side(count=3, weapon=2, vitality=8, name="ganove")
     assert len(side) == 3
     assert all(f.weapon == 2 for f in side)
-    assert all(f.energie == 8 for f in side)
+    assert all(f.vitality == 8 for f in side)
     assert all(f.name == "ganove" for f in side)
 
 
-def test_build_enemy_side_fixed_kraft_brutalitaet_30():
-    # mf-prg.bas:30245 — ifks(s)=0thenbt=30:kr=30
-    side = build_enemy_side(count=5, weapon=0, energie=5)
-    assert ENEMY_KRAFT == 30
-    assert ENEMY_BRUTALITAET == 30
-    assert all(f.kraft == 30 for f in side)
-    assert all(f.brutalitaet == 30 for f in side)
+def test_build_enemy_side_stats_come_from_caller_supplied_attrs():
+    # mf-prg.bas:30245 — ifks(s)=0thenbt=30:kr=30. The 30/30 is CONFIG data now, passed
+    # by the caller: the engine names neither the stat nor the value (A5, Finding 4).
+    side = build_enemy_side(count=5, weapon=0, vitality=5, attrs={"kraft": 30, "brutalitaet": 30})
+    assert all(f.attrs["kraft"] == 30 for f in side)
+    assert all(f.attrs["brutalitaet"] == 30 for f in side)
 
 
 def test_build_enemy_side_placement_uses_side2_anchor():
-    side = build_enemy_side(count=2, weapon=0, energie=5)
+    side = build_enemy_side(count=2, weapon=0, vitality=5)
     assert side[0].position == 147 + STAGGER_OFFSETS[0]
     assert side[1].position == 147 + STAGGER_OFFSETS[1]
 
 
 def test_build_enemy_side_zero_count():
-    assert build_enemy_side(count=0, weapon=0, energie=5) == ()
+    assert build_enemy_side(count=0, weapon=0, vitality=5) == ()
 
 
 # --------------------------------------------------------------------------- #
@@ -263,7 +263,7 @@ def test_cell_521_is_out_of_bounds():
 def test_setup_combat_places_both_sides():
     roster = [Gangster(name="capone", weapon=5, energie=5, kraft=15, brutalitaet=20)]
     combat = setup_combat(
-        roster, enemy_count=2, enemy_weapon=0, enemy_energie=5, enemy_name="ganove"
+        roster, enemy_count=2, enemy_weapon=0, enemy_vitality=5, enemy_name="ganove"
     )
     assert isinstance(combat, CombatState)
     assert len(combat.sides[0]) == 1
@@ -273,31 +273,39 @@ def test_setup_combat_places_both_sides():
 
 
 def test_setup_combat_starts_cursor_at_side1_fighter1():
-    combat = setup_combat([Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_energie=5)
+    combat = setup_combat(
+        [Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_vitality=5
+    )
     assert combat.active_side == 1
     assert combat.active_fighter == 1
 
 
 def test_setup_combat_losses_start_zero():
-    combat = setup_combat([Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_energie=5)
+    combat = setup_combat(
+        [Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_vitality=5
+    )
     assert combat.losses == (0, 0)
 
 
 def test_setup_combat_result_flag_unset():
-    combat = setup_combat([Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_energie=5)
+    combat = setup_combat(
+        [Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_vitality=5
+    )
     assert combat.result_flag == 0
 
 
 def test_setup_combat_enemy_dir_memory_initialized_to_minus_one():
     # mf-prg.bas:30020 — ifks(2)=0thenfori=1togz(0):ri(i)=-1:next
-    combat = setup_combat([Gangster(name="capone")], enemy_count=3, enemy_weapon=0, enemy_energie=5)
+    combat = setup_combat(
+        [Gangster(name="capone")], enemy_count=3, enemy_weapon=0, enemy_vitality=5
+    )
     assert combat.dir_memory == {0: -1, 1: -1, 2: -1}
 
 
 def test_setup_combat_carries_grid():
     grid = tuple(range(CELL_COUNT))
     combat = setup_combat(
-        [Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_energie=5, grid=grid
+        [Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_vitality=5, grid=grid
     )
     assert combat.grid == grid
 
@@ -305,7 +313,9 @@ def test_setup_combat_carries_grid():
 def test_setup_combat_empty_grid_is_still_playable_open_arena():
     # A fidelity-deviation fallback (no backdrop data) must still produce a legally
     # playable arena: can_move_onto treats past-the-end cells as open ground.
-    combat = setup_combat([Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_energie=5)
+    combat = setup_combat(
+        [Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_vitality=5
+    )
     assert combat.grid == ()
     assert can_move_onto(300, combat.grid, occupied=frozenset()) is True
 
@@ -343,7 +353,7 @@ def test_combat_backdrop_cell_520_present_and_in_domain():
 def test_combat_state_json_safe_roundtrip():
     roster = [Gangster(name="capone", weapon=5, energie=5, kraft=15, brutalitaet=20)]
     combat = setup_combat(
-        roster, enemy_count=2, enemy_weapon=1, enemy_energie=5, enemy_name="ganove"
+        roster, enemy_count=2, enemy_weapon=1, enemy_vitality=5, enemy_name="ganove"
     )
     state = GameState(combat=combat)
     snapshot = json_safe(state)
@@ -356,7 +366,9 @@ def test_combat_state_json_safe_roundtrip():
 
 
 def test_combat_state_json_safe_is_plain_containers():
-    combat = setup_combat([Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_energie=5)
+    combat = setup_combat(
+        [Gangster(name="capone")], enemy_count=1, enemy_weapon=0, enemy_vitality=5
+    )
     snapshot = json_safe(combat)
     assert isinstance(snapshot["sides"], list)
     assert isinstance(snapshot["sides"][0], list)

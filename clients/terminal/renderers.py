@@ -273,16 +273,20 @@ def render_fighter_panel(
     ``combat.panel_*`` keys (zero hardcoded display text, CLAUDE.md).
 
     **U2: this renderer no longer knows any game's attribute names.** It reads the
-    wire payload's opaque ``attrs`` map and asks the theme which attributes to show,
-    in what order, under ``combat.panel_attrs`` -- a list of attribute keys. Each is
-    rendered through ``combat.panel_attr_<key>``, so the theme owns both the
-    selection and the label. A game with ``aim``/``grit`` instead of
-    ``kraft``/``brutalitaet`` needs no change here.
+    wire payload's ``vitality`` SLOT and its opaque ``attrs`` map, and asks the theme
+    what to show. The depleting resource (the ``vitality`` slot) renders first, via
+    ``combat.panel_vitality`` -- the theme supplies this game's word for it (here
+    "energie") as the label, exactly as the engine names the slot and the game names
+    the word at every boundary (amendment A5). The remaining attributes come from
+    ``combat.panel_attrs`` -- a list of ``attrs`` keys, each rendered through
+    ``combat.panel_attr_<key>``, so the theme owns both the selection and the label. A
+    game with ``aim``/``grit`` instead of ``kraft``/``brutalitaet`` needs no change here.
 
     Attributes the theme does not list are not displayed -- the panel is a curated
     view, not a dump. An unknown/unresolvable key is skipped rather than raising, so
     a theme that lists an attribute this fighter lacks degrades to a shorter panel
-    instead of taking down the screen mid-fight.
+    instead of taking down the screen mid-fight. A theme with no ``panel_vitality``
+    key simply omits that line.
     """
     fighter = payload.get("fighter")
     pal = _get_palette()
@@ -293,6 +297,11 @@ def render_fighter_panel(
     weapon_name = weapon_names[weapon_id] if 0 <= weapon_id < len(weapon_names) else str(weapon_id)
     out.write(f"{fg('light_grey', pal)}{name}{RESET_FG}\n")
     out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
+
+    # The depleting resource is the engine's ``vitality`` slot; the theme labels it in
+    # this game's word (amendment A5). Rendered first, ahead of the opaque attrs.
+    if "vitality" in fighter and _theme_has(resolver, "panel_vitality"):
+        out.write(resolver.resolve("combat.panel_vitality", {"value": fighter["vitality"]}) + "\n")
 
     attrs = fighter.get("attrs") or {}
     for key in _panel_attr_keys(resolver):
@@ -321,6 +330,19 @@ def _panel_attr_keys(resolver: Any) -> list:
     if isinstance(declared, str):
         return [k.strip() for k in declared.split(",") if k.strip()]
     return list(declared)
+
+
+def _theme_has(resolver: Any, key: str) -> bool:
+    """Whether the theme declares ``combat.<key>``.
+
+    Read off the resolver's ``tree`` for the same reason as :func:`_panel_attr_keys`:
+    it lets the panel omit an optional line (the vitality row) for a theme that has not
+    opted into it, rather than asking ``resolve()`` for a key it would reject as missing.
+    """
+    tree = getattr(resolver, "tree", None)
+    if isinstance(tree, dict):
+        return key in (tree.get("combat") or {})
+    return False
 
 
 def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:

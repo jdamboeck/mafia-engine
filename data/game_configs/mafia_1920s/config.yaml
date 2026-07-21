@@ -127,6 +127,12 @@ formula_params:
   kdh_collectors_count: 5    # gz(0)=5 (mf-prg.bas:4355)
   kdh_collectors_weapon: 3   # w=3, schlagkette (mf-prg.bas:4355)
   kdh_collectors_energie: 30 # e=30 (mf-prg.bas:4355)
+  # Fixed CPU-enemy combat stats (mf-prg.bas:30245: ifks(s)=0thenbt=30:kr=30).
+  # Every NPC/enemy fighter rolls hit-chance/damage with these instead of reading a
+  # gangster's own stats; the engine holds neither the stat name nor the value now
+  # (amendment A5, Finding 4), so the handlers pass this map at the combat call site.
+  enemy_kraft: 30           # kr=30 (mf-prg.bas:30245)
+  enemy_brutalitaet: 30     # bt=30 (mf-prg.bas:30245)
   # shop income (mf-prg.bas:4405-4410): 1/3 quiet month, else
   # p=int(rnd(1)*kk(sp)/20+kk(sp)/10) -> 10%-15% of capital.
   kdh_income_quiet_roll: 3

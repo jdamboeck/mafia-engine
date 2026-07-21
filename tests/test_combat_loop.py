@@ -111,7 +111,11 @@ def test_a_combatant_whose_equipment_omits_range_falls_back_to_adjacent_reach():
     """
     from engine.state import Fighter
 
-    bare = Fighter(weapon=0, position=10, equipment={"ts": 5, "tg": 10})
+    # attrs carries the stats the rules bundle reads (A5: no auto-zeroed named fields);
+    # this test is about range-less EQUIPMENT, so the stat values themselves are inert.
+    bare = Fighter(
+        weapon=0, position=10, equipment={"ts": 5, "tg": 10}, attrs={"kraft": 0, "brutalitaet": 0}
+    )
     fight = _fight(side1=[bare], side2=[_f(weapon=0, position=300)])
     assert fight.equipment_range(fight.sides[0][0]) == DEFAULT_RANGE
     assert fight.is_melee(fight.sides[0][0]) is True
@@ -291,7 +295,7 @@ def test_shot_stops_at_a_wall_before_the_target():
     )
     outcome = fight.shoot(+1)
     assert outcome["hit"] is False
-    assert fight.sides[1][0].energie == 20
+    assert fight.sides[1][0].vitality == 20
 
 
 def test_shot_flies_over_a_friendly_fighter():
@@ -303,7 +307,7 @@ def test_shot_flies_over_a_friendly_fighter():
     )
     outcome = fight.shoot(+1)
     assert outcome["hit"] is True
-    assert fight.sides[1][0].energie == 19
+    assert fight.sides[1][0].vitality == 19
 
 
 def test_shot_expires_at_weapon_range():
@@ -332,7 +336,7 @@ def test_a_miss_leaves_the_target_untouched():
         rng=_StubRng(0, 1),  # weapon factor zero -> miss
     )
     assert fight.shoot(+1)["hit"] is False
-    assert fight.sides[1][0].energie == 20
+    assert fight.sides[1][0].vitality == 20
 
 
 def test_energy_clamps_at_zero_and_marks_the_fighter_down():
@@ -343,7 +347,7 @@ def test_energy_clamps_at_zero_and_marks_the_fighter_down():
     )
     fight.shoot(+1)
     target = fight.sides[1][0]
-    assert target.energie == 0
+    assert target.vitality == 0
     assert target.down is True
     assert fight.losses == (0, 1)
 
@@ -616,4 +620,4 @@ def test_losses_are_visible_on_the_screen_that_follows_a_knockout():
     assert screens[1]["losses"] == [0, 1]
     # The downed fighter is still present in the payload, flagged rather than removed.
     assert screens[1]["sides"][1][0]["down"] is True
-    assert screens[1]["sides"][1][0]["energie"] == 0
+    assert screens[1]["sides"][1][0]["vitality"] == 0

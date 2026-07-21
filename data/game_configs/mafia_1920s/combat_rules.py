@@ -22,7 +22,6 @@ from typing import Any
 from engine.combat import RulesBundle
 
 __all__ = [
-    "VITALITY",
     "HIT_ROLES",
     "DAMAGE_ROLES",
     "is_hit",
@@ -30,9 +29,10 @@ __all__ = [
     "build_rules",
 ]
 
-#: The attribute the engine depletes and reads for termination. The one role the
-#: engine names for itself — everything else it only passes through.
-VITALITY = "energie"
+# The depleting resource is the engine's ``vitality`` SLOT (amendment A5): the engine
+# reads and writes it directly, so this game no longer tells the bundle which key holds
+# it. This game's name for the role ("energie") lives only at the CONSTRUCTION boundary
+# — ``Gangster(energie=…)`` and the handlers' ``enemy_vitality=`` fold it into the slot.
 
 #: The hit test reads the ATTACKER's kraft (``mf-prg.bas:30246`` loads ``a=ks(s):b=f``
 #: — the active side/fighter — before the roll at ``30247``).
@@ -127,7 +127,6 @@ def build_rules() -> RulesBundle:
     ``equipment`` (amendment A1), so the bundle carries only formulas and roles.
     """
     return RulesBundle(
-        vitality=VITALITY,
         hit_roles=HIT_ROLES,
         hit_fn=is_hit,
         damage_roles=DAMAGE_ROLES,

@@ -39,15 +39,21 @@ combat:
   # spec-sheet vocabulary -- reused here for consistency).
   panel_weapon: "waffe: {weapon}"
 
-  # U2: the panel's attribute rows are THEME-declared. `panel_attrs` chooses which
-  # attributes appear and in what order; each is labelled by its own
+  # A5: the depleting resource is the engine's `vitality` SLOT, rendered first via
+  # `panel_vitality`. This game's word for it -- "energie" -- lives here as the label,
+  # the same engine-slot / game-word split the engine keeps everywhere. A different
+  # game names the slot "hp" or "stamina" by editing this one key.
+  panel_vitality: "energie: {value}"
+
+  # U2: the panel's remaining attribute rows are THEME-declared. `panel_attrs` chooses
+  # which `attrs` keys appear and in what order; each is labelled by its own
   # `panel_attr_<key>` template. The renderer reads the fighter's opaque `attrs` map
   # and knows none of these names -- so this game's German stat vocabulary lives
   # here, in presentation, and a different game re-declares its own without touching
-  # the client. (`intelligenz` is carried in `attrs` but deliberately not listed:
-  # the original's panel does not show it.)
-  panel_attrs: [energie, kraft, brutalitaet]
-  panel_attr_energie: "energie: {value}"
+  # the client. (`energie` is NOT here -- it is the vitality slot above, not an attr;
+  # `intelligenz` is carried in `attrs` but deliberately not listed: the original's
+  # panel does not show it.)
+  panel_attrs: [kraft, brutalitaet]
   panel_attr_kraft: "kraft: {value}"
   panel_attr_brutalitaet: "brutalitaet: {value}"
 

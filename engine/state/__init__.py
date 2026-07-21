@@ -128,29 +128,6 @@ __all__ = [
 ]
 
 
-#: The stat names :class:`Fighter` carries onto the combat grid as NAMED fields (U2).
-#: (The roster :class:`Combatant` has no named stat fields — its stats live only in
-#: ``attrs``/``vitality``, amendment A4. Only the on-grid Fighter still names them.)
-FIGHTER_ATTR_NAMES: tuple[str, ...] = ("energie", "kraft", "brutalitaet")
-
-
-def _derive_attrs(instance, field_names: tuple[str, ...]) -> None:
-    """Populate ``instance.attrs`` from its named attribute fields (U2).
-
-    **Derived, never dual-written.** A :class:`Fighter` rebuild via
-    ``dataclasses.replace`` updates the NAMED field only — so any hand-synced ``attrs``
-    would silently go stale on the first rebuild and surface far from its cause.
-    Deriving here means ``replace()`` regenerates the map every time and the two copies
-    cannot drift by construction.
-
-    An explicitly-passed ``attrs`` is merged UNDER the named fields, so extra keys the
-    dataclass has no field for ride along while the named fields stay authoritative.
-    """
-    supplied = dict(getattr(instance, "attrs", None) or {})
-    supplied.update({name: getattr(instance, name) for name in field_names})
-    object.__setattr__(instance, "attrs", MappingProxyType(supplied))
-
-
 # eq=False: use the hand-written cross-class __eq__ below, not a dataclass-generated
 # one (which would require an identical class and so never equal a Gangster to a
 # reloaded Combatant). See __eq__ for why (U2, amendment A4).
@@ -381,11 +358,21 @@ class Fighter:
     """A single combatant on the combat grid — the per-fighter setup snapshot (U4).
 
     Mirrors the source's parallel per-side arrays: ``kp(s,f)`` (position),
-    ``gw(s,f)`` (weapon), ``ec(f)``/``en`` (energy), plus kraft/brutalitaet, which
-    for a roster gangster are the gangster's own stats and for an NPC enemy are the
-    fixed 30/30 (``mf-prg.bas:30245``). ``down`` ports ``kp(s,f)<0`` — a dead/downed
-    fighter is marked rather than removed, so index-addressed arrays (``dir_memory``,
-    UI panels) stay stable across a fight (mirrors ``30106/30109``'s dead-skip checks).
+    ``gw(s,f)`` (weapon), ``ec(f)``/``en`` (energy → the ``vitality`` slot), plus the
+    per-side stats, which for a roster gangster are the gangster's own and for an NPC
+    enemy are config data (the source's fixed ``bt=30:kr=30`` at ``mf-prg.bas:30245``).
+    ``down`` ports ``kp(s,f)<0`` — a dead/downed fighter is marked rather than removed,
+    so index-addressed arrays (``dir_memory``, UI panels) stay stable across a fight
+    (mirrors ``30106/30109``'s dead-skip checks).
+
+    **No game-stat fields (U2, amendment A5).** Like :class:`Combatant`, the on-grid
+    ``Fighter`` names no game stat: the depleting resource is the engine-named
+    ``vitality`` SLOT (this game maps ``energie`` onto it at construction), and every
+    other stat lives in the opaque ``attrs`` map. The engine reads/writes ``.vitality``
+    directly and reads the rest through ``attrs`` by the role a config's rules bundle
+    declares — it spells no game word. Stats are single-sourced (``vitality`` in its
+    slot, the rest in ``attrs``), so a reloaded ``Fighter`` round-trips to the same
+    shape (no double-store).
 
     A player-side fighter's ``name`` is the roster gangster's name (boss included,
     KTD-6); an enemy-side fighter's ``name`` comes from the ``StartCombat`` spec.
@@ -393,12 +380,14 @@ class Fighter:
 
     name: str = ""
     weapon: int = 0
-    energie: int = 0
-    kraft: int = 0
-    brutalitaet: int = 0
+    #: The ONE depleting resource, an engine slot like ``position``/``down`` (U2, A5).
+    #: The engine subtracts from it and clamps at zero; ``down`` derives from it hitting
+    #: zero. This game NAMES it "energie" and maps that onto this slot at construction —
+    #: the engine spells only the role, never the game's word.
+    vitality: int = 0
     position: int = 0  # linear cell 0..520 on the 40×13 combat grid (CLAUDE.md)
     down: bool = False  # kp(s,f)<0 in the source — energy reached 0
-    attrs: Mapping[str, int] = _EMPTY_MAP  # derived — see Combatant's class docstring
+    attrs: Mapping[str, int] = _EMPTY_MAP  # the OPAQUE stat map — see Combatant's docstring
     #: This fighter's CONSTRUCTED equipment: the stat mapping itself, not a key into
     #: a table the engine would have to hold (amendment A1). The game builds it from
     #: its own entity data before the fight starts, so combat reads no equipment data
@@ -416,8 +405,7 @@ class Fighter:
     roster_id: int | None = None
 
     def __post_init__(self):
-        _derive_attrs(self, FIGHTER_ATTR_NAMES)
-        _coerce_readonly(self, "equipment")
+        _coerce_readonly(self, "attrs", "equipment")
 
     # -- KTD-2 blueprint slots ------------------------------------------------ #
     # The engine addresses a combatant through the four blueprint slots, not through

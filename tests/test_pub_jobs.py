@@ -51,6 +51,9 @@ _PARAMS = {
     "job_killer_duration": 1,
     "job_killer_pay_min": 2000,
     "job_killer_pay_max": 2499,
+    # A5/Finding 4: fixed CPU-enemy stats are config data now.
+    "enemy_kraft": 30,
+    "enemy_brutalitaet": 30,
 }
 
 

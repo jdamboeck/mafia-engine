@@ -137,12 +137,15 @@ def test_damage_draw_uses_tg_only():
 
 
 def test_bundle_declares_this_games_roles():
-    """The bundle names the vitality attribute and both capability role maps."""
+    """The bundle names both capability role maps — and NOT vitality (amendment A5)."""
     bundle = game_rules.build_rules()
-    assert bundle.vitality == "energie"
     assert bundle.hit_roles == {"attacker": "kraft"}
     assert bundle.damage_roles == {"attacker": "brutalitaet"}
-    assert set(bundle.required_keys()) == {"energie", "kraft", "brutalitaet"}
+    # A5: the depleting resource is the engine's ``vitality`` SLOT, read directly — the
+    # bundle no longer carries a ``vitality`` attrs-key name, and required_keys() lists
+    # only the attrs the formulas read (never the slot).
+    assert not hasattr(bundle, "vitality")
+    assert set(bundle.required_keys()) == {"kraft", "brutalitaet"}
     # The bundle no longer carries an equipment lookup (amendment A1): the formulas
     # read stats off the attacker's own equipment, so there is no equipment_stats.
     assert not hasattr(bundle, "equipment_stats")

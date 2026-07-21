@@ -53,6 +53,9 @@ _PARAMS = {
     "kdh_collectors_count": 5,
     "kdh_collectors_weapon": 3,
     "kdh_collectors_energie": 30,
+    # A5/Finding 4: fixed CPU-enemy stats are config data now.
+    "enemy_kraft": 30,
+    "enemy_brutalitaet": 30,
 }
 
 

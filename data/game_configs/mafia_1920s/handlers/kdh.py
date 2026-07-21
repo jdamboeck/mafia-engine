@@ -354,7 +354,11 @@ def kdh_collect(ctx):
         active.roster,
         enemy_count=1,
         enemy_weapon=params["kdh_ambush_weapon"],
-        enemy_energie=params["kdh_ambush_energie"],
+        enemy_vitality=params["kdh_ambush_energie"],
+        enemy_attrs={
+            "kraft": params["enemy_kraft"],
+            "brutalitaet": params["enemy_brutalitaet"],
+        },
         enemy_name=_AMBUSHER_NAME,
         grid=_backdrop(_AMBUSH_BACKDROP),
         equip=equipper(_weapon_stats()),

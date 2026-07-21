@@ -52,6 +52,9 @@ _PARAMS = {
     "kdh_ambush_loot_max": 1499,
     "kdh_ambush_score": 2.0,
     "kdh_income_quiet_roll": 3,
+    # A5/Finding 4: fixed CPU-enemy stats are config data now.
+    "enemy_kraft": 30,
+    "enemy_brutalitaet": 30,
 }
 
 

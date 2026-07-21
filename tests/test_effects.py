@@ -382,14 +382,18 @@ def test_rank_commit_purity():
 # --------------------------------------------------------------------------- #
 def test_spawn_fighter_appends_to_side_1():
     state = make_state()
-    f = Fighter(name="capone", weapon=1, energie=5, kraft=15, brutalitaet=20, position=129)
+    f = Fighter(
+        name="capone", weapon=1, vitality=5, attrs={"kraft": 15, "brutalitaet": 20}, position=129
+    )
     out = apply(state, SpawnFighter(fighter=f, side=1))
     assert out.combat.sides == ((f,), ())
 
 
 def test_spawn_fighter_appends_to_side_2():
     state = make_state()
-    f = Fighter(name="thug", weapon=0, energie=5, kraft=30, brutalitaet=30, position=111)
+    f = Fighter(
+        name="thug", weapon=0, vitality=5, attrs={"kraft": 30, "brutalitaet": 30}, position=111
+    )
     out = apply(state, SpawnFighter(fighter=f, side=2))
     assert out.combat.sides == ((), (f,))
 
