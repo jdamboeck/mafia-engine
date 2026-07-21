@@ -60,7 +60,7 @@ from engine.effects import DebtChange, DebtClear, MoneyChange, ShopChange
 from engine.interactions import Confirm, PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 
-from ..combat_rules import build_rules, equipper
+from ..combat_rules import build_rules, enemy_attrs, equipper
 from ..setup import (
     load_combat_backdrop,
     narrate_combat_outcome,
@@ -355,10 +355,7 @@ def kdh_collect(ctx):
         enemy_count=1,
         enemy_weapon=params["kdh_ambush_weapon"],
         enemy_vitality=params["kdh_ambush_energie"],
-        enemy_attrs={
-            "kraft": params["enemy_kraft"],
-            "brutalitaet": params["enemy_brutalitaet"],
-        },
+        enemy_attrs=enemy_attrs(params),
         enemy_name=_AMBUSHER_NAME,
         grid=_backdrop(_AMBUSH_BACKDROP),
         equip=equipper(_weapon_stats()),

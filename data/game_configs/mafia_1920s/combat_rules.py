@@ -132,3 +132,15 @@ def build_rules() -> RulesBundle:
         damage_roles=DAMAGE_ROLES,
         damage_fn=damage_roll,
     )
+
+
+def enemy_attrs(params: Any) -> dict:
+    """The non-vitality stats every CPU-enemy fighter fights with (``mf-prg.bas:30245``).
+
+    The source's ``ifks(s)=0thenbt=30:kr=30`` gives every NPC/enemy the same fixed
+    kraft/brutalitaet instead of a gangster's own. That 30/30 is config data now
+    (amendment A5, Finding 4), so this reads it from ``formula_params`` -- the single
+    place the three combat handlers (jobs/kdh/upkeep) build the enemy stat map, rather
+    than each repeating the two keys and their meaning.
+    """
+    return {"kraft": params["enemy_kraft"], "brutalitaet": params["enemy_brutalitaet"]}

@@ -309,7 +309,10 @@ def combat_fighter(**kw) -> Fighter:
             attrs[game_stat] = kw.pop(game_stat)
     if "attrs" in kw:
         attrs.update(kw.pop("attrs"))
-    vitality = kw.pop("energie", kw.pop("vitality", 20))
+    # ``energie`` (this game's word) maps onto the vitality slot; ``vitality`` is the
+    # engine word. Accept either, energie winning if both are somehow passed.
+    vitality = kw.pop("vitality", 20)
+    vitality = kw.pop("energie", vitality)
     base = dict(name="f", weapon=5, vitality=vitality, attrs=attrs, position=100)
     base.update(kw)
     if "equipment" not in base and base["weapon"] in WEAPON_STATS:
