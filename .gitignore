@@ -13,3 +13,6 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+
+# Combat recordings — run artifacts, not versioned game content (U7)
+recordings/
