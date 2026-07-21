@@ -857,6 +857,7 @@ def _drive_fight(
     fight: Any,
     drivers: "Mapping[int, Driver]",
     input_source: Callable[[Any], Any],
+    recorder: Any = None,
 ) -> int:
     """Advance a fight to a winner, one activation at a time — the SHARED loop (U6).
 
@@ -884,6 +885,13 @@ def _drive_fight(
     A ``human`` driver on a side reached during a **headless** run (``input_source is
     None``) is a caller error: :func:`simulate` rejects human drivers up front, so this
     loop can assume a human side always has a usable ``input_source``.
+
+    **Recording seam (U7).** An optional ``recorder`` (a
+    :class:`engine.recording._Recorder`) observes the loop without altering it: it marks
+    the rng-log high-water mark before each activation draws, emits a ``HandoffEvent`` on
+    a driver reassignment, and appends one ``ActivationEvent`` per applied action. A
+    non-recording caller passes ``recorder=None`` and every hook is a no-op — the existing
+    ``_run_combat``/``simulate`` signatures and behaviour are unchanged.
     """
     message: Any = None
     while True:
@@ -891,7 +899,19 @@ def _drive_fight(
         if winner is not None:
             return fight.finish(winner)
 
+        # U7 recording seam: observe driver reassignments (a HandoffEvent) and mark the
+        # rng-log high-water mark BEFORE this activation draws, so its draws are the
+        # exact slice ``rng.log[draw_start:]``. Optional — a non-recording caller passes
+        # ``recorder=None`` and this block is a no-op.
+        if recorder is not None:
+            recorder.observe_drivers(drivers)
+        draw_start = recorder.draw_mark() if recorder is not None else 0
+
         driver = drivers[fight.active_side]
+        # Captured before the cursor advances, so a recorded event names the ACTING
+        # fighter (0-based), not the one the cursor lands on next.
+        acting_side = fight.active_side
+        acting_fighter_index = fight.active_fighter - 1
 
         if driver.kind == "human":
             screen = CombatScreen(
@@ -911,10 +931,43 @@ def _drive_fight(
             # client. The action falls into the SAME apply-block below.
             action, argument = driver.decide(fight.view())
 
+        # The decision itself may have drawn (the AI's 30415 coin flip). Record how many
+        # of this activation's draws belong to the DECISION so replay — which uses the
+        # recorded decision, not a fresh one — can skip past them and align the ACTION's
+        # formula with its own draws.
+        decision_draw_count = (recorder.draw_mark() - draw_start) if recorder is not None else 0
+
+        # Capture the formula inputs for a shot BEFORE it applies (the attacker's attrs
+        # and equipment are read at the moment of firing), so the recorder needs no
+        # second computation path.
+        calc_inputs: dict = {}
+        if recorder is not None and action == "shoot":
+            from engine.recording import _shoot_calc_inputs
+
+            calc_inputs = _shoot_calc_inputs(fight, argument)
+
+        def _record(applied_action: str, result: Any, calc: dict) -> None:
+            # One ActivationEvent for the action that just applied. A no-op without a
+            # recorder; the invariant fields (who acted, the draw slice bounds) are the
+            # same whatever the action, so only action/result/calc vary per call site.
+            if recorder is not None:
+                recorder.record_activation(
+                    side=acting_side,
+                    fighter_index=acting_fighter_index,
+                    driver_kind=driver.kind,
+                    action=applied_action,
+                    argument=argument,
+                    result=result,
+                    calc_inputs=calc,
+                    draw_start=draw_start,
+                    decision_draw_count=decision_draw_count,
+                )
+
         if action == "surrender":
             return fight.surrender()
         if action == "pass":
             fight.advance_activation()
+            _record("pass", {}, {})
             continue
         if action == "move":
             committed = fight.apply_action(
@@ -933,14 +986,17 @@ def _drive_fight(
                     f"move ({argument!r}); a non-human driver's chooser must pre-validate steps"
                 )
             fight.advance_activation()
+            _record("move", {}, {})
             continue
         if action == "shoot":
             result = fight.apply_action("shoot", argument)
             message = result
             winner = fight.winner()
             if winner is not None:
+                _record("shoot", result, calc_inputs)
                 return fight.finish(winner)
             fight.advance_activation()
+            _record("shoot", result, calc_inputs)
             continue
         # 30139: an unrecognized key. A HUMAN falls back to the GET wait and re-prompts;
         # a non-human driver that returns an unknown action has a broken decide contract
