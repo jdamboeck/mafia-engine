@@ -235,6 +235,35 @@ def test_an_exhausted_driver_response_fails_loudly():
         )
 
 
+def test_a_non_human_driver_returning_an_unknown_action_fails_loudly():
+    """A policy that returns an unrecognized action has a broken decide contract. Headless,
+    re-prompting it would spin forever (no client to break out), so the loop raises. This
+    is the 'invalid driver response fails loudly' scenario, distinct from an EXHAUSTED
+    answer list (StopIteration) above."""
+    sides = (
+        (_f(name="p", weapon=0, energie=99, position=_cell(5, 10)),),
+        (_f(name="e", weapon=0, energie=99, position=_cell(5, 30)),),
+    )
+    bad = PolicyDriver(policy=lambda view: ("nonsense_action", None))
+    with pytest.raises(ValueError, match="unrecognized action"):
+        simulate(_scenario(sides=sides), {1: bad, 2: AiDriver()}, rng=Rng(seed=1))
+
+
+def test_a_non_human_driver_returning_an_illegal_move_fails_loudly():
+    """A policy that returns an off-grid / blocked step is likewise a broken contract:
+    a HUMAN re-prompts, but a non-human driver must fail loudly rather than re-decide the
+    same illegal step forever."""
+    sides = (
+        (_f(name="p", weapon=0, energie=99, position=_cell(5, 10)),),
+        (_f(name="e", weapon=0, energie=99, position=_cell(5, 30)),),
+    )
+    # STEP_RIGHT into a cell held by nothing is legal; instead force a wildly out-of-range
+    # step so can_move_onto rejects it (position 410 + 999 is off the 0..520 grid).
+    bad = PolicyDriver(policy=lambda view: ("move", 999))
+    with pytest.raises(ValueError, match="illegal move"):
+        simulate(_scenario(sides=sides), {1: bad, 2: AiDriver()}, rng=Rng(seed=1))
+
+
 def test_replay_driver_is_reserved_but_not_functional_this_unit():
     """The replay kind is DECLARED (so U7 need not touch this dispatch again) but
     decide() raises — it is not functional in U6."""

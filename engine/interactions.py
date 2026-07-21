@@ -921,10 +921,17 @@ def _drive_fight(
                 "move", argument, record_dir_memory=driver.kind != "human"
             )
             if not committed:
-                # 30145: illegal target -> re-prompt the same activation. Only a HUMAN
-                # can hit this; an AI/policy step is pre-validated by its chooser.
-                message = "illegal_move"
-                continue
+                # 30145: illegal target. A HUMAN re-prompts the same activation; a
+                # non-human driver that returns an illegal step has a broken decide
+                # contract and must fail loudly rather than re-decide the same illegal
+                # step forever (headless, there is no client to break the loop).
+                if driver.kind == "human":
+                    message = "illegal_move"
+                    continue
+                raise ValueError(
+                    f"{driver.kind!r} driver on side {fight.active_side} returned an illegal "
+                    f"move ({argument!r}); a non-human driver's chooser must pre-validate steps"
+                )
             fight.advance_activation()
             continue
         if action == "shoot":
@@ -935,9 +942,16 @@ def _drive_fight(
                 return fight.finish(winner)
             fight.advance_activation()
             continue
-        # 30139: an unrecognized key falls back to the GET wait — re-prompt (human only;
-        # a driver's decide contract never returns an unknown action).
-        message = "unknown_action"
+        # 30139: an unrecognized key. A HUMAN falls back to the GET wait and re-prompts;
+        # a non-human driver that returns an unknown action has a broken decide contract
+        # and must fail loudly — re-prompting it headlessly would spin forever.
+        if driver.kind == "human":
+            message = "unknown_action"
+            continue
+        raise ValueError(
+            f"{driver.kind!r} driver on side {fight.active_side} returned an unrecognized "
+            f"action {action!r}; a driver's decide contract must return a known action"
+        )
 
 
 def simulate(
@@ -984,8 +998,7 @@ def simulate(
 
         rng = Rng(seed=scenario.seed)
 
-    start = StartCombat(scenario=scenario, drivers=dict(drivers))
-    fight = _build_fight(start, rng=rng)
+    fight = _build_fight(StartCombat(scenario=scenario), rng=rng)
     # No input_source: a headless run never reaches the human/yield branch (guarded
     # above), so the loop never consults it.
     winner = _drive_fight(fight, dict(drivers), _no_input_source)
