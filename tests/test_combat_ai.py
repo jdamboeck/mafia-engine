@@ -148,6 +148,52 @@ def test_the_ai_hunts_side_one_even_when_side_two_acts_second():
     assert t.index == 0
 
 
+def test_a_side_one_cpu_fighter_hunts_side_two_not_its_own_side():
+    """U4: when SIDE 1 itself is CPU-driven (a shape ``cpu_sides`` permits though the
+    original never produces it), the AI must hunt whoever is hostile to the ACTIVE side
+    — side 2 — not the constant side 1. The side-2-hunts-side-1 path stays untouched
+    (pinned above); this closes the case the constant got wrong.
+    """
+    fight = _fight(
+        side1=[_f(name="cpu", position=_cell(5, 10))],
+        side2=[_f(name="enemy", position=_cell(5, 30))],
+        active=(1, 1),  # side 1 is the CPU actor
+    )
+    t = ai_target(fight)
+    assert t is not None
+    assert t.side == 2  # hostile to the active side, not the active side itself
+    assert (t.x, t.y) != (0, 0)  # a real direction toward the enemy, not "stay put"
+
+
+def test_a_side_one_cpu_fighter_with_a_living_teammate_targets_the_enemy_not_the_teammate():
+    """Self-exclusion falls out of side-relative derivation: a side is never hostile to
+    itself, so a teammate is never a candidate (U4). An identity check on the active
+    fighter alone would still wrongly allow targeting a teammate."""
+    fight = _fight(
+        side1=[
+            _f(name="cpu", position=_cell(5, 10)),
+            _f(name="teammate", position=_cell(5, 11)),  # adjacent — nearest by the metric
+        ],
+        side2=[_f(name="enemy", position=_cell(5, 30))],
+        active=(1, 1),
+    )
+    t = ai_target(fight)
+    assert t is not None
+    assert t.side == 2  # the far enemy, never the adjacent teammate on the active's own side
+    assert t.index == 0
+
+
+def test_hostile_to_is_the_two_party_complement():
+    """U4: the reference title has two fixed sides, so hostility is each side's
+    complement — N-party-shaped (a tuple) but exactly ``(2,)``/``(1,)`` here."""
+    fight = _fight(
+        side1=[_f(name="a", position=_cell(5, 10))],
+        side2=[_f(name="b", position=_cell(5, 30))],
+    )
+    assert fight.hostile_to(1) == (2,)
+    assert fight.hostile_to(2) == (1,)
+
+
 # --------------------------------------------------------------------------- #
 # Attack branch (mf-prg.bas:30410, 30420, 30421, 30425)                        #
 # --------------------------------------------------------------------------- #

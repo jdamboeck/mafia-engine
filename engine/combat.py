@@ -429,18 +429,10 @@ class RulesBundle:
 # --------------------------------------------------------------------------- #
 # CPU target selection — the `cr` machine-code routine (U6)                   #
 # --------------------------------------------------------------------------- #
-#: The side the CPU AI hunts.
-#:
-#: In the original this is not a parameter at all: the ``cr`` routine (``$C000``,
-#: disassembled in ``research/research-data/verification/ml-core-disassembly.yaml``)
-#: scans the screen for ``char $C1 (=193)`` cells whose **colour-RAM low nibble is 2**
-#: — a hardcoded constant in the machine code. ``mf-prg.bas:30010``
-#: (``pokefr+kp(i,j),2-4*(i=2)``) paints side 1 with colour 2 (the relational is false
-#: for ``i=1``, so the expression is 2 under EITHER sign convention — this site is not
-#: affected by the relational-sign landmine). So ``cr`` structurally always hunts
-#: side 1. This port states that intent as a named constant rather than replicating
-#: the colour-RAM encoding, exactly as U6's plan section directs.
-AI_HUNTS_SIDE = 1
+# The CPU hunts whoever is HOSTILE to the acting side, derived per-fight from
+# :meth:`CombatFight.hostile_to` (U4) rather than a hardcoded "always side 1" constant.
+# The original's colour-RAM/``cr`` mechanism that made it always side 1 — and why that
+# reduces to the two-party ``(2,)``/``(1,)`` default — is documented on ``hostile_to``.
 
 #: Sides driven by the AI rather than by a client prompt.
 #:
@@ -508,42 +500,48 @@ def ai_target(fight: "CombatFight") -> AiTarget | None:
     away on the same row (metric 5) is "nearer" than one a single row away in the same
     column (metric 40). The AI's whole pursuit shape follows from that bias.
 
-    **Who is a candidate.** ``cr`` scans for cells holding char 193 with colour-RAM low
-    nibble 2 — side 1 (see :data:`AI_HUNTS_SIDE`). Downed fighters are excluded because
-    ``mf-prg.bas:30310`` pokes their cell back to 32, removing the 193 glyph ``cr``
-    matches on; this port checks ``Fighter.down`` instead, which is the same set.
+    **Who is a candidate.** The fighters on the side(s) hostile to the ACTIVE side
+    (:meth:`CombatFight.hostile_to`), never the active fighter's own — self-exclusion
+    falls out of the derivation, since a side is never hostile to itself (U4). In the
+    original ``cr`` scans for cells holding char 193 with colour-RAM low nibble 2, which
+    is always side 1; deriving from ``active_side`` here is bit-identical for the
+    side-2-acts case the original produces, and additionally correct when a caller puts
+    side 1 under the AI (which ``cpu_sides`` permits). Downed fighters are excluded
+    because ``mf-prg.bas:30310`` pokes their cell back to 32, removing the 193 glyph
+    ``cr`` matches on; this port checks ``Fighter.down`` instead, which is the same set.
 
     Returns ``None`` when no hostile fighter is standing — in the original that state is
     unreachable, because the victory check at ``30106`` fires before the AI branch at
     ``30110`` ever runs. The port returns ``None`` rather than raising so a degenerate
     setup degrades to "no action" instead of crashing a fight.
 
-    Ties are broken by scan order (lowest fighter index), matching ``cr``'s strict
-    ``<`` comparison as it walks candidates: the first candidate at the minimum wins.
+    Ties are broken by scan order (hostile side order, then lowest fighter index),
+    matching ``cr``'s strict ``<`` comparison as it walks candidates: the first
+    candidate at the minimum wins.
     """
-    hostile = fight.sides[AI_HUNTS_SIDE - 1]
     origin = fight.active.position
     oy, ox = divmod(origin, GRID_COLS)
 
     best: AiTarget | None = None
-    for index, other in enumerate(hostile):
-        if other.down:
-            continue
-        row, col = divmod(other.position, GRID_COLS)
-        dx = col - ox
-        dy = row - oy
-        candidate = AiTarget(
-            side=AI_HUNTS_SIDE,
-            index=index,
-            # 30405's decoding: the direction bytes collapse the delta to its SIGN,
-            # scaled to a one-cell step (±1 horizontally, ±40 = one row vertically).
-            x=(STEP_RIGHT if dx > 0 else STEP_LEFT if dx < 0 else 0),
-            y=(STEP_DOWN if dy > 0 else STEP_UP if dy < 0 else 0),
-            abs_dx=abs(dx),
-            abs_dy=abs(dy),
-        )
-        if best is None or candidate.distance < best.distance:
-            best = candidate
+    for hostile_side in fight.hostile_to(fight.active_side):
+        for index, other in enumerate(fight.sides[hostile_side - 1]):
+            if other.down:
+                continue
+            row, col = divmod(other.position, GRID_COLS)
+            dx = col - ox
+            dy = row - oy
+            candidate = AiTarget(
+                side=hostile_side,
+                index=index,
+                # 30405's decoding: the direction bytes collapse the delta to its SIGN,
+                # scaled to a one-cell step (±1 horizontally, ±40 = one row vertically).
+                x=(STEP_RIGHT if dx > 0 else STEP_LEFT if dx < 0 else 0),
+                y=(STEP_DOWN if dy > 0 else STEP_UP if dy < 0 else 0),
+                abs_dx=abs(dx),
+                abs_dy=abs(dy),
+            )
+            if best is None or candidate.distance < best.distance:
+                best = candidate
     return best
 
 
@@ -710,17 +708,37 @@ class CombatFight:
         return self.equipment_range(combatant) <= RANGE_MELEE
 
     # -- activation cursor (mf-prg.bas:30105-30109) ------------------------- #
-    def _opposing(self, side: int) -> int:
-        """The other side index.
+    def hostile_to(self, side: int) -> tuple[int, ...]:
+        """The sides hostile to ``side`` — the candidate pool for targeting and victory.
 
-        Ports the source's ``1-(s=1)`` side toggle (``mf-prg.bas:30106``, ``30108``,
-        ``30250``). Under the C64 ``true = -1`` evaluation this computes directly:
-        ``s=1`` -> ``1-(-1) = 2`` and ``s=2`` -> ``1-0 = 1``. (This line is in fact one
-        of the structural proofs that the relational is -1 and not +1, which would give
-        ``1-1 = 0`` — a side that does not exist. See
-        docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md.)
+        Returns a TUPLE so the shape is N-party from the start, even though the
+        reference title has exactly two fixed sides: ``hostile_to(1) == (2,)`` and
+        ``hostile_to(2) == (1,)``. Deriving hostility from the acting side (rather than
+        hardcoding "the CPU hunts side 1") is what makes a side-1 CPU fighter hunt side
+        2 and never its own teammates — a side is never hostile to itself, so
+        self-exclusion falls out of the derivation with no identity check (U4).
+
+        **Why two fixed sides / why the CPU "always hunts side 1" in the original.**
+        In the C64 game hostility is not a lookup at all: the ``cr`` machine-code
+        routine (``$C000``, disassembled in
+        ``research/research-data/verification/ml-core-disassembly.yaml``) scans the grid
+        for ``char $C1 (=193)`` cells whose **colour-RAM low nibble is 2** — a hardcoded
+        constant in the ML. ``mf-prg.bas:30010`` (``pokefr+kp(i,j),2-4*(i=2)``) paints
+        side 1 with colour 2 (the relational is false for ``i=1``, so the expression is
+        2 under EITHER sign convention — this site is not affected by the relational-sign
+        landmine) and side 2 with a different colour. So the ORIGINAL's ``cr`` always
+        hunts side 1 because side 1 is the only side ever coloured 2 AND the only side
+        ever put under a human at ``5010`` (``ks(1)=sp:ks(2)=0``). "Hostile to side 2"
+        thus reduces to "(1,)" — which is exactly what this returns, N-party-shaped, so a
+        two-party fight is bit-identical while a future graph can override it.
+
+        Also ports the source's ``1-(s=1)`` side toggle (``mf-prg.bas:30106``, ``30108``,
+        ``30250``): under C64 ``true = -1`` that is ``s=1 -> 2`` / ``s=2 -> 1`` (one of
+        the structural proofs the relational is -1, not +1 — +1 gives ``1-1=0``, a side
+        that does not exist; see
+        docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md).
         """
-        return 2 if side == 1 else 1
+        return (2,) if side == 1 else (1,)
 
     def advance_activation(self) -> None:
         """Move the cursor to the next standing fighter, wrapping side 1 -> 2 -> 1.
@@ -737,7 +755,7 @@ class CombatFight:
         for _ in range(total):
             self.active_fighter += 1
             if self.active_fighter > len(self._sides[self.active_side - 1]):
-                self.active_side = self._opposing(self.active_side)
+                self.active_side = self.hostile_to(self.active_side)[0]
                 self.active_fighter = 1
             side = self._sides[self.active_side - 1]
             if side and not side[self.active_fighter - 1].down:
@@ -758,7 +776,7 @@ class CombatFight:
         if self.finished:
             return self._result_flag or None
         for side in (1, 2):
-            other = self._opposing(side)
+            other = self.hostile_to(side)[0]
             fighters = self._sides[other - 1]
             if all(f.down for f in fighters):
                 return side
@@ -836,7 +854,7 @@ class CombatFight:
             return miss
 
         attacker = self.active
-        enemy_side = self._opposing(self.active_side)
+        enemy_side = self.hostile_to(self.active_side)[0]
         equipment = self.equipment_stats(attacker)
 
         # -- projectile travel (30220-30226) -------------------------------- #
@@ -1068,7 +1086,7 @@ class CombatFight:
         names the side that did NOT surrender. Ends the fight immediately, whatever
         the board looks like.
         """
-        self._result_flag = self._opposing(self.active_side)
+        self._result_flag = self.hostile_to(self.active_side)[0]
         self.finished = True
         return self._result_flag
 
