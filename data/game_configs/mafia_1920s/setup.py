@@ -187,7 +187,7 @@ def score_and_rank(x: float, params: dict) -> ScoreAndRank:
 
 
 def narrate_combat_outcome(
-    *, winner: int, player_name: str, enemy_name: str, with_losses: bool = True
+    *, winner: int, player_name: str, enemy_name: str, player_losses: int, enemy_losses: int
 ):
     """Yield the post-fight outcome screen shared by ``jobs.py``, ``kdh.py``, and
     ``upkeep.py`` (KTD-1: narrating the outcome is the invoking handler's job —
@@ -199,28 +199,20 @@ def narrate_combat_outcome(
     The original prints this screen at ``:30500-30515`` UNCONDITIONALLY, for every
     fight, win or lose — ``:30106``'s ``goto30500`` is the single exit from the
     combat engine, and ``:5010``'s ``goto30000`` is the single entry every caller
-    uses. There is no caller-specific and no win-conditional branch.
+    uses. There is no caller-specific and no win-conditional branch, so the losses
+    block always prints (U3 removed the ``with_losses=False`` deviation, #50).
 
-    ``with_losses=False`` is therefore NOT a fidelity exception — it is a known
-    deviation, see #50. It exists only because ``upkeep.py``'s debt-collectors
-    fight is the one in-slice fight with more than one enemy (``gz(0)=5``,
-    ``:4355``), and the per-side counts below are a 1v1 shortcut that would print
-    a confidently wrong number there.
-
-    ``count``: the original tracks REAL per-side death tallies in ``v(1)``/``v(2)``
-    (zeroed at ``:30100``, incremented at ``:30310`` per death). ``0 if winner
-    else 1`` reproduces that exactly for a one-fighter-per-side fight, which every
-    call site except the collectors currently is. Restoring the collectors' losses
-    block needs real tallies from ``_run_combat``, not this shortcut.
+    ``player_losses``/``enemy_losses`` are the REAL per-side death tallies the fight
+    computed (``v(1)``/``v(2)``, zeroed at ``:30100``, incremented at ``:30310`` per
+    death), handed back on the :class:`~engine.combat.CombatResult`. They replace the
+    old ``0 if side == winner else 1`` shortcut, which was only correct for a
+    one-fighter-per-side fight and would print a confidently wrong count for the
+    multi-enemy debt-collectors fight (``gz(0)=5``, ``:4355``).
     """
     winner_name = player_name if winner == 1 else enemy_name
     yield ShowMessage("combat.winner_banner", {"name": winner_name})
-    if not with_losses:
-        return
     yield ShowMessage("combat.losses_heading")
-    for side in (1, 2):
-        count = 0 if side == winner else 1
-        name = player_name if side == 1 else enemy_name
+    for name, count in ((player_name, player_losses), (enemy_name, enemy_losses)):
         yield ShowMessage("combat.losses_line", {"name": name, "count": count})
 
 

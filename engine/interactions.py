@@ -28,9 +28,17 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.actions import EngineResult, HandlerResult
+
+if TYPE_CHECKING:
+    # Type-only: keep this module's RUNTIME import graph free of engine.combat (the
+    # spine imports it lazily inside _run_combat, see the module docstring). The
+    # ``from __future__ import annotations`` above makes every annotation a string, so
+    # ``-> CombatResult`` never triggers a runtime import; this block only lets a type
+    # checker resolve the name.
+    from engine.combat import CombatResult
 
 __all__ = [
     # Interactions
@@ -592,7 +600,7 @@ def _run_combat(
     start: "StartCombat",
     input_source: Callable[[Any], Any],
     ctx: "Ctx",
-) -> int:
+) -> "CombatResult":
     """Drive a full fight to a winner and return the winning side (KTD-1/KTD-2).
 
     The combat sub-protocol, structurally a sibling of :func:`_run_substate`: an
@@ -641,7 +649,7 @@ def _run_combat(
     """
     # Lazy imports keep this module's top-level import graph free of engine.state /
     # engine.combat, mirroring the commit() import in run().
-    from engine.combat import DEFAULT_CPU_SIDES, CombatFight
+    from engine.combat import DEFAULT_CPU_SIDES, CombatFight, CombatResult
     from engine.effects import EnergyChange
     from engine.state import CombatState
 
@@ -662,7 +670,7 @@ def _run_combat(
     # without a shot) simply sees an unchanged ``vitality`` and buffers no delta.
     pre_vitality = [f.vitality for f in fight.sides[0]]
 
-    def _finish(winner: int) -> int:
+    def _finish(winner: int) -> CombatResult:
         # #44 — buffer the roster's persistent energy/down consequence BEFORE handing
         # the winner back, so it commits atomically with the invoking handler's own
         # entry-point effects (one shared ctx, one atomic buffer).
@@ -683,7 +691,10 @@ def _run_combat(
                     gangster=f.roster_id,
                 )
             )
-        return winner
+        # R8/U3: hand back the winner AND the real per-side death tallies (v(1)/v(2),
+        # final by the time any exit path calls this), so the caller narrates true
+        # counts instead of the old 1v1 shortcut. Tallies come straight off the fight.
+        return CombatResult(winner=winner, losses=fight.losses)
 
     message: Any = None
     while True:

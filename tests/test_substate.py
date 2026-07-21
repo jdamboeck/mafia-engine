@@ -189,7 +189,10 @@ def test_startcombat_from_a_top_level_handler_runs_the_fight():
         return []
 
     run(parent, lambda interaction: CANCEL, state=None)  # CANCEL == surrender (KTD-2)
-    assert got["winner"] == 2
+    # StartCombat now yields a CombatResult (U3): the surrendering side loses, and a
+    # zero-shot surrender has zero losses on both sides.
+    assert got["winner"].winner == 2
+    assert got["winner"].losses == (0, 0)
 
 
 def test_startcombat_inside_a_substate_is_asserted_out():

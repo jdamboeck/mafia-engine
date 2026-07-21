@@ -230,7 +230,7 @@ def upkeep_turn_start(ctx):
                 grid=_backdrop(_COLLECTORS_BACKDROP),
                 equip=equipper(_weapon_stats()),
             )
-            winner = yield StartCombat(
+            result = yield StartCombat(
                 sides=combat_state.sides,
                 grid=combat_state.grid,
                 rules=build_rules(),
@@ -238,23 +238,20 @@ def upkeep_turn_start(ctx):
             )
 
             # Outcome narration (KTD-1: the invoking handler's job — _run_combat
-            # yields no final screen). Shared with jobs.py/kdh.py's own fights.
-            #
-            # with_losses=False is a KNOWN DEVIATION (#50), not a faithful port.
-            # The original prints the losses block for EVERY fight (:30500-30515,
-            # reached unconditionally via :30106's goto30500). It is suppressed
-            # here only because this is the one in-slice fight with 5 enemies
-            # (gz(0)=5, :4355), and narrate_combat_outcome's per-side count is a
-            # 1v1 shortcut that would print a wrong tally. Restoring it needs real
-            # v(1)/v(2)-equivalent tallies from _run_combat.
+            # yields no final screen). Shared with jobs.py/kdh.py's own fights. This is
+            # the one in-slice fight with 5 enemies (gz(0)=5, :4355), so the losses
+            # block reads its per-side tallies off the CombatResult (v(1)/v(2), U3) —
+            # closing the #50 deviation that suppressed the block rather than print a
+            # 1v1-shortcut count that would be wrong here.
             yield from narrate_combat_outcome(
-                winner=winner,
+                winner=result.winner,
                 player_name=active.name,
                 enemy_name=_COLLECTOR_NAME,
-                with_losses=False,
+                player_losses=result.losses[0],
+                enemy_losses=result.losses[1],
             )
 
-            if winner == 2:
+            if result.winner == 2:
                 # :4365-4370 — lost: `ka(sp)=0:kr(sp)=0:kz(sp)=0`. The seizure takes
                 # the cash the player holds AT THIS MOMENT. `active.ka` is still the
                 # correct figure: no effect buffered earlier in this run moves money

@@ -681,7 +681,7 @@ def test_a_full_seeded_ai_vs_player_fight_reaches_a_winner():
     from engine.rng import Rng
 
     def handler(ctx):
-        winner = yield StartCombat(
+        result = yield StartCombat(
             **_ai_spec(
                 sides=(
                     (_f(name="hero", weapon=5, energie=20, position=_cell(5, 10)),),
@@ -689,7 +689,7 @@ def test_a_full_seeded_ai_vs_player_fight_reaches_a_winner():
                 )
             )
         )
-        return winner
+        return result.winner
 
     result = run(handler, lambda i: ("pass", None), state=None, rng=Rng(seed=1234))
     assert result.status == "completed"
@@ -700,7 +700,7 @@ def test_a_seeded_fight_where_the_player_fights_back_also_terminates():
     from engine.rng import Rng
 
     def handler(ctx):
-        winner = yield StartCombat(
+        result = yield StartCombat(
             **_ai_spec(
                 sides=(
                     (_f(name="hero", weapon=6, energie=30, position=_cell(5, 10)),),
@@ -708,7 +708,7 @@ def test_a_seeded_fight_where_the_player_fights_back_also_terminates():
                 )
             )
         )
-        return winner
+        return result.winner
 
     result = run(handler, lambda i: ("shoot", STEP_RIGHT), state=None, rng=Rng(seed=7))
     assert result.status == "completed"

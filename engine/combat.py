@@ -64,6 +64,7 @@ __all__ = [
     "STAGGER_OFFSETS",
     "RANGE_MELEE",
     "RulesBundle",
+    "CombatResult",
     "DEFAULT_RANGE",
     "STEP_LEFT",
     "STEP_RIGHT",
@@ -331,6 +332,34 @@ STEP_RIGHT = 1
 STEP_UP = -GRID_COLS
 STEP_DOWN = GRID_COLS
 STEPS: tuple[int, ...] = (STEP_LEFT, STEP_RIGHT, STEP_UP, STEP_DOWN)
+
+
+# --------------------------------------------------------------------------- #
+# The fight's result — winner + per-side losses handed back to the caller (U3) #
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class CombatResult:
+    """What a finished fight hands back to the invoking handler (R8, U3).
+
+    Flat and frozen, mirroring :class:`~engine.effects.CommitResult` and
+    :class:`~engine.actions.EngineResult` — the two facts every caller needs and
+    nothing more:
+
+    ``winner``
+        The side that won: ``1`` (the acting player's roster) or ``2`` (the enemy),
+        as :func:`engine.interactions._run_combat` computes it.
+    ``losses``
+        The real per-side death tallies at the moment the fight ended —
+        ``(v(1), v(2))`` from ``mf-prg.bas:30100``/``:30310``, read straight off
+        :attr:`CombatFight.losses`. A handler narrates these instead of the old 1v1
+        ``0 if winner else 1`` shortcut, which was wrong for any multi-fighter side.
+
+    Deliberately carries **no** ``state``/``sides``: the post-fight payload is U5's
+    concern, and R8 is precisely winner + losses.
+    """
+
+    winner: int
+    losses: tuple[int, int]
 
 
 # --------------------------------------------------------------------------- #

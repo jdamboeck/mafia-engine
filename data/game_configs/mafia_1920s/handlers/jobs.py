@@ -149,7 +149,7 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
         grid=_backdrop(backdrop),
         equip=equipper(_weapon_stats()),
     )
-    winner = yield StartCombat(
+    result = yield StartCombat(
         sides=combat_state.sides,
         grid=combat_state.grid,
         rules=build_rules(),
@@ -158,15 +158,17 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
     # Outcome narration (KTD-1: the invoking handler's job -- _run_combat yields no
     # final screen). Shared with kdh.py/upkeep.py's own fights (narrate_combat_outcome
     # -- ShowMessage's (key, params) shape means the generic client renderer resolves
-    # these with no special-case wiring, exactly like every other ported string).
-    # Every shift fight is exactly one roster fighter vs. one scripted NPC
-    # (enemy_count=1, mf-prg.bas:25035/25135/25210's gz(0)=1) -- so "the losing side's
-    # one fighter went down" is the EXACT per-side count here, not an approximation
-    # that would need _run_combat to hand back real per-side tallies.
+    # these with no special-case wiring, exactly like every other ported string). The
+    # per-side death tallies come off the CombatResult (U3), so the count is real even
+    # though every shift fight happens to be 1v1 (enemy_count=1, gz(0)=1).
     yield from narrate_combat_outcome(
-        winner=winner, player_name=active.name, enemy_name=opponent["name"]
+        winner=result.winner,
+        player_name=active.name,
+        enemy_name=opponent["name"],
+        player_losses=result.losses[0],
+        enemy_losses=result.losses[1],
     )
-    return winner
+    return result.winner
 
 
 @register(JOB_SHIFT_HANDLER_KEY)

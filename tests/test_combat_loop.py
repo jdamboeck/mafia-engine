@@ -410,8 +410,8 @@ def _spec(**kw):
 
 def test_startcombat_no_longer_raises_and_resolves_with_a_winner():
     def handler(ctx):
-        winner = yield StartCombat(**_spec())
-        return winner
+        result = yield StartCombat(**_spec())
+        return result.winner
 
     # shoot right -> hit -> thug (1 energy) drops -> side 1 wins.
     src = _scripted_combat([("shoot", +1)])
@@ -470,8 +470,8 @@ def test_illegal_move_re_prompts_without_ending_the_activation():
 
 def test_quit_and_eof_are_treated_as_surrender_not_cancel():
     def handler(ctx):
-        winner = yield StartCombat(**_spec())
-        return winner
+        result = yield StartCombat(**_spec())
+        return result.winner
 
     # CANCEL at a combat prompt must NOT unwind the handler — it surrenders (KTD-2).
     result = run(handler, lambda i: CANCEL, state=None, rng=_StubRng())
@@ -482,9 +482,9 @@ def test_quit_and_eof_are_treated_as_surrender_not_cancel():
 def test_combat_effects_commit_with_the_invoking_handlers_effects():
     def handler(ctx):
         ctx.apply(MoneyChange(amount=10))
-        winner = yield StartCombat(**_spec())
-        ctx.apply(MoneyChange(amount=100 if winner == 1 else -100))
-        return winner
+        result = yield StartCombat(**_spec())
+        ctx.apply(MoneyChange(amount=100 if result.winner == 1 else -100))
+        return result.winner
 
     result = run(handler, _scripted_combat([("shoot", +1)]), state=None, rng=_StubRng(1, 1, 0))
     assert [e.amount for e in result.effects] == [10, 100]
@@ -561,8 +561,8 @@ def test_scripted_seeded_fight_has_a_deterministic_transcript():
     transcript = []
 
     def handler(ctx):
-        winner = yield StartCombat(**_spec(sides=sides))
-        return winner
+        result = yield StartCombat(**_spec(sides=sides))
+        return result.winner
 
     script = iter([("shoot", +1), ("shoot", +1)])
 

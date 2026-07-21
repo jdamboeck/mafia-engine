@@ -360,7 +360,7 @@ def kdh_collect(ctx):
         grid=_backdrop(_AMBUSH_BACKDROP),
         equip=equipper(_weapon_stats()),
     )
-    winner = yield StartCombat(
+    result = yield StartCombat(
         sides=combat_state.sides,
         grid=combat_state.grid,
         rules=build_rules(),
@@ -368,12 +368,17 @@ def kdh_collect(ctx):
     )
 
     # Outcome narration (KTD-1: the invoking handler's job — _run_combat yields no
-    # final screen). Shared with jobs.py/upkeep.py's own fights.
+    # final screen). Shared with jobs.py/upkeep.py's own fights; per-side death tallies
+    # come off the CombatResult (U3).
     yield from narrate_combat_outcome(
-        winner=winner, player_name=active.name, enemy_name=_AMBUSHER_NAME
+        winner=result.winner,
+        player_name=active.name,
+        enemy_name=_AMBUSHER_NAME,
+        player_losses=result.losses[0],
+        enemy_losses=result.losses[1],
     )
 
-    if winner == 2:
+    if result.winner == 2:
         # :15315 — lost: a plain, silent return, no cost.
         return []
 

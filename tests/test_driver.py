@@ -197,7 +197,8 @@ def test_startcombat_runs_the_combat_sub_protocol_and_returns_a_winner():
     # A combat prompt is non-cancellable: CANCEL is a surrender (KTD-2), so side 1
     # gives up and side 2 wins.
     run(handler, lambda interaction: CANCEL)
-    assert got["winner"] == 2
+    # StartCombat yields a CombatResult (U3), not a bare winner int.
+    assert got["winner"].winner == 2
 
 
 def test_loadsubstate_unknown_kind_raises_value_error():

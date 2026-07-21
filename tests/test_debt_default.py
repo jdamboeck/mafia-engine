@@ -223,6 +223,33 @@ def test_grace_zero_starts_the_collectors_fight():
     assert result.state.players[0].debt == Debt(amount=0, months=0)
 
 
+def test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender():
+    """#49 guard — the collectors narration must carry REAL per-side tallies (U3).
+
+    This is the falsifiable test the vacuous #49 pair never provided. A surrender
+    fires ZERO shots, so nobody goes down: ``v(1) == v(2) == 0``, and the losses block
+    must report ``count=0`` for BOTH the player and the collectors. The old
+    ``0 if side == winner else 1`` shortcut printed ``count=1`` for the losing (player)
+    side even on a zero-shot surrender — so this assertion goes red the moment
+    ``narrate_combat_outcome`` reverts to that shortcut (verified by reverting it).
+
+    Driven outcome-agnostically via the surrender path (whether a boss survives five
+    collectors is unverified until U6), so it has teeth regardless of winnability.
+    """
+    st = _state(debt=Debt(amount=3000, months=1), ka=7500)
+    source = _scripted("surrender")
+    run_upkeep(st, input_source=source, rng=_StubRng())
+
+    losses_lines = [m for m in source.messages() if m.key == "combat.losses_line"]
+    # The block prints one line per side (player, collectors) — and it prints at all,
+    # which the #50 deviation used to suppress entirely for this fight.
+    assert len(losses_lines) == 2, "the collectors fight must print a per-side losses block"
+    assert [m.params["count"] for m in losses_lines] == [0, 0], (
+        "a zero-shot surrender downs nobody: both sides' tallies must be 0, "
+        "not the old 1v1 shortcut's count=1 for the loser"
+    )
+
+
 def test_loss_seizes_all_cash_and_wipes_the_debt():
     """``:4370`` ``ka(sp)=0:kr(sp)=0:kz(sp)=0`` — cash AND debt AND counter all zeroed."""
     st = _state(debt=Debt(amount=4200, months=1), ka=9999)

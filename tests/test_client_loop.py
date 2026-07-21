@@ -927,13 +927,13 @@ class TestInteractiveCombatThroughTerminalInput:
         )
 
         def handler(ctx):
-            winner = yield StartCombat(
+            result = yield StartCombat(
                 sides=equipped,
                 grid=(),
                 rules=build_rules(),
                 cpu_sides=cpu_sides,
             )
-            return winner
+            return result.winner
 
         return handler
 
