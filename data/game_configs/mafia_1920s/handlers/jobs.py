@@ -133,11 +133,13 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
     so a loss/win here also rides the fight's roster energy deltas into ``ctx`` via
     the driver's ``_run_combat`` (#44 -- no extra code needed here for that).
     """
-    from engine.combat import setup_combat
+    from engine.scenario import Scenario
 
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
-    combat_state = setup_combat(
+    # U5: the fight's "payload in" is a named Scenario built through the unchanged
+    # setup_combat. StartCombat is unpacked from it (not widened — that is U6's).
+    scenario = Scenario.from_roster(
         active.roster,
         enemy_count=1,
         enemy_weapon=opponent["weapon"],
@@ -148,12 +150,13 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
         enemy_name=opponent["name"],
         grid=_backdrop(backdrop),
         equip=equipper(_weapon_stats()),
+        rules=build_rules(),
     )
     result = yield StartCombat(
-        sides=combat_state.sides,
-        grid=combat_state.grid,
-        rules=build_rules(),
-        dir_memory=combat_state.dir_memory,
+        sides=scenario.sides,
+        grid=scenario.grid,
+        rules=scenario.rules,
+        dir_memory=scenario.dir_memory,
     )
     # Outcome narration (KTD-1: the invoking handler's job -- _run_combat yields no
     # final screen). Shared with kdh.py/upkeep.py's own fights (narrate_combat_outcome

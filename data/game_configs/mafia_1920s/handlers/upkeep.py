@@ -215,11 +215,12 @@ def upkeep_turn_start(ctx):
             # The jail gate (:4040) is a read that trivially passes in-slice: jail is
             # declared-but-stubbed (KTD-7) and nothing can imprison a player, so the
             # not-jailed precondition is always true and is not re-encoded here.
-            from engine.combat import setup_combat
+            from engine.scenario import Scenario
 
             yield ShowMessage("upkeep.debt_collectors_intro")
             debt_params = ctx.state.config.formula_params
-            combat_state = setup_combat(
+            # U5: the collectors fight's payload-in is a named Scenario over setup_combat.
+            scenario = Scenario.from_roster(
                 active.roster,
                 # :4355 — bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"
                 enemy_count=debt_params["kdh_collectors_count"],
@@ -229,12 +230,13 @@ def upkeep_turn_start(ctx):
                 enemy_name=_COLLECTOR_NAME,
                 grid=_backdrop(_COLLECTORS_BACKDROP),
                 equip=equipper(_weapon_stats()),
+                rules=build_rules(),
             )
             result = yield StartCombat(
-                sides=combat_state.sides,
-                grid=combat_state.grid,
-                rules=build_rules(),
-                dir_memory=combat_state.dir_memory,
+                sides=scenario.sides,
+                grid=scenario.grid,
+                rules=scenario.rules,
+                dir_memory=scenario.dir_memory,
             )
 
             # Outcome narration (KTD-1: the invoking handler's job — _run_combat

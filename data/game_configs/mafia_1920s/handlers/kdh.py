@@ -347,10 +347,11 @@ def kdh_collect(ctx):
         return []
 
     # :15310-15312 — the ambush fight.
-    from engine.combat import setup_combat
+    from engine.scenario import Scenario
 
     yield ShowMessage("locations.kdh.ambush_intro")
-    combat_state = setup_combat(
+    # U5: build the fight through a named Scenario (thin wrapper over setup_combat).
+    scenario = Scenario.from_roster(
         active.roster,
         enemy_count=1,
         enemy_weapon=params["kdh_ambush_weapon"],
@@ -359,12 +360,13 @@ def kdh_collect(ctx):
         enemy_name=_AMBUSHER_NAME,
         grid=_backdrop(_AMBUSH_BACKDROP),
         equip=equipper(_weapon_stats()),
+        rules=build_rules(),
     )
     result = yield StartCombat(
-        sides=combat_state.sides,
-        grid=combat_state.grid,
-        rules=build_rules(),
-        dir_memory=combat_state.dir_memory,
+        sides=scenario.sides,
+        grid=scenario.grid,
+        rules=scenario.rules,
+        dir_memory=scenario.dir_memory,
     )
 
     # Outcome narration (KTD-1: the invoking handler's job — _run_combat yields no
