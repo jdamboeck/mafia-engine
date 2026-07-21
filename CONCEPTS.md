@@ -68,6 +68,16 @@ whose `attrs` hold kraft, brutalitaet, and intelligenz. The engine never learns
 those names: it asks the Rules Bundle for a roll and applies the result.
 *Avoid:* Fighter (the pre-refactor engine name for the same concept)
 
+### Equipment
+A Combatant's weapon as **carried, constructed data** — the stat mapping itself
+(accuracy, damage, reach), not a key into a table the engine resolves. The game
+builds it from its entity data before a fight starts and attaches it to the
+combatant, so combat reads equipment off the roster it was handed and holds no
+weapon table of its own. This is what makes a weapon's stats single-sourced:
+there is no second copy for a lookup to disagree with.
+*Avoid:* weapon handle / weapon id as the thing combat resolves (pre-A1: the
+combatant held an id and the engine looked its stats up in a passed-in table).
+
 ### Vitality
 The depleting resource whose exhaustion takes a Combatant out of a fight. Named
 by the engine because termination depends on it — everything else about a

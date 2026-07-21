@@ -74,4 +74,6 @@ is the smaller, layer-clean answer. See `docs/plans/2026-07-20-003-amendments.md
 §A4.
 
 Related: [[freezing-a-mutable-dataclass-graph]] (the mappingproxy / purity-harness
-context this builds on).
+context this builds on), [[two-sources-for-one-fact-remove-dont-reconcile]] (the
+single-source principle applied from the same unit — the reason a stat is stored
+once rather than as both a named field and an attrs entry).
