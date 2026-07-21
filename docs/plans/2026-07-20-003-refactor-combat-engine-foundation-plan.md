@@ -23,9 +23,16 @@ foundation, build scenario-driven fights, per-side control, full replay, and a
 terminal debug tool.
 
 > **Read `2026-07-20-003-amendments.md` alongside this plan.** Execution has
-> superseded parts of it — most importantly **A1**: combatants carry their
-> already-constructed equipment and the engine holds **no** weapon table, which
-> replaces `equipment_stats(handle)` and every `weapon_stats` mention below.
+> superseded parts of it. Four amendments, all decided during U2:
+> - **A1** — combatants carry their already-constructed equipment; the engine
+>   holds **no** weapon table (replaces `equipment_stats(handle)` and every
+>   `weapon_stats` mention below).
+> - **A2** — effect serialization walks with `json_safe`, not `asdict`.
+> - **A3** — the terminal panel reads `attrs`; the theme names the fields.
+> - **A4** — `Gangster` moves fully out of the engine; `vitality` is a blueprint
+>   slot; a loaded roster member is a bare `Combatant`. Sharpens step 6 to strict
+>   DoD #1. **U2 is landed for the ROSTER member (`Combatant`/`Gangster`); the
+>   on-grid `Fighter` still carries named stat fields and is the next step.**
 
 ---
 
