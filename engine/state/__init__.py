@@ -128,34 +128,33 @@ __all__ = [
 ]
 
 
-#: The gangster attribute names this game carries in ``attrs`` (U2). Named fields
-#: stay as the ergonomic construction/read surface; ``attrs`` is the opaque map the
-#: engine passes to a config's formulas without ever inspecting a key.
-COMBATANT_ATTR_NAMES: tuple[str, ...] = ("energie", "kraft", "intelligenz", "brutalitaet")
-
-#: The subset of the above a Fighter carries onto the combat grid.
+#: The stat names :class:`Fighter` carries onto the combat grid as NAMED fields (U2).
+#: (The roster :class:`Combatant` has no named stat fields — its stats live only in
+#: ``attrs``/``vitality``, amendment A4. Only the on-grid Fighter still names them.)
 FIGHTER_ATTR_NAMES: tuple[str, ...] = ("energie", "kraft", "brutalitaet")
 
 
 def _derive_attrs(instance, field_names: tuple[str, ...]) -> None:
     """Populate ``instance.attrs`` from its named attribute fields (U2).
 
-    **Derived, never dual-written.** ``engine.effects._with_gangster`` rebuilds via
-    ``dataclasses.replace``, which updates the NAMED field only — so any hand-synced
-    ``attrs`` would silently go stale on the first effect and surface far from its
-    cause. Deriving here means ``replace()`` regenerates the map on every rebuild and
-    the two copies cannot drift by construction.
+    **Derived, never dual-written.** A :class:`Fighter` rebuild via
+    ``dataclasses.replace`` updates the NAMED field only — so any hand-synced ``attrs``
+    would silently go stale on the first rebuild and surface far from its cause.
+    Deriving here means ``replace()`` regenerates the map every time and the two copies
+    cannot drift by construction.
 
-    An explicitly-passed ``attrs`` is merged UNDER the named fields, so a config may
-    carry extra attributes the dataclass has no field for (the genre-engine case)
-    while the named fields stay authoritative for the ones it does.
+    An explicitly-passed ``attrs`` is merged UNDER the named fields, so extra keys the
+    dataclass has no field for ride along while the named fields stay authoritative.
     """
     supplied = dict(getattr(instance, "attrs", None) or {})
     supplied.update({name: getattr(instance, name) for name in field_names})
     object.__setattr__(instance, "attrs", MappingProxyType(supplied))
 
 
-@dataclass(frozen=True)
+# eq=False: use the hand-written cross-class __eq__ below, not a dataclass-generated
+# one (which would require an identical class and so never equal a Gangster to a
+# reloaded Combatant). See __eq__ for why (U2, amendment A4).
+@dataclass(frozen=True, eq=False)
 class Combatant:
     """A single roster member — the engine's blueprint for anything that can fight (KTD-2).
 
@@ -227,7 +226,9 @@ class Combatant:
             and dict(self.attrs) == dict(other.attrs)
         )
 
-    __hash__ = None  # frozen dataclasses are hashable by default; custom __eq__ opts out
+    # No __hash__: a custom __eq__ leaves the class unhashable (as it already was — its
+    # attrs mappingproxy has no stable hash). Roster members are only ever compared,
+    # never used as dict keys or set members, so this costs nothing.
 
     def with_attr(self, name: str, value: int) -> "Combatant":
         """Return a copy with ``attrs[name]`` set to ``value`` (U2, amendment A4).
@@ -492,10 +493,6 @@ class Config:
     score_mult: float = 1.0  # x8 — score-gain weight [0.1,2.0] (mf-prg.bas:176); scales gf += x*x8
     action_costs: Mapping[str, int] = _EMPTY_MAP
     formula_params: Mapping = _EMPTY_MAP
-    #: Which attribute key the depleting-resource effects (``EnergyChange``) read and
-    #: write. Config POLICY, not engine vocabulary (U2, amendment A4): the engine names
-    #: the ROLE ("vitality"), the config names the KEY. This game's is "energie".
-    vitality_attr: str = "energie"
 
     def __post_init__(self):
         _coerce_readonly(self, "action_costs", "formula_params")
