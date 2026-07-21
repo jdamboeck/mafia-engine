@@ -204,6 +204,46 @@ def test_autoplay_stops_at_last_index_and_does_not_wrap(recording_path):
     assert indices == list(range(n))
 
 
+def test_autoplay_delay_paces_each_frame_but_not_the_last(recording_path):
+    """``--delay`` pauses between autoplay frames: the sleeper fires once per ADVANCE
+    (N-1 times for an N-event recording, since the final frame has nothing after it) and
+    always with the given delay. Uses an injected sleeper so the test does not wait."""
+    path, recording = recording_path
+    n = len(recording.events)
+    slept: list[float] = []
+    keys = iter(["a", "q"])
+    out = io.StringIO()
+    fightlab.watch(
+        path,
+        out=out,
+        key_reader=lambda: next(keys),
+        delay=0.05,
+        sleeper=slept.append,
+    )
+
+    # One sleep per advance from 0 -> N-1, i.e. N-1 pauses; none after the last frame.
+    assert len(slept) == n - 1
+    assert all(d == 0.05 for d in slept)
+    # And it still rendered every frame in order (delay changes pacing, not content).
+    assert _activation_indices(out.getvalue()) == list(range(n))
+
+
+def test_autoplay_delay_zero_never_sleeps(recording_path):
+    """The default delay 0 keeps the original race-to-the-end behaviour — no sleeper call
+    at all, so a plain autoplay is never paced."""
+    path, _recording = recording_path
+    slept: list[float] = []
+    keys = iter(["a", "q"])
+    fightlab.watch(
+        path,
+        out=io.StringIO(),
+        key_reader=lambda: next(keys),
+        delay=0.0,
+        sleeper=slept.append,
+    )
+    assert slept == []
+
+
 # --------------------------------------------------------------------------- #
 # --debug on a KNOWN shot prints every input the rolls consumed (R13)          #
 # --------------------------------------------------------------------------- #

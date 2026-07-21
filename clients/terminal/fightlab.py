@@ -469,9 +469,11 @@ def watch(
     recording_path: str | Path,
     *,
     debug: bool = False,
+    delay: float = 0.0,
     stdin: TextIO | None = None,
     out: TextIO | None = None,
     key_reader: Any = None,
+    sleeper: Any = None,
 ) -> None:
     """Step through a recorded fight: render activation 0, then read keys.
 
@@ -479,12 +481,21 @@ def watch(
     ``index-1`` — no forward replay); ``a`` toggles autoplay (advances to the END and
     STOPS — no loop/wrap); any key pauses; ``q``/EOF quits.
 
+    ``delay`` is the pause in seconds between AUTOPLAY frames (0 = as fast as the
+    terminal draws, the default). It paces only autoplay; manual stepping is always
+    immediate. ``sleeper`` is the pause function (defaults to :func:`time.sleep`),
+    injectable so a test can assert the pacing without waiting.
+
     Under ``--debug`` each shot activation prints the ``(replayed)`` block off the
     recorded event; if :func:`engine.recording.replay` reports a divergence, the
     recorded-vs-recomputed values are printed and autoplay is halted.
     """
     out = out if out is not None else sys.stdout
     key_reader = key_reader if key_reader is not None else _read_key
+    if sleeper is None:
+        import time
+
+        sleeper = time.sleep
 
     setup, combat_rules, _Gangster = _config_helpers()
     # Re-attach live rules so a divergence check can re-run the real formulas.
@@ -525,6 +536,10 @@ def watch(
                 # Reached the end — STOP (no loop/wrap). Fall back to stepped mode.
                 autoplay = False
                 continue
+            # Pause on the CURRENT frame so it is visible before the next redraw clears
+            # the screen; delay 0 keeps the old race-to-the-end behaviour.
+            if delay > 0:
+                sleeper(delay)
             index += 1
             show(index)
             continue
@@ -566,12 +581,18 @@ def main(argv: list[str] | None = None) -> None:
     p_watch = sub.add_parser("watch", help="step through a recorded fight")
     p_watch.add_argument("--recording", required=True, help="path to a recording JSON file")
     p_watch.add_argument("--debug", action="store_true", help="dump each shot's arithmetic")
+    p_watch.add_argument(
+        "--delay",
+        type=float,
+        default=0.0,
+        help="seconds between autoplay frames (default 0 = as fast as possible)",
+    )
 
     args = parser.parse_args(argv)
     if args.command == "play":
         play(args.scenario, seed=args.seed, debug=args.debug)
     elif args.command == "watch":
-        watch(args.recording, debug=args.debug)
+        watch(args.recording, debug=args.debug, delay=args.delay)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entry point
