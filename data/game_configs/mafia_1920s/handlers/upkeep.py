@@ -232,12 +232,8 @@ def upkeep_turn_start(ctx):
                 equip=equipper(_weapon_stats()),
                 rules=build_rules(),
             )
-            result = yield StartCombat(
-                sides=scenario.sides,
-                grid=scenario.grid,
-                rules=scenario.rules,
-                dir_memory=scenario.dir_memory,
-            )
+            # U6: the whole payload rides one field (amendment A6).
+            result = yield StartCombat(scenario=scenario)
 
             # Outcome narration (KTD-1: the invoking handler's job — _run_combat
             # yields no final screen). Shared with jobs.py/kdh.py's own fights. This is

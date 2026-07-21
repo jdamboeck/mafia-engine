@@ -152,12 +152,8 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
         equip=equipper(_weapon_stats()),
         rules=build_rules(),
     )
-    result = yield StartCombat(
-        sides=scenario.sides,
-        grid=scenario.grid,
-        rules=scenario.rules,
-        dir_memory=scenario.dir_memory,
-    )
+    # U6: the whole payload rides one field (amendment A6); StartCombat unpacks it.
+    result = yield StartCombat(scenario=scenario)
     # Outcome narration (KTD-1: the invoking handler's job -- _run_combat yields no
     # final screen). Shared with kdh.py/upkeep.py's own fights (narrate_combat_outcome
     # -- ShowMessage's (key, params) shape means the generic client renderer resolves

@@ -81,6 +81,7 @@ __all__ = [
     "AiTarget",
     "ai_target",
     "CombatFight",
+    "CombatView",
 ]
 
 # --------------------------------------------------------------------------- #
@@ -488,7 +489,7 @@ class AiTarget:
         return self.abs_dy * GRID_COLS + self.abs_dx
 
 
-def ai_target(fight: "CombatFight") -> AiTarget | None:
+def ai_target(fight: "CombatFight | CombatView") -> AiTarget | None:
     """Pick the active fighter's target the way ``cr`` (``$C000``) does.
 
     **The metric.** The disassembly's runtime-confirmed ``$ECF0`` table holds multiples
@@ -543,6 +544,76 @@ def ai_target(fight: "CombatFight") -> AiTarget | None:
             if best is None or candidate.distance < best.distance:
                 best = candidate
     return best
+
+
+# --------------------------------------------------------------------------- #
+# CombatView — the read-only argument every non-human driver receives (U6)     #
+# --------------------------------------------------------------------------- #
+class CombatView:
+    """A read-only window onto a :class:`CombatFight`, handed to a decision driver.
+
+    Once :meth:`CombatFight.ai_decide` cannot execute (U6 split choice from
+    mutation), handing a driver the mutable fight is both unnecessary and an
+    invitation: a driver could call ``shoot`` directly and bypass the single
+    apply-block the loop routes every action through, breaking recording (U7)
+    silently. A driver receives THIS instead — it exposes exactly what a decision
+    reads (``sides``, ``grid``, ``active_side``, ``active_fighter``, ``active``,
+    ``hostile_to``, and the per-combatant equipment lookup) and **no mutators**:
+    ``shoot`` / ``try_move`` / ``advance_activation`` are absent from its surface,
+    so a driver handed a view is structurally unable to move the fight.
+
+    It is a thin, non-copying wrapper: every read delegates to the live fight, so a
+    view built once and consulted twice reflects the fight as it stands. Because it
+    holds no mutators, that is safe — nothing a driver can call through the view
+    changes the fight.
+
+    :func:`ai_target` reads only this surface (``active``/``hostile_to``/
+    ``active_side``/``sides``), so it accepts a view unchanged. ``rng`` and
+    ``is_melee``/``equipment_range`` are exposed too, because the CPU decision
+    (:meth:`CombatFight.ai_decide`) consults them to pick move-vs-shoot — reads,
+    never writes.
+    """
+
+    __slots__ = ("_fight",)
+
+    def __init__(self, fight: "CombatFight") -> None:
+        self._fight = fight
+
+    @property
+    def sides(self) -> tuple[tuple[Fighter, ...], tuple[Fighter, ...]]:
+        return self._fight.sides
+
+    @property
+    def grid(self) -> tuple[int, ...]:
+        return self._fight.grid
+
+    @property
+    def active_side(self) -> int:
+        return self._fight.active_side
+
+    @property
+    def active_fighter(self) -> int:
+        return self._fight.active_fighter
+
+    @property
+    def active(self) -> Fighter:
+        return self._fight.active
+
+    @property
+    def rng(self) -> Any:
+        return self._fight._rng
+
+    def hostile_to(self, side: int) -> tuple[int, ...]:
+        return self._fight.hostile_to(side)
+
+    def equipment_stats(self, combatant: Fighter) -> Mapping[str, int]:
+        return self._fight.equipment_stats(combatant)
+
+    def equipment_range(self, combatant: Fighter) -> int:
+        return self._fight.equipment_range(combatant)
+
+    def is_melee(self, combatant: Fighter) -> bool:
+        return self._fight.is_melee(combatant)
 
 
 # --------------------------------------------------------------------------- #
@@ -807,8 +878,9 @@ class CombatFight:
 
     def _commit_step(self, step: int) -> bool:
         """Validate one linear step and commit it if legal; shared by :meth:`try_move`
-        and :meth:`_ai_step`, which layer their own pre/post rules (direction memory)
-        around this common validate-then-``_replace_fighter`` core.
+        and :meth:`apply_action`'s move branch, which layer their own pre/post rules
+        (direction memory, for an AI move) around this validate-then-``_replace_fighter``
+        core.
         """
         if step not in STEPS:
             return False
@@ -901,6 +973,158 @@ class CombatFight:
         }
 
     # -- the CPU decision layer (mf-prg.bas:30400-30492) -------------------- #
+    def view(self) -> "CombatView":
+        """A read-only :class:`CombatView` onto this fight, for a decision driver.
+
+        The seam U6 opened between *choosing* an action and *applying* it: a driver
+        (:meth:`ai_decide`, a policy callable) receives one of these — never the
+        mutable fight — so it can read the board but cannot bypass the loop's single
+        apply-block (which would break U7's recording).
+        """
+        return CombatView(self)
+
+    def ai_decide(self, view: "CombatView") -> tuple[str, Any]:
+        """Choose one CPU action WITHOUT executing it — the pure half of the AI.
+
+        This is :meth:`ai_take_turn` with its one mutation removed: it returns the
+        action the CPU would take as an ``(action, argument)`` pair in the engine's
+        own vocabulary — ``("shoot", direction)``, ``("move", step)``, or
+        ``("pass", None)`` — and touches nothing. The loop's single apply-block (or
+        the :meth:`ai_take_turn` wrapper) then executes it, so a shot is fired exactly
+        ONCE, at one site, whoever chose it. Wiring a chooser that *also* executed
+        behind that apply-block would fire every shot twice — the concrete bug this
+        split exists to prevent.
+
+        Ports the decision logic of ``mf-prg.bas:30400-30492`` (see :meth:`ai_take_turn`
+        for the line-by-line reading); the only difference from the pre-split code is
+        that the move branch returns the CHOSEN step instead of committing it, and the
+        shoot branch returns the direction instead of calling :meth:`shoot`.
+
+        ``view`` is this fight's :class:`CombatView`; it is accepted as an argument
+        (rather than read off ``self``) so a driver's decision is expressed purely in
+        terms of the read-only surface — the same surface a second game's AI plugs into.
+
+        **Purity.** Called twice on the same board it returns the same choice and
+        leaves the fight untouched: it writes no position, no vitality, no ``down``
+        flag, and — unlike the executing move path — no direction memory. The
+        ``30415`` coin flip DOES draw from the rng when the target is not near-adjacent
+        and the fighter is ranged, so "pure" means "does not mutate the fight", not
+        "does not advance a stateful rng"; a caller wanting a repeatable probe seeds a
+        fresh rng or uses a zero-variance weapon.
+        """
+        target = ai_target(view)
+        if target is None:
+            # Unreachable from real play: 30106's victory check fires before 30110.
+            return ("pass", None)
+
+        # 30410: near-adjacent -> attack branch, WITHOUT drawing the 30415 roll.
+        near_adjacent = target.abs_dx == 1 or target.abs_dy == 1
+        if not near_adjacent:
+            # 30415: 50% roll OR a melee weapon forces the close-distance branch.
+            melee = view.is_melee(view.active)
+            forced_move = view.rng.range(2) == 0 if view.rng is not None else False
+            if forced_move or melee:
+                return self._ai_choose_step(view, target)
+
+        # 30420/30421/30425: fire only along a shared column or row.
+        if target.x == 0:
+            direction = target.y  # 30420: x=y, fire vertically
+        elif target.y != 0:
+            return self._ai_choose_step(view, target)  # 30421: diagonal -> close distance
+        else:
+            direction = target.x  # 30425: row-aligned, fire horizontally
+
+        if direction == 0:
+            # Degenerate: attacker and target share a cell (impossible in play).
+            return ("pass", None)
+        return ("shoot", direction)
+
+    def _ai_choose_step(self, view: "CombatView", target: AiTarget) -> tuple[str, Any]:
+        """The move ROUTINE ``mf-prg.bas:30450-30465`` as a pure chooser.
+
+        Returns the step it WOULD commit (``("move", step)``) instead of committing it,
+        or ``("pass", None)`` when the fighter is boxed in (``30465``'s bare return). No
+        position write, no direction-memory write — the loop's apply path does both, via
+        :meth:`apply_action` with ``record_dir_memory=True`` (which reproduces the old
+        ``30491``/``30492`` commit-and-record on the successful step).
+
+        The four attempts run in the source's exact order, each gated on direction
+        memory: horizontal approach (``30450``), vertical approach (``30451``), then the
+        perpendicular sidesteps (``30455``-``30462``) that unstick a fighter walking into
+        a wall — ``30455`` sends it perpendicular to the approach axis it just failed.
+        """
+        # 30450 then 30451: the two approach steps, horizontal first.
+        for step in (target.x, target.y):
+            if step != 0 and self._ai_step_available(view, step):
+                return ("move", step)
+
+        # 30455: perpendicular-sidestep gate (see _dir_memory_allows for the ri(f) rule).
+        horizontal_available = target.x != 0 and self._dir_memory_allows(target.x)
+        if horizontal_available:
+            sidesteps: tuple[int, ...] = (STEP_DOWN, STEP_UP)  # 30461, 30462
+            if target.y != 0 and self._dir_memory_allows(target.y):
+                sidesteps = ()  # 30460: both approach axes tried -> exit
+        else:
+            sidesteps = (STEP_RIGHT, STEP_LEFT)  # 30456, 30457
+
+        for step in sidesteps:
+            if self._ai_step_available(view, step):
+                return ("move", step)
+
+        # 30465: boxed in — the activation is spent with no step taken.
+        return ("pass", None)
+
+    def _ai_step_available(self, view: "CombatView", step: int) -> bool:
+        """Would an AI step commit ``step``? — the ``30490`` gates, but no mutation.
+
+        Direction-memory guard (``30450``-``30462`` + ``30490``) and the walkability
+        test (``30490``, :func:`can_move_onto` including fighter occupancy), with NO
+        commit and NO ``ri(f)`` write. The pure predicate behind :meth:`ai_decide`.
+        """
+        if step not in STEPS:
+            return False
+        if not self._dir_memory_allows(step):
+            return False
+        fighter = self.active
+        target = fighter.position + step
+        return can_move_onto(target, self._grid, self.occupied(exclude=fighter))
+
+    def apply_action(self, action: str, argument: Any, *, record_dir_memory: bool = False) -> Any:
+        """Execute ONE chosen action against the fight — the single mutation site.
+
+        Whoever chose the action — a human via :func:`_parse_combat_response`, the AI
+        via :meth:`ai_decide`, a policy driver — the loop applies it HERE, so a shot
+        mutates exactly once. Returns a small, action-specific value the caller
+        narrates/advances on:
+
+        - ``"shoot"`` -> the :meth:`shoot` result dict (``hit``/``damage``/``downed``…).
+        - ``"move"``  -> ``True`` iff the step was legal and committed (``False`` re-prompts
+          a HUMAN; an AI's step is pre-validated so this is always ``True`` for it).
+        - ``"pass"``  -> ``None`` (the activation is spent with no board change).
+        - ``"surrender"`` -> the winning (opposing) side (:meth:`surrender`).
+        - anything else -> ``"__unknown__"`` so a human re-prompts (``30139``).
+
+        ``record_dir_memory`` (set for AI/policy moves) performs the ``30492``
+        ``ri(f)=p`` write on a committed step, so an AI move driven through THIS
+        apply-block behaves identically to the pre-split executing move path — which is
+        what keeps ``tests/test_combat_ai.py`` green on the split with no edits. A HUMAN
+        move never records direction memory (it is keyed by fighter index and read only
+        by the AI, so a human write on side 1 would corrupt the AI's side-2
+        memory).
+        """
+        if action == "surrender":
+            return self.surrender()
+        if action == "pass":
+            return None
+        if action == "shoot":
+            return self.shoot(argument)
+        if action == "move":
+            committed = self.try_move(argument)
+            if committed and record_dir_memory:
+                self.dir_memory[self.active_fighter - 1] = argument  # 30492: ri(f)=p
+            return committed
+        return "__unknown__"
+
     def ai_take_turn(self) -> dict:
         """Run one CPU activation: pick a target, then attack or move.
 
@@ -937,105 +1161,32 @@ class CombatFight:
         and takes no step (``30465``'s bare ``return``, then ``30110``'s
         ``gosub30400:goto30105``). Advancing the cursor is the driver's job, not this
         method's — mirroring how :meth:`try_move` and :meth:`shoot` leave it alone.
+
+        **Now a thin wrapper (U6).** This is exactly :meth:`ai_decide` (the pure
+        choice) followed by :meth:`apply_action` (the one mutation), so the decision
+        logic lives in ONE place and every driver — this wrapper, the loop's
+        dispatcher — executes through the SAME apply-block, firing a shot once. Kept
+        (rather than retired) so ``tests/test_combat_ai.py``'s direct callers migrate
+        with no edits: it returns the identical ``action``/``direction``/``result``/
+        ``target`` dict the pre-split method did.
         """
+        # ai_target is recomputed here only to fill the returned dict's ``target``
+        # field (the pre-split method's contract); ai_decide computes its own.
         target = ai_target(self)
-        idle = {"action": "none", "direction": None, "result": None, "target": target}
-        if target is None:
-            # Unreachable from real play: 30106's victory check fires before 30110.
-            return idle
-
-        # 30410: near-adjacent -> attack branch, WITHOUT drawing the 30415 roll.
-        near_adjacent = target.abs_dx == 1 or target.abs_dy == 1
-        if not near_adjacent:
-            # 30415: 50% roll OR a melee weapon forces the close-distance branch.
-            # The source spelled "melee" as ``orgw(...)<4``; a weapon that cannot
-            # out-reach a neighbour is the same set, without the id taxonomy.
-            melee = self.is_melee(self.active)
-            forced_move = self._rng.range(2) == 0 if self._rng is not None else False
-            if forced_move or melee:
-                return self._ai_move(target)
-
-        # 30420/30421/30425: fire only along a shared column or row.
-        if target.x == 0:
-            direction = target.y  # 30420: x=y, fire vertically
-        elif target.y != 0:
-            return self._ai_move(target)  # 30421: diagonal -> close distance
-        else:
-            direction = target.x  # 30425: row-aligned, fire horizontally
-
-        if direction == 0:
-            # Degenerate: attacker and target share a cell (impossible in play, since
-            # occupancy blocks it). Nothing sensible to fire at, so idle.
-            return idle
-        return {
-            "action": "shoot",
-            "direction": direction,
-            "result": self.shoot(direction),
-            "target": target,
-        }
-
-    def _ai_move(self, target: AiTarget) -> dict:
-        """The AI move routine ``mf-prg.bas:30450-30465``.
-
-        Four step attempts, in the source's exact order, each gated on direction memory
-        and each ending the activation the moment one commits:
-
-        1. ``30450`` — the horizontal step toward the target (``p=x``).
-        2. ``30451`` — the vertical step toward the target (``p=y``).
-        3. ``30455``/``30460`` — the retry gates. ``30455`` reads *"if a horizontal
-           approach is still available, branch to the VERTICAL sidesteps at 30460;
-           else fall into the horizontal ones at 30456"*. The gate deliberately sends
-           the fighter **perpendicular** to the approach it already failed — that is
-           what unsticks it from a wall it is walking into.
-        4. ``30456``/``30457`` or ``30461``/``30462`` — the two perpendicular sidesteps.
-
-        **Direction memory** (``ri(f)``, seeded to -1 at ``30020``, written at ``30492``)
-        forbids exactly one step per attempt: the exact reverse of the last committed
-        step. The approach gates spell it as ``ri(f)<>(1+2*(x=1))`` (``30450``) and
-        ``ri(f)<>(40+80*(y=1))`` (``30451``); both reduce to ``ri(f) <> -p``. The four
-        sidestep lines state the SAME rule with literal constants and no relational at
-        all — ``30456`` guards ``p=1`` with ``ri(f)<>-1``, ``30457`` guards ``p=-1``
-        with ``ri(f)<>1``, ``30461`` guards ``p=40`` with ``ri(f)<>-40``, ``30462``
-        guards ``p=-40`` with ``ri(f)<>40``. Those literals are the proof: the rule is
-        "never step the exact reverse of your last step", and this port encodes it once
-        (:meth:`_ai_step`) rather than re-deriving the relational per site.
-
-        (Relational-sign note, per docs/solutions/architecture-patterns/
-        basic-relational-boolean-is-plus-one-when-porting.md: the four literal sidestep
-        guards pin the rule independently of any sign convention, and the C64
-        ``true = -1`` evaluation agrees with them — it makes ``1+2*(x=1)`` equal
-        ``-x``, the exact reverse of the last step. The since-reversed ``true=+1``
-        pin would have yielded the nonsensical ``3`` for a rightward step and an
-        asymmetric ``1`` for a leftward one. This site was one of the five conflicts
-        that prompted the #47 audit; it is now simply consistent with the convention.)
-
-        The seed value ``ri=-1`` (``30020``) is not neutral: it is a real leftward step,
-        so a freshly-spawned enemy will not open the fight by stepping right. That is
-        the original's behaviour, faithfully kept.
-        """
-        # 30450 then 30451: the two approach steps, horizontal first.
-        for step in (target.x, target.y):
-            if step != 0 and self._ai_step(step):
-                return {"action": "move", "direction": step, "result": None, "target": target}
-
-        # 30455: if the horizontal approach was AVAILABLE (x<>0 and not reverse-blocked)
-        # but failed, branch to the VERTICAL sidesteps; otherwise take the horizontal
-        # ones. The gate tests availability, not success — it is reached only on failure.
-        horizontal_available = target.x != 0 and self._dir_memory_allows(target.x)
-        if horizontal_available:
-            sidesteps = (STEP_DOWN, STEP_UP)  # 30461, 30462
-            # 30460: with a vertical approach also available, skip straight to the exit
-            # at 30465 — the fighter has already tried both approach axes.
-            if target.y != 0 and self._dir_memory_allows(target.y):
-                sidesteps = ()
-        else:
-            sidesteps = (STEP_RIGHT, STEP_LEFT)  # 30456, 30457
-
-        for step in sidesteps:
-            if self._ai_step(step):
-                return {"action": "move", "direction": step, "result": None, "target": target}
-
-        # 30465: boxed in — the activation is spent with no step taken.
+        action, argument = self.ai_decide(self.view())
+        if action == "shoot":
+            return {
+                "action": "shoot",
+                "direction": argument,
+                "result": self.apply_action("shoot", argument),
+                "target": target,
+            }
+        if action == "move":
+            # An AI move records direction memory (30492) on a committed step.
+            self.apply_action("move", argument, record_dir_memory=True)
+            return {"action": "move", "direction": argument, "result": None, "target": target}
+        # ai_decide's ("pass", None) is the pre-split "none" outcome — no target, a
+        # degenerate direction, or a boxed-in fighter (30465). No board change.
         return {"action": "none", "direction": None, "result": None, "target": target}
 
     def _dir_memory_allows(self, step: int) -> bool:
@@ -1044,39 +1195,31 @@ class CombatFight:
         The rule the four literal guards at ``30456``/``30457``/``30461``/``30462`` pin:
         ``ri(f) <> -p``. A fighter with no recorded step yet carries the ``30020`` seed
         ``-1``, which forbids a rightward step on its very first activation.
+
+        **Direction memory** (``ri(f)``, seeded to -1 at ``30020``, written at ``30492``
+        — reproduced by :meth:`apply_action`'s ``record_dir_memory`` on a committed AI
+        move) forbids exactly one step per attempt: the exact reverse of the last
+        committed step. The approach gates spell it as ``ri(f)<>(1+2*(x=1))`` (``30450``)
+        and ``ri(f)<>(40+80*(y=1))`` (``30451``); both reduce to ``ri(f) <> -p``. The
+        four sidestep lines state the SAME rule with literal constants — ``30456``
+        guards ``p=1`` with ``ri(f)<>-1``, ``30457`` guards ``p=-1`` with ``ri(f)<>1``,
+        ``30461`` guards ``p=40`` with ``ri(f)<>-40``, ``30462`` guards ``p=-40`` with
+        ``ri(f)<>40``. Those literals are the proof: the rule is "never step the exact
+        reverse of your last step", encoded once here rather than re-derived per site.
+
+        (Relational-sign note, per docs/solutions/architecture-patterns/
+        basic-relational-boolean-is-plus-one-when-porting.md: the four literal sidestep
+        guards pin the rule independently of any sign convention, and the C64
+        ``true = -1`` evaluation agrees with them — it makes ``1+2*(x=1)`` equal ``-x``,
+        the exact reverse of the last step. The since-reversed ``true=+1`` pin would have
+        yielded the nonsensical ``3`` for a rightward step. This was one of the five
+        conflicts that prompted the #47 audit; it is now consistent with the convention.)
+
+        The seed value ``ri=-1`` (``30020``) is not neutral: it is a real leftward step,
+        so a freshly-spawned enemy will not open the fight by stepping right. That is the
+        original's behaviour, faithfully kept.
         """
         return self.dir_memory.get(self.active_fighter - 1, -1) != -step
-
-    def _ai_step(self, step: int) -> bool:
-        """One gated, validated AI step — ``30490``/``30491``/``30492`` in one call.
-
-        Returns whether the step committed. Three things must hold, in this order:
-
-        1. the direction-memory guard (:meth:`_dir_memory_allows`) — checked by the
-           CALLER lines ``30450``-``30462`` before they ever ``gosub30490``, and
-           re-checked here so no call site can forget it;
-        2. ``30490``'s validity test — ``q<0 or q>520`` or the target cell is not
-           walkable (``peek(br+q)`` neither 32 nor 96), which is the same movement
-           obstruction set :func:`can_move_onto` owns, including fighter occupancy
-           (in the source another fighter's cell holds char 193, failing the 32/96 test);
-        3. on success, ``30491`` commits the position and ``30492`` records
-           ``ri(f)=p``.
-
-        On the ``p``-as-flag idiom: ``30490`` returns with ``p`` still holding the
-        attempted step (non-zero) when the cell is rejected, while ``30492`` clears
-        ``p=0`` after committing. Every call site then reads ``ifp=0thenreturn`` — so
-        ``p=0`` means *"the step succeeded, end the activation"* and a non-zero ``p``
-        means *"blocked, fall through to the next attempt"*. Reading that idiom
-        backwards inverts the whole routine, which is why it is spelled out here.
-        """
-        if step not in STEPS:
-            return False
-        if not self._dir_memory_allows(step):
-            return False
-        if not self._commit_step(step):
-            return False
-        self.dir_memory[self.active_fighter - 1] = step  # 30492: ri(f)=p
-        return True
 
     def surrender(self) -> int:
         """The active side gives up; return the winning (opposing) side.

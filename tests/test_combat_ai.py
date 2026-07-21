@@ -36,8 +36,8 @@ from engine.combat import (
     STEP_UP,
     ai_target,
 )
-from engine.interactions import CombatScreen, StartCombat, run
-from tests.helpers import WEAPON_TABLE, StubRng, build_fight
+from engine.interactions import CombatScreen
+from tests.helpers import WEAPON_TABLE, StubRng, build_fight, run_fight
 from tests.helpers import combat_fighter as _f
 
 # --------------------------------------------------------------------------- #
@@ -705,19 +705,15 @@ def _ai_spec(**kw):
 
 def test_the_driver_never_prompts_the_client_for_the_cpu_side():
     """30110: `ifks(s)=0thengosub30400:goto30105` — the CPU side runs the AI
-    routine INSTEAD of the key read at 30125."""
+    routine INSTEAD of the key read at 30125. Driven through run_fight (U6, R14)."""
     prompted_sides = []
-
-    def handler(ctx):
-        winner = yield StartCombat(**_ai_spec())
-        return winner
 
     def src(interaction):
         assert isinstance(interaction, CombatScreen)
         prompted_sides.append(interaction.active_side)
         return ("surrender", None)
 
-    run(handler, src, state=None, rng=_NeverMoveRng(1, 1, 0))
+    run_fight(**_ai_spec(), input_source=src, rng=_NeverMoveRng(1, 1, 0))
     assert prompted_sides == [1], "the client must only ever be asked for side 1"
 
 
@@ -726,39 +722,33 @@ def test_a_full_seeded_ai_vs_player_fight_reaches_a_winner():
     CPU fighter shoots it down. The fight must terminate with a winner."""
     from engine.rng import Rng
 
-    def handler(ctx):
-        result = yield StartCombat(
-            **_ai_spec(
-                sides=(
-                    (_f(name="hero", weapon=5, energie=20, position=_cell(5, 10)),),
-                    (_f(name="thug", weapon=5, energie=20, position=_cell(5, 20)),),
-                )
+    result = run_fight(
+        **_ai_spec(
+            sides=(
+                (_f(name="hero", weapon=5, energie=20, position=_cell(5, 10)),),
+                (_f(name="thug", weapon=5, energie=20, position=_cell(5, 20)),),
             )
-        )
-        return result.winner
-
-    result = run(handler, lambda i: ("pass", None), state=None, rng=Rng(seed=1234))
-    assert result.status == "completed"
-    assert result.payload.returned == 2, "the passive player should lose"
+        ),
+        input_source=lambda i: ("pass", None),
+        rng=Rng(seed=1234),
+    )
+    assert result.winner == 2, "the passive player should lose"
 
 
 def test_a_seeded_fight_where_the_player_fights_back_also_terminates():
     from engine.rng import Rng
 
-    def handler(ctx):
-        result = yield StartCombat(
-            **_ai_spec(
-                sides=(
-                    (_f(name="hero", weapon=6, energie=30, position=_cell(5, 10)),),
-                    (_f(name="thug", weapon=0, energie=10, position=_cell(5, 25)),),
-                )
+    result = run_fight(
+        **_ai_spec(
+            sides=(
+                (_f(name="hero", weapon=6, energie=30, position=_cell(5, 10)),),
+                (_f(name="thug", weapon=0, energie=10, position=_cell(5, 25)),),
             )
-        )
-        return result.winner
-
-    result = run(handler, lambda i: ("shoot", STEP_RIGHT), state=None, rng=Rng(seed=7))
-    assert result.status == "completed"
-    assert result.payload.returned in (1, 2)
+        ),
+        input_source=lambda i: ("shoot", STEP_RIGHT),
+        rng=Rng(seed=7),
+    )
+    assert result.winner in (1, 2)
 
 
 def test_cpu_sides_is_explicit_and_side_one_can_be_client_driven_only():
@@ -766,13 +756,9 @@ def test_cpu_sides_is_explicit_and_side_one_can_be_client_driven_only():
     colour-RAM encoding cr uses. An empty `cpu_sides` makes the fight hot-seat."""
     prompted = []
 
-    def handler(ctx):
-        winner = yield StartCombat(**_ai_spec(cpu_sides=()))
-        return winner
-
     def src(interaction):
         prompted.append(interaction.active_side)
         return ("surrender", None) if len(prompted) > 1 else ("pass", None)
 
-    run(handler, src, state=None, rng=_StubRng())
+    run_fight(**_ai_spec(cpu_sides=()), input_source=src, rng=_StubRng())
     assert prompted == [1, 2], "with no CPU side, both sides are prompted"

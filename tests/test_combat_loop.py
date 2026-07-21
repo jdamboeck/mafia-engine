@@ -36,7 +36,7 @@ from engine.interactions import (
     run,
 )
 from engine.state import CombatState
-from tests.helpers import WEAPON_TABLE, StubRng, build_fight
+from tests.helpers import WEAPON_TABLE, StubRng, build_fight, run_fight
 from tests.helpers import combat_fighter as _f
 
 # --------------------------------------------------------------------------- #
@@ -409,15 +409,10 @@ def _spec(**kw):
 
 
 def test_startcombat_no_longer_raises_and_resolves_with_a_winner():
-    def handler(ctx):
-        result = yield StartCombat(**_spec())
-        return result.winner
-
-    # shoot right -> hit -> thug (1 energy) drops -> side 1 wins.
-    src = _scripted_combat([("shoot", +1)])
-    result = run(handler, src, state=None, rng=_StubRng(1, 1, 0))
-    assert result.status == "completed"
-    assert result.payload.returned == 1
+    # shoot right -> hit -> thug (1 energy) drops -> side 1 wins. Driven through the
+    # shared run_fight helper (U6, R14).
+    result = run_fight(**_spec(), answers=[("shoot", +1)], rng=_StubRng(1, 1, 0))
+    assert result.winner == 1
 
 
 def test_combat_screen_is_yielded_each_activation_and_is_json_serializable():
@@ -469,14 +464,9 @@ def test_illegal_move_re_prompts_without_ending_the_activation():
 
 
 def test_quit_and_eof_are_treated_as_surrender_not_cancel():
-    def handler(ctx):
-        result = yield StartCombat(**_spec())
-        return result.winner
-
     # CANCEL at a combat prompt must NOT unwind the handler — it surrenders (KTD-2).
-    result = run(handler, lambda i: CANCEL, state=None, rng=_StubRng())
-    assert result.status == "completed"
-    assert result.payload.returned == 2  # side 1 surrendered -> side 2 wins
+    result = run_fight(**_spec(), input_source=lambda i: CANCEL, rng=_StubRng())
+    assert result.winner == 2  # side 1 surrendered -> side 2 wins
 
 
 def test_combat_effects_commit_with_the_invoking_handlers_effects():
@@ -560,10 +550,6 @@ def test_scripted_seeded_fight_has_a_deterministic_transcript():
 
     transcript = []
 
-    def handler(ctx):
-        result = yield StartCombat(**_spec(sides=sides))
-        return result.winner
-
     script = iter([("shoot", +1), ("shoot", +1)])
 
     def src(interaction):
@@ -572,10 +558,10 @@ def test_scripted_seeded_fight_has_a_deterministic_transcript():
 
     # Each shot: two hit-factor draws (both non-zero) + one damage draw (0 -> 1 damage).
     rng = _StubRng(1, 1, 0, 1, 1, 0)
-    result = run(handler, src, state=None, rng=rng)
+    result = run_fight(**_spec(sides=sides), input_source=src, rng=rng)
 
     assert transcript == [(1, 1, "action"), (1, 2, "action")]
-    assert result.payload.returned == 1
+    assert result.winner == 1
     assert rng.calls == [
         ("range", 5),
         ("range", 4),
@@ -606,16 +592,12 @@ def test_losses_are_visible_on_the_screen_that_follows_a_knockout():
     )
     screens = []
 
-    def handler(ctx):
-        winner = yield StartCombat(**_spec(sides=sides, cpu_sides=()))
-        return winner
-
     def src(interaction):
         screens.append(interaction.to_json())
         # First activation drops enemy x; then surrender to end the fight.
         return ("shoot", +1) if len(screens) == 1 else ("surrender", None)
 
-    run(handler, src, state=None, rng=_StubRng(1, 1, 0))
+    run_fight(**_spec(sides=sides, cpu_sides=()), input_source=src, rng=_StubRng(1, 1, 0))
     assert screens[0]["losses"] == [0, 0]
     assert screens[1]["losses"] == [0, 1]
     # The downed fighter is still present in the payload, flagged rather than removed.

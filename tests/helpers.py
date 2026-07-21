@@ -374,3 +374,81 @@ def build_fight(
         rng=rng,
         rules=build_rules() if rules is None else rules,
     )
+
+
+def run_fight(
+    *,
+    sides=None,
+    scenario=None,
+    grid=(),
+    rules=None,
+    dir_memory=None,
+    cpu_sides=None,
+    drivers=None,
+    input_source=None,
+    answers=None,
+    rng=None,
+    state=None,
+):
+    """Drive a fight end-to-end through the real driver and return its ``CombatResult``.
+
+    The single end-to-end driving entry for tests (R14): every driver-level combat test
+    goes through THIS, so a second driving path cannot let the suites drift. It wraps
+    the ``def handler(ctx): result = yield StartCombat(...); return result`` boilerplate
+    every such test used to spell by hand, yields exactly one :class:`StartCombat`, and
+    returns the :class:`~engine.combat.CombatResult` it resolves to.
+
+    ``build_fight`` (above) is untouched and still serves the direct ``CombatFight``
+    method tests; this is its driver-level sibling.
+
+    Provide the fight EITHER as a ready ``scenario`` (passed straight to
+    ``StartCombat(scenario=...)``) OR as ``sides``/``grid``/``rules``/``dir_memory``
+    (the legacy fields). ``cpu_sides``/``drivers`` select who drives each side, exactly
+    as on :class:`StartCombat`.
+
+    Supply the human-side responses as either:
+
+    - ``input_source`` — a full ``(interaction) -> response`` callable (for tests that
+      assert on the presented :class:`CombatScreen`), or
+    - ``answers`` — a flat list of combat responses answered in order (each
+      :class:`CombatScreen` consumes the next). A bare ``CANCEL`` in the list surrenders.
+
+    With neither, a lone ``CANCEL``-answering source is used (a human side surrenders on
+    the first prompt) — convenient for headless AI-vs-AI fights that never prompt.
+    """
+    from engine.interactions import CANCEL, CombatScreen, StartCombat, run
+
+    if input_source is None:
+        if answers is not None:
+            it = iter(answers)
+
+            def input_source(interaction):  # noqa: A001 - deliberate rebind
+                if isinstance(interaction, CombatScreen):
+                    return next(it)
+                raise AssertionError(f"unexpected interaction {interaction!r}")
+        else:
+
+            def input_source(interaction):  # noqa: A001 - deliberate rebind
+                return CANCEL
+
+    spec = {}
+    if scenario is not None:
+        spec["scenario"] = scenario
+    else:
+        spec.update(sides=sides if sides is not None else ((), ()), grid=grid, rules=rules)
+        if dir_memory is not None:
+            spec["dir_memory"] = dir_memory
+    if cpu_sides is not None:
+        spec["cpu_sides"] = cpu_sides
+    if drivers is not None:
+        spec["drivers"] = drivers
+
+    captured = {}
+
+    def handler(ctx):
+        captured["result"] = yield StartCombat(**spec)
+        return captured["result"]
+
+    engine_result = run(handler, input_source, state=state, rng=rng)
+    captured["engine_result"] = engine_result
+    return captured["result"]

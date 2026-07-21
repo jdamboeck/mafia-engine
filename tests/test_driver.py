@@ -28,12 +28,11 @@ from engine.interactions import (
     PromptChoice,
     PromptInt,
     ShowMessage,
-    StartCombat,
     run,
 )
 from engine.state import Clock, Fighter, GameState, MapState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import run_pure, scripted
+from tests.helpers import run_fight, run_pure, scripted
 
 
 # --------------------------------------------------------------------------- #
@@ -184,21 +183,16 @@ def test_startcombat_runs_the_combat_sub_protocol_and_returns_a_winner():
 
     Kept here (rather than deleted) as the driver-level regression that the
     ``StartCombat`` branch is wired at all: a surrender resolves the fight and
-    sends the winning side back into the handler.
+    sends the winning side back into the handler. Driven through the shared
+    ``run_fight`` helper (U6, R14) — the single end-to-end driving path.
     """
-    got = {}
-
-    def handler(ctx):
-        got["winner"] = yield StartCombat(
-            sides=((Fighter(name="hero", position=10),), (Fighter(name="thug", position=300),)),
-        )
-        return []
-
     # A combat prompt is non-cancellable: CANCEL is a surrender (KTD-2), so side 1
-    # gives up and side 2 wins.
-    run(handler, lambda interaction: CANCEL)
-    # StartCombat yields a CombatResult (U3), not a bare winner int.
-    assert got["winner"].winner == 2
+    # gives up and side 2 wins. StartCombat resolves to a CombatResult (U3), not an int.
+    result = run_fight(
+        sides=((Fighter(name="hero", position=10),), (Fighter(name="thug", position=300),)),
+        input_source=lambda interaction: CANCEL,
+    )
+    assert result.winner == 2
 
 
 def test_loadsubstate_unknown_kind_raises_value_error():
