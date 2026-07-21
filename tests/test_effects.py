@@ -262,6 +262,17 @@ def test_stat_change_unknown_stat_raises_value_error():
         apply(state, StatChange("charisma", 5))
 
 
+def test_stat_change_rejects_energie_which_is_the_vitality_slot():
+    """``energie`` is the ``vitality`` SLOT (A4), not an ``attrs`` key — so it is not a
+    valid ``StatChange`` target. Before the fix it passed validation (it was still in
+    ``_STAT_NAMES``) and then ``KeyError``ed on ``attrs["energie"]``; the vitality
+    resource is changed via ``EnergyChange`` instead.
+    """
+    state = make_state()
+    with pytest.raises(ValueError, match="energie"):
+        apply(state, StatChange("energie", 5))
+
+
 def test_stat_change_targets_the_right_gangster_index():
     state = _with_second_gangster(make_state(), Gangster(name="g0b", brutalitaet=1))
     out = apply(state, StatChange("brutalitaet", 7, gangster=1))

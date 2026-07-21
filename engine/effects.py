@@ -39,8 +39,13 @@ from engine.state import Combatant, GameState, Job, tuple_replace
 #: this module-level constant via its class-level ``SCHEMA_VERSION`` attribute.
 SCHEMA_VERSION = 1
 
-#: The gangster stat names a :class:`StatChange` may target (mirrors ``Gangster`` fields).
-_STAT_NAMES = ("energie", "kraft", "intelligenz", "brutalitaet")
+#: The attribute keys a :class:`StatChange` may target — the ``attrs``-backed stats.
+#: ``energie`` is NOT here (U2, amendment A4): it is the ``vitality`` SLOT, changed by
+#: :class:`EnergyChange`, not an ``attrs`` key. A ``StatChange(stat="energie")`` would
+#: pass a stale validation and then ``KeyError`` on ``attrs["energie"]`` — so the
+#: validation set and the write path must agree that ``energie`` is not a StatChange
+#: target. (Step 8 will make this list config-declared rather than engine-hardcoded.)
+_STAT_NAMES = ("kraft", "intelligenz", "brutalitaet")
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -713,7 +718,8 @@ def _apply(state: GameState, effect: Any) -> GameState:
         g = _gangster_at(state, idx, effect.gangster)
         raised = g.attrs[effect.stat] + effect.amount
         # cap/floor are config-supplied (KTD-10) — the engine hardcodes no 99.
-        capped = _clamp(raised, effect.floor, effect.cap)
+        # int(): _clamp is generic over int|float; a stat is always an int here.
+        capped = int(_clamp(raised, effect.floor, effect.cap))
         return _with_gangster_attr(state, idx, effect.gangster, effect.stat, capped)
 
     if isinstance(effect, AssignWeapon):
