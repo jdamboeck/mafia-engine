@@ -32,7 +32,8 @@ from engine.events import (
 )
 from engine.interactions import CANCEL, Confirm, PromptInt, ShowMessage
 from engine.locations import Location, Option
-from engine.state import Clock, Config, Gangster, GameState, MapState, Player, freeze
+from engine.state import Clock, Config, GameState, MapState, Player, freeze
+from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import scripted as _scripted
 
 

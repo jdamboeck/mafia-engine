@@ -16,11 +16,11 @@ from engine.state import (
     Flags,
     GameState,
     MapState,
-    Gangster,
     Player,
     Wanted,
     json_safe,
 )
+from data.game_configs.mafia_1920s.gangster import Gangster
 
 
 def test_gamestate_default_construction():

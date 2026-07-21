@@ -30,7 +30,8 @@ from engine.config_loader import load_game_config
 from engine.effects import EnergyChange, JobClear, JobSet, MoneyChange, MsChange
 from engine.locations import HANDLERS
 from engine.rng import Rng
-from engine.state import Clock, Config, Gangster, GameState, Job, Player
+from engine.state import Clock, Config, GameState, Job, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"

@@ -25,7 +25,8 @@ from engine.effects import (
 )
 from engine.locations import HANDLERS
 from engine.rng import Rng
-from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
+from engine.state import Business, Clock, Config, Debt, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.upkeep import UPKEEP_HANDLER_KEY
 from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
 

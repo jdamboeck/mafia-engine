@@ -32,7 +32,7 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
-from engine.state import Gangster, GameState, Job, tuple_replace
+from engine.state import Combatant, GameState, Job, tuple_replace
 
 #: Schema version stamped on every effect (KTD-6). Bump when an effect's fields change
 #: in a way that a replay of an OLD log would need to know about; each effect references
@@ -588,7 +588,7 @@ def _with_player(state: GameState, idx: int, **field_changes) -> GameState:
     return replace(state, players=tuple_replace(state.players, idx, new_player))
 
 
-def _gangster_at(state: GameState, idx: int, g_idx: int) -> Gangster:
+def _gangster_at(state: GameState, idx: int, g_idx: int) -> Combatant:
     """Return player ``idx``'s gangster ``g_idx``, range-checked.
 
     Every gangster-targeting effect needs the same guard before reading a stat off
@@ -608,13 +608,27 @@ def _gangster_at(state: GameState, idx: int, g_idx: int) -> Gangster:
 def _with_gangster(state: GameState, idx: int, g_idx: int, **field_changes) -> GameState:
     """Return a new ``GameState`` with player ``idx``'s gangster ``g_idx`` updated.
 
-    One level deeper than :func:`_with_player`: rebuild the ``Gangster``, swap it into
+    One level deeper than :func:`_with_player`: rebuild the roster member, swap it into
     a rebuilt roster, then delegate the player/state rebuild to :func:`_with_player`.
     The index is range-checked via :func:`_gangster_at` so no caller can skip the
-    guard and write to a wrapped-around index.
+    guard and write to a wrapped-around index. Used for blueprint fields the engine
+    DOES name (``weapon``); stat writes go through :func:`_with_gangster_attr`.
     """
     player = state.players[idx]
     new_gangster = replace(_gangster_at(state, idx, g_idx), **field_changes)
+    return _with_player(state, idx, roster=tuple_replace(player.roster, g_idx, new_gangster))
+
+
+def _with_gangster_attr(state: GameState, idx: int, g_idx: int, name: str, value: int) -> GameState:
+    """Return a new ``GameState`` with roster member ``g_idx``'s ``attrs[name]`` set.
+
+    The stat-name-free write path (U2, amendment A4): ``name`` is data, never a field
+    the engine spells. :meth:`~engine.state.Combatant.with_attr` keeps a config
+    ``Gangster``'s named field in sync; a loaded bare ``Combatant`` carries the value
+    in ``attrs`` alone.
+    """
+    player = state.players[idx]
+    new_gangster = _gangster_at(state, idx, g_idx).with_attr(name, value)
     return _with_player(state, idx, roster=tuple_replace(player.roster, g_idx, new_gangster))
 
 
@@ -687,17 +701,20 @@ def _apply(state: GameState, effect: Any) -> GameState:
         _validate_stat(effect.stat)
         idx = _target_index(state, effect.player)
         g = _gangster_at(state, idx, effect.gangster)
-        raised = getattr(g, effect.stat) + effect.amount
-        return _with_gangster(state, idx, effect.gangster, **{effect.stat: raised})
+        # Read and write the stat through attrs, never a named field: the engine spells
+        # no stat name (U2, amendment A4). with_attr keeps a config Gangster's named
+        # field in sync; a loaded bare Combatant carries it in attrs only.
+        raised = g.attrs[effect.stat] + effect.amount
+        return _with_gangster_attr(state, idx, effect.gangster, effect.stat, raised)
 
     if isinstance(effect, StatChangeCapped):
         _validate_stat(effect.stat)
         idx = _target_index(state, effect.player)
         g = _gangster_at(state, idx, effect.gangster)
-        raised = getattr(g, effect.stat) + effect.amount
+        raised = g.attrs[effect.stat] + effect.amount
         # cap/floor are config-supplied (KTD-10) — the engine hardcodes no 99.
         capped = _clamp(raised, effect.floor, effect.cap)
-        return _with_gangster(state, idx, effect.gangster, **{effect.stat: capped})
+        return _with_gangster_attr(state, idx, effect.gangster, effect.stat, capped)
 
     if isinstance(effect, AssignWeapon):
         idx = _target_index(state, effect.player)
@@ -741,8 +758,11 @@ def _apply(state: GameState, effect: Any) -> GameState:
         # en=en+int(kr/10)+1 (mf-prg.bas:4015), capped at [0, cap] (:4020's ifen>xthenen=x
         # is an upper clamp only in the source; a floor of 0 is the engine's own sane
         # bound — energie has no documented negative-regen path this unit).
-        raised = _clamp(g.energie + effect.amount, 0, effect.cap)
-        return _with_gangster(state, idx, effect.gangster, energie=raised)
+        # The depleting resource is the engine's ``vitality`` SLOT (U2, amendment A4) —
+        # a named blueprint field, not an attr. The engine spells the role, never this
+        # game's "energie".
+        raised = int(_clamp(g.vitality + effect.amount, 0, effect.cap))
+        return _with_gangster(state, idx, effect.gangster, vitality=raised)
 
     if isinstance(effect, RankCommit):
         idx = _target_index(state, effect.player)

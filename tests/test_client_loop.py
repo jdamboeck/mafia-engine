@@ -369,7 +369,8 @@ class TestPubTipThroughClient:
     """
 
     def _state(self, *, rank=4, ka=100000):
-        from engine.state import Clock, Config, Gangster, GameState, Player
+        from engine.state import Clock, Config, GameState, Player
+        from data.game_configs.mafia_1920s.gangster import Gangster
 
         return GameState(
             players=(
@@ -431,7 +432,8 @@ class TestPubRecruitThroughClient:
     """
 
     def _state(self, *, rank=5, ka=100000, housed=True):
-        from engine.state import Clock, Config, Flags, Gangster, GameState, MapState, Player
+        from engine.state import Clock, Config, Flags, GameState, MapState, Player
+        from data.game_configs.mafia_1920s.gangster import Gangster
 
         return GameState(
             players=(
@@ -551,7 +553,8 @@ class TestJobShiftThroughClient:
         SAME scenario one level up, on the real terminal input protocol."""
         from engine.interactions import run as run_handler
         from engine.rng import Rng
-        from engine.state import Clock, Config, Gangster, GameState, Job, Player
+        from engine.state import Clock, Config, GameState, Job, Player
+        from data.game_configs.mafia_1920s.gangster import Gangster
         from engine.strings import Resolver
 
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
@@ -755,7 +758,8 @@ class TestKdhLocationThroughClient:
         }
 
     def _state(self, **overrides):
-        from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
+        from engine.state import Business, Clock, Config, Debt, GameState, Player
+        from data.game_configs.mafia_1920s.gangster import Gangster
 
         return GameState(
             players=(
@@ -1324,7 +1328,8 @@ class TestDebtDefaultThroughClient:
         }
 
     def _state(self, **overrides):
-        from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
+        from engine.state import Business, Clock, Config, Debt, GameState, Player
+        from data.game_configs.mafia_1920s.gangster import Gangster
 
         return GameState(
             players=(

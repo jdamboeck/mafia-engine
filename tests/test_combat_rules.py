@@ -151,46 +151,53 @@ def test_bundle_declares_this_games_roles():
 # --------------------------------------------------------------------------- #
 # attrs coherence — the failure that stays green until step 6 (U2 step 3)     #
 # --------------------------------------------------------------------------- #
-def test_replace_regenerates_attrs_so_the_two_copies_cannot_drift():
-    """``dataclasses.replace`` updates the named field; ``attrs`` must follow it.
+def test_stats_are_single_sourced_and_survive_a_replace():
+    """A stat lives in exactly ONE place, so a rebuild cannot leave a stale copy.
 
-    This is the dual-write hazard U2's plan calls out: ``effects._with_gangster``
-    rebuilds through ``replace``, which touches the NAMED field only. If ``attrs``
-    were hand-synced instead of derived in ``__post_init__``, this rebuild would
-    leave a stale copy behind and nothing would fail until a reader switched over —
-    surfacing far from the cause.
+    Under amendment A4 ``energie`` maps to the engine's ``vitality`` SLOT and the other
+    stats live in ``attrs``. Because the named stats are PROPERTIES over that single
+    source (never dataclass fields), there is nothing to hand-sync and nothing to drift
+    — the dual-write hazard is closed by construction, not by re-derivation.
     """
     from dataclasses import replace
 
-    from engine.state import Fighter, Gangster
+    from data.game_configs.mafia_1920s.gangster import Gangster
 
-    g = replace(Gangster(name="x", energie=9, kraft=40), energie=5)
-    assert g.energie == 5
-    assert g.attrs["energie"] == 5, "attrs went stale across a replace()"
+    g = Gangster(name="x", energie=9, kraft=40)
+    # energie -> vitality slot; a replace on the slot is reflected by the property.
+    g2 = replace(g, vitality=5)
+    assert g2.energie == 5
+    assert g2.vitality == 5
+    # kraft lives in attrs; with_attr is the single-source write path.
+    g3 = g.with_attr("kraft", 7)
+    assert g3.kraft == 7
+    assert g3.attrs["kraft"] == 7
 
-    f = replace(Fighter(name="x", energie=9, kraft=40), kraft=7)
-    assert f.attrs["kraft"] == 7
 
+def test_attrs_carries_the_non_vitality_stats_and_stays_read_only():
+    """``attrs`` exposes the non-vitality stats as data and is not mutable (R2).
 
-def test_attrs_carries_every_named_stat_and_stays_read_only():
-    """``attrs`` exposes the full stat set as data, and is not mutable (R2)."""
-    from engine.state import Gangster
+    ``energie`` is NOT in ``attrs`` — it is the ``vitality`` slot (A4). The three
+    remaining stats are the opaque map the engine never inspects.
+    """
+    from data.game_configs.mafia_1920s.gangster import Gangster
 
     g = Gangster(name="x", energie=5, kraft=40, intelligenz=30, brutalitaet=20)
-    assert dict(g.attrs) == {"energie": 5, "kraft": 40, "intelligenz": 30, "brutalitaet": 20}
+    assert g.vitality == 5
+    assert dict(g.attrs) == {"kraft": 40, "intelligenz": 30, "brutalitaet": 20}
     with pytest.raises(TypeError):
         g.attrs["kraft"] = 1  # type: ignore[index]
 
 
-def test_extra_attrs_survive_alongside_the_named_fields():
-    """A config may carry attributes the dataclass has no field for.
+def test_extra_attrs_survive_alongside_the_named_stats():
+    """A config may carry attributes it has no named accessor for.
 
-    The named fields stay authoritative for the ones they cover; anything else the
-    caller supplies rides along untouched. This is what lets a different game in the
-    genre add an attribute without an engine change.
+    The named stats stay authoritative for the ones they cover; anything else the
+    caller supplies in ``attrs`` rides along untouched. This is what lets a different
+    game in the genre add an attribute without an engine change.
     """
-    from engine.state import Gangster
+    from data.game_configs.mafia_1920s.gangster import Gangster
 
     g = Gangster(name="x", kraft=40, attrs={"grit": 7, "kraft": 999})
     assert g.attrs["grit"] == 7
-    assert g.attrs["kraft"] == 40, "the named field must win over a supplied attrs entry"
+    assert g.attrs["kraft"] == 40, "the named stat must win over a supplied attrs entry"

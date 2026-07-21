@@ -21,7 +21,8 @@ from pathlib import Path
 from engine.config_loader import load_game_config
 from engine.effects import BarrelChange, MoneyChange, ScoreAndRank
 from engine.locations import HANDLERS
-from engine.state import Clock, Config, Contraband, Gangster, GameState, Player
+from engine.state import Clock, Config, Contraband, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"

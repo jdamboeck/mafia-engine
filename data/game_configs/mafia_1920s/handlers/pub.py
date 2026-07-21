@@ -78,7 +78,7 @@ from engine.effects import (
 )
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
-from engine.state import Gangster
+from ..gangster import Gangster
 
 from ..setup import load_gangster_candidates, load_vehicles, score_and_rank
 

@@ -19,7 +19,8 @@ from pathlib import Path
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, TipClear, TipSet
 from engine.locations import HANDLERS
-from engine.state import Clock, Config, Gangster, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.upkeep import run_upkeep
 from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
 

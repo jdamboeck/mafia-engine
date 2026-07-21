@@ -41,7 +41,8 @@ from engine.movement import (
     load_city,
     try_move,
 )
-from engine.state import Clock, Config, Gangster, GameState, MapState, Player
+from engine.state import Clock, Config, GameState, MapState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"

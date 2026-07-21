@@ -12,7 +12,8 @@ guards (slw rent, slw lease, pub recruit) from the research.
 import pytest
 
 from engine.conditions import build_context, evaluate, validate
-from engine.state import Clock, Gangster, GameState, Player
+from engine.state import Clock, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import with_tenancy
 
 

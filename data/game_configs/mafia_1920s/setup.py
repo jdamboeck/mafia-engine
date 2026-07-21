@@ -30,7 +30,12 @@ from engine.config_loader import load_config
 from engine.effects import ScoreAndRank
 from engine.interactions import ShowMessage
 from engine.rng import Rng
-from engine.state import Clock, Config, Gangster, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+
+try:
+    from .gangster import Gangster
+except ImportError:  # loaded bare (config dir on sys.path), not as a package
+    from gangster import Gangster
 from engine.types import validate_rank, validate_vehicle, validate_weapon
 
 __all__ = [

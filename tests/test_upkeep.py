@@ -21,7 +21,8 @@ from engine.config_loader import load_game_config
 from engine.effects import EnergyChange, RankCommit
 from engine.interactions import ShowMessage
 from engine.locations import HANDLERS
-from engine.state import Clock, Config, Gangster, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.strings import Resolver
 from engine.upkeep import UPKEEP_HANDLER_KEY, run_upkeep
 from tests.helpers import run_pure

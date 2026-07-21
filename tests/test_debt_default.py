@@ -37,7 +37,8 @@ from pathlib import Path
 from engine.config_loader import load_game_config
 from engine.effects import DebtChange, DebtClear, MoneyChange
 from engine.interactions import ShowMessage
-from engine.state import Business, Clock, Config, Debt, Gangster, GameState, Player
+from engine.state import Business, Clock, Config, Debt, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
 from tests.helpers import run_pure, scripted as _scripted

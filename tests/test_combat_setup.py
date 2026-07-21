@@ -36,7 +36,8 @@ from engine.combat import (
 )
 from engine.effects import SpawnFighter, apply
 from engine.persistence import state_from_dict
-from engine.state import CombatState, Fighter, Gangster, GameState, json_safe
+from engine.state import CombatState, Fighter, GameState, json_safe
+from data.game_configs.mafia_1920s.gangster import Gangster
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 

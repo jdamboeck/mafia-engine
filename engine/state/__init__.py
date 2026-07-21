@@ -12,7 +12,7 @@ display text.
 
 import dataclasses
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any
 
@@ -178,43 +178,66 @@ class Combatant:
     (``vitality``), not by the engine — the engine only ever subtracts from it and
     clamps at zero.
 
-    The named fields below are this reference title's, kept as the ergonomic
-    construction surface (and re-exported to the config as ``Gangster``); the engine
-    itself reads them only through ``attrs``.
+    **No game-stat fields (U2, amendment A4).** ``kraft``/``brutalitaet``/
+    ``intelligenz``/``energie`` are NOT fields here — they are this game's vocabulary,
+    and the engine names none of them. A roster member's stats live in ``attrs`` as an
+    opaque ``name -> int`` map. The reference title's named-field roster member is
+    ``Gangster``, defined in ``data/game_configs/mafia_1920s`` as a subclass that adds
+    those fields for construction ergonomics and derives ``attrs`` from them.
 
-    Unpacks the original packed 8-char ``ge$`` stat string into plain ints.
+    ``name``/``weapon`` stay: ``name`` is the opaque ``identity`` label and ``weapon``
+    is the opaque equipment id — both blueprint concerns, neither a stat.
 
-    Unpacks the original packed 8-char ``ge$`` stat string into plain ints.
-
-    ``attrs`` (U2) is the same stats as an opaque ``name -> int`` map. The engine
-    reads combat attributes ONLY through it, resolving names a config's rules bundle
-    declares (``kraft``, ``brutalitaet``, …) — so adding an attribute is a config-only
-    change. It is derived from the named fields at construction; see
-    :func:`_derive_attrs` for why it must never be written by hand.
+    A **loaded** roster member (rebuilt by ``engine.persistence``) is a bare
+    ``Combatant`` carrying ``attrs`` — the engine reconstructs without knowing the
+    config's ``Gangster`` type, which keeps the layer rule intact. Config code that
+    needs a stat reads it from ``attrs`` so it works for both a freshly-built
+    ``Gangster`` and a loaded ``Combatant``.
     """
 
     name: str = ""
-    weapon: int = 0  # weapon index 0..8; 0 = unarmed
-    energie: int = 5  # starting energy fixed at 5 (mf-prg.bas:313, en=5)
-    kraft: int = 0  # strength stat (gangster stat "kraft"); rolled 10-50 at setup
-    intelligenz: int = 0  # mf-prg.bas:311 quirk "in = x OR 30"; roll happens at setup
-    brutalitaet: int = 0  # brutality (mf-prg.bas:312); later a combat damage bonus
-    attrs: Mapping[str, int] = _EMPTY_MAP  # derived — see class docstring
+    weapon: int = 0  # weapon index 0..8; 0 = unarmed — the opaque equipment id
+    #: The ONE depleting resource, first-class like ``position``/``down`` (U2, A4).
+    #: The engine subtracts from it and clamps at zero; ``down`` derives from it hitting
+    #: zero. This game NAMES it "energie" and maps that onto this slot at construction —
+    #: the engine spells only the role, never the game's word.
+    vitality: int = 0
+    attrs: Mapping[str, int] = _EMPTY_MAP  # the OPAQUE stat map; the engine's only view
 
     def __post_init__(self):
-        _derive_attrs(self, COMBATANT_ATTR_NAMES)
+        # Coerce a passed-in attrs to read-only. A Gangster subclass builds attrs from
+        # its construction kwargs BEFORE calling here.
+        object.__setattr__(self, "attrs", MappingProxyType(dict(self.attrs)))
 
+    def __eq__(self, other: object) -> bool:
+        # Compare across the Combatant/Gangster boundary by the blueprint fields, not by
+        # exact class (U2, amendment A4). A save-then-reload rebuilds a roster member as
+        # a bare ``Combatant``; the live one is a config ``Gangster`` with the SAME four
+        # fields. The default dataclass ``__eq__`` requires an identical class, so a
+        # reconstructed state would never equal the live one — and every purity/replay
+        # check (``result.state == commit(state_from_dict(...))``) would fail. Both
+        # carry their stats single-sourced (``vitality`` + ``attrs``), so field equality
+        # is the honest test of "same roster member".
+        if not isinstance(other, Combatant):
+            return NotImplemented
+        return (
+            self.name == other.name
+            and self.weapon == other.weapon
+            and self.vitality == other.vitality
+            and dict(self.attrs) == dict(other.attrs)
+        )
 
-#: Backwards-compatible alias for the reference title's roster member (U2 step 6).
-#:
-#: ``Combatant`` is the ENGINE's blueprint name; ``Gangster`` is this game's word for
-#: it, re-exported by ``data/game_configs/mafia_1920s`` so the config's own code (and
-#: the ~113 existing test references) keep resolving without a mass rename. The alias
-#: lives here rather than as a separate config-side dataclass because ``Player.roster``
-#: is typed on it and ``engine.persistence`` reconstructs it — a genuinely separate
-#: class would need the engine to import from the config, inverting the layer rule.
-#: The engine itself never spells ``Gangster``; only this one definition line does.
-Gangster = Combatant
+    __hash__ = None  # frozen dataclasses are hashable by default; custom __eq__ opts out
+
+    def with_attr(self, name: str, value: int) -> "Combatant":
+        """Return a copy with ``attrs[name]`` set to ``value`` (U2, amendment A4).
+
+        The engine's stat-name-free way to write a roster attribute: it names the key
+        only as data passed in, never as a field.
+        """
+        merged = dict(self.attrs)
+        merged[name] = value
+        return replace(self, attrs=MappingProxyType(merged))
 
 
 @dataclass(frozen=True)
@@ -469,6 +492,10 @@ class Config:
     score_mult: float = 1.0  # x8 — score-gain weight [0.1,2.0] (mf-prg.bas:176); scales gf += x*x8
     action_costs: Mapping[str, int] = _EMPTY_MAP
     formula_params: Mapping = _EMPTY_MAP
+    #: Which attribute key the depleting-resource effects (``EnergyChange``) read and
+    #: write. Config POLICY, not engine vocabulary (U2, amendment A4): the engine names
+    #: the ROLE ("vitality"), the config names the KEY. This game's is "energie".
+    vitality_attr: str = "energie"
 
     def __post_init__(self):
         _coerce_readonly(self, "action_costs", "formula_params")

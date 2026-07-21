@@ -31,7 +31,8 @@ from engine.interactions import (
     StartCombat,
     run,
 )
-from engine.state import Clock, Fighter, Gangster, GameState, MapState, Player
+from engine.state import Clock, Fighter, GameState, MapState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_pure, scripted
 
 

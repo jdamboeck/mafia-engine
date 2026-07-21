@@ -20,7 +20,8 @@ from engine.locations import (
     load_location,
     register,
 )
-from engine.state import Clock, Gangster, GameState, Player
+from engine.state import Clock, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 
 
 def _state(*, rank=1, roster=0, active=0, players=1):

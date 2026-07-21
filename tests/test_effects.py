@@ -47,6 +47,7 @@ from engine.effects import (
     WantedChange,
     _mapping_set,
     _with_gangster,
+    _with_gangster_attr,
     _with_player,
     apply,
     commit,
@@ -58,12 +59,12 @@ from engine.state import (
     Debt,
     Fighter,
     Flags,
-    Gangster,
     GameState,
     Job,
     Player,
     tuple_replace,
 )
+from data.game_configs.mafia_1920s.gangster import Gangster
 
 
 # --------------------------------------------------------------------------- #
@@ -979,15 +980,29 @@ def test_with_player_returns_readonly_players():
     assert isinstance(new.players, tuple)
 
 
-def test_with_gangster_updates_only_the_target_gangster():
-    """One level deeper: the right gangster changes; roster siblings are shared."""
-    st = _two_player_state()
-    new = _with_gangster(st, 0, 1, kraft=42)
+def test_with_gangster_attr_updates_only_the_target_gangster():
+    """One level deeper: the right gangster's stat changes; roster siblings are shared.
 
-    assert new.players[0].roster[1].kraft == 42
+    Stat writes go through ``_with_gangster_attr`` (attrs-keyed) since ``kraft`` is no
+    longer a named field on the engine's ``Combatant`` (U2, amendment A4).
+    """
+    st = _two_player_state()
+    new = _with_gangster_attr(st, 0, 1, "kraft", 42)
+
+    assert new.players[0].roster[1].attrs["kraft"] == 42
     assert new.players[0].roster[0] is st.players[0].roster[0]
     assert new.players[1] is st.players[1]
-    assert st.players[0].roster[1].kraft == 0  # purity
+    assert st.players[0].roster[1].attrs["kraft"] == 0  # purity
+
+
+def test_with_gangster_updates_a_blueprint_field():
+    """``_with_gangster`` still handles blueprint fields the engine names (weapon)."""
+    st = _two_player_state()
+    new = _with_gangster(st, 0, 1, weapon=3)
+
+    assert new.players[0].roster[1].weapon == 3
+    assert new.players[0].roster[0] is st.players[0].roster[0]
+    assert st.players[0].roster[1].weapon == 0  # purity
 
 
 def test_mapping_set_returns_new_readonly_mapping():

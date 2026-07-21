@@ -24,7 +24,8 @@ import yaml
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
-from engine.state import Clock, Config, Gangster, GameState, MapState, Player, freeze
+from engine.state import Clock, Config, GameState, MapState, Player, freeze
+from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"

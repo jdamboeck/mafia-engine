@@ -13,7 +13,8 @@ The ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded in the engine.
 from __future__ import annotations
 
 from engine.effects import ScoreAndRank, apply
-from engine.state import Clock, Config, Gangster, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.gangster import Gangster
 
 
 def make_state(*, gf=50.0, score_mult=1.0):

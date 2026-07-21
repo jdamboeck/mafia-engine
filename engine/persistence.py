@@ -45,9 +45,9 @@ from engine.state import (
     Config,
     Contraband,
     Debt,
+    Combatant,
     Fighter,
     Flags,
-    Gangster,
     GameState,
     Job,
     MapState,
@@ -169,11 +169,33 @@ def _is_int_literal(s: str) -> bool:
     return body.isascii() and body.isdigit()
 
 
+#: The roster-member blueprint fields the engine names; every other saved key is a
+#: game stat that folds into ``attrs`` (U2, amendment A4). ``vitality`` is a slot,
+#: not an attr — this game's ``energie`` was mapped onto it at construction.
+_ROSTER_BLUEPRINT_FIELDS = ("name", "weapon", "vitality")
+
+
+def _roster_member_from_dict(raw: dict) -> Combatant:
+    """Rebuild a saved roster member as a bare :class:`~engine.state.Combatant`.
+
+    The engine does not know the config's ``Gangster`` type (layer rule), so it never
+    reconstructs the named-field form. ``name``/``weapon`` are read by name; every
+    other saved key is a game stat and is folded into ``attrs`` — which is exactly
+    where the engine reads stats from, so the round-trip is lossless. A config that
+    needs the named-field form reads it through ``attrs`` (amendment A4).
+    """
+    blueprint = {k: raw[k] for k in _ROSTER_BLUEPRINT_FIELDS if k in raw}
+    stats = {k: v for k, v in raw.items() if k not in _ROSTER_BLUEPRINT_FIELDS and k != "attrs"}
+    # Prefer an explicit saved attrs; fall back to the named stat keys.
+    attrs = raw.get("attrs") or stats
+    return Combatant(**blueprint, attrs=dict(attrs))
+
+
 def _player_from_dict(raw: dict) -> Player:
     return Player(
         **{
             **raw,
-            "roster": tuple(Gangster(**g) for g in raw["roster"]),
+            "roster": tuple(_roster_member_from_dict(g) for g in raw["roster"]),
             "jobs": Job(**raw["jobs"]),
             "debt": Debt(**raw["debt"]),
             "business": Business(**raw["business"]),

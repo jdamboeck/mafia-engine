@@ -16,7 +16,7 @@ travel together; the engine is untouched (docs/design/product-and-scope.md and d
 from __future__ import annotations
 
 from . import handlers  # noqa: F401 — registers the config's handlers on import
-from engine.state import Combatant as Gangster
+from .gangster import Gangster
 
 from .combat_rules import build_rules, equipper
 from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game
