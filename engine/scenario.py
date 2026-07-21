@@ -117,3 +117,47 @@ class Scenario:
             dir_memory=dict(state.dir_memory),
             seed=seed,
         )
+
+    @classmethod
+    def from_encounter(
+        cls,
+        encounter: Any,
+        roster: Any,
+        rules: RulesBundle | None,
+        *,
+        enemy_attrs: Mapping[str, int] | None = None,
+        grid: tuple[int, ...] = (),
+        equip: Any = None,
+        seed: int | None = None,
+    ) -> "Scenario":
+        """Build a scenario from a **parsed encounter declaration** (U6a).
+
+        Produces the SAME ``Scenario`` :meth:`from_roster` builds — it simply reads the
+        four enemy-setup fields (``count``/``weapon``/``vitality``/``name``) off the
+        parsed ``encounter`` instead of taking them as keyword arguments, then delegates
+        to :meth:`from_roster`. No new combat logic: same thin wrapper over
+        :func:`engine.combat.setup_combat`.
+
+        ``encounter`` is the config's own **already-parsed** encounter value — it exposes
+        ``count``/``weapon``/``vitality``/``name`` attributes (see the config's encounter
+        loader). The engine deliberately does **not** load the YAML or resolve a key here:
+        it knows nothing about this game's config layout, file paths, or the encounter
+        format. Loading and validating the declaration is the config's job (its
+        ``setup.load_encounter``); ``from_encounter`` takes the parsed result. The
+        non-setup pieces — ``enemy_attrs`` (this game's fixed CPU stats), ``grid`` (the
+        resolved backdrop), ``equip`` (the per-fighter equipment constructor), ``rules``,
+        and ``seed`` — ride alongside, exactly as they do for ``from_roster``: they are
+        game data the engine does not synthesize.
+        """
+        return cls.from_roster(
+            roster,
+            enemy_count=encounter.count,
+            enemy_weapon=encounter.weapon,
+            enemy_vitality=encounter.vitality,
+            enemy_attrs=enemy_attrs,
+            enemy_name=encounter.name,
+            grid=grid,
+            equip=equip,
+            rules=rules,
+            seed=seed,
+        )

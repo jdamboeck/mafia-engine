@@ -1,0 +1,17 @@
+# The debt-default collectors fight at turn-start upkeep (mf-prg.bas:4350-4370).
+# Five "eintreiber" (schlagkette, 30 energy each) on the "ks" backdrop.
+#
+# NO on_win/on_loss: the consequence is a seizure of the cash the player holds
+# AT THAT MOMENT (MoneyChange(-active.ka)) — a live state reference the declarable
+# vocabulary deliberately excludes. The declaration carries SETUP ONLY; the seizure
+# stays in Python (upkeep.py). Omitting the outcome blocks is a SUPPORTED shape,
+# not a partial migration.
+#
+# Values regroup config.yaml's formula_params (kdh_collectors_*, :127-129).
+key: kdh_collectors
+enemies:
+  count: 5            # gz(0)=5 — mf-prg.bas:4355
+  weapon: 3           # schlagkette — mf-prg.bas:4355
+  vitality: 30        # e=30 — mf-prg.bas:4355
+  name: eintreiber
+grid: ks

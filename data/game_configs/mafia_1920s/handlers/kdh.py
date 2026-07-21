@@ -59,12 +59,14 @@ from pathlib import Path
 from engine.effects import DebtChange, DebtClear, MoneyChange, ShopChange
 from engine.interactions import Confirm, PromptInt, ShowMessage, StartCombat
 from engine.locations import register
+from engine.scenario import Scenario
 
 from ..combat_rules import build_rules, enemy_attrs, equipper
 from ..setup import (
+    apply_outcome,
     load_combat_backdrop,
+    load_encounter,
     narrate_combat_outcome,
-    score_and_rank,
     weapon_stats_by_id,
 )
 
@@ -72,14 +74,12 @@ __all__ = ["kdh_borrow", "kdh_repay", "kdh_trade", "kdh_capital", "kdh_collect"]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
-#: The debtor-ambush opponent (mf-prg.bas:15310-15312): one schuldner, gewehr
-#: (weapon id 6), energy 35.
-_AMBUSHER_NAME = "schuldner"
-_AMBUSHER_WEAPON = 6
-_AMBUSHER_ENERGIE = 35
-
-#: Combat backdrop pinned to ``ks`` (KTD-9 — see module docstring's fidelity note).
-_AMBUSH_BACKDROP = "ks"
+#: The debtor-ambush encounter (mf-prg.bas:15310-15321) — one schuldner (gewehr,
+#: 35 energy), fully declared in data now (content/encounters/kdh_ambush.yaml),
+#: including its win consequence (loot roll + score + message). The NAME is read
+#: back off the loaded encounter for the outcome narration; nothing about the fight
+#: is assembled inline any more.
+_AMBUSH_ENCOUNTER = load_encounter(_CONFIG_DIR / "content" / "encounters" / "kdh_ambush.yaml")
 
 
 def _weapon_stats() -> dict:
@@ -323,11 +323,12 @@ def kdh_collect(ctx):
        documents this as "1/3", which is WRONG — ``rnd(1)*3`` uniformly yields
        0, 1, or 2, and ``<>0`` (not-equal-zero) is true for 2 of those 3 outcomes,
        i.e. 2/3, not 1/3. This port follows the CODE.
-    3. ``:15310-15315`` — the ambush fight: one schuldner (gewehr, 35 energy). A
-       loss (``s=2``) is a plain, silent return — no cost, no narration beyond the
-       fight's own outcome screen.
+    3. ``:15310-15315`` — the ambush fight: one schuldner (gewehr, 35 energy),
+       declared in ``content/encounters/kdh_ambush.yaml`` (U6a). A loss (``s=2``)
+       is a plain, silent return — the encounter's ``on_loss: []`` applies nothing.
     4. ``:15320-15321`` — a win loots 500-1499$ and awards +2 score
-       (``x=2:gosub1160``).
+       (``x=2:gosub1160``) — the encounter's ``on_win`` block (money roll + score +
+       message), applied through the config's shared ``apply_outcome`` helper.
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -346,23 +347,18 @@ def kdh_collect(ctx):
         yield ShowMessage("locations.kdh.debts_paid_on_time")
         return []
 
-    # :15310-15312 — the ambush fight.
-    from engine.scenario import Scenario
-
+    # :15310-15312 — the ambush fight, built from the declared encounter (U6a).
     yield ShowMessage("locations.kdh.ambush_intro")
-    # U5: build the fight through a named Scenario (thin wrapper over setup_combat).
-    scenario = Scenario.from_roster(
+    enc = _AMBUSH_ENCOUNTER
+    spec = enc.variants[0]  # single-enemy encounter: one variant.
+    scenario = Scenario.from_encounter(
+        spec,
         active.roster,
-        enemy_count=1,
-        enemy_weapon=params["kdh_ambush_weapon"],
-        enemy_vitality=params["kdh_ambush_energie"],
+        build_rules(),
         enemy_attrs=enemy_attrs(params),
-        enemy_name=_AMBUSHER_NAME,
-        grid=_backdrop(_AMBUSH_BACKDROP),
+        grid=_backdrop(enc.grid),
         equip=equipper(_weapon_stats()),
-        rules=build_rules(),
     )
-    # U6: the whole payload rides one field (amendment A6); StartCombat unpacks it.
     result = yield StartCombat(scenario=scenario)
 
     # Outcome narration (KTD-1: the invoking handler's job — _run_combat yields no
@@ -371,18 +367,12 @@ def kdh_collect(ctx):
     yield from narrate_combat_outcome(
         winner=result.winner,
         player_name=active.name,
-        enemy_name=_AMBUSHER_NAME,
+        enemy_name=spec.name,
         player_losses=result.losses[0],
         enemy_losses=result.losses[1],
     )
 
-    if result.winner == 2:
-        # :15315 — lost: a plain, silent return, no cost.
-        return []
-
-    # :15320-15321 — won: loot 500-1499$, +2 score.
-    loot = ctx.rng.hit(params["kdh_ambush_loot_min"], params["kdh_ambush_loot_max"])
-    ctx.apply(MoneyChange(loot))
-    ctx.apply(score_and_rank(params["kdh_ambush_score"], params))
-    yield ShowMessage("locations.kdh.ambush_loot", {"amount": loot})
+    # :15315 (loss — on_loss: [], nothing) / :15320-15321 (win — loot + score +
+    # message). The whole declarable consequence rides the encounter's on_win/on_loss.
+    yield from apply_outcome(ctx, enc, result)
     return []

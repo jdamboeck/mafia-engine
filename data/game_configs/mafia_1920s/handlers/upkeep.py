@@ -98,22 +98,31 @@ from engine.effects import (
 )
 from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
+from engine.scenario import Scenario
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
 from ..combat_rules import build_rules, enemy_attrs, equipper
-from ..setup import load_combat_backdrop, narrate_combat_outcome, weapon_stats_by_id
+from ..setup import (
+    load_combat_backdrop,
+    load_encounter,
+    narrate_combat_outcome,
+    weapon_stats_by_id,
+)
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
-#: The debt-default collectors (mf-prg.bas:4355): five "eintreiber", schlagkette
-#: (weapon id 3), energy 30 each, on the "ks" backdrop. Counts/stats are config
-#: params (config.yaml's kdh_collectors_*); the NAME and BACKDROP are fixed strings
-#: in the source line itself.
-_COLLECTOR_NAME = "eintreiber"
-_COLLECTORS_BACKDROP = "ks"
+#: The debt-default collectors fight, declared as data (U6a): five "eintreiber",
+#: schlagkette (weapon id 3), energy 30 each, on the "ks" backdrop (mf-prg.bas:4355).
+#: SETUP ONLY — the consequence is a seizure of the cash the player holds AT THAT
+#: MOMENT (a live state reference the declarable vocabulary excludes), so the encounter
+#: carries no ``on_win``/``on_loss`` and the seizure stays in Python below. Loaded once
+#: at import (the config is frozen per game).
+_COLLECTORS_ENCOUNTER = load_encounter(
+    _CONFIG_DIR / "content" / "encounters" / "kdh_collectors.yaml"
+)
 
 
 def _weapon_stats() -> dict:
@@ -215,24 +224,22 @@ def upkeep_turn_start(ctx):
             # The jail gate (:4040) is a read that trivially passes in-slice: jail is
             # declared-but-stubbed (KTD-7) and nothing can imprison a player, so the
             # not-jailed precondition is always true and is not re-encoded here.
-            from engine.scenario import Scenario
-
             yield ShowMessage("upkeep.debt_collectors_intro")
             debt_params = ctx.state.config.formula_params
-            # U5: the collectors fight's payload-in is a named Scenario over setup_combat.
-            scenario = Scenario.from_roster(
+            # U6a: the collectors' SETUP is the declared encounter (:4355 —
+            # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"); the enemy stats and
+            # equipment stay handler-supplied. The SEIZURE consequence below is NOT
+            # declarable (it reads live `active.ka`), so the encounter carries no
+            # on_win/on_loss and stays in Python.
+            enc = _COLLECTORS_ENCOUNTER
+            scenario = Scenario.from_encounter(
+                enc.variants[0],
                 active.roster,
-                # :4355 — bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"
-                enemy_count=debt_params["kdh_collectors_count"],
-                enemy_weapon=debt_params["kdh_collectors_weapon"],
-                enemy_vitality=debt_params["kdh_collectors_energie"],
+                build_rules(),
                 enemy_attrs=enemy_attrs(debt_params),
-                enemy_name=_COLLECTOR_NAME,
-                grid=_backdrop(_COLLECTORS_BACKDROP),
+                grid=_backdrop(enc.grid),
                 equip=equipper(_weapon_stats()),
-                rules=build_rules(),
             )
-            # U6: the whole payload rides one field (amendment A6).
             result = yield StartCombat(scenario=scenario)
 
             # Outcome narration (KTD-1: the invoking handler's job — _run_combat
@@ -244,7 +251,7 @@ def upkeep_turn_start(ctx):
             yield from narrate_combat_outcome(
                 winner=result.winner,
                 player_name=active.name,
-                enemy_name=_COLLECTOR_NAME,
+                enemy_name=enc.variants[0].name,
                 player_losses=result.losses[0],
                 enemy_losses=result.losses[1],
             )

@@ -22,12 +22,13 @@ handler imports ``fnm`` from HERE (its own config), not from the engine.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 
 from engine.config_loader import load_config
-from engine.effects import ScoreAndRank
+from engine.effects import DebtClear, MoneyChange, ScoreAndRank
 from engine.interactions import ShowMessage
 from engine.rng import Rng
 from engine.state import Clock, Config, GameState, Player
@@ -46,6 +47,10 @@ __all__ = [
     "load_gangster_candidates",
     "load_combat_backdrop",
     "weapon_stats_by_id",
+    "load_encounter",
+    "EnemySpec",
+    "Encounter",
+    "apply_outcome",
     "fnm",
     "score_and_rank",
     "narrate_combat_outcome",
@@ -144,6 +149,222 @@ def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int, int]]:
     """
     weapons = load_weapons(path)
     return {i: (w["ts"], w["tg"], w["range"]) for i, w in enumerate(weapons)}
+
+
+# --- encounter declarations (U6a) ------------------------------------------
+#
+# An encounter file declares ONE fight as pure data: the enemy party's setup
+# (count/weapon/vitality/name), the backdrop, and — optionally — a DECLARABLE
+# consequence (``on_win``/``on_loss``). The setup half is a regrouping of data
+# that already lived in ``config.yaml`` (kdh_ambush_*/kdh_collectors_*) or as
+# Python literals in the handlers (the three job opponents). ``Scenario.from_
+# encounter`` reads the parsed :class:`EnemySpec` and produces the same fight the
+# handler used to assemble inline.
+#
+# Validation posture mirrors the guard DSL (engine/conditions.py) and the
+# entity loaders above: an unknown outcome key, an unknown/missing grid, or an
+# unknown weapon id fails AT LOAD TIME, not at fight time. Loading is where the
+# config's shape is proven; a fight should never be the first thing to notice a
+# typo.
+
+#: The declarable outcome-consequence vocabulary — the same restrained list the
+#: guard DSL is (seven operators, nothing more). Any other key in an ``on_win``/
+#: ``on_loss`` step is rejected at load. ``apply_outcome`` (in the handlers'
+#: shared helper) is the sole interpreter.
+_OUTCOME_KEYS = frozenset({"money", "score", "message", "clear"})
+
+#: The named no-argument effects a ``clear:`` step may name. Only ``debt`` today
+#: (mapping to :class:`~engine.effects.DebtClear`); listing them here keeps an
+#: unknown ``clear:`` target a LOAD-time failure, not a fight-time one.
+_CLEAR_TARGETS = frozenset({"debt"})
+
+
+@dataclass(frozen=True)
+class EnemySpec:
+    """One enemy party's fight setup — exactly the four fields ``Scenario.from_
+    encounter`` reads (``count``/``weapon``/``vitality``/``name``).
+
+    A single-enemy encounter has one of these; the bouncer's ``variants`` list is
+    three of them. The 30/30 CPU ``attrs`` are NOT here — they are this game's
+    fixed enemy stats (``enemy_attrs``), supplied by the handler at the call site,
+    not part of the per-fight declaration.
+    """
+
+    count: int
+    weapon: int
+    vitality: int
+    name: str
+
+
+@dataclass(frozen=True)
+class Encounter:
+    """A parsed encounter declaration (U6a).
+
+    ``variants`` always holds at least one :class:`EnemySpec` — a single-enemy
+    encounter is a one-variant list, the bouncer is a three-variant list. The
+    caller picks a variant (the bouncer with its ``ctx.rng.range(3)`` roll, the
+    others with variant 0) and hands it to ``Scenario.from_encounter``. ``grid``
+    is the backdrop name (``ks``/``kp``/``km``), already validated to exist.
+    ``on_win``/``on_loss`` are the declarable consequence steps (``None`` when the
+    file omits them — a supported shape: the handler keeps the consequence in
+    Python). Every step's key was validated against :data:`_OUTCOME_KEYS` at load.
+    """
+
+    key: str
+    grid: str
+    variants: tuple[EnemySpec, ...]
+    on_win: tuple[dict, ...] | None = None
+    on_loss: tuple[dict, ...] | None = None
+
+
+def _validate_outcome_steps(steps, *, key: str, block: str) -> tuple[dict, ...] | None:
+    """Validate one ``on_win``/``on_loss`` block; raise on an unknown key at LOAD."""
+    if steps is None:
+        return None
+    out: list[dict] = []
+    for i, step in enumerate(steps):
+        if not isinstance(step, dict) or len(step) != 1:
+            raise ValueError(
+                f"encounter {key!r}: {block}[{i}] must be a single-key mapping, got {step!r}"
+            )
+        (name,) = step
+        if name not in _OUTCOME_KEYS:
+            raise ValueError(
+                f"encounter {key!r}: {block}[{i}] has unknown outcome key {name!r} "
+                f"(known: {sorted(_OUTCOME_KEYS)})"
+            )
+        if name == "clear" and step["clear"] not in _CLEAR_TARGETS:
+            raise ValueError(
+                f"encounter {key!r}: {block}[{i}] clears unknown target "
+                f"{step['clear']!r} (known: {sorted(_CLEAR_TARGETS)})"
+            )
+        out.append(dict(step))
+    return tuple(out)
+
+
+def load_encounter(path: str | Path, *, config_dir: str | Path | None = None) -> Encounter:
+    """Load and VALIDATE one encounter declaration into an :class:`Encounter` (U6a).
+
+    ``config_dir`` locates the sibling ``content/combat/{grid}.yaml`` backdrops and
+    ``entities/weapons.yaml`` (defaults to ``path``'s ``…/content/encounters`` parent's
+    parent — this config's root). Validation is done HERE, at load, matching the guard
+    DSL's posture (engine/conditions.py) and the entity loaders above:
+
+    * every ``on_win``/``on_loss`` step names a key in :data:`_OUTCOME_KEYS`;
+    * ``grid`` names a backdrop file that exists under ``content/combat``;
+    * every enemy ``weapon`` id exists in ``entities/weapons.yaml``.
+
+    A fight is never the first place a typo surfaces.
+    """
+    path = Path(path)
+    if config_dir is None:
+        # …/content/encounters/<file>.yaml  ->  the config root is two parents up.
+        config_dir = path.resolve().parents[2]
+    config_dir = Path(config_dir)
+
+    raw = _load_yaml(path)
+    key = raw.get("key") or path.stem
+
+    grid = raw.get("grid")
+    if not grid:
+        raise ValueError(f"encounter {key!r}: missing 'grid'")
+    grid_path = config_dir / "content" / "combat" / f"{grid}.yaml"
+    if not grid_path.exists():
+        raise ValueError(
+            f"encounter {key!r}: unknown grid {grid!r} (no {grid_path} — "
+            f"backdrops live under content/combat/)"
+        )
+
+    # Valid weapon ids: the 0-based index range of entities/weapons.yaml.
+    weapons = load_weapons(config_dir / "entities" / "weapons.yaml")
+    valid_weapons = range(len(weapons))
+
+    if "variants" in raw:
+        raw_specs = list(raw["variants"])
+    elif "enemies" in raw:
+        raw_specs = [raw["enemies"]]
+    else:
+        raise ValueError(f"encounter {key!r}: needs either 'enemies' or 'variants'")
+
+    specs: list[EnemySpec] = []
+    for i, spec in enumerate(raw_specs):
+        weapon = spec["weapon"]
+        if weapon not in valid_weapons:
+            raise ValueError(
+                f"encounter {key!r}: variant {i} names unknown weapon id {weapon!r} "
+                f"(known: 0..{len(weapons) - 1})"
+            )
+        specs.append(
+            EnemySpec(
+                count=spec["count"],
+                weapon=weapon,
+                vitality=spec["vitality"],
+                name=spec["name"],
+            )
+        )
+
+    return Encounter(
+        key=key,
+        grid=grid,
+        variants=tuple(specs),
+        on_win=_validate_outcome_steps(raw.get("on_win"), key=key, block="on_win"),
+        on_loss=_validate_outcome_steps(raw.get("on_loss"), key=key, block="on_loss"),
+    )
+
+
+#: The named no-argument effects a ``clear:`` step applies. Kept beside its
+#: load-time validator (:data:`_CLEAR_TARGETS`) so the two cannot drift.
+_CLEAR_EFFECTS = {"debt": DebtClear}
+
+
+def apply_outcome(ctx, encounter: Encounter, result):
+    """Apply an encounter's DECLARED consequence for a finished fight (U6a).
+
+    A generator (``yield from apply_outcome(ctx, encounter, result)``) that walks the
+    ``on_win``/``on_loss`` block selected by ``result.winner`` (side 1 == the acting
+    player, side 2 == the enemy — the ``engine.interactions._run_combat`` convention)
+    and applies each step of the restrained consequence vocabulary:
+
+    * ``money: int`` — a flat :class:`~engine.effects.MoneyChange`.
+    * ``money: {roll: [min, max]}`` — an inclusive ``ctx.rng.hit(min, max)`` roll,
+      then :class:`~engine.effects.MoneyChange` of the drawn amount. The rolled amount
+      is also exposed to a following ``message`` as ``{"amount": <amount>}``.
+    * ``score: float`` — routes through :func:`score_and_rank` (so rank never drifts).
+    * ``message: <theme key>`` — a :class:`~engine.interactions.ShowMessage`. Params are
+      the last money roll's ``{"amount": …}`` if one preceded it, else empty.
+    * ``clear: <named effect>`` — a no-argument named effect (``debt`` ->
+      :class:`~engine.effects.DebtClear`), validated at load.
+
+    This is the WHOLE vocabulary — no state references, no conditionals, no arithmetic
+    over live values (that boundary is why the collectors' seizure and the jobs' payouts
+    stay in Python; those encounters omit ``on_win``/``on_loss``). An encounter with no
+    matching block (``None``) applies nothing — the silent-return shape (kdh loss,
+    :15315).
+    """
+    steps = encounter.on_win if result.winner == 1 else encounter.on_loss
+    if not steps:
+        return
+
+    params = ctx.state.config.formula_params
+    last_amount: int | None = None
+    for step in steps:
+        (name,) = step
+        if name == "money":
+            spec = step["money"]
+            if isinstance(spec, dict):
+                lo, hi = spec["roll"]
+                amount = ctx.rng.hit(lo, hi)
+            else:
+                amount = spec
+            last_amount = amount
+            ctx.apply(MoneyChange(amount))
+        elif name == "score":
+            ctx.apply(score_and_rank(step["score"], params))
+        elif name == "message":
+            msg_params = {"amount": last_amount} if last_amount is not None else {}
+            yield ShowMessage(step["message"], msg_params)
+        elif name == "clear":
+            ctx.apply(_CLEAR_EFFECTS[step["clear"]]())
 
 
 # --- fnm rent formula ------------------------------------------------------

@@ -53,10 +53,12 @@ from pathlib import Path
 from engine.effects import JobClear, JobSet, MoneyChange
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.locations import register
+from engine.scenario import Scenario
 
 from ..combat_rules import build_rules, enemy_attrs, equipper
 from ..setup import (
     load_combat_backdrop,
+    load_encounter,
     narrate_combat_outcome,
     score_and_rank,
     weapon_stats_by_id,
@@ -77,22 +79,15 @@ JOB_SHIFT_HANDLER_KEY = "job.shift"
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
-#: The three scripted bouncer/doorman troublemakers (mf-prg.bas:25035-25042): a
-#: uniform 1-of-3 pick, weapon id + energy per variant. Weapon ids per
-#: ``entities/weapons.yaml``: 0=haende (fists), 1=messer (knife), 3=schlagkette.
-_BOUNCER_BRAWLERS = [
-    {"name": "wurstfinger-fred", "weapon": 0, "energie": 30},  # :25040
-    {"name": "affenface-alf", "weapon": 1, "energie": 20},  # :25041
-    {"name": "der schlachter", "weapon": 3, "energie": 20},  # :25042
-]
-
-#: The croupier's caught-cheating opponent (mf-prg.bas:25135): one gambler, energy 10,
-#: weapon 1 (messer).
-_CROUPIER_OPPONENT = {"name": "spieler", "weapon": 1, "energie": 10}
-
-#: The killer job's victim (mf-prg.bas:25210): one target, energy 20, weapon 0 (fists
-#: -- the victim is unarmed, per the source's `w=0`).
-_KILLER_VICTIM = {"name": "opfer", "weapon": 0, "energie": 20}
+#: The three shift fights, declared as data (U6a). Setup lives in the encounter
+#: files; the SELECTION of the bouncer's variant stays in Python (its
+#: ``ctx.rng.range(3)`` roll, mf-prg.bas:25035), and each fight's PAYOUT stays with
+#: the job (not a declarable consequence), so these encounters carry no
+#: ``on_win``/``on_loss``. Loaded once at import (the config is frozen per game).
+_ENCOUNTERS_DIR = _CONFIG_DIR / "content" / "encounters"
+_BOUNCER_ENCOUNTER = load_encounter(_ENCOUNTERS_DIR / "job_bouncer.yaml")
+_CROUPIER_ENCOUNTER = load_encounter(_ENCOUNTERS_DIR / "job_croupier.yaml")
+_KILLER_ENCOUNTER = load_encounter(_ENCOUNTERS_DIR / "job_killer.yaml")
 
 
 def _weapon_stats() -> dict:
@@ -123,36 +118,35 @@ def _completion_score(job_type: int) -> float:
     return 0.0 if job_type == JOB_CROUPIER else 3.0
 
 
-def _fight(ctx, *, opponent: dict, backdrop: str):
-    """Run one shift fight against a single scripted NPC; return the winning side.
+def _fight(ctx, *, spec, backdrop: str):
+    """Run one shift fight against a single declared enemy; return the winning side.
 
-    Builds ``StartCombat`` from the active player's CURRENT roster (read fresh off
-    ``ctx.state`` -- no earlier effect in a shift run touches the roster) and the
-    given opponent spec, ``enemy_count=1`` (every shift fight is one-on-one per the
-    source's ``gz(0)=1``). Side 1 is always the acting player (KTD-1/#44 convention),
-    so a loss/win here also rides the fight's roster energy deltas into ``ctx`` via
-    the driver's ``_run_combat`` (#44 -- no extra code needed here for that).
+    ``spec`` is the selected :class:`~..setup.EnemySpec` (a variant of a declared
+    encounter — U6a); ``backdrop`` is the encounter's grid name. Builds ``StartCombat``
+    from the active player's CURRENT roster (read fresh off ``ctx.state`` -- no earlier
+    effect in a shift run touches the roster) and the declared enemy setup. Side 1 is
+    always the acting player (KTD-1/#44 convention), so a loss/win here also rides the
+    fight's roster energy deltas into ``ctx`` via the driver's ``_run_combat`` (#44 --
+    no extra code needed here for that).
+
+    The fight's PAYOUT is not declarable (it belongs to the shift's win/loss branch in
+    :func:`job_shift`), so the encounter carries no ``on_win``/``on_loss`` and this
+    helper applies no consequence — it just runs the fight and returns the winner.
     """
-    from engine.scenario import Scenario
-
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
-    # U5: the fight's "payload in" is a named Scenario built through the unchanged
-    # setup_combat. StartCombat is unpacked from it (not widened — that is U6's).
-    scenario = Scenario.from_roster(
+    # U6a: setup is the declared encounter's; the enemy stats (mf-prg.bas:30245) and
+    # equipment stay handler-supplied. Scenario.from_encounter reads count/weapon/
+    # vitality/name off the spec and delegates to the unchanged from_roster.
+    scenario = Scenario.from_encounter(
+        spec,
         active.roster,
-        enemy_count=1,
-        enemy_weapon=opponent["weapon"],
-        # This game names the vitality slot "energie" (A5); the config maps it here.
-        enemy_vitality=opponent["energie"],
+        build_rules(),
         # The fixed CPU-enemy stats (mf-prg.bas:30245) are config data now (A5).
         enemy_attrs=enemy_attrs(ctx.state.config.formula_params),
-        enemy_name=opponent["name"],
         grid=_backdrop(backdrop),
         equip=equipper(_weapon_stats()),
-        rules=build_rules(),
     )
-    # U6: the whole payload rides one field (amendment A6); StartCombat unpacks it.
     result = yield StartCombat(scenario=scenario)
     # Outcome narration (KTD-1: the invoking handler's job -- _run_combat yields no
     # final screen). Shared with kdh.py/upkeep.py's own fights (narrate_combat_outcome
@@ -163,7 +157,7 @@ def _fight(ctx, *, opponent: dict, backdrop: str):
     yield from narrate_combat_outcome(
         winner=result.winner,
         player_name=active.name,
-        enemy_name=opponent["name"],
+        enemy_name=spec.name,
         player_losses=result.losses[0],
         enemy_losses=result.losses[1],
     )
@@ -197,8 +191,10 @@ def job_shift(ctx):
             yield ShowMessage("job.shift_bouncer_quiet")
         else:
             yield ShowMessage("job.shift_bouncer_trouble")
-            brawler = _BOUNCER_BRAWLERS[ctx.rng.range(3)]
-            winner = yield from _fight(ctx, opponent=brawler, backdrop="kp")
+            # :25035 -- the 1-of-3 variant SELECTION stays in Python; the definitions
+            # live in the declared encounter (U6a).
+            spec = _BOUNCER_ENCOUNTER.variants[ctx.rng.range(3)]
+            winner = yield from _fight(ctx, spec=spec, backdrop=_BOUNCER_ENCOUNTER.grid)
             won = winner == 1
 
     elif job_type == JOB_CROUPIER:
@@ -208,7 +204,9 @@ def job_shift(ctx):
         if ctx.rng.range(6 - trick) == 0:
             # :25130 -- caught; a fight starts.
             yield ShowMessage("job.shift_croupier_caught")
-            winner = yield from _fight(ctx, opponent=_CROUPIER_OPPONENT, backdrop="kp")
+            winner = yield from _fight(
+                ctx, spec=_CROUPIER_ENCOUNTER.variants[0], backdrop=_CROUPIER_ENCOUNTER.grid
+            )
             won = winner == 1
         else:
             # :25125-25126 -- success; immediate bonus, no fight. p=int(rnd(1)*100*x)+300
@@ -222,7 +220,9 @@ def job_shift(ctx):
     elif job_type == JOB_KILLER:
         # :25200-25210 -- always fight the victim.
         yield ShowMessage("job.shift_killer_intro")
-        winner = yield from _fight(ctx, opponent=_KILLER_VICTIM, backdrop="km")
+        winner = yield from _fight(
+            ctx, spec=_KILLER_ENCOUNTER.variants[0], backdrop=_KILLER_ENCOUNTER.grid
+        )
         won = winner == 1
 
     # :25500-25560 -- common outcome resolution.
