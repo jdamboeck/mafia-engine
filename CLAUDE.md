@@ -4,40 +4,48 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-**Implementation in progress — first vertical slice.** The project bootstrap (U0) is
-done: there is a Python skeleton, a `pytest` + `Makefile` toolchain, and a durable
-per-unit tracking board. Implementation runs unit-by-unit against a plan.
+**Building the first vertical slice** — unit-by-unit against a plan (derive the *current*
+status, active plan, and open work per point 1 below; don't read a fixed status here).
+The project bootstrap (U0) is done: there is a Python skeleton, a `pytest` + `Makefile`
+toolchain, and a durable per-unit tracking board.
 
 **If you are starting a work session, read `docs/AGENTS.md` first** — it is the
 operating manual: the one-orchestrator/one-subagent execution model, the green-tree rule,
 commit + branch conventions, and how to pick up the next unit. Then:
 
-1. **The active plan** is
-   `docs/plans/2026-07-20-003-refactor-combat-engine-foundation-plan.md`
-   (Combat Engine Foundation, U1–U8 + U6a). It makes the engine attribute-agnostic
-   (no game vocabulary in `engine/`), then builds scenarios, per-side drivers,
-   data-defined encounters, recording/replay, and a terminal debug tool. Do not edit
-   the plan body during execution — progress lives in git and the board, not the doc.
-   Two earlier drafts of this work (`2026-07-20-001`, `2026-07-20-002`) are marked
-   `artifact_readiness: superseded` and must not be executed.
-2. **The tracking board** is GitHub Issues on the `origin` remote. `gh issue list`
-   shows it. Four issues are open — **#45, #49, #50, #51** — and the active plan
-   dispositions all four: it closes #50 (U3) and explicitly defers #45/#49/#51 with
-   rationale (see its §7.2). Close an issue when its commit lands green. (If there
-   is no remote, the board is `docs/PROGRESS.md` instead.)
-
-   **Landed, do not re-open:** the State/Event Foundation (T1–T9,
+1. **Derive current state — do not trust this file's memory of it.** *"Which plan is
+   active"* and *"which issues are open"* go stale the moment a plan closes, so this
+   file must never hardcode them (it did twice, and misled two sessions). Instead,
+   derive them from the tree — the same rule the rest of the project lives by
+   (*facts live in git and the board, not in a doc*):
+   - **Active plan** = the newest file in `docs/plans/` **not** marked
+     `artifact_readiness: superseded` in its frontmatter, and **not** a
+     `*-brainstorm-basis` / `*-NEXT-STEPS` / `*-amendments` companion. If the newest
+     such file is a `brainstorm-basis` doc, **there is no active plan** — the previous
+     one is done and the next hasn't been planned yet; the brainstorm doc is the
+     forward pointer.
+   - **How far it's executed** = `git log --oneline` (units land as commits).
+   - **The board** = `gh issue list` (GitHub Issues on `origin`; if there is no
+     remote, `docs/PROGRESS.md` instead). Close an issue when its commit lands green.
+   - A plan is **done** when its final unit's commit has landed green and a
+     `*-brainstorm-basis` doc for the next plan exists.
+   - Drafts marked `artifact_readiness: superseded` **must not be executed**.
+2. **Landed, do not re-open:** the State/Event Foundation (T1–T9,
    `docs/plans/current-action-plan.md`), the first-slice deepening plan
-   (`2026-07-12-001-…`, including U10 terminal client and U12 save/load), and the
-   armed-closure plan (`2026-07-18-002-…`).
+   (`2026-07-12-001-…`, including U10 terminal client and U12 save/load), the
+   armed-closure plan (`2026-07-18-002-…`), and the Combat Engine Foundation plan
+   (`2026-07-20-003-…`, U1–U8 + U6a — engine made attribute-agnostic, scenarios,
+   per-side drivers, data-defined encounters, recording/replay, terminal debug tool).
+   *(This is an append-only ledger of closed work — safe to grow, never goes stale.
+   The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).
 4. **Setup / green-tree gate:** `pip install -e '.[dev]'` then `make check` (→ `pytest` +
    soft lint). Never dispatch a subagent or commit on a red tree.
 
 `docs/design/` contains the authoritative spec for *how to build* the engine (architecture,
-phasing). Read it before making architectural decisions — the decisions below were made
-deliberately and are easy to violate accidentally. The plan in `docs/plans/` is the
-execution-level enrichment of the design docs for this slice.
+phasing). Read it before making architectural decisions — the architectural invariants
+below were made deliberately and are easy to violate accidentally. The plan in
+`docs/plans/` is the execution-level enrichment of the design docs for this slice.
 
 ## Two sources of truth (do not confuse them)
 
@@ -49,7 +57,10 @@ execution-level enrichment of the design docs for this slice.
 - **`../research/`** — the authoritative game *knowledge* (the reverse-engineered rules
   of the original 1986 C64 game "Mafia" by Igelsoft). **Never invent game behavior.**
   When a mechanic is unclear, read the decompiled BASIC line block it maps to; every
-  research file cites BASIC line numbers.
+  research file cites BASIC line numbers. **For any game-behavior question — "how does X
+  work", "is it true that Mafia does Y", "which BASIC line drives Z" — invoke the
+  `mafia-oracle` skill; it answers from this research and is the preferred path over
+  reading the raw files below.**
 
 Supporting knowledge stores (not sources of truth):
 
@@ -59,18 +70,9 @@ Supporting knowledge stores (not sources of truth):
 - `CONCEPTS.md` — shared domain vocabulary (entities, named processes, status concepts).
   Relevant when orienting to the codebase or discussing domain concepts.
 
-Key research files (all under `../research/`):
-
-| File | Contains |
-|---|---|
-| `src/decompiled_basic/mf-prg.bas` | The authoritative logic (870 lines, 108 vars). Each Python handler is a port of a labeled line block (10000–26080). |
-| `research-data/pass-2/location-handlers.yaml` | Per-menu-option behavior + guards — source for YAML shells and handler ids. |
-| `research-data/pass-2/game-logic.yaml` | RNG outcome tables, combat AI (`ri()` direction memory), score/rank formulas. |
-| `research-data/pass-2/systems-analysis.yaml`, `data-structures.yaml` | Combat/economy/wanted rules, the ~108 variables, grid dimensions. |
-| `research-data/pass-1/location-extraction.yaml` | Menu trees + option→handler mapping. |
-| `research-data/pass-2/location-dialogue.yaml` | **Dialogue source of truth** — each location's complete verbatim script (entry prompt + every option + the game's printed responses, each cited to `mf-prg.bas:<line>`). Port the exact strings from here. |
-| `research-data/pass-1/game-text.yaml` | The full verbatim text corpus (all print/input/data/assign strings + SEQ menus). The authority for any on-screen string (narration, prompts, weapon/rank/vehicle/opponent names). |
-| `docs/systems/*.md` | Human-readable system summaries. |
+The `../research/` file layout (which YAML holds which rules, dialogue, text corpus,
+etc.) is indexed in **`docs/research-map.md`** — consult it, or the `mafia-oracle`
+skill, before opening raw research files. Don't reproduce that index here.
 
 **Fidelity bar is behavioral, not bit-exact:** match the original's formulas,
 probabilities, rewards, and outcomes exactly — but internal representation and RNG
@@ -105,14 +107,15 @@ Other cross-cutting invariants:
 
 - **Layering:** the `engine/` package **imports nothing** from `server/`, `clients/`, or
   any transport/render library. Simulation is fully headless; presentation and transport
-  depend on the engine, never the reverse (`docs/design/` §6a).
+  depend on the engine, never the reverse (`engine-architecture.md` → "Layering rules").
 - **Handler API is the only config interface:** a config's handlers may touch only
   `ctx.state` (read-only), `ctx.rng`, `yield <Interaction>`, `ctx.apply(<Effect>)`, and
-  the named engine helpers — nothing else in `engine/` (`docs/design/` §5.2a). This is what
-  keeps configs portable across `engine_api` versions.
+  the named engine helpers — nothing else in `engine/`
+  (`config-and-content-contract.md` → "Handler API"). This is what keeps configs portable
+  across `engine_api` versions.
 - **Interactions vs. Effects:** interactions drive execution flow (suspend to ask the
   client); effects mutate state. A handler never mutates state directly. Effects are pure
-  data and double as the replay events (`docs/design/` §5.5).
+  data and double as the replay events (`engine-architecture.md` → "Events vs effects").
 - **Guard DSL:** operators `= != >= <= > < in`; connectives `and`/`or`; nesting depth ≤2;
   **no NOT** (restructure to avoid). Verified sufficient for every real guard.
 - **Strings:** zero hardcoded *display* text in the engine. The engine emits
@@ -121,8 +124,13 @@ Other cross-cutting invariants:
   is externalized.
 - **RNG:** one seedable, loggable RNG from the start (`rng.hit(a,b)`, `rng.range(n)`);
   every call recordable so event-sourced replay is additive later.
-- **Two coordinate spaces:** the city map is 40×25; the combat grid is 40×13. They are
-  different spaces — never conflate them.
+- **Two distinct coordinate spaces — never conflate them.** They are different modes of
+  play with different dimensions *and* different addressing:
+  - **City map** — the 40×25 strategy board you move around between locations.
+  - **Combat grid** — the 40×13 tactical board a fight happens on, addressed as *linear*
+    cells `0..520` (= 13×40), not `(row, col)` pairs.
+  A cell index is only meaningful together with which space it belongs to; the same
+  integer means different tiles in each.
 
 ## Modding model (two independent axes)
 

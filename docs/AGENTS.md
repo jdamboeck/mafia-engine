@@ -2,9 +2,8 @@
 
 This file orients a fresh agent session working on the Mafia engine. Read it
 first. It captures **how** the work runs; **what** to build lives in the active
-plan (see `CLAUDE.md` § Current state — currently
-`docs/plans/2026-07-20-003-refactor-combat-engine-foundation-plan.md`) and the
-authoritative design in `docs/design/`.
+plan (derive it from the tree per `CLAUDE.md` § Current state, point 1 — never
+hardcode a plan path) and the authoritative design in `docs/design/`.
 
 ## Environment setup (get to a green tree first)
 
@@ -13,12 +12,10 @@ pip install -e '.[dev]'   # pytest (+ ruff for lint); pyyaml is a runtime dep
 make check                # → pytest + soft lint; must be green before any work
 ```
 
-`make check` runs `pytest` plus lint (`ruff check` **and** `ruff format --check`).
-The lint is soft only on ruff's *absence* — a machine without dev extras skips it
-and stays green. When ruff is installed both checks are **hard**, so formatting
-drift fails the gate rather than accumulating silently. The research knowledge base is
-a sibling checkout at `../research/` — handlers port from the BASIC line blocks
-it cites; confirm it is present before starting a handler unit.
+`make check` runs `pytest` plus lint (`ruff check` **and** `ruff format --check`);
+both are hard when ruff is installed and skipped only if it is absent. The research
+knowledge base is a sibling checkout at `../research/` — handlers port from the
+BASIC line blocks it cites; confirm it is present before starting a handler unit.
 
 ## Execution model — one orchestrator, one subagent at a time
 
@@ -29,8 +26,8 @@ flight.
 
 - The orchestrator keeps the cross-cutting contracts in its own context (the
   interaction protocol, the effect buffer / cancellation semantics, the
-  handler-API boundary, the event schema — KTD-2/3/6/7/8 in the plan) and does
-  **not** delegate those decisions.
+  handler-API boundary, the event schema — the active plan tags these as KTDs)
+  and does **not** delegate those decisions.
 - A subagent gets a **bounded packet** (the target unit's plan section + the
   KTDs it cites + the named research references) — never "read the whole plan."
 - Subagents implement and run their **own** unit tests as a self-check. They do
@@ -39,18 +36,33 @@ flight.
 
 ## Picking up the next unit
 
-The next unit is the **earliest unit in the serial order whose dependency
-issues are all closed**.
-
-Serial order (from the plan):
-
-```
-U0 → U3 → U2 → U1 → U4 → U5 → U6 → U8 → U7 → U9 → U11 → U12 → U10
-```
+The next unit is the **earliest unit in the active plan's serial order whose
+dependency issues are all closed**. The serial order and unit list are the
+*active plan's* — read them from it, not from here (a baked-in order goes stale
+the moment a plan closes).
 
 To see the board: `gh issue list` — each open issue is an unfinished unit, with
 `dep:U<N>` labels showing what must close first. (If this repo has no GitHub
 remote, the same board lives in `docs/PROGRESS.md`.)
+
+## Closing out a plan (do this when the final unit lands)
+
+When a plan's last unit lands green, the plan is done — and **stale plan pointers
+are how a finished plan keeps looking active to the next session** (it has already
+misled two). So completing a plan is not just closing the last issue:
+
+1. **`CLAUDE.md` must carry no plan-specific pointer.** It derives the active plan
+   from the tree (its "Current state" point 1); it must never name *this* plan as
+   active. Move the finished plan into its append-only *"Landed, do not re-open"*
+   ledger (point 2) and confirm nothing else references it as current.
+2. **Drop a `*-brainstorm-basis` doc** in `docs/plans/` for what comes next. That
+   doc — not `CLAUDE.md` — is the forward pointer; its presence is the signal that
+   "the previous plan is done, the next isn't planned yet."
+3. **Delete consumed scratch companions** (`*-NEXT-STEPS`, stale `*-amendments`)
+   once their units are done, so the plans dir stays unambiguous.
+
+The rule in one line: **no doc may hold a fact that a plan completion falsifies —
+state it as a derivation, or move it to the closed-work ledger.**
 
 ## The green-tree rule
 
