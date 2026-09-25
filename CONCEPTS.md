@@ -44,6 +44,13 @@ The per-player processing that runs at the start of each turn, before the free t
 
 The Upkeep Flow is config handler code driven by the engine through the same generator/interaction/effect protocol as location handlers; it can show screens and start combat (the debt-default collectors fight lives here). Its "monthly" ticks fire per player turn, which equals monthly because one full player round is one month.
 
+### Year-End Ending
+The game ends when the round rotation brings the clock to the end year the
+players chose at setup. The highest score wins, and tied top scores share the
+win. It is one of the original's two endings. The other, the **Early Win**
+(rank 10 plus both win flags, checked at turn start), is a separate path. The
+original has no lose state.
+
 ### Job Shift
 A turn that is replaced by working an active pub job — no map movement, no location menu; the shift (quiet day, croupier trick, or a fight) is the whole turn.
 
