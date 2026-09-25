@@ -39,9 +39,11 @@ The composition it proves (the "how you play a turn" the orchestrator owns):
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_game_config
@@ -364,3 +366,263 @@ def test_headless_no_clients_import():
     assert not new_client_modules, (
         f"the slice imported {sorted(new_client_modules)} from clients — it must be fully headless"
     )
+
+
+# --------------------------------------------------------------------------- #
+# U12 (vertical-slice completion) -- the CLIENT-level smoke, setup to ending.  #
+#                                                                              #
+# Everything above stays headless. This class is the one exception the plan   #
+# names (R18): it drives the real ``clients.terminal`` entry point, so every   #
+# ``clients`` import is deferred into the functions below -- this module's     #
+# import list stays client-free, and ``test_headless_no_clients_import``       #
+# compares ``sys.modules`` snapshots, so it is unaffected by the order.        #
+# --------------------------------------------------------------------------- #
+
+_SMOKE_ARGV = [
+    "--seed",
+    "42",
+    "--end-year",
+    "1928",
+    "--score-weight",
+    "1",
+    "--player",
+    "a:x",
+    "--player",
+    "b:y",
+]
+_SMOKE_PLAYERS = [("a", "x"), ("b", "y")]
+#: The turn (0-based, over both players) whose map screen starts with the mid-game
+#: ``p``: half of the 72 turns a two-player 1928 game has.
+_SMOKE_SAVE_TURN = 36
+#: The second casino visit happens on the first turn from here on that can reach
+#: sph within one turn's movement -- strictly AFTER the save, so run B draws on
+#: both sides of it.
+_SMOKE_SECOND_VISIT_FROM = 40
+_SMOKE_DEADLINE = 120.0
+
+
+def _smoke_plan():
+    """The whole game's key stream, asked of the engine (never hardcoded), mirroring
+    ``play()`` key for key.
+
+    Returns ``(lines, mid_save_at, last_save_at)``: ``lines`` is the exact stdin body
+    after ``main()``'s title ack (the setup prompts are skipped by the flags); the two
+    indices point at the mid-game and final-turn ``p`` keys.
+
+    Per turn: an optional ``p`` on the map, an optional casino visit (walk into the
+    sph door, splash ack, ``play``, poker, wager 100), then stepping moves to the
+    turn-over, its ack, the standings ack on a round wrap, and the result-screen ack
+    (``game_over``) or the next turn's upkeep ack -- exactly
+    ``tests.test_client_loop.burn_turn_keys``, plus the visits and saves. sph moves
+    nobody and spends no ``ms`` (only the door step does, inside ``try_move``), and an
+    idle player's upkeep asks nothing (``test_idle_upkeep_never_asks_across_the_game``),
+    so the walk needs no RNG to stay in step with the real run.
+    """
+    from engine.movement import advance_turn
+    from tests.test_client_loop import (
+        _MOVE_KEYS,
+        find_door_cell,
+        load_city_raw,
+        walk_keys_to_cell,
+    )
+
+    vehicles = _CONFIG.module.load_vehicles(_CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
+    city_raw = load_city_raw()
+    city = load_city(city_raw)
+    sph_door = find_door_cell(city_raw, "sph")
+    state = new_game(seed=SEED, end_year=1928, score_weight=1.0, players=_SMOKE_PLAYERS)
+
+    def try_visit(state):
+        """The visit's keys and the state after it, or None if sph is out of reach."""
+        keys = []
+        for key in walk_keys_to_cell(state, city, sph_door):
+            result = try_move(state, city, _MOVE_KEYS[key])
+            state = result.state
+            keys.append(key)
+            kind = getattr(result.payload, "kind", None)
+            if kind == "enter":
+                return keys + ["", "0", "0", "100"], state, result.payload.turn_over
+            if kind != "step" or result.payload.turn_over:
+                return None  # the walk needs more than this turn's movement
+        return None
+
+    lines: list[str] = [""]  # the first turn's upkeep ack (the title ack is prepended)
+    mid_save_at = last_save_at = None
+    visits = 0
+    turn = 0
+    while True:
+        if turn == _SMOKE_SAVE_TURN:
+            mid_save_at = len(lines)
+            lines.append("p")
+        if turn == 71:  # the last turn of 36 rounds x 2 players
+            last_save_at = len(lines)
+            lines.append("p")
+        turn_over = False
+        visit = None
+        if visits == 0 or (visits == 1 and turn >= _SMOKE_SECOND_VISIT_FROM):
+            visit = try_visit(state)
+        if visit is not None:
+            keys, state, turn_over = visit
+            lines += keys
+            visits += 1
+        steps = 0
+        while not turn_over:
+            for key, delta in _MOVE_KEYS.items():
+                result = try_move(state, city, delta)
+                if getattr(result.payload, "kind", None) == "step":
+                    break
+            else:
+                raise AssertionError("no stepping move available")
+            state = result.state
+            lines.append(key)
+            turn_over = result.payload.turn_over
+            steps += 1
+            assert steps < 200, "turn never ended"
+        lines.append("x")  # the turn-over ack
+        state, game_over = advance_turn(state, vehicles)
+        turn += 1
+        if state.clock.active_player == 0:
+            lines.append("x")  # the round-standings ack
+        if game_over:
+            lines.append("x")  # the result-screen ack
+            break
+        lines.append("x")  # the next turn's upkeep ack
+    assert turn == 72, f"a two-player 1928 game is 72 turns, planned {turn}"
+    assert visits == 2, "the second casino visit never became reachable"
+    assert mid_save_at is not None and last_save_at is not None
+    return lines, mid_save_at, last_save_at
+
+
+def _drive_main(argv: list[str], lines: list[str]):
+    """Run ``clients.terminal.__main__.main(argv)`` over EXACT stdin ``lines`` under a
+    SIGALRM deadline (a spin fails instead of hanging). ``main()`` discards
+    ``play()``'s return, so ``play`` is wrapped to capture its ``(state, rng)``.
+    Returns ``(stdout, (state, rng))``; any exception -- ``SystemExit`` included --
+    propagates and fails the caller."""
+    import io
+    import signal
+
+    import clients.terminal.__main__ as tmain
+
+    captured = []
+    real_play = tmain.play
+
+    def spy_play(*args, **kwargs):
+        ret = real_play(*args, **kwargs)
+        captured.append(ret)
+        return ret
+
+    def on_alarm(signum, frame):
+        raise AssertionError(f"main() did not return within {_SMOKE_DEADLINE}s (spin?)")
+
+    out = io.StringIO()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(tmain, "play", spy_play)
+        mp.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
+        mp.setattr(sys, "stdout", out)
+        previous = signal.signal(signal.SIGALRM, on_alarm)
+        signal.setitimer(signal.ITIMER_REAL, _SMOKE_DEADLINE)
+        try:
+            tmain.main(argv)
+        finally:
+            signal.setitimer(signal.ITIMER_REAL, 0)
+            signal.signal(signal.SIGALRM, previous)
+    assert len(captured) == 1, "main() never reached play()"
+    return out.getvalue(), captured[0]
+
+
+def _result_screen(output: str) -> str:
+    """The year-end result screen: from its header to the end of the output."""
+    assert "game_over" in output, "the year-end result screen never rendered"
+    return output[output.rindex("game_over") :]
+
+
+_WINNER = "hat gewonnen!"
+_TIE = "diesmal haben mehrere"
+#: sph's at-the-table line: shown once per hand that is actually dealt (16026).
+_DEALT = "du begibst dich an den spieltisch"
+
+
+@pytest.fixture(scope="module")
+def smoke_run_a(tmp_path_factory):
+    """Run A, once per module: the uninterrupted game through ``main()``, every key.
+    Its final-turn ``p`` leaves the last save in ``a.jsonl``."""
+    lines, mid, _last = _smoke_plan()
+    a_save = tmp_path_factory.mktemp("smoke_a") / "a.jsonl"
+    out, ret = _drive_main([*_SMOKE_ARGV, "--save", str(a_save)], [""] + lines)
+    return {"lines": lines, "mid": mid, "out": out, "ret": ret, "save": a_save}
+
+
+class TestClientSmokeSetupToEnding:
+    """U12 / R18: the whole slice through the real CLI entry point -- setup flags,
+    two players, casino visits, a mid-game save and reload, the round standings and
+    the year-end result (AE1-AE3, AE5 end to end)."""
+
+    def test_smoke_via_main_reaches_the_standings_then_the_result(self, smoke_run_a):
+        out = smoke_run_a["out"]
+        low = out.lower()
+        # The location visits really happened: both casino hands were dealt and resolved.
+        assert low.count(_DEALT) == 2, "the casino visits never reached the table"
+        assert low.count("$ gewonnen!") + low.count("leider verloren!") == 2
+        # 36 round wraps each show the :1010 standings, and the year-end shows its own.
+        # (Counted by the header's date: the save note says "spielstand" too.)
+        assert len(re.findall(r"spielstand \d{4}-\d+\n", out)) == 37
+        result_at = max(out.rfind(_WINNER), out.rfind(_TIE))
+        assert result_at > 0, "neither a winner nor the tie text was shown"
+        assert out.rindex("spielstand 1928-1\n") < result_at, "standings must precede the result"
+        screen = _result_screen(out)
+        assert "spielstand 1928-1\n" in screen
+        tail = out[result_at:]
+        for later in ("turn_over", "upkeep", "spielstand", "bye."):
+            assert later not in tail, f"{later!r} rendered after the result"
+        state, _rng = smoke_run_a["ret"]
+        assert state.clock.year == 1928 and state.clock.month == 0
+        assert [p.name for p in state.players] == ["a", "b"]
+        # The result matches the final scores (AE1/AE2): the sole top scorer wins, or
+        # every tied top scorer is listed under the shared-victory text.
+        top = max(p.gf for p in state.players)
+        leaders = [p.name for p in state.players if p.gf == top]
+        if len(leaders) == 1:
+            assert f"{leaders[0]} hat gewonnen!" in screen and _TIE not in screen
+        else:
+            assert "punkte:\n" + "\n".join(leaders) + "\n" in screen
+            assert _WINNER not in screen
+
+    def test_reloaded_half_ends_exactly_like_the_uninterrupted_run(self, smoke_run_a, tmp_path):
+        from engine.persistence import load_game
+
+        lines, mid = smoke_run_a["lines"], smoke_run_a["mid"]
+        b_save = tmp_path / "b.jsonl"
+        # Run B, first half: the same keys up to and including the mid-game p, then q.
+        out_b1, _ = _drive_main(
+            [*_SMOKE_ARGV, "--save", str(b_save)], [""] + lines[: mid + 1] + ["q"]
+        )
+        mid_save = load_game(b_save)
+        # Run B, second half: --load, then the SAME remaining keys (a load shows no
+        # title and no upkeep). Its final-turn p overwrites the loaded file.
+        out_b2, (state_b, rng_b) = _drive_main(["--load", str(b_save)], lines[mid + 1 :])
+
+        state_a, rng_a = smoke_run_a["ret"]
+        # The split is not vacuous: one casino hand before the save, one after it.
+        assert out_b1.lower().count(_DEALT) == 1
+        assert out_b2.lower().count(_DEALT) == 1
+        assert "bye." in out_b1, "run B's first half did not quit on q"
+        assert len(mid_save.rng_log) > 0, "no draws before the save: the RNG half is vacuous"
+        assert len(rng_a.log) > len(mid_save.rng_log), "no draws after the save"
+        assert mid_save.state != state_a
+        assert state_b == state_a
+        assert rng_b.log == rng_a.log
+        assert _result_screen(out_b2) == _result_screen(smoke_run_a["out"])
+        # Both runs pressed p on the final turn: the two saves are the same bytes.
+        assert b_save.read_bytes() == smoke_run_a["save"].read_bytes()
+
+    def test_final_turn_save_size(self, smoke_run_a):
+        from engine.persistence import load_game
+
+        size = smoke_run_a["save"].stat().st_size
+        saved = load_game(smoke_run_a["save"])
+        # The final-turn p ran on the last map screen (after player b's upkeep).
+        assert saved.state.clock.active_player == 1
+        assert (saved.state.clock.year, saved.state.clock.month) == (1927, 11)
+        print(f"\nfinal-turn save: {size} bytes, {len(saved.rng_log)} rng draws")
+        assert 0 < size < 10 * 1024 * 1024
