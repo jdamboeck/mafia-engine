@@ -462,3 +462,126 @@ class TestSetupFlags:
         err = capsys.readouterr().err
         assert "unrecognized arguments" not in err
         assert argv[0] in err
+
+
+class TestClientErrorGuard:
+    """U9 / KTD-9: known bad inputs end as ONE readable stderr line and a non-zero
+    exit -- never a traceback -- while unknown errors keep theirs (AE4, AE6)."""
+
+    @staticmethod
+    def _valid_save(path: Path, *, rng_log=()) -> Path:
+        from engine.config_loader import load_game_config
+        from engine.persistence import save_game
+
+        import clients.terminal.__main__ as tmain
+
+        cfg = load_game_config(tmain._CONFIG_DIR)
+        state = cfg.module.new_game(
+            seed=42, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+        )
+        save_game(path, state, effect_log=[], rng_log=list(rng_log), seed=42)
+        return path
+
+    @staticmethod
+    def _fail(capsys, argv) -> tuple[int, str]:
+        import clients.terminal.__main__ as tmain
+
+        with pytest.raises(SystemExit) as exc:
+            tmain.main(argv)
+        return exc.value.code, capsys.readouterr().err
+
+    @staticmethod
+    def _assert_one_readable_line(code, err, path) -> None:
+        assert code not in (0, None)
+        assert "Traceback" not in err
+        lines = err.strip().splitlines()
+        assert len(lines) == 1, err
+        assert lines[0].startswith(f"cannot load {path}: "), err
+
+    def test_missing_load_file_names_it_and_says_not_found(self, capsys, tmp_path):
+        path = tmp_path / "missing.jsonl"
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        assert "not found" in err
+
+    def test_invalid_json_save(self, capsys, tmp_path):
+        path = tmp_path / "bad.jsonl"
+        path.write_text("{this is not json\n", encoding="utf-8")
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        assert "JSON" in err
+
+    def test_wrong_schema_version_save(self, capsys, tmp_path):
+        import json
+
+        path = self._valid_save(tmp_path / "old.jsonl")
+        header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+        header["version"] = 999
+        path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        assert "999" in err
+
+    def test_snapshot_missing_a_field(self, capsys, tmp_path):
+        import json
+
+        path = self._valid_save(tmp_path / "hole.jsonl")
+        header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+        dropped = next(iter(header["snapshot"]))
+        del header["snapshot"][dropped]
+        path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+
+    def test_rng_log_not_matching_seed(self, capsys, tmp_path):
+        from engine.rng import Rng
+
+        real = Rng(42).range(1000)
+        path = self._valid_save(
+            tmp_path / "forged.jsonl", rng_log=[("range", (1000,), (real + 1) % 1000)]
+        )
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        assert "seed" in err
+
+    def test_out_of_range_end_year_names_the_range(self, capsys, monkeypatch):
+        import clients.terminal.__main__ as tmain
+
+        monkeypatch.setattr(tmain, "play", lambda *a, **k: pytest.fail("play ran"))
+        code, err = self._fail(capsys, ["--end-year", "1927"])
+        assert code not in (0, None)
+        assert "Traceback" not in err
+        bounds = tmain.load_game_config(tmain._CONFIG_DIR).config["input_ranges"]["end_year"]
+        assert f"[{bounds['min']}, {bounds['max']}]" in err
+
+    def _load_and_break_render(self, monkeypatch, tmp_path, exc):
+        """Load a VALID save (so loading must succeed) and fail deep inside play()."""
+        import clients.terminal.__main__ as tmain
+
+        path = self._valid_save(tmp_path / "ok.jsonl")
+        monkeypatch.setattr(sys, "stdin", io.StringIO("q\n"))
+
+        def boom(*a, **k):
+            raise exc
+
+        monkeypatch.setattr(tmain, "render_map", boom)
+        return tmain, path
+
+    def test_unknown_error_inside_play_keeps_its_traceback(self, monkeypatch, tmp_path):
+        tmain, path = self._load_and_break_render(monkeypatch, tmp_path, RuntimeError("deep bug"))
+        with pytest.raises(RuntimeError, match="deep bug"):
+            tmain.main(["--load", str(path)])
+
+    def test_keyboard_interrupt_exits_quietly_with_cursor_restored(
+        self, monkeypatch, capsys, tmp_path
+    ):
+        from clients.terminal import CURSOR_HIDE, CURSOR_SHOW
+
+        tmain, path = self._load_and_break_render(monkeypatch, tmp_path, KeyboardInterrupt())
+        with pytest.raises(SystemExit) as exc:
+            tmain.main(["--load", str(path)])
+        assert exc.value.code not in (0, None)
+        captured = capsys.readouterr()
+        assert "Traceback" not in captured.err
+        assert CURSOR_HIDE in captured.out
+        assert captured.out.rstrip().endswith(CURSOR_SHOW)

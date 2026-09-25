@@ -23,9 +23,11 @@ slice test (``tests/test_slice_integration.py``), which drives the same protocol
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 import yaml
 
@@ -37,8 +39,9 @@ from engine.interactions import ShowMessage
 from engine.interactions import run as run_handler
 from engine.locations import HANDLERS, available_options, load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
-from engine.persistence import load_game, replay, save_game
+from engine.persistence import SchemaVersionError, load_game, replay, save_game
 from engine.rng import Rng
+from engine.state import GameState
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
 
@@ -78,6 +81,51 @@ _DEFAULT_SAVE = "mafia-save.jsonl"
 #: The seed a NEW game uses when none is given. ``--seed`` defaults to ``None`` so a
 #: load can tell "not given" from "given" (a load always uses the save's own seed).
 _DEFAULT_SEED = 42
+
+
+class LoadError(Exception):
+    """A ``--load`` file could not be resumed; the message is the player-facing line.
+
+    Raised by :func:`_load_session` for ANY failure while reading, replaying or
+    re-seeding a save (KTD-9): a structurally corrupt save surfaces as ``ValueError``,
+    ``KeyError`` or ``TypeError`` from deep in deserialization, so no narrow list of
+    types would catch them all. :func:`main` turns it into one stderr line.
+    """
+
+
+def _load_reason(exc: BaseException) -> str:
+    """Plain words for why a save could not be loaded (client diagnostics, not game text)."""
+    if isinstance(exc, FileNotFoundError):
+        return "file not found"
+    if isinstance(exc, IsADirectoryError):
+        return "is a directory, not a save file"
+    if isinstance(exc, OSError):
+        return exc.strerror or str(exc)
+    if isinstance(exc, json.JSONDecodeError):
+        return f"not valid JSON ({exc.msg})"
+    if isinstance(exc, UnicodeDecodeError):
+        return "not a text file"
+    if isinstance(exc, SchemaVersionError):
+        return f"unsupported save version ({exc})"
+    if isinstance(exc, KeyError):
+        return f"save is missing the field {exc}"
+    return f"corrupt save ({type(exc).__name__}: {exc})"
+
+
+def _load_session(path: str | Path) -> tuple[int, GameState, Rng]:
+    """Resume a save: its seed, its state and the session RNG rebuilt mid-stream (KTD-5).
+
+    The snapshot is authoritative (the effect log is saved empty), and the session RNG
+    resumes mid-stream: re-issuing every logged draw leaves it exactly where
+    uninterrupted play would be. A draw log that does not match the save's seed makes
+    :meth:`Rng.replayed` raise ``ValueError`` -- a load failure like any other.
+    Every failure becomes :class:`LoadError` ``"cannot load <path>: <reason>"``.
+    """
+    try:
+        loaded = load_game(path)
+        return loaded.seed, replay(loaded), Rng.replayed(loaded.seed, loaded.rng_log)
+    except Exception as exc:
+        raise LoadError(f"cannot load {path}: {_load_reason(exc)}") from exc
 
 
 def _is_quit(key: str) -> bool:
@@ -580,13 +628,7 @@ def play(
     ranges = cfg.config["input_ranges"]
     inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out, weapon_names=weapon_names)
     if load is not None:
-        # KTD-5: the snapshot is authoritative (the effect log is saved empty), and the
-        # session RNG resumes mid-stream: re-issuing every logged draw leaves it exactly
-        # where uninterrupted play would be.
-        loaded = load_game(load)
-        seed = loaded.seed
-        state = replay(loaded)
-        rng = Rng.replayed(seed, loaded.rng_log)
+        seed, state, rng = _load_session(load)  # raises LoadError (KTD-9); main() reports it
     else:
         if seed is None:
             seed = _DEFAULT_SEED
@@ -802,7 +844,13 @@ def main(argv: list[str] | None = None) -> None:
                 f"--load resumes a saved game; it cannot be combined with {', '.join(clashing)}"
             )
     # Same bounds as the setup prompts: input_ranges in config.yaml, never hardcoded.
-    ranges = load_game_config(_CONFIG_DIR).config["input_ranges"]
+    # A broken config dir (missing, malformed YAML, failed validation) is a known
+    # failure: one line, not a traceback (KTD-9). play() loads the same config, so
+    # checking it here also covers play()'s own load.
+    try:
+        ranges = load_game_config(_CONFIG_DIR).config["input_ranges"]
+    except (OSError, yaml.YAMLError, ValueError, KeyError) as exc:
+        _die(f"cannot load game config {_CONFIG_DIR}: {exc}")
     for flag, value, bounds in (
         ("--end-year", args.end_year, ranges["end_year"]),
         ("--score-weight", args.score_weight, ranges["score_weight"]),
@@ -815,14 +863,29 @@ def main(argv: list[str] | None = None) -> None:
         for spec in args.players:
             name, _, gang = spec.partition(":")
             players.append((name, gang or name))
-    play(
-        seed=args.seed,
-        players=players,
-        end_year=args.end_year,
-        score_weight=args.score_weight,
-        load=args.load,
-        save=args.save,
-    )
+    # KTD-9: only KNOWN failures are caught here. A LoadError is raised before play()
+    # draws anything; KeyboardInterrupt unwinds through play()'s finally (which shows
+    # the cursor again) and exits quietly. Anything else is a bug and keeps its
+    # traceback.
+    try:
+        play(
+            seed=args.seed,
+            players=players,
+            end_year=args.end_year,
+            score_weight=args.score_weight,
+            load=args.load,
+            save=args.save,
+        )
+    except LoadError as exc:
+        _die(str(exc))
+    except KeyboardInterrupt:
+        sys.exit(130)  # 128 + SIGINT, the shell convention; no traceback, no message
+
+
+def _die(message: str) -> NoReturn:
+    """Print one readable line to stderr and exit non-zero (KTD-9)."""
+    print(message, file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entry point
