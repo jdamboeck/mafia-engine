@@ -41,6 +41,35 @@ class Rng:
         self._random = random.Random(seed)
         self._log: list[tuple[str, tuple, int]] = []
 
+    @classmethod
+    def replayed(cls, seed: int, log) -> Rng:
+        """Rebuild a session RNG from its seed and draw log (save/load, KTD-5).
+
+        Builds a fresh ``Rng(seed)`` and re-issues every logged draw in order — the
+        same public method with the same args — so the returned RNG's stream position
+        AND its :attr:`log` equal the original's at the moment the log was taken. The
+        next draw is therefore exactly the draw uninterrupted play would have made.
+
+        Each re-drawn value must equal the logged one. A mismatch means the log does not
+        belong to this seed (corrupt, tampered or foreign), so continuing would silently
+        fork the game: it raises ``ValueError`` instead. An unknown method name raises
+        ``ValueError`` too.
+        """
+        rng = cls(seed)
+        draws = {"range": rng.range, "hit": rng.hit}
+        for i, record in enumerate(log):
+            method, args, value = record
+            draw = draws.get(method)
+            if draw is None:
+                raise ValueError(f"rng log record {i}: unknown draw method {method!r}")
+            redrawn = draw(*args)
+            if redrawn != value:
+                raise ValueError(
+                    f"rng log record {i}: {method}{tuple(args)!r} re-drew {redrawn!r}, "
+                    f"log says {value!r} (log does not match seed {seed!r})"
+                )
+        return rng
+
     @property
     def log(self) -> list[tuple[str, tuple, int]]:
         """Ordered record of every public draw. See module docstring for shape."""

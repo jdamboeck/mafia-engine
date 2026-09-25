@@ -16,3 +16,6 @@ __pycache__/
 
 # Combat recordings — run artifacts, not versioned game content (U7)
 recordings/
+
+# Saved games — the terminal client's P key writes JSONL saves (U8, KTD-7)
+*.jsonl

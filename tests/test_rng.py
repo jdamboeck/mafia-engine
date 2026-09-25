@@ -150,3 +150,46 @@ def test_hit_inverted_bounds_raises_and_does_not_log():
     with pytest.raises(ValueError):
         rng.hit(5, 3)
     assert rng.log == []
+
+
+# ---------------------------------------------------------------------------
+# Rebuild from seed + log (save/load, KTD-5)
+# ---------------------------------------------------------------------------
+
+
+def test_replayed_rng_continues_exactly_like_the_original():
+    original = Rng(4242)
+    _script(original)  # 600 mixed range/hit draws before the "save"
+    rebuilt = Rng.replayed(4242, list(original.log))
+
+    assert rebuilt.log == original.log
+    # The next 100 draws of the rebuilt RNG equal the original continued. A fresh
+    # Rng(4242) would restart the stream instead.
+    cont_original = [original.hit(1, 100) if i % 2 else original.range(9) for i in range(100)]
+    cont_rebuilt = [rebuilt.hit(1, 100) if i % 2 else rebuilt.range(9) for i in range(100)]
+    assert cont_rebuilt == cont_original
+    fresh = Rng(4242)
+    assert [fresh.hit(1, 100) if i % 2 else fresh.range(9) for i in range(100)] != cont_original
+
+
+def test_replayed_rng_rejects_a_tampered_value():
+    original = Rng(7)
+    _script(original)
+    log = list(original.log)
+    method, args, value = log[300]
+    lo, hi = (0, args[0] - 1) if method == "range" else args
+    log[300] = (method, args, hi if value != hi else lo)  # a different in-range value
+    with pytest.raises(ValueError, match="record 300"):
+        Rng.replayed(7, log)
+
+
+def test_replayed_rng_rejects_a_foreign_seed():
+    original = Rng(7)
+    _script(original)
+    with pytest.raises(ValueError):
+        Rng.replayed(8, list(original.log))
+
+
+def test_replayed_rng_rejects_an_unknown_method():
+    with pytest.raises(ValueError, match="unknown draw method"):
+        Rng.replayed(1, [("roll", (6,), 3)])

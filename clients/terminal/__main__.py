@@ -12,6 +12,8 @@ and it adopts the returned ``EngineResult.state`` after every action (both are p
 
 Run:  ``python -m clients.terminal``            (plays the default seed)
       ``python -m clients.terminal --seed 7``   (any int seed)
+      ``python -m clients.terminal --load mafia-save.jsonl``  (resume a save; ``p`` on
+      the map saves, to ``--save PATH`` / the loaded file / ``mafia-save.jsonl``)
 
 This is deliberately minimal: one player, one turn, the four wired locations. It exists so
 the client can be exercised live; the authoritative end-to-end proof is still the headless
@@ -35,6 +37,7 @@ from engine.interactions import ShowMessage
 from engine.interactions import run as run_handler
 from engine.locations import HANDLERS, available_options, load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
+from engine.persistence import load_game, replay, save_game
 from engine.rng import Rng
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
@@ -66,6 +69,15 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+
+#: The map screen's save key (KTD-7) and the save target when neither ``--save`` nor
+#: ``--load`` names one (relative, so it lands in the working directory).
+_SAVE_KEY = "p"
+_DEFAULT_SAVE = "mafia-save.jsonl"
+
+#: The seed a NEW game uses when none is given. ``--seed`` defaults to ``None`` so a
+#: load can tell "not given" from "given" (a load always uses the save's own seed).
+_DEFAULT_SEED = 42
 
 
 def _is_quit(key: str) -> bool:
@@ -510,11 +522,13 @@ def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out,
 
 
 def play(
-    seed: int,
+    seed: int | None = None,
     players: list[tuple[str, str]] | None = None,
     *,
     end_year: int | None = None,
     score_weight: float | None = None,
+    load: str | Path | None = None,
+    save: str | Path | None = None,
 ) -> tuple:
     """Play the default config from ``seed`` over real stdin/stdout.
 
@@ -534,6 +548,14 @@ def play(
     After every round wrap the standings screen shows the round just played; when
     ``advance_turn`` reports ``game_over`` the year-end result screen follows and the
     session ends without another turn (KTD-2, ``mf-prg.bas:1010`` / ``:40100``).
+
+    ``load`` resumes a save (KTD-5/6): the snapshot becomes the state, the session RNG
+    is rebuilt from the save's seed and draw log (:meth:`Rng.replayed`), and play
+    enters the map loop of the saved active player -- no title, no setup, no upkeep
+    (that turn's upkeep ran before the save). ``seed``/``players``/``end_year``/
+    ``score_weight`` are new-game inputs and are ignored on a load (:func:`main`
+    rejects combining them). ``p`` on the map saves to ``save``, else the loaded file,
+    else ``mafia-save.jsonl`` in the working directory, overwriting it (KTD-7).
 
     Returns the final ``(state, rng)`` on EVERY exit -- quit, EOF, or the ending
     (KTD-12). ``state`` is ``None`` only if the session ends before setup finished.
@@ -557,56 +579,71 @@ def play(
 
     ranges = cfg.config["input_ranges"]
     inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out, weapon_names=weapon_names)
-    rng = Rng(seed)  # the one session RNG (KTD-8) — threaded into every run_option call
+    if load is not None:
+        # KTD-5: the snapshot is authoritative (the effect log is saved empty), and the
+        # session RNG resumes mid-stream: re-issuing every logged draw leaves it exactly
+        # where uninterrupted play would be.
+        loaded = load_game(load)
+        seed = loaded.seed
+        state = replay(loaded)
+        rng = Rng.replayed(seed, loaded.rng_log)
+    else:
+        if seed is None:
+            seed = _DEFAULT_SEED
+        rng = Rng(seed)  # the one session RNG (KTD-8) — threaded into every run_option call
+    save_path = Path(save if save is not None else load if load is not None else _DEFAULT_SAVE)
 
     hide_cursor(out)
     try:
         install_sigwinch_handler()
-        # Title screen
-        out.write(CLEAR)
-        out.write(title_screen())
-        out.flush()
-        show_cursor(out)
-        try:
-            sys.stdin.readline()
-        finally:
-            hide_cursor(out)
+        # A loaded game skips all of this (KTD-6): it was set up, and this turn's
+        # upkeep already ran, before the save.
+        if load is None:
+            # Title screen
+            out.write(CLEAR)
+            out.write(title_screen())
+            out.flush()
+            show_cursor(out)
+            try:
+                sys.stdin.readline()
+            finally:
+                hide_cursor(out)
 
-        # Setup (mf-prg.bas:170-176): ask only for what the caller did not supply.
-        if end_year is None:
-            end_year = _prompt_setup_value(
-                "setup.end_year_prompt",
-                ranges["end_year"],
-                integer=True,
-                resolver=resolver,
-                out=out,
-                stdin=sys.stdin,
+            # Setup (mf-prg.bas:170-176): ask only for what the caller did not supply.
+            if end_year is None:
+                end_year = _prompt_setup_value(
+                    "setup.end_year_prompt",
+                    ranges["end_year"],
+                    integer=True,
+                    resolver=resolver,
+                    out=out,
+                    stdin=sys.stdin,
+                )
+            if score_weight is None:
+                score_weight = _prompt_setup_value(
+                    "setup.score_weight_prompt",
+                    ranges["score_weight"],
+                    integer=False,
+                    resolver=resolver,
+                    out=out,
+                    stdin=sys.stdin,
+                )
+            # new_game validates both against input_ranges and stores the weight as
+            # Config.score_mult -- nothing here sets the config directly.
+            state = cfg.module.new_game(
+                seed=seed,
+                end_year=end_year,
+                score_weight=score_weight,
+                players=players or [("alcapone", "the outfit")],
             )
-        if score_weight is None:
-            score_weight = _prompt_setup_value(
-                "setup.score_weight_prompt",
-                ranges["score_weight"],
-                integer=False,
-                resolver=resolver,
-                out=out,
-                stdin=sys.stdin,
-            )
-        # new_game validates both against input_ranges and stores the weight as
-        # Config.score_mult -- nothing here sets the config directly.
-        state = cfg.module.new_game(
-            seed=seed,
-            end_year=end_year,
-            score_weight=score_weight,
-            players=players or [("alcapone", "the outfit")],
-        )
 
-        # KTD-3: the engine owns the coupling — upkeep runs at EVERY turn start,
-        # including the very first (before the map loop's first render), so no path
-        # through this client can reach a free turn without it. Later turns run it
-        # right after advance_turn rotates (below), at the exact same seam.
-        state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
+            # KTD-3: the engine owns the coupling — upkeep runs at EVERY turn start,
+            # including the very first (before the map loop's first render), so no path
+            # through this client can reach a free turn without it. Later turns run it
+            # right after advance_turn rotates (below), at the exact same seam.
+            state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
 
-        note = "move: W/A/S/D into a door to enter. Q quits."
+        note = "move: W/A/S/D into a door to enter. P saves, Q quits."
         while True:
             # U10 job-shift seam: an EMPLOYED player never reaches the map/menu this
             # turn -- the shift flow replaces the free turn entirely (mirrors the
@@ -629,9 +666,17 @@ def play(
                         out.write("bye.\n")
                         return state, rng
 
+                    if key == _SAVE_KEY:
+                        # KTD-7: a map-turn save -- the snapshot is authoritative, so
+                        # the effect log is empty; the RNG log lets a load resume the
+                        # stream mid-way (KTD-5). Overwrites without asking.
+                        save_game(save_path, state, effect_log=[], rng_log=rng.log, seed=seed)
+                        note = resolver.resolve("session.saved", {"path": save_path})
+                        continue
+
                     delta = _MOVE_KEYS.get(key)
                     if delta is None:
-                        note = "(use W/A/S/D or Q)"
+                        note = "(use W/A/S/D, P or Q)"
                         continue
 
                     result = try_move(state, city, delta)
@@ -641,7 +686,7 @@ def play(
                     note = {
                         "wall": "(a wall)",
                         "oob": "(edge of the city)",
-                    }.get(kind or "", "move: W/A/S/D into a door to enter. Q quits.")
+                    }.get(kind or "", "move: W/A/S/D into a door to enter. P saves, Q quits.")
                     if kind == "enter":
                         key_for_la = la_to_key.get(payload.la)
                         if key_for_la is not None:
@@ -698,7 +743,12 @@ def play(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="clients.terminal", description="Play the mafia slice.")
-    parser.add_argument("--seed", type=int, default=42, help="RNG seed (default 42).")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help=f"RNG seed for a new game (default {_DEFAULT_SEED}).",
+    )
     parser.add_argument(
         "--player",
         dest="players",
@@ -721,7 +771,36 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help="Score weight, e.g. 0.5 (asked at setup when omitted).",
     )
+    parser.add_argument(
+        "--load",
+        metavar="PATH",
+        default=None,
+        help="Resume a saved game (its seed and setup come from the save).",
+    )
+    parser.add_argument(
+        "--save",
+        metavar="PATH",
+        default=None,
+        help=f"Where P saves (default: the --load file, else ./{_DEFAULT_SAVE}).",
+    )
     args = parser.parse_args(argv)
+    if args.load is not None:
+        # KTD-6: a save carries its own seed and setup; a new-game flag beside --load
+        # would be silently ignored, so it is refused instead.
+        clashing = [
+            flag
+            for flag, value in (
+                ("--seed", args.seed),
+                ("--player", args.players),
+                ("--end-year", args.end_year),
+                ("--score-weight", args.score_weight),
+            )
+            if value is not None
+        ]
+        if clashing:
+            parser.error(
+                f"--load resumes a saved game; it cannot be combined with {', '.join(clashing)}"
+            )
     # Same bounds as the setup prompts: input_ranges in config.yaml, never hardcoded.
     ranges = load_game_config(_CONFIG_DIR).config["input_ranges"]
     for flag, value, bounds in (
@@ -736,7 +815,14 @@ def main(argv: list[str] | None = None) -> None:
         for spec in args.players:
             name, _, gang = spec.partition(":")
             players.append((name, gang or name))
-    play(args.seed, players=players, end_year=args.end_year, score_weight=args.score_weight)
+    play(
+        seed=args.seed,
+        players=players,
+        end_year=args.end_year,
+        score_weight=args.score_weight,
+        load=args.load,
+        save=args.save,
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entry point

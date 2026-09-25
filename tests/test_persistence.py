@@ -277,3 +277,24 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     assert restored.fighter.position == 100
     assert restored.fighter.vitality == 30
     assert restored.side == 1
+
+
+def test_session_save_resumes_the_rng_stream(tmp_path):
+    """U8/KTD-5: a map-turn save carries an EMPTY effect log (the snapshot is
+    authoritative) plus the session seed and RNG log, and a load rebuilds an RNG whose
+    next draws equal the uninterrupted session's. ``replay`` of the empty log returns
+    the snapshot unchanged."""
+    state = _fresh_state()
+    rng = Rng(SEED)
+    for _ in range(50):
+        rng.range(9)
+        rng.hit(10, 50)
+    save_path = tmp_path / "game.jsonl"
+    persistence.save_game(save_path, state, effect_log=[], rng_log=rng.log, seed=SEED)
+
+    loaded = persistence.load_game(save_path)
+    assert loaded.effect_log == []
+    assert persistence.replay(loaded) == state
+    resumed = Rng.replayed(loaded.seed, loaded.rng_log)
+    assert resumed.log == rng.log
+    assert [resumed.range(1000) for _ in range(100)] == [rng.range(1000) for _ in range(100)]

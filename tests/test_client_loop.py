@@ -33,6 +33,7 @@ import sys
 from collections import deque
 from pathlib import Path
 
+import pytest
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1804,3 +1805,201 @@ class TestRoundStandingsAndEnding:
             turns += 1
         assert turns == 36
         assert keys == ["upkeep.turn_banner"] * 36
+
+
+# --------------------------------------------------------------------------- #
+# U8 — the save key and --load (KTD-5, KTD-6, KTD-7)                           #
+# --------------------------------------------------------------------------- #
+def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play_kwargs):
+    """Drive ``play()`` over EXACT stdin lines (no title/upkeep acks prepended -- a
+    loaded game shows neither) under a SIGALRM deadline; return ``(stdout, (state, rng))``.
+    """
+    import signal
+
+    def _on_alarm(signum, frame):
+        raise _Deadline(f"play() did not return within {seconds}s (spin?)")
+
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
+    monkeypatch.setattr(sys, "stdout", out)
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        ret = tmain.play(**play_kwargs)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    return out.getvalue(), ret
+
+
+def _new_game_lines(keys: list[str]) -> list[str]:
+    """A new game's stdin: the title ack and the first upkeep ack, then ``keys``."""
+    return ["", ""] + keys
+
+
+def _two_steps(seed: int = 42) -> tuple[list[str], list[int]]:
+    """Two street STEPS from the start (asked of the engine, never hardcoded) and the
+    ``po`` after each -- plain moves, so no key is spent inside a location."""
+    from engine.movement import try_move
+
+    city = load_city(load_city_raw())
+    state = new_state(seed)
+    keys, cells = [], []
+    for _ in range(2):
+        for key, delta in _MOVE_KEYS.items():
+            result = try_move(state, city, delta)
+            if getattr(result.payload, "kind", None) == "step":
+                state = result.state
+                keys.append(key)
+                cells.append(state.players[0].po)
+                break
+    assert len(keys) == 2
+    return keys, cells
+
+
+class TestSaveAndLoad:
+    """``p`` on the map saves; ``--load`` resumes that exact game (U8)."""
+
+    _NEW = {"seed": 42, "end_year": 1930, "score_weight": 1.0}
+
+    def _k1(self):
+        """Walk into sph and play two poker hands (entering leaves ``po`` unchanged, so
+        the last walk key re-enters), back on the map at the door. Seed 42's first
+        three ``range(2)`` draws are 0, 0, 1: the save holds two draws, and the hand
+        after the save draws the 1 -- a load that restarted the stream would draw a 0
+        there instead, so the STATE diverges too, not only the log."""
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
+        return walk, walk + ["", "0", "0", "100", walk[-1], "", "0", "0", "100"]
+
+    def test_loaded_game_continues_exactly_like_uninterrupted_play(self, monkeypatch, tmp_path):
+        from engine.persistence import load_game
+
+        walk, k1 = self._k1()
+        # K2: enter sph again (po is unchanged by an entry, so the last walk key
+        # re-enters) and gamble again -- RNG draws AFTER the save point -- then quit.
+        k2 = [walk[-1], "", "0", "0", "200", "q"]
+        save = tmp_path / "a.jsonl"
+
+        out_a, (state_a, rng_a) = _run_session(
+            monkeypatch, _new_game_lines(k1 + ["p"] + k2), save=str(save), **self._NEW
+        )
+        saved = load_game(save)
+        out_b, (state_b, rng_b) = _run_session(monkeypatch, k2, load=str(save))
+
+        # The runs really played K2 after the save: three hands in A, one in B.
+        wagers_b = out_b.lower().count("dein einsatz")
+        assert wagers_b > 0 and out_a.lower().count("dein einsatz") == 3 * wagers_b
+        assert len(saved.rng_log) > 0, "no draws before the save: the RNG half is vacuous"
+        assert len(rng_a.log) > len(saved.rng_log), "no draws after the save"
+        assert state_b == state_a
+        assert rng_b.log == rng_a.log
+        assert rng_b.log[: len(saved.rng_log)] == saved.rng_log
+        # And the snapshot is not simply the end state (K2 changed cash).
+        assert saved.state != state_a
+
+    def test_load_skips_title_setup_and_upkeep(self, monkeypatch, tmp_path):
+        save = tmp_path / "s.jsonl"
+        (step, _), (cell, _) = _two_steps()
+        _run_session(monkeypatch, _new_game_lines([step, "p", "q"]), save=str(save), **self._NEW)
+
+        calls = []
+        real = tmain.run_upkeep
+        monkeypatch.setattr(tmain, "run_upkeep", lambda *a, **k: calls.append(a) or real(*a, **k))
+        rendered = []
+        real_render = tmain.render_map
+
+        def spy_render(*a, **k):
+            rendered.append(list(calls))  # upkeep calls seen BEFORE this render
+            return real_render(*a, **k)
+
+        monkeypatch.setattr(tmain, "render_map", spy_render)
+        out, (state, _rng) = _run_session(monkeypatch, ["q"], load=str(save))
+        assert rendered and rendered[0] == [], "upkeep ran before the first map render"
+        assert calls == []
+        assert "spielende" not in out.lower() and "punktewertigkeit" not in out.lower()
+        assert "upkeep" not in out
+        assert state.players[0].po == cell  # resumed where the save was taken
+
+    def test_map_turn_save_holds_no_combat_state(self, monkeypatch, tmp_path):
+        import json
+
+        from engine.state import CombatState, json_safe
+
+        save = tmp_path / "s.jsonl"
+        _run_session(monkeypatch, _new_game_lines(["p", "q"]), save=str(save), **self._NEW)
+        header = json.loads(save.read_text(encoding="utf-8").splitlines()[0])
+        combat = header["snapshot"]["combat"]
+        assert combat == json_safe(CombatState())
+        assert combat["sides"] == [[], []] and combat["dir_memory"] == {}
+
+    def test_second_save_overwrites_with_the_later_position(self, monkeypatch, tmp_path):
+        from engine.persistence import load_game
+
+        save = tmp_path / "s.jsonl"
+        (k1, k2), (c1, c2) = _two_steps()
+        seen = []
+        real_save = tmain.save_game
+
+        def spy(path, state, **kw):
+            real_save(path, state, **kw)
+            seen.append(load_game(path).state.players[0].po)
+
+        monkeypatch.setattr(tmain, "save_game", spy)
+        out, _ = _run_session(
+            monkeypatch, _new_game_lines([k1, "p", k2, "p", "q"]), save=str(save), **self._NEW
+        )
+        assert c1 != c2 and seen == [c1, c2]
+        assert list(tmp_path.iterdir()) == [save]
+        assert load_game(save).state.players[0].po == c2
+        # Confirmed in the map's note line, with the target path.
+        assert str(save) in out
+
+    def test_save_defaults_to_the_loaded_file(self, monkeypatch, tmp_path):
+        from engine.persistence import load_game
+
+        save = tmp_path / "s.jsonl"
+        (k1, k2), (_c1, c2) = _two_steps()
+        _run_session(monkeypatch, _new_game_lines([k1, "p", "q"]), save=str(save), **self._NEW)
+        _run_session(monkeypatch, [k2, "p", "q"], load=str(save))
+        assert list(tmp_path.iterdir()) == [save]
+        assert load_game(save).state.players[0].po == c2
+
+    def test_save_defaults_to_mafia_save_in_cwd(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        _run_session(monkeypatch, _new_game_lines(["p", "q"]), **self._NEW)
+        assert (tmp_path / "mafia-save.jsonl").is_file()
+
+
+class TestLoadFlagConflicts:
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            ["--end-year", "1950"],
+            ["--seed", "7"],
+            ["--score-weight", "1.5"],
+            ["--player", "a:b"],
+        ],
+    )
+    def test_load_with_a_setup_flag_is_rejected_before_any_screen(
+        self, monkeypatch, capsys, tmp_path, extra
+    ):
+        calls = []
+        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
+        with pytest.raises(SystemExit) as exc:
+            tmain.main(["--load", str(tmp_path / "x.jsonl"), *extra])
+        assert exc.value.code != 0
+        assert calls == []
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert "unrecognized arguments" not in captured.err
+        assert extra[0] in captured.err and "--load" in captured.err
+
+    def test_load_alone_reaches_play_with_no_seed(self, monkeypatch, tmp_path):
+        calls = []
+        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
+        tmain.main(["--load", "x.jsonl", "--save", "y.jsonl"])
+        (_a, kw) = calls[0]
+        assert kw["load"] == "x.jsonl" and kw["save"] == "y.jsonl"
+        assert kw.get("seed") is None
