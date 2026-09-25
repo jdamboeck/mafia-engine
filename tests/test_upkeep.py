@@ -72,6 +72,20 @@ def test_regen_formula_unclamped_case():
     assert result.state.players[0].roster[0].energie == 7
 
 
+def test_regen_works_on_a_reloaded_roster():
+    # A loaded save rebuilds roster members as the engine's bare Combatant (layer rule),
+    # which has no named .kraft/.brutalitaet. Upkeep must read stats load-safely (attrs),
+    # or the first turn after --load crashes.
+    from engine import persistence
+
+    reloaded = persistence.state_from_dict(persistence._state_to_dict(_state()))
+    assert type(reloaded.players[0].roster[0]).__name__ == "Combatant"
+    result = run_upkeep(reloaded)
+    assert result.status == "completed"
+    energy_effects = [e for e in result.effects if isinstance(e, EnergyChange)]
+    assert energy_effects == [EnergyChange(amount=2, cap=12, gangster=0)]
+
+
 def test_regen_formula_clamps_at_cap():
     # kraft=0, brutalitaet=0 -> gain = 0//10+1 = 1; cap = 2+0+0 = 2. energie starts at 5
     # (above the cap already) -> the clamp brings it DOWN to 2, matching ":4020"'s

@@ -169,13 +169,13 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
 
         # 13050-13060 — three per-gangster stat gates (KTD-3). A failed gate shows its
         # reason and returns to the gangster pick.
-        if g.intelligenz < weapons[x]["req_int"]:
+        if g.attrs["intelligenz"] < weapons[x]["req_int"]:
             yield ShowMessage("locations.waf.too_dumb")
             continue
-        if g.kraft < weapons[x]["req_kraft"]:
+        if g.attrs["kraft"] < weapons[x]["req_kraft"]:
             yield ShowMessage("locations.waf.too_weak")
             continue
-        if g.brutalitaet < weapons[x]["req_brut"]:
+        if g.attrs["brutalitaet"] < weapons[x]["req_brut"]:
             yield ShowMessage("locations.waf.not_brutal")
             continue
 

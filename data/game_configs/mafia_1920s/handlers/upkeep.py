@@ -169,8 +169,8 @@ def upkeep_turn_start(ctx):
 
     # --- 4010-4025: per-gangster energy regen (boss included, gz(sp) order) -
     for g_idx, gangster in enumerate(active.roster):
-        cap = 2 + gangster.kraft // 4 + gangster.brutalitaet // 4  # :4020
-        gain = gangster.kraft // 10 + 1  # :4015
+        cap = 2 + gangster.attrs["kraft"] // 4 + gangster.attrs["brutalitaet"] // 4  # :4020
+        gain = gangster.attrs["kraft"] // 10 + 1  # :4015
         ctx.apply(EnergyChange(amount=gain, cap=cap, gangster=g_idx))
 
     # --- 4030: rank promotion commit + wanted-poster screen (4200-4220) ----

@@ -365,6 +365,24 @@ def test_stat_gate_kraft_and_brutality():
     assert "locations.waf.too_weak" in keys
 
 
+def test_stat_gate_works_on_a_reloaded_bare_combatant():
+    # A loaded save rebuilds roster members as the engine's bare Combatant (layer rule),
+    # which has no named stat properties. The gate must read stats load-safely (attrs).
+    from engine import persistence
+
+    roster = (Gangster(name="g", kraft=19, brutalitaet=40),)
+    st = persistence.state_from_dict(persistence._state_to_dict(_state(ln=2, roster=roster)))
+    assert type(st.players[0].roster[0]).__name__ == "Combatant"
+    seen = _observe(
+        HANDLERS["waf.buy"],
+        st,
+        _StubRng(),
+        {PromptInt: [3], PromptChoice: [0, CANCEL]},
+    )
+    keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
+    assert "locations.waf.too_weak" in keys
+
+
 # --------------------------------------------------------------------------- #
 # Trade-in cash / assign (R9)                                                  #
 # --------------------------------------------------------------------------- #
