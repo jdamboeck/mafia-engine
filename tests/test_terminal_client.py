@@ -504,6 +504,21 @@ class TestClientErrorGuard:
         self._assert_one_readable_line(code, err, path)
         assert "not found" in err
 
+    def test_load_path_is_a_directory(self, capsys, tmp_path):
+        path = tmp_path / "a-dir.jsonl"
+        path.mkdir()
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        # The reason only -- tmp_path's own name carries this test's name.
+        assert "directory" in err.split(f"{path}: ", 1)[1]
+
+    def test_non_utf8_save(self, capsys, tmp_path):
+        path = tmp_path / "binary.jsonl"
+        path.write_bytes(b"\xff\xfe\x00")
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        assert "text file" in err.split(f"{path}: ", 1)[1]
+
     def test_invalid_json_save(self, capsys, tmp_path):
         path = tmp_path / "bad.jsonl"
         path.write_text("{this is not json\n", encoding="utf-8")

@@ -30,6 +30,7 @@ save and rebuilt as read-only on load, so a restored state is as immutable as a 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, is_dataclass
 from pathlib import Path
@@ -320,7 +321,17 @@ def save_game(
     for draw in rng_log:
         # rng.log tuples are (method, args, value); JSON turns the tuple into a list.
         lines.append(json.dumps({"kind": "rng", "version": SCHEMA_VERSION, "draw": list(draw)}))
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    # Atomic overwrite: the save target is often the only copy of the game (the
+    # --load file itself), so write a sibling temp file and swap it in with one
+    # os.replace -- an interrupted write leaves the old save intact, never truncated.
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def append_effect(path: str | Path, effect: Any) -> None:

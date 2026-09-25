@@ -1899,6 +1899,52 @@ class TestSaveAndLoad:
         # And the snapshot is not simply the end state (K2 changed cash).
         assert saved.state != state_a
 
+    def test_a_save_after_taking_a_job_resumes_the_free_turn_not_a_shift(
+        self, monkeypatch, tmp_path
+    ):
+        """Accepting a job zeroes ``ms`` but leaves the player on the map for the rest
+        of the turn, where ``p`` still saves. The shift belongs to the NEXT turn start;
+        a load that ran it at once would play an extra shift and skip a month."""
+        from engine.persistence import load_game
+
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
+        k1 = walk + ["", "2", "j"]  # splash ack, menu 2 (job), accept
+        # K2: one move ends the turn (ms is 0); ack turn-over, standings, upkeep; the
+        # next turn is the shift (seed 5: a bouncer fight) -- surrender it; ack the
+        # following turn-over/standings/upkeep acks; quit on the map.
+        k2 = ["w", "x", "x", "x", "surrender", "x", "x", "x", "q"]
+        save = tmp_path / "job.jsonl"
+        _run_session(
+            monkeypatch,
+            _new_game_lines(k1 + ["p"] + k2),
+            save=str(save),
+            seed=5,
+            end_year=1930,
+            score_weight=1.0,
+        )
+        saved = load_game(save)
+        assert saved.state.players[0].jobs.type != 0, "no job held at the save: vacuous"
+        assert saved.state.players[0].ms == 0
+
+        out_a, (state_a, rng_a) = _run_session(
+            monkeypatch,
+            _new_game_lines(k1 + ["p"] + k2),
+            save=str(tmp_path / "a2.jsonl"),
+            seed=5,
+            end_year=1930,
+            score_weight=1.0,
+        )
+        out_b, (state_b, rng_b) = _run_session(monkeypatch, k2, load=str(save))
+        # The shift really ran after the save point in both runs.
+        assert "randalieren" in out_a.split("spielstand gespeichert")[-1]
+        assert "randalieren" in out_b
+        # A resumed game opens on the saved free turn: the map, not the job screen.
+        assert out_b.index("move: W/A/S/D") < out_b.index("randalieren")
+        assert state_b == state_a
+        assert rng_b.log == rng_a.log
+
     def test_load_skips_title_setup_and_upkeep(self, monkeypatch, tmp_path):
         save = tmp_path / "s.jsonl"
         (step, _), (cell, _) = _two_steps()
@@ -1965,6 +2011,20 @@ class TestSaveAndLoad:
         _run_session(monkeypatch, [k2, "p", "q"], load=str(save))
         assert list(tmp_path.iterdir()) == [save]
         assert load_game(save).state.players[0].po == c2
+
+    def test_a_failed_save_is_noted_and_the_game_goes_on(self, monkeypatch, tmp_path):
+        """``p`` into a directory that does not exist must not end the session: the
+        map's note line says the save failed, and the next key still plays (``q``)."""
+        save = tmp_path / "no-such-dir" / "s.jsonl"
+        (step, _), (cell, _) = _two_steps()
+        out, (state, _rng) = _run_session(
+            monkeypatch, _new_game_lines(["p", step, "q"]), save=str(save), **self._NEW
+        )
+        assert "speichern fehlgeschlagen" in out
+        assert "Traceback" not in out
+        assert state.players[0].po == cell, "the move after the failed save never played"
+        assert "bye." in out
+        assert not save.parent.exists()
 
     def test_save_defaults_to_mafia_save_in_cwd(self, monkeypatch, tmp_path):
         monkeypatch.chdir(tmp_path)

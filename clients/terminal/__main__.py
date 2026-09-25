@@ -692,15 +692,21 @@ def play(
             state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
 
         note = _MAP_NOTE
+        # A save is only ever taken on the map during a free turn -- including the rest
+        # of the turn in which a job was just accepted (ms=0, job already set). So the
+        # first iteration after a load resumes that free turn; the shift belongs to the
+        # NEXT turn start, exactly as in uninterrupted play.
+        resuming_free_turn = load is not None
         while True:
             # U10 job-shift seam: an EMPLOYED player never reaches the map/menu this
             # turn -- the shift flow replaces the free turn entirely (mirrors the
             # source's :1012 dispatch). Checked fresh every turn start, right after
             # upkeep (above on the first turn, after advance_turn below on later ones).
             active = state.players[state.clock.active_player]
-            if active.jobs.type:
+            if active.jobs.type and not resuming_free_turn:
                 state = _run_job_shift_screen(state, resolver, inp, out, rng)
             else:
+                resuming_free_turn = False
                 while True:
                     out.write(CLEAR)
                     render_map(city, city_raw, state, out)
@@ -718,8 +724,15 @@ def play(
                         # KTD-7: a map-turn save -- the snapshot is authoritative, so
                         # the effect log is empty; the RNG log lets a load resume the
                         # stream mid-way (KTD-5). Overwrites without asking.
-                        save_game(save_path, state, effect_log=[], rng_log=rng.log, seed=seed)
-                        note = resolver.resolve("session.saved", {"path": save_path})
+                        # A failed save (missing directory, full disk, no permission)
+                        # must never end the game: say so and keep playing.
+                        try:
+                            save_game(save_path, state, effect_log=[], rng_log=rng.log, seed=seed)
+                        except OSError as exc:
+                            reason = exc.strerror or str(exc)
+                            note = resolver.resolve("session.save_failed", {"reason": reason})
+                        else:
+                            note = resolver.resolve("session.saved", {"path": save_path})
                         continue
 
                     delta = _MOVE_KEYS.get(key)

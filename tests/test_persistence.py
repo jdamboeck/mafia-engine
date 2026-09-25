@@ -298,3 +298,76 @@ def test_session_save_resumes_the_rng_stream(tmp_path):
     resumed = Rng.replayed(loaded.seed, loaded.rng_log)
     assert resumed.log == rng.log
     assert [resumed.range(1000) for _ in range(100)] == [rng.range(1000) for _ in range(100)]
+
+
+def test_a_save_that_fails_midway_leaves_the_old_save_untouched(tmp_path, monkeypatch):
+    """``save_game`` overwrites atomically: a write that dies partway (disk full after
+    some bytes landed) leaves the existing save byte-identical and no temp file behind
+    -- the default save target is the --load file itself, so a truncating overwrite
+    would lose the only copy of the game."""
+    import io
+
+    path = tmp_path / "s.jsonl"
+    persistence.save_game(path, _fresh_state(), effect_log=[], rng_log=[], seed=1)
+    before = path.read_bytes()
+    later = with_player(_fresh_state(), ka=_fresh_state().players[0].ka + 1)
+
+    real_open = io.open
+    failed = []
+
+    class _DiesHalfway:
+        def __init__(self, fh):
+            self._fh = fh
+
+        def write(self, data):
+            self._fh.write(data[: len(data) // 2])
+            failed.append(True)
+            raise OSError(28, "No space left on device")
+
+        def __getattr__(self, name):
+            return getattr(self._fh, name)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self._fh.close()
+            return False
+
+    def dying_open(file, mode="r", *args, **kwargs):
+        fh = real_open(file, mode, *args, **kwargs)
+        return _DiesHalfway(fh) if "w" in mode else fh
+
+    monkeypatch.setattr(io, "open", dying_open)
+    with pytest.raises(OSError):
+        persistence.save_game(path, later, effect_log=[], rng_log=[], seed=1)
+    monkeypatch.setattr(io, "open", real_open)
+
+    assert failed, "the failure was never injected mid-write"
+    assert path.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["s.jsonl"]
+
+
+def test_save_format_is_unchanged_by_the_atomic_write(tmp_path):
+    """The atomic write keeps the exact bytes a plain ``write_text`` produced."""
+    import json
+
+    state = _fresh_state()
+    path = tmp_path / "s.jsonl"
+    persistence.save_game(path, state, effect_log=[], rng_log=[("range", (6,), 3)], seed=7)
+    expected = (
+        json.dumps(
+            {
+                "kind": "header",
+                "version": persistence.SCHEMA_VERSION,
+                "seed": 7,
+                "snapshot": persistence._state_to_dict(state),
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {"kind": "rng", "version": persistence.SCHEMA_VERSION, "draw": ["range", [6], 3]}
+        )
+        + "\n"
+    )
+    assert path.read_text(encoding="utf-8") == expected
