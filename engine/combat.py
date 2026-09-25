@@ -43,7 +43,7 @@ no display text.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any
 
@@ -400,9 +400,9 @@ class RulesBundle:
     what a weapon does.
     """
 
-    hit_roles: Mapping[str, str] = _EMPTY_ROLES
+    hit_roles: Mapping[str, str] = field(default_factory=lambda: _EMPTY_ROLES)
     hit_fn: Any = None
-    damage_roles: Mapping[str, str] = _EMPTY_ROLES
+    damage_roles: Mapping[str, str] = field(default_factory=lambda: _EMPTY_ROLES)
     damage_fn: Any = None
 
     def required_keys(self) -> tuple[str, ...]:

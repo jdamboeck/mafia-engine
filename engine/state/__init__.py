@@ -178,7 +178,9 @@ class Combatant:
     #: zero. This game NAMES it "energie" and maps that onto this slot at construction —
     #: the engine spells only the role, never the game's word.
     vitality: int = 0
-    attrs: Mapping[str, int] = _EMPTY_MAP  # the OPAQUE stat map; the engine's only view
+    attrs: Mapping[str, int] = field(
+        default_factory=lambda: _EMPTY_MAP
+    )  # the OPAQUE stat map; the engine's only view
 
     def __post_init__(self):
         # Coerce a passed-in attrs to read-only. A Gangster subclass builds attrs from
@@ -346,8 +348,10 @@ class MapState:
     """
 
     grid: tuple[tuple[int, ...], ...] = ()  # 40×25 city map
-    tenancy: Mapping[int, int] = _EMPTY_MAP  # per-tile tenancy by ln (orig uk)
-    special_cells: Mapping[int, int] = _EMPTY_MAP  # e.g. 569, 861
+    tenancy: Mapping[int, int] = field(
+        default_factory=lambda: _EMPTY_MAP
+    )  # per-tile tenancy by ln (orig uk)
+    special_cells: Mapping[int, int] = field(default_factory=lambda: _EMPTY_MAP)  # e.g. 569, 861
 
     def __post_init__(self):
         _coerce_readonly(self, "grid", "tenancy", "special_cells")
@@ -387,12 +391,14 @@ class Fighter:
     vitality: int = 0
     position: int = 0  # linear cell 0..520 on the 40×13 combat grid (CLAUDE.md)
     down: bool = False  # kp(s,f)<0 in the source — energy reached 0
-    attrs: Mapping[str, int] = _EMPTY_MAP  # the OPAQUE stat map — see Combatant's docstring
+    attrs: Mapping[str, int] = field(
+        default_factory=lambda: _EMPTY_MAP
+    )  # the OPAQUE stat map — see Combatant's docstring
     #: This fighter's CONSTRUCTED equipment: the stat mapping itself, not a key into
     #: a table the engine would have to hold (amendment A1). The game builds it from
     #: its own entity data before the fight starts, so combat reads no equipment data
     #: from outside the roster and there is no second source to disagree with.
-    equipment: Mapping[str, int] = _EMPTY_MAP
+    equipment: Mapping[str, int] = field(default_factory=lambda: _EMPTY_MAP)
     #: Which roster entry this fighter IS, for mapping the outcome back (amendment A1).
     #: A fight consumes a roster and returns consequences — vitality loss, who went
     #: down — that the caller has to apply to the right gangster. ``None`` for a
@@ -443,7 +449,9 @@ class CombatState:
 
     sides: tuple[tuple[Fighter, ...], tuple[Fighter, ...]] = ((), ())
     grid: tuple[int, ...] = ()  # 40×13 combat grid, LINEAR cells 0..520 — different space
-    dir_memory: Mapping = _EMPTY_MAP  # ri() direction memory, enemy fighter index -> int
+    dir_memory: Mapping = field(
+        default_factory=lambda: _EMPTY_MAP
+    )  # ri() direction memory, enemy fighter index -> int
     active_side: int = 1  # s — 1 or 2
     active_fighter: int = 1  # f — 1-based index into sides[active_side-1]
     losses: tuple[int, int] = (0, 0)  # v(1), v(2) — per-side downed-fighter counts
@@ -479,8 +487,8 @@ class Config:
     """Rules/params (frozen per game at build time conceptually)."""
 
     score_mult: float = 1.0  # x8 — score-gain weight [0.1,2.0] (mf-prg.bas:176); scales gf += x*x8
-    action_costs: Mapping[str, int] = _EMPTY_MAP
-    formula_params: Mapping = _EMPTY_MAP
+    action_costs: Mapping[str, int] = field(default_factory=lambda: _EMPTY_MAP)
+    formula_params: Mapping = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
         _coerce_readonly(self, "action_costs", "formula_params")

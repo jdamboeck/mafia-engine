@@ -13,8 +13,8 @@ test:
 # HARD: `format --check` was previously not run at all, which is how the tree
 # drifted to 65-of-88 files unformatted while the gate reported green.
 lint:
-	@if command -v ruff >/dev/null 2>&1; then \
-		ruff check . && ruff format --check .; \
+	@if python -m ruff --version >/dev/null 2>&1; then \
+		python -m ruff check . && python -m ruff format --check .; \
 	else \
 		echo "ruff not installed — skipping lint (pip install -e '.[dev]' to enable)"; \
 	fi
