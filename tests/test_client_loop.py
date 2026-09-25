@@ -179,7 +179,9 @@ def run_play(
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
     monkeypatch.setattr(sys, "stdout", out)
-    tmain.play(seed=seed, players=players)
+    # KTD-4: supply both setup answers (the pre-U5 hardcoded values) so play() skips
+    # the end-year / score-weight prompts and every existing key script stays valid.
+    tmain.play(seed=seed, players=players, end_year=1930, score_weight=1.0)
     return out.getvalue()
 
 

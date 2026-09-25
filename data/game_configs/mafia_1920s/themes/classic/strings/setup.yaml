@@ -1,0 +1,11 @@
+# setup (new-game prompts) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the terminal client emits these KEYS and the theme resolves
+# them. Ported byte-for-byte from mf-prg.bas:170 and :175. The accepted ranges are NOT
+# read from this text -- they come from input_ranges in config.yaml (the text simply
+# mirrors the original's printed bounds).
+setup:
+  # :170 -- the year the game ends (x9); re-asked via :172 when out of range.
+  end_year_prompt: "spielende (1928-1978):"
+  # :175 -- the score weight (x8, gf += x*x8); re-asked via :176 when out of range.
+  score_weight_prompt: "punktewertigkeit (0.1 - 2):"

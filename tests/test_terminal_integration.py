@@ -350,7 +350,7 @@ class TestTurnOverQuit:
         )
         monkeypatch.setattr(sys, "stdin", make_walk_script(keys))
         monkeypatch.setattr(sys, "stdout", io.StringIO())
-        tmain.play(seed=42)
+        tmain.play(seed=42, end_year=1930, score_weight=1.0)  # KTD-4: skip setup prompts
         return len(calls)
 
     def test_q_at_turn_over_exits_without_advancing(self, monkeypatch):
@@ -367,7 +367,7 @@ class TestTurnOverQuit:
         )
         monkeypatch.setattr(sys, "stdin", make_walk_script(keys))
         monkeypatch.setattr(sys, "stdout", io.StringIO())
-        tmain.play(seed=42)
+        tmain.play(seed=42, end_year=1930, score_weight=1.0)  # KTD-4: skip setup prompts
         assert calls == []
 
     def test_other_key_at_turn_over_advances(self, monkeypatch):

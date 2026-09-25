@@ -317,3 +317,148 @@ def test_map_repl_adopts_state_and_ends_on_quit():
     assert final.players[0].po == 181
     assert final.players[0].ms == state.players[0].ms - 1
     assert "pos 181" in out.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# U5 — setup prompts (R1, R22) and flags (R2, R23) for end year / score weight. #
+# The original asks "spielende (1928-1978):" (mf-prg.bas:170, re-asks via :172) #
+# then "punktewertigkeit (0.1 - 2):" (:175, re-asks via :176), right after the  #
+# title. play() prompts only for a value its caller did not supply (KTD-4).     #
+# --------------------------------------------------------------------------- #
+_END_YEAR_PROMPT = "spielende (1928-1978):"
+_SCORE_WEIGHT_PROMPT = "punktewertigkeit (0.1 - 2):"
+
+
+def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, **play_kwargs):
+    """Drive the real ``play()`` over EXACT stdin text; return (first state, stdout).
+
+    The first turn-start state is captured by spying on ``_run_upkeep_screen`` (the
+    module-level seam ``play()`` calls right after setup); the spy reads no input, so
+    stdin runs straight into the map loop, where EOF quits. A SIGALRM deadline turns a
+    re-prompt spin into a failure instead of a hung suite.
+    """
+    import signal
+
+    import clients.terminal.__main__ as tmain
+
+    seen = []
+
+    def _spy(state, *a, **k):
+        seen.append(state)
+        return state
+
+    monkeypatch.setattr(tmain, "_run_upkeep_screen", _spy)
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
+    monkeypatch.setattr(sys, "stdout", out)
+
+    def _on_alarm(signum, frame):
+        raise AssertionError(f"play() did not return within {seconds}s (EOF spin?)")
+
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        tmain.play(seed=42, **play_kwargs)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    return (seen[0] if seen else None), out.getvalue()
+
+
+class TestSetupPrompts:
+    def test_prompt_texts_render_from_theme(self):
+        r = _resolver()
+        assert r.resolve("setup.end_year_prompt") == _END_YEAR_PROMPT
+        assert r.resolve("setup.score_weight_prompt") == _SCORE_WEIGHT_PROMPT
+
+    def test_end_year_out_of_range_reasks_once(self, monkeypatch):
+        """AE4: 1927 is rejected and re-asked; 1940 is accepted."""
+        state, text = _play_capturing_state(monkeypatch, "\n1927\n1940\n1\n")
+        assert text.count(_END_YEAR_PROMPT) == 2
+        assert text.count(_SCORE_WEIGHT_PROMPT) == 1
+        assert state is not None
+        assert state.clock.end_year == 1940
+
+    def test_end_year_non_numeric_reasks(self, monkeypatch):
+        state, text = _play_capturing_state(monkeypatch, "\nabc\n1950\n1\n")
+        assert text.count(_END_YEAR_PROMPT) == 2
+        assert state.clock.end_year == 1950
+
+    def test_score_weight_out_of_range_reasks_twice(self, monkeypatch):
+        """AE7: 0.05 and 2.5 are rejected; 0.5 is accepted as Config.score_mult."""
+        state, text = _play_capturing_state(monkeypatch, "\n1940\n0.05\n2.5\n0.5\n")
+        assert text.count(_END_YEAR_PROMPT) == 1
+        assert text.count(_SCORE_WEIGHT_PROMPT) == 3
+        assert state.config.score_mult == 0.5
+
+    def test_score_weight_half_halves_a_score_gain(self, monkeypatch):
+        """AE7: with weight 0.5 from setup, a committed score gain of 4 adds 2 to gf."""
+        from engine.effects import ScoreAndRank, commit
+
+        state, _text = _play_capturing_state(monkeypatch, "\n1940\n0.5\n")
+        before = state.players[0].gf
+        after = commit(state, [ScoreAndRank(amount=4, rank_divisor=11.1, player=0)]).state
+        assert after.players[0].gf - before == 2
+
+    def test_supplied_values_skip_the_prompts(self, monkeypatch):
+        state, text = _play_capturing_state(monkeypatch, "\n", end_year=1950, score_weight=1.5)
+        assert _END_YEAR_PROMPT not in text
+        assert _SCORE_WEIGHT_PROMPT not in text
+        assert state.clock.end_year == 1950
+        assert state.config.score_mult == 1.5
+
+    def test_eof_at_end_year_prompt_ends_session_cleanly(self, monkeypatch):
+        state, text = _play_capturing_state(monkeypatch, "\n")  # title, then EOF
+        assert _END_YEAR_PROMPT in text
+        assert "bye." in text
+        assert state is None  # no game was set up
+
+    def test_eof_at_score_weight_prompt_ends_session_cleanly(self, monkeypatch):
+        state, text = _play_capturing_state(monkeypatch, "\n1940\n")
+        assert _SCORE_WEIGHT_PROMPT in text
+        assert "bye." in text
+        assert state is None
+
+
+class TestSetupFlags:
+    def _main(self, monkeypatch, argv):
+        import clients.terminal.__main__ as tmain
+
+        calls = []
+        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
+        tmain.main(argv)
+        return calls
+
+    def test_flags_reach_play(self, monkeypatch):
+        calls = self._main(monkeypatch, ["--end-year", "1950", "--score-weight", "1.5"])
+        assert calls[0][1]["end_year"] == 1950
+        assert calls[0][1]["score_weight"] == 1.5
+
+    def test_absent_flags_pass_none(self, monkeypatch):
+        calls = self._main(monkeypatch, [])
+        assert calls[0][1]["end_year"] is None
+        assert calls[0][1]["score_weight"] is None
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["--end-year", "1927"],
+            ["--end-year", "1979"],
+            ["--score-weight", "0.05"],
+            ["--score-weight", "2.5"],
+        ],
+    )
+    def test_out_of_range_flag_is_rejected(self, monkeypatch, capsys, argv):
+        import clients.terminal.__main__ as tmain
+
+        calls = []
+        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
+        with pytest.raises(SystemExit) as exc:
+            tmain.main(argv)
+        assert exc.value.code != 0
+        assert calls == []
+        # Rejected as out of range -- not merely as an unknown flag (which would
+        # also exit non-zero and make this test pass without the feature).
+        err = capsys.readouterr().err
+        assert "unrecognized arguments" not in err
+        assert argv[0] in err

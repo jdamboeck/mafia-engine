@@ -21,6 +21,7 @@ slice test (``tests/test_slice_integration.py``), which drives the same protocol
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -430,8 +431,62 @@ def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rn
     return result.state  # adopt (run is pure)
 
 
-def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
+def _in_range(value: float, bounds: dict) -> bool:
+    """``bounds`` is one ``input_ranges`` entry (``{min, max}``) from config.yaml."""
+    return bounds["min"] <= value <= bounds["max"]
+
+
+def _parse_setup_number(text: str, *, integer: bool) -> float | None:
+    """Parse one setup answer; ``None`` for non-numeric input (the caller re-asks).
+
+    The end year is ``int(val(x$))`` in the source (mf-prg.bas:170) -- truncated to an
+    integer; the score weight is ``val(x$)`` (:175), a decimal such as ``0.5``.
+    """
+    try:
+        value = float(text.strip())
+    except ValueError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return int(value) if integer else value
+
+
+def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out, stdin):
+    """Ask one setup question until the answer is inside ``bounds``.
+
+    Mirrors the source's re-ask loops (mf-prg.bas:170/172 for the end year, :175/:176
+    for the score weight): out-of-range or non-numeric input asks again. Real EOF (not a
+    blank line) can never be answered, so it raises :class:`EndOfInput` -- ``play()``
+    ends the session on it exactly like at a handler prompt.
+    """
+    while True:
+        render_screen_clear(out)
+        out.write(f"{resolver.resolve(key)} ")
+        out.flush()
+        show_cursor(out)
+        try:
+            line = stdin.readline()
+        finally:
+            hide_cursor(out)
+        if line == "":
+            raise EndOfInput
+        value = _parse_setup_number(line, integer=integer)
+        if value is not None and _in_range(value, bounds):
+            return value
+
+
+def play(
+    seed: int,
+    players: list[tuple[str, str]] | None = None,
+    *,
+    end_year: int | None = None,
+    score_weight: float | None = None,
+) -> None:
     """Play the default config from ``seed`` over real stdin/stdout.
+
+    ``end_year`` / ``score_weight`` are the original's two setup answers (x9, x8). A
+    value left ``None`` is asked for right after the title screen -- end year first,
+    then score weight (mf-prg.bas:170-176, KTD-4); a supplied value skips its prompt.
 
     ``players`` is ``[(name, gang_name), ...]``, 1..4 entries (default: a single
     "alcapone" / "the outfit" player). Multiple players hot-seat through
@@ -457,12 +512,7 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
         w["name"] for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
     ]
 
-    state = cfg.module.new_game(
-        seed=seed,
-        end_year=1930,
-        score_weight=1.0,
-        players=players or [("alcapone", "the outfit")],
-    )
+    ranges = cfg.config["input_ranges"]
     inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out, weapon_names=weapon_names)
     rng = Rng(seed)  # the one session RNG (KTD-8) — threaded into every run_option call
 
@@ -478,6 +528,34 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
             sys.stdin.readline()
         finally:
             hide_cursor(out)
+
+        # Setup (mf-prg.bas:170-176): ask only for what the caller did not supply.
+        if end_year is None:
+            end_year = _prompt_setup_value(
+                "setup.end_year_prompt",
+                ranges["end_year"],
+                integer=True,
+                resolver=resolver,
+                out=out,
+                stdin=sys.stdin,
+            )
+        if score_weight is None:
+            score_weight = _prompt_setup_value(
+                "setup.score_weight_prompt",
+                ranges["score_weight"],
+                integer=False,
+                resolver=resolver,
+                out=out,
+                stdin=sys.stdin,
+            )
+        # new_game validates both against input_ranges and stores the weight as
+        # Config.score_mult -- nothing here sets the config directly.
+        state = cfg.module.new_game(
+            seed=seed,
+            end_year=end_year,
+            score_weight=score_weight,
+            players=players or [("alcapone", "the outfit")],
+        )
 
         # KTD-3: the engine owns the coupling — upkeep runs at EVERY turn start,
         # including the very first (before the map loop's first render), so no path
@@ -574,14 +652,34 @@ def main(argv: list[str] | None = None) -> None:
             "turn order = order given). Default: a single 'alcapone:the outfit'."
         ),
     )
+    parser.add_argument(
+        "--end-year",
+        type=int,
+        default=None,
+        help="The year the game ends (asked at setup when omitted).",
+    )
+    parser.add_argument(
+        "--score-weight",
+        type=float,
+        default=None,
+        help="Score weight, e.g. 0.5 (asked at setup when omitted).",
+    )
     args = parser.parse_args(argv)
+    # Same bounds as the setup prompts: input_ranges in config.yaml, never hardcoded.
+    ranges = load_game_config(_CONFIG_DIR).config["input_ranges"]
+    for flag, value, bounds in (
+        ("--end-year", args.end_year, ranges["end_year"]),
+        ("--score-weight", args.score_weight, ranges["score_weight"]),
+    ):
+        if value is not None and not _in_range(value, bounds):
+            parser.error(f"{flag} must be in [{bounds['min']}, {bounds['max']}], got {value}")
     players = None
     if args.players:
         players = []
         for spec in args.players:
             name, _, gang = spec.partition(":")
             players.append((name, gang or name))
-    play(args.seed, players=players)
+    play(args.seed, players=players, end_year=args.end_year, score_weight=args.score_weight)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entry point
