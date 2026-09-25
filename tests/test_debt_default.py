@@ -34,6 +34,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from engine.combat import STEP_RIGHT
 from engine.config_loader import load_game_config
 from engine.effects import DebtChange, DebtClear, MoneyChange
 from engine.interactions import ShowMessage
@@ -41,7 +44,7 @@ from engine.state import Business, Clock, Config, Debt, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
-from tests.helpers import run_pure, scripted as _scripted
+from tests.helpers import StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -57,44 +60,6 @@ _PARAMS = {
     "enemy_kraft": 30,
     "enemy_brutalitaet": 30,
 }
-
-
-class _StubRng:
-    """Scripted RNG: returns queued values, records every call (determinism gate).
-
-    NOT swapped for ``tests.helpers.StubRng`` (unlike ``test_kdh.py``) — and the
-    reason is a live test bug, not a stub-compatibility detail (see #49).
-
-    ``test_win_changes_nothing_and_the_fight_recurs_next_turn`` and
-    ``test_the_fight_actually_re_fires_on_the_following_turn`` construct this
-    with ZERO scripted values. The fight therefore never resolves: the RNG
-    exhausts on the first draw, ``StopIteration`` unwinds the combat generator,
-    and the run ends having emitted only ``upkeep.turn_banner`` and
-    ``upkeep.debt_collectors_intro`` — no ``combat.winner_banner`` at all.
-
-    Both tests then PASS VACUOUSLY. They assert that cash, debt and the expired
-    counter survive untouched, and those hold because *nothing happened*, not
-    because a win preserved them. The test named "win changes nothing" never
-    reaches a win.
-
-    The shared ``StubRng`` raises ``AssertionError`` on exhaustion, which is
-    correct and turns both red — it is the messenger. Keeping this permissive
-    copy preserves the status quo until the tests are rewritten to actually
-    drive a fight to a win; adopting the strict stub is part of that fix, not
-    a prerequisite for it.
-    """
-
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        return next(self._it)
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        return next(self._it)
 
 
 def _state(*, debt=None, ka=100000, roster=None, business=None):
@@ -132,7 +97,7 @@ def test_counter_counts_down_not_up():
     the very first turn rather than silently never triggering the flow.
     """
     st = _state(debt=Debt(amount=3000, months=6))
-    result = run_upkeep(st, rng=_StubRng())
+    result = run_upkeep(st, rng=StubRng())
     assert result.state.players[0].debt.months == 5
     assert _debt_effects(result) == [DebtChange(amount=0, months=5)]
 
@@ -142,7 +107,7 @@ def test_counter_descends_over_successive_turns_to_the_fight():
     st = _state(debt=Debt(amount=3000, months=6))
     seen = []
     for _ in range(5):
-        st = run_upkeep(st, rng=_StubRng()).state
+        st = run_upkeep(st, rng=StubRng()).state
         seen.append(st.players[0].debt.months)
     assert seen == [5, 4, 3, 2, 1]
 
@@ -164,7 +129,7 @@ def _warnings_for(months, amount=3000):
 
     class _Ctx:
         state = st
-        rng = _StubRng()
+        rng = StubRng()
 
         def apply(self, effect):
             pass
@@ -206,7 +171,7 @@ def test_last_grace_month_warns_then_the_next_turn_fights():
 def test_no_debt_is_a_silent_no_op():
     """``kz=0`` with no debt: the tick leaves 0 at 0 and must NOT summon collectors."""
     st = _state(debt=Debt())
-    result = run_upkeep(st, rng=_StubRng())
+    result = run_upkeep(st, rng=StubRng())
     assert _debt_effects(result) == []
     assert result.state.players[0].debt == Debt()
 
@@ -218,7 +183,7 @@ def test_grace_zero_starts_the_collectors_fight():
     """At ``kz=0`` the fight fires; a surrender loses it and triggers the seizure."""
     st = _state(debt=Debt(amount=3000, months=1), ka=7500)
     # months=1 ticks to 0 -> :4305's `ifkz(sp)=0goto4350`.
-    result = run_upkeep(st, input_source=_scripted("surrender"), rng=_StubRng())
+    result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
     assert result.state.players[0].ka == 0
     assert result.state.players[0].debt == Debt(amount=0, months=0)
 
@@ -238,7 +203,7 @@ def test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender():
     """
     st = _state(debt=Debt(amount=3000, months=1), ka=7500)
     source = _scripted("surrender")
-    run_upkeep(st, input_source=source, rng=_StubRng())
+    run_upkeep(st, input_source=source, rng=StubRng())
 
     losses_lines = [m for m in source.messages() if m.key == "combat.losses_line"]
     # The block prints one line per side (player, collectors) — and it prints at all,
@@ -253,7 +218,7 @@ def test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender():
 def test_loss_seizes_all_cash_and_wipes_the_debt():
     """``:4370`` ``ka(sp)=0:kr(sp)=0:kz(sp)=0`` — cash AND debt AND counter all zeroed."""
     st = _state(debt=Debt(amount=4200, months=1), ka=9999)
-    result = run_upkeep(st, input_source=_scripted("surrender"), rng=_StubRng())
+    result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
     assert MoneyChange(-9999) in result.effects
     assert DebtClear() in result.effects
     assert result.state.players[0].ka == 0
@@ -265,8 +230,49 @@ def test_loss_seizure_is_the_cash_at_seizure_time_not_a_stale_read():
     """The seizure zeroes cash exactly — regardless of the starting balance."""
     for cash in (1, 500, 250000):
         st = _state(debt=Debt(amount=1000, months=1), ka=cash)
-        result = run_upkeep(st, input_source=_scripted("surrender"), rng=_StubRng())
+        result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
         assert result.state.players[0].ka == 0
+
+
+# --------------------------------------------------------------------------- #
+# the WIN branch — mf-prg.bas:4355 `ifs=1thenreturn` (#49)                    #
+# --------------------------------------------------------------------------- #
+#: A five-man gang, one per collector. ``build_player_side`` staggers side 1 onto rows
+#: 6/5/7/6/4 (anchor 129) and the five collectors land on the SAME rows (anchor 147),
+#: so on the opening round every gangster has a collector straight to his right within
+#: the maschinenpistole's range of 20 — and side 1 acts first, so all five shots land
+#: before a single collector activates (no AI draws at all).
+#:
+#: ``brutalitaet=290`` is deliberately overpowered: ``:30255``'s damage is
+#: ``int(draw + 290/10) + 1 >= 30`` — exactly a collector's energy (``e=30``, :4355) —
+#: so every hit downs one whatever the damage draw. These tests are about the upkeep
+#: win branch, not combat balance; the stat just makes the fight short and exact.
+_WINNING_GANG = tuple(
+    Gangster(name=name, weapon=7, energie=40, kraft=30, brutalitaet=290)
+    for name in ("alcapone", "luigi", "mario", "vito", "tony")
+)
+
+#: Per shot: ``:30247``'s two miss factors (``ts`` then kraft — both nonzero = a hit),
+#: then ``:30255``'s damage draw (0: the brutalitaet term alone downs the collector).
+_ONE_SHOT_KILL = (1, 1, 0)
+
+
+def _win_the_collectors_fight(st):
+    """Run upkeep with five aimed shots and the exact rng draws they consume.
+
+    The shots are AIMED — ``("shoot", STEP_RIGHT)``, not a bare ``"shoot"``, which
+    ``_parse_combat_response`` turns into a directionless shot that never connects.
+    The rng is the strict shared ``StubRng``: an under-scripted fight raises instead of
+    silently unwinding the combat generator (the #49 vacuous-pass mechanism).
+    """
+    source = _scripted(*([("shoot", STEP_RIGHT)] * len(_WINNING_GANG)))
+    rng = StubRng(*(_ONE_SHOT_KILL * len(_WINNING_GANG)))
+    result = run_upkeep(st, input_source=source, rng=rng)
+    return result, source
+
+
+def _winner_banners(source):
+    return [m.params["name"] for m in source.messages() if m.key == "combat.winner_banner"]
 
 
 def test_win_changes_nothing_and_the_fight_recurs_next_turn():
@@ -276,15 +282,31 @@ def test_win_changes_nothing_and_the_fight_recurs_next_turn():
     ``(kz>0)`` guard makes 0 a fixed point, the NEXT turn re-enters :4350 and fights
     again. Source-confirmed and kept per KTD-9 — do not "fix" this.
     """
-    st = _state(debt=Debt(amount=3000, months=0), ka=8000)
-    # A long pass script lets the fight resolve without surrendering.
-    result = run_upkeep(st, input_source=_scripted(*(["pass"] * 400)), rng=_StubRng())
+    st = _state(debt=Debt(amount=3000, months=0), ka=8000, roster=list(_WINNING_GANG))
+    result, source = _win_the_collectors_fight(st)
     assert result.status == "completed"
+
+    # The fight really resolved — and the PLAYER won it, all five collectors down.
+    # Without this the assertions below would also hold for a fight that never ran.
+    assert _winner_banners(source) == ["alcapone"]
+    losses = [
+        (m.params["name"], m.params["count"])
+        for m in source.messages()
+        if m.key == "combat.losses_line"
+    ]
+    assert losses == [("alcapone", 0), ("eintreiber", 5)]
+    assert "upkeep.debt_seized" not in source.message_keys()
+
     # Nothing was seized: cash, debt and the expired counter all survive untouched.
     assert result.state.players[0].ka == 8000
     assert result.state.players[0].debt == Debt(amount=3000, months=0)
     assert DebtClear() not in result.effects
     assert MoneyChange(-8000) not in result.effects
+
+    # ...so the next turn's upkeep starts the fight again.
+    again = _scripted("surrender")
+    run_upkeep(result.state, input_source=again, rng=StubRng())
+    assert "upkeep.debt_collectors_intro" in again.message_keys()
 
 
 def test_the_fight_actually_re_fires_on_the_following_turn():
@@ -294,20 +316,37 @@ def test_the_fight_actually_re_fires_on_the_following_turn():
     surrendering on the second turn: if the branch were not re-entered there would be
     no fight to surrender to, and the cash would survive.
     """
-    st = _state(debt=Debt(amount=3000, months=0), ka=8000)
-    first = run_upkeep(st, input_source=_scripted(*(["pass"] * 400)), rng=_StubRng())
-    assert first.state.players[0].ka == 8000  # survived turn 1
+    st = _state(debt=Debt(amount=3000, months=0), ka=8000, roster=list(_WINNING_GANG))
+    first, first_source = _win_the_collectors_fight(st)
+    assert _winner_banners(first_source) == ["alcapone"]  # turn 1 was a real win
+    assert first.state.players[0].ka == 8000
 
-    second = run_upkeep(first.state, input_source=_scripted("surrender"), rng=_StubRng())
+    second_source = _scripted("surrender")
+    second = run_upkeep(first.state, input_source=second_source, rng=StubRng())
     # Turn 2 fought again — and this time lost, so the seizure fired.
+    assert "upkeep.debt_collectors_intro" in second_source.message_keys()
+    assert _winner_banners(second_source) == ["eintreiber"]
     assert second.state.players[0].ka == 0
     assert second.state.players[0].debt == Debt(amount=0, months=0)
+
+
+def test_an_under_scripted_collectors_fight_raises_instead_of_passing():
+    """The strict stub is load-bearing: one draw short of the win must fail LOUDLY.
+
+    The old permissive local stub let ``StopIteration`` unwind the combat generator and
+    the upkeep "completed" with no fight resolved — the #49 vacuous pass.
+    """
+    st = _state(debt=Debt(amount=3000, months=0), ka=8000, roster=list(_WINNING_GANG))
+    source = _scripted(*([("shoot", STEP_RIGHT)] * len(_WINNING_GANG)))
+    short = StubRng(*(_ONE_SHOT_KILL * len(_WINNING_GANG))[:-1])
+    with pytest.raises(AssertionError, match="stub rng exhausted"):
+        run_upkeep(st, input_source=source, rng=short)
 
 
 def test_counter_at_zero_is_a_fixed_point_so_the_fight_recurs():
     """``(kz>0)`` guards the tick: 0 stays 0, which is what makes the fight recur."""
     st = _state(debt=Debt(amount=3000, months=0), ka=5000)
-    result = run_upkeep(st, input_source=_scripted("surrender"), rng=_StubRng())
+    result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
     # The tick must NOT have pushed months negative on the way into the fight.
     ticks = [e for e in result.effects if isinstance(e, DebtChange)]
     assert all(e.months is None or e.months >= 0 for e in ticks)
@@ -323,7 +362,7 @@ def test_repayment_mid_grace_stops_the_countdown_and_the_fight():
     fully repaid player (kz=0, kr=0) would be ambushed forever.
     """
     st = _state(debt=Debt(amount=0, months=0), ka=6000)
-    result = run_upkeep(st, input_source=_scripted(), rng=_StubRng())
+    result = run_upkeep(st, input_source=_scripted(), rng=StubRng())
     assert result.status == "completed"
     assert result.state.players[0].ka == 6000
     assert _debt_effects(result) == []
@@ -338,7 +377,7 @@ def test_debt_slot_is_pure_through_the_grace_warning():
     from engine.upkeep import UPKEEP_HANDLER_KEY
 
     st = _state(debt=Debt(amount=3000, months=6))
-    run_pure(HANDLERS[UPKEEP_HANDLER_KEY], _scripted(), state=st, rng=_StubRng())
+    run_pure(HANDLERS[UPKEEP_HANDLER_KEY], _scripted(), state=st, rng=StubRng())
 
 
 def test_debt_slot_is_pure_through_the_fight_and_seizure():
@@ -347,9 +386,7 @@ def test_debt_slot_is_pure_through_the_fight_and_seizure():
     from engine.upkeep import UPKEEP_HANDLER_KEY
 
     st = _state(debt=Debt(amount=3000, months=1), ka=7500)
-    result = run_pure(
-        HANDLERS[UPKEEP_HANDLER_KEY], _scripted("surrender"), state=st, rng=_StubRng()
-    )
+    result = run_pure(HANDLERS[UPKEEP_HANDLER_KEY], _scripted("surrender"), state=st, rng=StubRng())
     assert result.state.players[0].ka == 0
 
 
