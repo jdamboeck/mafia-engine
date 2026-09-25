@@ -32,7 +32,7 @@ from typing import NoReturn
 import yaml
 
 from engine.actions import run_option
-from engine.config_loader import load_game_config
+from engine.config_loader import load_config, load_game_config
 from engine.effects import RankCommit
 from engine.game_end import run_standings, run_year_end
 from engine.interactions import ShowMessage
@@ -71,6 +71,9 @@ from clients.terminal.renderers import (
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
+#: The map screen's default hint line.
+_MAP_NOTE = "move: W/A/S/D into a door to enter. P saves, Q quits."
+
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
 
 #: The map screen's save key (KTD-7) and the save target when neither ``--save`` nor
@@ -126,6 +129,18 @@ def _load_session(path: str | Path) -> tuple[int, GameState, Rng]:
         return loaded.seed, replay(loaded), Rng.replayed(loaded.seed, loaded.rng_log)
     except Exception as exc:
         raise LoadError(f"cannot load {path}: {_load_reason(exc)}") from exc
+
+
+def _read_line_visible(stdin, out) -> str:
+    """Read one line with the cursor shown, hiding it again afterwards.
+
+    Returns ``readline()``'s raw result: ``""`` at EOF, ``"\\n"`` for a blank line.
+    """
+    show_cursor(out)
+    try:
+        return stdin.readline()
+    finally:
+        hide_cursor(out)
 
 
 def _is_quit(key: str) -> bool:
@@ -378,11 +393,7 @@ def _run_location(
             out.write(f"{RESET}\n" if not line.strip() else f"{line}\n")
         out.write("\n  ENTER druecken...\n")
         out.flush()
-        show_cursor(out)
-        try:
-            stdin.readline()
-        finally:
-            hide_cursor(out)
+        _read_line_visible(stdin, out)
         render_screen_clear(out)
     render_header(location_key, out)
     render_body(entry_text, out)
@@ -396,11 +407,7 @@ def _run_location(
     render_prompt(out)
     out.flush()
 
-    show_cursor(out)
-    try:
-        raw = stdin.readline().strip()
-    finally:
-        hide_cursor(out)
+    raw = _read_line_visible(stdin, out).strip()
 
     if not raw.isdigit() or not (0 <= int(raw) < len(options)):
         return state  # invalid / empty -> back to the map, no action run
@@ -466,11 +473,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
 
     out.write(f"\n{DIM}press any key...{RESET}\n")
     out.flush()
-    show_cursor(out)
-    try:
-        stdin.readline()
-    finally:
-        hide_cursor(out)
+    _read_line_visible(stdin, out)
     return new_state
 
 
@@ -557,11 +560,7 @@ def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out,
         render_screen_clear(out)
         out.write(f"{resolver.resolve(key)} ")
         out.flush()
-        show_cursor(out)
-        try:
-            line = stdin.readline()
-        finally:
-            hide_cursor(out)
+        line = _read_line_visible(stdin, out)
         if line == "":
             raise EndOfInput
         value = _parse_setup_number(line, integer=integer)
@@ -656,11 +655,7 @@ def play(
             out.write(CLEAR)
             out.write(title_screen())
             out.flush()
-            show_cursor(out)
-            try:
-                sys.stdin.readline()
-            finally:
-                hide_cursor(out)
+            _read_line_visible(sys.stdin, out)
 
             # Setup (mf-prg.bas:170-176): ask only for what the caller did not supply.
             if end_year is None:
@@ -696,7 +691,7 @@ def play(
             # right after advance_turn rotates (below), at the exact same seam.
             state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
 
-        note = "move: W/A/S/D into a door to enter. P saves, Q quits."
+        note = _MAP_NOTE
         while True:
             # U10 job-shift seam: an EMPLOYED player never reaches the map/menu this
             # turn -- the shift flow replaces the free turn entirely (mirrors the
@@ -739,7 +734,7 @@ def play(
                     note = {
                         "wall": "(a wall)",
                         "oob": "(edge of the city)",
-                    }.get(kind or "", "move: W/A/S/D into a door to enter. P saves, Q quits.")
+                    }.get(kind or "", _MAP_NOTE)
                     if kind == "enter":
                         key_for_la = la_to_key.get(payload.la)
                         if key_for_la is not None:
@@ -861,10 +856,10 @@ def main(argv: list[str] | None = None) -> None:
             )
     # Same bounds as the setup prompts: input_ranges in config.yaml, never hardcoded.
     # A broken config dir (missing, malformed YAML, failed validation) is a known
-    # failure: one line, not a traceback (KTD-9). play() loads the same config, so
-    # checking it here also covers play()'s own load.
+    # failure: one line, not a traceback (KTD-9). Only config.yaml is read here;
+    # play() does the one full load_game_config (handlers + setup module).
     try:
-        ranges = load_game_config(_CONFIG_DIR).config["input_ranges"]
+        ranges = load_config(_CONFIG_DIR / "config.yaml")["input_ranges"]
     except (OSError, yaml.YAMLError, ValueError, KeyError) as exc:
         _die(f"cannot load game config {_CONFIG_DIR}: {exc}")
     for flag, value, bounds in (

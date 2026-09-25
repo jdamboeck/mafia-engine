@@ -152,7 +152,7 @@ class TestSmokeAsciiArt:
 
         src = inspect.getsource(_run_location)
         assert "location_art" in src
-        assert "stdin.readline()" in src
+        assert "_read_line_visible(stdin, out)" in src  # the splash waits for a key
 
 
 class TestSmokeColorSupport:
