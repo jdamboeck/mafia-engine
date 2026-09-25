@@ -1,0 +1,21 @@
+# Standings + year-end result — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the handlers in handlers/game_end.py emit these KEYS with
+# structured params; one message per list row, since templates cannot iterate.
+# Ported from mf-prg.bas:4500-4510 and :40115-40160.
+game_end:
+  # :4500-4501 "spielstand" + int(ja) "-" 1+int((ja-x)*12) (unpadded, as mid$(str$(..),2)
+  # prints it), then :4505's column header.
+  standings_header: "spielstand {year}-{month}\n\nspieler:        kapital: punkte:"
+
+  # :4510 sp$(i);tab(15);ka(i)"$";tab(26);gf(i) — one row per player; the widths line
+  # the values up under the column header above.
+  standings_row: "{name:<16}{cash:>6}$  {score:g}"
+
+  # :40115-40117 — sole winner.
+  winner: "{name} hat gewonnen!\ndu warst von allen der brutalste,\ngemeinste und schlaueste!"
+
+  # :40150 — shared victory header, :40155 one line per tied player, :40160 closing line.
+  tie_header: "diesmal haben mehrere die gleichen\npunkte:"
+  tie_name: "{name}"
+  tie_footer: "alle waren gleich fiese gangster!"
