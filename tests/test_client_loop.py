@@ -127,7 +127,9 @@ def walk_keys_across_turns(state, city, vehicles, target_cell: int) -> list[str]
     non-quit key) AND the U3 turn-start upkeep screen's own "press any key..." ack that
     immediately follows it (KTD-3: upkeep runs right after ``advance_turn`` rotates,
     before the map loop's next render) — wherever ``ms`` would hit 0 mid-walk, the real
-    ``play()`` loop emits BOTH prompts in sequence and reads one key for each.
+    ``play()`` loop emits BOTH prompts in sequence and reads one key for each. On a
+    round wrap (the new active player is 0 -- every turn-over in a single-player
+    session) the standings screen sits between them and reads a key of its own (U7).
     """
     from engine.movement import advance_turn, try_move
 
@@ -139,8 +141,10 @@ def walk_keys_across_turns(state, city, vehicles, target_cell: int) -> list[str]
         out.append(key)
         if getattr(result.payload, "turn_over", False):
             out.append("x")  # ack the turn-over prompt (any non-quit key advances)
-            out.append("x")  # ack the U3 upkeep screen for the newly-active player
             state, _game_over = advance_turn(state, vehicles)
+            if state.clock.active_player == 0:
+                out.append("x")  # ack the round-standings screen (a wrap, U7/KTD-2)
+            out.append("x")  # ack the U3 upkeep screen for the newly-active player
     return out
 
 
@@ -553,11 +557,12 @@ class TestJobShiftThroughClient:
         walk = walk_keys_to_cell(state, city, pub_cell)
         # Splash ack; menu choice 2 (job); accept ("j"); one more move key forces
         # turn_over immediately (ms already 0 from the accept) -- ack turn_over,
-        # ack the next player's upkeep screen. seed=5's bouncer job then rolls a
+        # ack the round standings (single player: every turn-over wraps, U7), ack the
+        # next player's upkeep screen. seed=5's bouncer job then rolls a
         # shift-fight this turn (verified by direct trace); a scripted stdin that
         # runs out mid-fight surrenders via CANCEL (KTD-2), which is enough to
         # prove the "job" screen -- not the map -- is what renders next.
-        keys = walk + ["", "2", "j", "w", "x", "x"]
+        keys = walk + ["", "2", "j", "w", "x", "x", "x"]
         output = run_play(monkeypatch, seed=5, stdin_keys=keys)
 
         # The job-shift screen rendered (its own header), not a second map draw
@@ -1563,3 +1568,239 @@ class TestDebtDefaultThroughClient:
             state = run_upkeep(state, input_source=inp, rng=Rng(7)).state
             assert state.players[0].ka == cash
             assert state.players[0].debt == Debt()
+
+
+# --------------------------------------------------------------------------- #
+# U7 (vertical-slice completion) — round standings and the ending              #
+# --------------------------------------------------------------------------- #
+
+
+def burn_turn_keys(
+    seed: int,
+    players: list[tuple[str, str]] | None = None,
+    *,
+    end_year: int = 1930,
+    turns: int | None = None,
+) -> list[str]:
+    """The key stream that walks every turn to its turn-over, mirroring ``play()``.
+
+    Per the piped-stdin learning, the walk is asked of the engine (the first
+    direction that STEPS from the current state, so no move enters a location), not
+    hardcoded. For each turn it emits the movement keys, the turn-over ack, then --
+    exactly as ``play()`` reads them -- the standings ack on a round wrap, then
+    either the result-screen ack (``game_over``) or the next turn's upkeep ack.
+    Stops after ``turns`` turn-overs, or at ``game_over`` when ``turns`` is None.
+
+    Upkeep is not simulated here: for an idle player (no debt, no rent, no job) it
+    moves nobody and changes no ``ms`` (checked by
+    ``TestRoundStandingsAndEnding.test_idle_upkeep_never_asks_across_the_game``).
+    """
+    from engine.movement import advance_turn, try_move
+
+    cfg = load_game_config(_CONFIG_DIR)
+    vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+    city = load_city(load_city_raw())
+    state = cfg.module.new_game(
+        seed=seed,
+        end_year=end_year,
+        score_weight=1.0,
+        players=players or [("alcapone", "the outfit")],
+    )
+    keys: list[str] = []
+    done = 0
+    while turns is None or done < turns:
+        for _ in range(200):
+            for key, delta in _MOVE_KEYS.items():
+                result = try_move(state, city, delta)
+                if getattr(result.payload, "kind", None) == "step":
+                    break
+            else:
+                raise AssertionError("no stepping move available")
+            state = result.state
+            keys.append(key)
+            if getattr(result.payload, "turn_over", False):
+                break
+        else:
+            raise AssertionError("turn never ended within 200 steps")
+        keys.append("x")  # ack the turn-over screen
+        state, game_over = advance_turn(state, vehicles)
+        done += 1
+        if state.clock.active_player == 0:
+            keys.append("x")  # ack the round-standings screen (wrap)
+        if game_over:
+            keys.append("x")  # ack the result screen
+            break
+        keys.append("x")  # ack the next turn's upkeep screen
+    return keys
+
+
+def run_play_returning(
+    monkeypatch,
+    *,
+    seed: int,
+    stdin_keys: list[str],
+    players: list[tuple[str, str]] | None = None,
+    end_year: int = 1930,
+    seconds: float = 60.0,
+):
+    """Drive ``play()`` like :func:`run_play` under a SIGALRM deadline, but return
+    ``(stdout, play()'s return value)`` so KTD-12's ``(state, rng)`` is observable."""
+    import signal
+
+    def _on_alarm(signum, frame):
+        raise _Deadline(f"play() did not return within {seconds}s (spin?)")
+
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
+    monkeypatch.setattr(sys, "stdout", out)
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        ret = tmain.play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    return out.getvalue(), ret
+
+
+class TestRoundStandingsAndEnding:
+    """``play()`` shows the standings after every round (``mf-prg.bas:1010``'s
+    ``gosub4500``) and ends the game at the end year with the result screen
+    (``:40100``), KTD-2; it returns its final ``(state, rng)`` on every exit (KTD-12)."""
+
+    _TWO = [("alcapone", "the outfit"), ("moran", "north side")]
+
+    def test_standings_after_the_second_players_turn_over_with_the_played_date(self, monkeypatch):
+        # Two turns = one full round; the script then runs dry on player 0's map.
+        keys = burn_turn_keys(7, self._TWO, turns=2)
+        output, _ = run_play_returning(monkeypatch, seed=7, stdin_keys=keys, players=self._TWO)
+
+        assert output.count("spielstand") == 1, "standings must show once per round"
+        turn_overs = [i for i in range(len(output)) if output.startswith("turn_over", i)]
+        assert len(turn_overs) == 2, "the script must reach both players' turn-overs"
+        standings_at = output.index("spielstand")
+        assert standings_at > turn_overs[1], (
+            "the standings appeared before the second player's turn-over (not a wrap)"
+        )
+        # KTD-2: the round just played (1925-01, month unpadded + 1-based, :4501),
+        # not the advanced clock (1925-2).
+        assert "spielstand 1925-1\n" in output
+        assert "spielstand 1925-2" not in output
+        # One row per player, in player order.
+        assert output.index("alcapone", standings_at) < output.index("moran", standings_at)
+
+    def test_ae5_game_ends_after_36_rounds_with_the_winner(self, monkeypatch):
+        import time
+
+        calls: list[int] = []
+        real_advance = tmain.advance_turn
+
+        def spy(state, vehicles):
+            calls.append(1)
+            return real_advance(state, vehicles)
+
+        upkeeps: list[int] = []
+        real_upkeep = tmain.run_upkeep
+
+        def upkeep_spy(state, **kw):
+            upkeeps.append(1)
+            return real_upkeep(state, **kw)
+
+        monkeypatch.setattr(tmain, "advance_turn", spy)
+        monkeypatch.setattr(tmain, "run_upkeep", upkeep_spy)
+        keys = burn_turn_keys(42, end_year=1928)
+        t0 = time.monotonic()
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, end_year=1928)
+        elapsed = time.monotonic() - t0
+
+        assert len(calls) == 36, f"advance_turn called {len(calls)}x, expected 36"
+        # Turns started = the first turn + one per non-final advance = 1 + 35 = 36.
+        # The 36th advance reports game_over, so no 37th turn (and no upkeep) starts.
+        assert len(upkeeps) == 36, f"upkeep ran {len(upkeeps)}x, expected 36"
+        winner_at = output.rindex("alcapone hat gewonnen!")
+        tail = output[winner_at:]
+        for later in ("turn_over", "upkeep", "spielstand", "bye."):
+            assert later not in tail, f"{later!r} rendered after the result"
+        # :1010 standings on the wrap, then :40100's own gosub4500 = twice for the
+        # last round (1927-12), both showing the post-/pre-advance dates per KTD-2.
+        assert "spielstand 1927-12\n" in output
+        assert "spielstand 1928-1\n" in output
+        state, rng = ret
+        assert state.clock.year == 1928 and state.clock.month == 0
+        assert isinstance(rng, tmain.Rng)
+        assert elapsed < 30, f"AE5 run took {elapsed:.1f}s"
+
+    def test_eof_at_the_result_screen_exits_cleanly(self, monkeypatch):
+        # 1928 is the smallest end year input_ranges allows.
+        keys = burn_turn_keys(42, end_year=1928)
+        assert keys[-1] == "x"
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=keys[:-1], end_year=1928)
+        assert "hat gewonnen!" in output
+        state, _rng = ret
+        assert state.clock.year == 1928
+
+    def test_eof_at_the_standings_screen_ends_the_session(self, monkeypatch):
+        keys = burn_turn_keys(42, turns=1)
+        # [..., turn-over ack, standings ack, upkeep ack] -> stop before the standings ack.
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=keys[:-2])
+        assert "spielstand 1925-1\n" in output
+        assert output.rstrip().endswith("bye.") or "bye." in output[output.index("spielstand") :]
+        assert "upkeep" not in output[output.index("spielstand") :], (
+            "EOF at the standings must end the session, not start the next turn"
+        )
+        state, _ = ret
+        assert state.clock.month == 1  # the advance happened before the standings
+
+    def test_play_returns_state_and_rng_on_quit(self, monkeypatch):
+        from engine.state import GameState
+
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=["q"])
+        assert "bye." in output
+        state, rng = ret
+        assert isinstance(state, GameState) and isinstance(rng, tmain.Rng)
+        assert state.clock.year == 1925 and state.clock.month == 0
+
+    def test_play_returns_state_and_rng_on_eof_mid_handler(self, monkeypatch):
+        from engine.state import GameState
+
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
+        # splash ack, "play", poker -- then EOF at the wager prompt (EndOfInput path).
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + ["", "0", "0"])
+        assert "dein einsatz" in output.lower(), "never reached the wager prompt"
+        assert "bye." in output
+        state, rng = ret
+        assert isinstance(state, GameState) and isinstance(rng, tmain.Rng)
+
+    def test_idle_upkeep_never_asks_across_the_game(self):
+        """The finding :func:`burn_turn_keys` relies on: over all 36 rounds to 1928, an
+        idle player's upkeep yields only its turn banner -- no prompt, no fight -- and
+        moves no position/``ms``/cash, so one ack per turn start is the whole script."""
+        from engine.interactions import ShowMessage
+        from engine.movement import advance_turn
+        from engine.rng import Rng
+
+        cfg = load_game_config(_CONFIG_DIR)
+        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        state = cfg.module.new_game(
+            seed=42, end_year=1928, score_weight=1.0, players=[("alcapone", "the outfit")]
+        )
+        rng = Rng(42)
+        keys: list[str] = []
+
+        def source(interaction):
+            assert isinstance(interaction, ShowMessage), f"upkeep asked {interaction!r}"
+            keys.append(interaction.key)
+
+        game_over = False
+        turns = 0
+        while not game_over:
+            before = state.players[0]
+            state = run_upkeep(state, input_source=source, rng=rng).state
+            after = state.players[0]
+            assert (after.po, after.ms, after.ka) == (before.po, before.ms, before.ka)
+            state, game_over = advance_turn(state, vehicles)
+            turns += 1
+        assert turns == 36
+        assert keys == ["upkeep.turn_banner"] * 36

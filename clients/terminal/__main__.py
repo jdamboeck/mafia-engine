@@ -30,6 +30,8 @@ import yaml
 from engine.actions import run_option
 from engine.config_loader import load_game_config
 from engine.effects import RankCommit
+from engine.game_end import run_standings, run_year_end
+from engine.interactions import ShowMessage
 from engine.interactions import run as run_handler
 from engine.locations import HANDLERS, available_options, load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
@@ -431,6 +433,38 @@ def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rn
     return result.state  # adopt (run is pure)
 
 
+def _run_game_end_screen(runner, header: str, state, resolver: Resolver, out, rng: Rng) -> bool:
+    """Run a display-only game-end flow (standings or year-end) and show it as ONE screen.
+
+    ``runner`` is :func:`engine.game_end.run_standings` or
+    :func:`engine.game_end.run_year_end`; WHICH state it gets is the caller's
+    decision (KTD-2). The runner's input source collects every ``ShowMessage`` the
+    config handler yields (one per row -- templates cannot iterate); each is resolved
+    through the theme and rendered in order under one header, then the screen waits
+    for one key like the turn-over prompt. Any other interaction raises, mirroring the
+    engine runners' own display-only contract, so a handler that starts asking
+    questions fails loudly instead of being answered here.
+
+    Returns ``False`` when that key is a quit (``q`` or EOF, :func:`_is_quit`), so the
+    caller ends the session; ``True`` otherwise.
+    """
+    messages: list[ShowMessage] = []
+
+    def collect(interaction):
+        if not isinstance(interaction, ShowMessage):
+            raise AssertionError(f"game-end flow asked a question: {interaction!r}")
+        messages.append(interaction)
+
+    runner(state, input_source=collect, rng=rng)
+
+    render_screen_clear(out)
+    render_header(header, out)
+    render_body("\n".join(resolver.resolve(m.key, m.params) for m in messages), out)
+    out.write(f"\n{DIM}press any key...{RESET}\n")
+    out.flush()
+    return not _is_quit(_read_key())
+
+
 def _in_range(value: float, bounds: dict) -> bool:
     """``bounds`` is one ``input_ranges`` entry (``{min, max}``) from config.yaml."""
     return bounds["min"] <= value <= bounds["max"]
@@ -481,7 +515,7 @@ def play(
     *,
     end_year: int | None = None,
     score_weight: float | None = None,
-) -> None:
+) -> tuple:
     """Play the default config from ``seed`` over real stdin/stdout.
 
     ``end_year`` / ``score_weight`` are the original's two setup answers (x9, x8). A
@@ -496,8 +530,17 @@ def play(
     it through every ``run_option`` call for the whole session (KTD-8: a slice-local
     seeding contract — ownership may move to the server/driver when the network
     transport lands, per the plan's Open Questions).
+
+    After every round wrap the standings screen shows the round just played; when
+    ``advance_turn`` reports ``game_over`` the year-end result screen follows and the
+    session ends without another turn (KTD-2, ``mf-prg.bas:1010`` / ``:40100``).
+
+    Returns the final ``(state, rng)`` on EVERY exit -- quit, EOF, or the ending
+    (KTD-12). ``state`` is ``None`` only if the session ends before setup finished.
+    :func:`main` ignores it; tests compare it.
     """
     out = sys.stdout
+    state = None
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cfg = load_game_config(_CONFIG_DIR)
 
@@ -584,7 +627,7 @@ def play(
                         continue
                     if _is_quit(key):
                         out.write("bye.\n")
-                        return
+                        return state, rng
 
                     delta = _MOVE_KEYS.get(key)
                     if delta is None:
@@ -623,9 +666,22 @@ def play(
             out.flush()
             if _is_quit(_read_key()):
                 out.write("bye.\n")
-                return
+                return state, rng
+            played = state  # the round just finished, for the standings (KTD-2)
             # advance_turn is pure — the rotated/replenished state must be adopted.
-            state, _game_over = advance_turn(state, vehicles)
+            state, game_over = advance_turn(state, vehicles)
+            # :1010 — on a round wrap (back to player 0) gosub4500 shows the standings
+            # BEFORE ja=ja+1/12, so they get the pre-advance state: the date shown is
+            # the round just played.
+            if state.clock.active_player == 0:
+                if not _run_game_end_screen(run_standings, "standings", played, resolver, out, rng):
+                    out.write("bye.\n")
+                    return state, rng
+            if game_over:
+                # :40100 — the year-end result (standings again, then winner/tie) on the
+                # POST-advance state; the game ends here, so no upkeep and no new turn.
+                _run_game_end_screen(run_year_end, "game_over", state, resolver, out, rng)
+                return state, rng
             # KTD-3: upkeep for the NEW active player, right at the turn-start seam
             # advance_turn just opened — before this player's free turn (or job
             # shift) is offered.
@@ -637,6 +693,7 @@ def play(
         out.write("bye.\n")
     finally:
         show_cursor(out)
+    return state, rng
 
 
 def main(argv: list[str] | None = None) -> None:
