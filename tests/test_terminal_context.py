@@ -33,7 +33,7 @@ class TestCursorHelpers:
 
 
 class TestScreenContext:
-    def test_switch_applies_colors(self) -> None:
+    def test_switch_applies_colors(self, truecolor) -> None:
         contexts = {
             "jail": {"bg": "blue", "fg": "light_grey"},
         }

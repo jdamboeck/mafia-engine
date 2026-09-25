@@ -27,3 +27,33 @@ def mafia_config():
 def mafia_module(mafia_config):
     """The imported ``mafia_1920s`` config package module (exposes new_game, fnm)."""
     return mafia_config.module
+
+
+@pytest.fixture
+def hostile_color_env(monkeypatch):
+    """A host whose env detection would NOT pick truecolor.
+
+    ``COLORTERM`` unset + ``TERM=xterm-256color`` sends ``term_color_support()``
+    down its 256-color branch; the process-wide detection cache is cleared so the
+    detection really runs (as it does in a fresh CI process). Tests asserting
+    truecolor sequences run under this so they prove they don't lean on the
+    developer's terminal.
+    """
+    from clients.terminal import palette
+
+    monkeypatch.delenv("COLORTERM", raising=False)
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.setattr(palette, "_COLOR_SUPPORT", None)
+
+
+@pytest.fixture
+def truecolor(hostile_color_env, monkeypatch):
+    """Pin color support to TRUECOLOR for renderers that don't take ``support``.
+
+    Renderers call ``fg()``/``bg()`` without a ``support`` argument, so the pin
+    goes through the detection cache — on top of the hostile env, so the pin
+    (not the host) is what makes truecolor come out.
+    """
+    from clients.terminal import palette
+
+    monkeypatch.setattr(palette, "_COLOR_SUPPORT", palette.ColorSupport.TRUECOLOR)

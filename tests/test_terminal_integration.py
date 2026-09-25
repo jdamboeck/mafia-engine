@@ -98,7 +98,7 @@ class TestSmokeRenderPipeline:
         assert "181" in out
         assert "19" in out
 
-    def test_render_map_frame(self):
+    def test_render_map_frame(self, truecolor):
         lines = ["ABCDE", "FGHIJ"]
         render_map_frame(lines, self.buf)
         out = self.buf.getvalue()

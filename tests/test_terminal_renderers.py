@@ -90,7 +90,7 @@ class TestRenderBody:
 
 
 class TestRenderColored:
-    def test_writes_specific_color(self) -> None:
+    def test_writes_specific_color(self, truecolor) -> None:
         _setup()
         buf = _out()
         render_colored("warning", "red", buf)
@@ -129,7 +129,7 @@ class TestRenderStatusBar:
 
 
 class TestRenderMapFrame:
-    def test_wraps_in_blue_bg(self) -> None:
+    def test_wraps_in_blue_bg(self, truecolor) -> None:
         _setup()
         buf = _out()
         render_map_frame(["....@"], buf)
@@ -386,7 +386,7 @@ class TestFighterPanelIsAttributeAgnostic:
     def _weapons(self):
         return ["haende", "messer", "knueppel", "schlagkette", "wurfsterne", "revolver"]
 
-    def test_panel_is_byte_identical_to_the_pre_u2_rendering(self) -> None:
+    def test_panel_is_byte_identical_to_the_pre_u2_rendering(self, truecolor) -> None:
         """The captured baseline, reproduced through the REAL theme and a real Fighter."""
         from engine.state import Fighter, json_safe
         from engine.strings import Resolver
