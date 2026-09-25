@@ -147,7 +147,9 @@ Other cross-cutting invariants:
   **give them distinct names** in the port.
 - There are 12 menu locations **plus 2 map-triggered event flows** (`la=13` cash
   transport at cell 569, `la=14` mayor hit at cell 861) — no menu, they carry the two
-  win flags `x5%`/`x6%`.
+  win flags `x5%`/`x6%`. The first vertical slice deliberately builds 5 of the 12
+  (`kdh`, `pub`, `slw`, `sph`, `waf`) and ships the year-end ending only; the other
+  7 locations and both event flows are next-slice work, not unfinished slice work.
 - `ln` (within-location tile index 1–9) is a **first-class handler input** (it changes
   rent price, which pub serves alcohol, racket outcomes) — not just an option index.
 - `ms` (movement points) doubles as a **turn-end control signal**: handlers set `ms=0`
