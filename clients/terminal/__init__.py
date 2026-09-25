@@ -33,7 +33,7 @@ from engine.interactions import (
     PromptInt,
     ShowMessage,
 )
-from engine.strings import Resolver
+from engine.strings import MissingKeyError, Resolver
 
 from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
 
@@ -353,12 +353,19 @@ class TerminalInput:
             return "unknown_aim"
         return "unknown_action"
 
+    def _option_label(self, opt: Any) -> str:
+        try:
+            return self._resolver.resolve(str(opt))
+        except MissingKeyError:
+            return str(opt)
+
     def _prompt_text(self, interaction: Any) -> str:
         if isinstance(interaction, PromptChoice):
             lines = [self._resolver.resolve(interaction.key)]
             for i, opt in enumerate(interaction.options):
-                # Options are already-resolved labels or plain values — show as given.
-                lines.append(f"  {i}) {opt}")
+                # An option is either a theme KEY (sph's game menu, waf's venue menu) or a
+                # plain value (a gangster's name). Resolve keys; show plain values as given.
+                lines.append(f"  {i}) {self._option_label(opt)}")
             return "\n".join(lines) + "\n> "
         if isinstance(interaction, (PromptInt, Confirm)):
             return self._resolver.resolve(interaction.key) + "\n> "

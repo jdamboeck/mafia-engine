@@ -148,6 +148,22 @@ def test_prompt_choice_returns_index():
     assert seen == [1]
 
 
+def test_prompt_choice_resolves_option_keys_and_shows_plain_values_as_given():
+    # sph's game menu passes theme KEYS as options; a recruit menu passes plain names.
+    # A key must render as its theme text, never raw; a non-key renders unchanged.
+    inp, out = _client(["0"])
+
+    def handler(ctx):
+        yield PromptChoice("locations.sph.game_menu", options=["locations.sph.poker", "alcapone"])
+        return []
+
+    run(handler, inp, state=None, rng=None)
+    text = out.getvalue()
+    assert "0) 1 - poker" in text
+    assert "1) alcapone" in text
+    assert "locations.sph.poker" not in text
+
+
 def test_confirm_returns_bool():
     inp, out = _client(["y"])
     seen = []
