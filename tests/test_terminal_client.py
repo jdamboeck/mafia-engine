@@ -42,7 +42,7 @@ from engine.interactions import (  # noqa: E402
 from engine.strings import Resolver  # noqa: E402
 from engine.movement import DOWN, load_city  # noqa: E402
 from clients.terminal import EndOfInput, TerminalInput, map_repl, render_message  # noqa: E402
-from tests.helpers import with_player  # noqa: E402
+from tests.helpers import deadline, with_player  # noqa: E402
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 
@@ -276,19 +276,11 @@ def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
         yield PromptInt("locations.sph.wager_prompt", min=1, max=100)
         return ["an effect that must never be committed"]
 
-    import signal
-
-    def _on_alarm(signum, frame):
-        raise AssertionError("run() re-asked past EOF instead of ending input (spin)")
-
-    previous = signal.signal(signal.SIGALRM, _on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, 5.0)  # a regression fails, not hangs
-    try:
+    with deadline(  # a regression fails, not hangs
+        5.0, "run() re-asked past EOF instead of ending input (spin)", exc_type=AssertionError
+    ):
         with pytest.raises(EndOfInput):
             run(handler, inp, state=None, rng=None)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
 
 
 # --------------------------------------------------------------------------- #
@@ -337,8 +329,6 @@ def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, *
     stdin runs straight into the map loop, where EOF quits. A SIGALRM deadline turns a
     re-prompt spin into a failure instead of a hung suite.
     """
-    import signal
-
     import clients.terminal.__main__ as tmain
 
     seen = []
@@ -352,16 +342,12 @@ def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, *
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
     monkeypatch.setattr(sys, "stdout", out)
 
-    def _on_alarm(signum, frame):
-        raise AssertionError(f"play() did not return within {seconds}s (EOF spin?)")
-
-    previous = signal.signal(signal.SIGALRM, _on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
-    try:
+    with deadline(
+        seconds,
+        f"play() did not return within {seconds}s (EOF spin?)",
+        exc_type=AssertionError,
+    ):
         tmain.play(seed=42, **play_kwargs)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
     return (seen[0] if seen else None), out.getvalue()
 
 

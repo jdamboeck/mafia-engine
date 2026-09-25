@@ -50,7 +50,7 @@ from engine.config_loader import load_game_config
 from engine.interactions import PromptInt, ShowMessage, run
 from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, UP, load_city, try_move
-from tests.helpers import with_player, with_tenancy
+from tests.helpers import deadline, with_player, with_tenancy
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -500,7 +500,6 @@ def _drive_main(argv: list[str], lines: list[str]):
     Returns ``(stdout, (state, rng))``; any exception -- ``SystemExit`` included --
     propagates and fails the caller."""
     import io
-    import signal
 
     import clients.terminal.__main__ as tmain
 
@@ -512,21 +511,17 @@ def _drive_main(argv: list[str], lines: list[str]):
         captured.append(ret)
         return ret
 
-    def on_alarm(signum, frame):
-        raise AssertionError(f"main() did not return within {_SMOKE_DEADLINE}s (spin?)")
-
     out = io.StringIO()
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(tmain, "play", spy_play)
         mp.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
         mp.setattr(sys, "stdout", out)
-        previous = signal.signal(signal.SIGALRM, on_alarm)
-        signal.setitimer(signal.ITIMER_REAL, _SMOKE_DEADLINE)
-        try:
+        with deadline(
+            _SMOKE_DEADLINE,
+            f"main() did not return within {_SMOKE_DEADLINE}s (spin?)",
+            exc_type=AssertionError,
+        ):
             tmain.main(argv)
-        finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
-            signal.signal(signal.SIGALRM, previous)
     assert len(captured) == 1, "main() never reached play()"
     return out.getvalue(), captured[0]
 

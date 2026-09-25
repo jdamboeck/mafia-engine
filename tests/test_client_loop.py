@@ -42,7 +42,7 @@ import clients.terminal.__main__ as tmain
 from engine.config_loader import load_game_config
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
 from engine.upkeep import run_upkeep
-from tests.helpers import make_walk_script
+from tests.helpers import deadline, make_walk_script
 
 _CONFIG_DIR = tmain._CONFIG_DIR
 _MOVE_KEYS = tmain._MOVE_KEYS  # {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
@@ -199,18 +199,10 @@ def _run_play_with_deadline(monkeypatch, *, seconds: float = 20.0, **kwargs) -> 
     hanging the suite. SIGALRM interrupts the main thread and unwinds ``play()``;
     pytest-timeout is not a dependency, and a watchdog thread could not stop a
     spinning ``play()`` that shares the monkeypatched ``sys.stdin``/``sys.stdout``."""
-    import signal
-
-    def _on_alarm(signum, frame):
-        raise _Deadline(f"play() did not return within {seconds}s (EOF spin?)")
-
-    previous = signal.signal(signal.SIGALRM, _on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
-    try:
+    with deadline(
+        seconds, f"play() did not return within {seconds}s (EOF spin?)", exc_type=_Deadline
+    ):
         return run_play(monkeypatch, **kwargs)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
 
 
 # --------------------------------------------------------------------------- #
@@ -1646,21 +1638,11 @@ def run_play_returning(
 ):
     """Drive ``play()`` like :func:`run_play` under a SIGALRM deadline, but return
     ``(stdout, play()'s return value)`` so KTD-12's ``(state, rng)`` is observable."""
-    import signal
-
-    def _on_alarm(signum, frame):
-        raise _Deadline(f"play() did not return within {seconds}s (spin?)")
-
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
     monkeypatch.setattr(sys, "stdout", out)
-    previous = signal.signal(signal.SIGALRM, _on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
-    try:
+    with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
         ret = tmain.play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
     return out.getvalue(), ret
 
 
@@ -1814,21 +1796,11 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
     """Drive ``play()`` over EXACT stdin lines (no title/upkeep acks prepended -- a
     loaded game shows neither) under a SIGALRM deadline; return ``(stdout, (state, rng))``.
     """
-    import signal
-
-    def _on_alarm(signum, frame):
-        raise _Deadline(f"play() did not return within {seconds}s (spin?)")
-
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
     monkeypatch.setattr(sys, "stdout", out)
-    previous = signal.signal(signal.SIGALRM, _on_alarm)
-    signal.setitimer(signal.ITIMER_REAL, seconds)
-    try:
+    with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
         ret = tmain.play(**play_kwargs)
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous)
     return out.getvalue(), ret
 
 

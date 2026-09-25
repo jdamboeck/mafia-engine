@@ -32,8 +32,10 @@ The ``with_*`` helpers below are the frozen-graph replacement for the old
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import io
+import signal
 from collections.abc import Mapping
 from types import MappingProxyType
 from typing import Any
@@ -60,6 +62,43 @@ def make_walk_script(keys: list[str]) -> io.StringIO:
     line per rotation on top of the two this builder prepends.
     """
     return io.StringIO("\n".join(["", ""] + keys) + "\n")
+
+
+class DeadlineExceeded(Exception):
+    """Default exception raised by :func:`deadline` when its timer fires.
+
+    A caller that needs a specific exception type to keep existing
+    ``pytest.raises``/assertion semantics unchanged should pass its own via
+    ``exc_type=``; this is only the fallback when none is given.
+    """
+
+
+@contextlib.contextmanager
+def deadline(seconds: float, message: str, *, exc_type: type[BaseException] = DeadlineExceeded):
+    """Fail the wrapped block with ``exc_type(message)`` instead of letting it hang.
+
+    Several tests drive ``play()``/``run()`` over piped, monkeypatched
+    ``sys.stdin``/``sys.stdout``; a bug that turns an EOF re-prompt into a spin would
+    hang the whole suite rather than failing one test. A ``SIGALRM`` timer interrupts
+    the main thread and unwinds the spin -- ``pytest-timeout`` is not a dependency
+    here, and a watchdog thread could not stop a spin that shares the monkeypatched
+    stdin/stdout with the main thread.
+
+    Installs the ``SIGALRM`` handler, arms ``signal.setitimer(signal.ITIMER_REAL,
+    seconds)``, yields, and in ``finally`` disarms the timer and restores whatever
+    handler was previously installed -- so a deadline never leaks into a later test.
+    """
+
+    def _on_alarm(signum, frame):
+        raise exc_type(message)
+
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def scripted(*answers):
