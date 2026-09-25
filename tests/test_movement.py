@@ -289,7 +289,7 @@ def test_advance_turn_is_pure_and_returns_game_over_signal():
     assert st.clock.active_player == 0  # INPUT untouched (purity)
     assert st.players[0].ms == 3
     assert new_st.clock.active_player == 1  # rotation lives on the returned state
-    assert over is False  # 1928 < end_year 1978
+    assert over is False  # 1925 < end_year 1978
 
 
 def test_advance_turn_reports_game_over_at_end_year():

@@ -141,6 +141,8 @@ formula_params:
 # BASIC setup; engine/setup.py is the authoritative porting site. Kept here so
 # the values are visible/tunable as config data.
 setup:
+  start_year: 1925    # ja — game clock starts Jan 1925 (mf-prg.bas:1000 `sp=0:ja=1925`);
+                       # independent of the x9 end-year range [1928,1978] (mf-prg.bas:172)
   start_position: 18   # po — start map position (mf-prg.bas:220)
   start_rank: 1        # ra — "anfaenger"
   start_nr: 1          # nr — next-rank counter

@@ -467,7 +467,7 @@ class Clock:
     incrementing only once every 12 additions of ``1/12`` (KTD-4).
     """
 
-    year: int = 1928  # int(ja) — current year; floor 1928 (mf-prg.bas:170,172)
+    year: int = 1925  # int(ja) — current year; starts at 1925 (mf-prg.bas:1000 ja=1925)
     month: int = 0  # the fractional part of ja, in twelfths (0-11); wraps year at 12
     end_year: int = 1978  # x9 — game-end year, validated [1928,1978] (mf-prg.bas:172)
     active_player: int = 0  # sp — active player index

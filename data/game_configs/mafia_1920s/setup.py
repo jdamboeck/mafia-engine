@@ -527,7 +527,8 @@ def new_game(
         )
 
     clock = Clock(
-        year=ranges["end_year"]["min"],  # game starts at the floor year (1928)
+        year=setup["start_year"],  # ja=1925 (mf-prg.bas:1000), from config data
+        month=0,
         end_year=end_year,
         active_player=0,
         player_count=len(players),

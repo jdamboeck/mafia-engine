@@ -25,7 +25,7 @@ from data.game_configs.mafia_1920s.gangster import Gangster
 
 def test_gamestate_default_construction():
     gs = GameState()
-    assert gs.clock.year == 1928
+    assert gs.clock.year == 1925  # mf-prg.bas:1000 ja=1925
     assert gs.clock.end_year == 1978
     assert gs.clock.player_count == 1
     assert gs.config.score_mult == 1.0
@@ -143,7 +143,7 @@ def test_clock_default_has_month_zero():
     """Month is a first-class, visible clock field (KTD-4), defaulting to 0."""
     c = Clock()
     assert c.month == 0
-    assert c.year == 1928
+    assert c.year == 1925  # mf-prg.bas:1000 ja=1925
 
 
 def test_clock_month_is_frozen():

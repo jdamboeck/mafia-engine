@@ -219,3 +219,55 @@ def test_ranks_data():
     assert len(rs) == 10
     assert rs[0] == "anfaenger"  # index 1 in the game, first entry here
     assert rs[9] == "chef der unterwelt"
+
+
+# --- start year (U4, R3/KTD-3) --------------------------------------------
+#
+# mf-prg.bas:1000 (``sp=0:ja=1925``): the game clock starts at 1925, NOT at the
+# end-year floor 1928 (mf-prg.bas:172 validates x9 to [1928,1978] — unrelated).
+
+
+def test_new_game_starts_january_1925():
+    gs = _one_player_game()
+    assert gs.clock.year == 1925
+    assert gs.clock.month == 0
+
+
+def test_ae5_end_year_1928_game_over_on_36th_round():
+    """AE5: from Jan 1925 with end year 1928 and one player, each advance_turn is a
+    full round (one month); game_over fires first on the 36th call (Jan 1928)."""
+    from engine.movement import advance_turn
+
+    vehicles = load_vehicles(VEHICLES_PATH)
+    st = new_game(seed=1, end_year=1928, score_weight=1.0, players=[("Al", "Capones")])
+    for call in range(1, 36):
+        st, over = advance_turn(st, vehicles)
+        assert over is False, f"game_over too early, on call {call}"
+    st, over = advance_turn(st, vehicles)
+    assert over is True
+    assert (st.clock.year, st.clock.month) == (1928, 0)
+
+
+def test_start_year_is_config_data(tmp_path):
+    """The start year comes from config.yaml ``setup.start_year``, not code."""
+    import shutil
+
+    import yaml
+
+    cfg_dir = tmp_path / "cfg"
+    shutil.copytree(CONFIG_ROOT, cfg_dir)
+    cfg_file = cfg_dir / "config.yaml"
+    cfg = yaml.safe_load(cfg_file.read_text(encoding="utf-8"))
+    assert cfg["setup"]["start_year"] == 1925
+    cfg["setup"]["start_year"] = 1931
+    cfg_file.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+
+    gs = new_game(
+        seed=1,
+        end_year=1978,
+        score_weight=1.0,
+        players=[("Al", "Capones")],
+        config_path=cfg_file,
+    )
+    assert gs.clock.year == 1931
+    assert gs.clock.month == 0
