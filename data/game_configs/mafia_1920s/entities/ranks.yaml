@@ -1,0 +1,18 @@
+# Rank names — verbatim from the original game (mf-prg.bas:50200-50210).
+#
+# ENTITY-NAME data owned by the config (KTD-5), not engine display text.
+#
+# In the original these are ra$(1..10); here they are stored as a 0-based list,
+# so list index i == in-game rank (i + 1). A fresh player starts at rank 1
+# ("anfaenger"), which is ranks[0].
+ranks:
+  - "anfaenger"          # rank 1 — starting rank
+  - "schlaeger"          # rank 2
+  - "kleiner fisch"      # rank 3
+  - "langfinger"         # rank 4
+  - "ganove"             # rank 5
+  - "mafiosi"            # rank 6
+  - "bullenschreck"      # rank 7
+  - "meuchelmoerder"     # rank 8
+  - "gangsterboss"       # rank 9
+  - "chef der unterwelt" # rank 10

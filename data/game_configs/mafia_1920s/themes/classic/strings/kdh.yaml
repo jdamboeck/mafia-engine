@@ -1,0 +1,45 @@
+# kdh (Kredit-Hai / loan shark) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.kdh.borrow_prompt")
+# and the theme resolves them to these strings. Ported from the research
+# (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:15000-15321) — verbatim.
+locations:
+  kdh:
+    entry_prompt: "'EIN WUNDERSCHOENEN GUTEN TAG, KANN     ICH IHNEN HELFEN?'"
+    menu:
+      borrow: "'JA. ICH BRAUCHE EIN BISSCHEN KNETE!'"
+      repay: "'NEIN, NEIN! ICH WILL NUR MEINE SCHUL-  DEN ABZAHLEN!'"
+      trade: "LADEN AUFKAUFEN BZW. VERKAUFEN"
+      capital: "KAPITAL IM LADEN AENDERN (BEI EIGENEM   KREDITGESCHAEFT)"
+      collect: "UEBERFAELLIGE SCHULDEN EINTREIBEN (BEI  EIGENEM GESCHAEFT)"
+      leave: "'ICH HELFE MIR SELBST.'"
+
+    # --- borrow (15010-15030) ---
+    pay_old_debts_first: "'zahle erstmal deine alten schulden ab!'"
+    borrow_prompt: "wieviel geld willst du leihen (0-5000 $)"
+    borrow_grace_notice: "'du hast 6 monate zeit, die schulden zurueck zu zahlen!'"
+
+    # --- repay (15050-15075) ---
+    repay_prompt: "wieviel willst du zurueckzahlen"
+    repay_partial: "'ok, du hast jetzt noch {remaining}$ schulden!'"
+    repay_full: "'du hast die schulden zurueckgezahlt!'"
+
+    # --- trade: buy/sell the loan business (15100-15155) ---
+    already_own_a_shop: "'du hast schon ein kreditgeschaeft!'"
+    pay_own_debts_first: "'zahle erstmal deine eigenen schulden!'"
+    shop_belongs_to: "'der laden gehoert {name}!'"
+    buy_offer: "'der jetzige besitzer verlangt {price}$.'"
+    buy_confirm: "ok (j/n)?"
+    bought: "'der laden gehoert nun dir!'"
+    sell_offer: "'ein kaeufer bietet dir {price}$ fuer den laden. willst du verkaufen (j/n) ?'"
+    sell_confirm: "ok (j/n)?"
+
+    # --- capital adjust (15200-15220) ---
+    not_your_shop: "'dieser laden gehoert dir nicht!'"
+    capital_status: "'du hast {capital}$ im kreditgeschaeft (maximal {max} $).'"
+    capital_prompt: "um wieviel dollar (- oder +) willst du das geldvolumen erhoehen bzw. verringern"
+
+    # --- collect overdue debts (15300-15321) ---
+    debts_paid_on_time: "'alle schuldner haben puenktlich gezahlt!'"
+    ambush_intro: "'einer deiner klienten hat noch geld. er lauert dir mit einem gewehr auf, als du kassieren willst!'"
+    ambush_loot: "'er hatte noch {amount}$ dabei!'"

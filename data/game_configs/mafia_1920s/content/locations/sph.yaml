@@ -1,0 +1,15 @@
+# sph (Spielhoelle / casino) — location shell (U5 declarative layer).
+#
+# Ports the sph menu from mf-prg.bas:16000-16040 (entry at 16000, the 3-game
+# submenu at 16010 lives INSIDE the sph handler as a PromptChoice). The shell is
+# therefore a single guardless entry option routing to the "sph" handler, plus a
+# guardless "leave" (mirroring slw's leave), matching the original's two entry
+# options: "play" (-> the game menu) and "leave" (mau-mau only).
+key: sph
+options:
+  - id: play
+    handler: "sph"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: 0}

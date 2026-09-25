@@ -1,0 +1,17 @@
+# waf (Waffengeschaeft / weapon shop) — location shell (U7 declarative layer).
+#
+# Ports the waf menu from mf-prg.bas:13005 (on w goto 13010,13100). Two playable
+# options route to two separate handlers (per A1: the buy and train bodies share
+# nothing, and the original's `on w goto 13010,13100` is a clean split), plus a
+# guardless leave. The buy/train submenus (weapon list, gangster pick, venue
+# choice) live INSIDE the handlers as prompts, so the shell is just the entry.
+key: waf
+options:
+  - id: buy
+    handler: "waf.buy"
+  - id: train
+    handler: "waf.train"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: 0}

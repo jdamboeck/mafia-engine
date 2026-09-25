@@ -1,0 +1,25 @@
+# The bouncer/doorman shift fight (mf-prg.bas:25035-25042). THREE scripted
+# troublemakers become ONE encounter with a `variants:` list; the caller
+# (jobs.py) indexes it with its existing `ctx.rng.range(3)` roll — the SELECTION
+# stays in Python where the source puts it (:25035), only the DEFINITIONS move
+# to data. grid kp.
+#
+# No declarable consequence: the caller sets `won` and the job pays out. Setup
+# in data, payout stays with the job. Values regroup jobs.py's _BOUNCER_BRAWLERS
+# literals exactly. Weapon ids per entities/weapons.yaml: 0=haende, 1=messer,
+# 3=schlagkette.
+key: job_bouncer
+grid: kp
+variants:
+  - count: 1
+    weapon: 0         # haende (fists) — :25040
+    vitality: 30
+    name: wurstfinger-fred
+  - count: 1
+    weapon: 1         # messer — :25041
+    vitality: 20
+    name: affenface-alf
+  - count: 1
+    weapon: 3         # schlagkette — :25042
+    vitality: 20
+    name: der schlachter

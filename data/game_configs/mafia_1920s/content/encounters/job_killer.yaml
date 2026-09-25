@@ -1,0 +1,12 @@
+# The killer job's victim (mf-prg.bas:25210): one target, unarmed (haende,
+# weapon 0), 20 energy. grid km.
+#
+# No declarable consequence: the caller sets `won` and the job pays out. Setup
+# in data, payout stays with the job. Values regroup jobs.py's _KILLER_VICTIM.
+key: job_killer
+enemies:
+  count: 1
+  weapon: 0           # haende (unarmed) — :25210
+  vitality: 20        # e=20 — :25210
+  name: opfer
+grid: km

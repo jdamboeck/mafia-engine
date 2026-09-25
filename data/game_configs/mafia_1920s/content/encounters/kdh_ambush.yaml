@@ -1,0 +1,19 @@
+# The debtor ambush at kdh.collect (mf-prg.bas:15310-15321).
+# One scripted schuldner (gewehr, 35 energy) fights the player; a win loots
+# 500-1499$ + 2 score, a loss costs nothing (:15315 — silent return).
+#
+# Every value here is a REGROUPING of existing config data — it must match
+# config.yaml's formula_params (kdh_ambush_*, :119-124) exactly. Any divergence
+# is a transcription error.
+key: kdh_ambush
+enemies:
+  count: 1
+  weapon: 6           # gewehr — mf-prg.bas:15312
+  vitality: 35        # e=35 — mf-prg.bas:15312
+  name: schuldner
+grid: ks
+on_win:
+  - money: {roll: [500, 1499]}   # p=int(rnd(1)*1000)+500 — :15320
+  - score: 2.0                   # x=2:gosub1160 — :15321
+  - message: locations.kdh.ambush_loot
+on_loss: []                      # :15315 — silent return, no cost

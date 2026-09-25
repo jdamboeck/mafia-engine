@@ -1,0 +1,87 @@
+# Recruitable gangster candidate table — verbatim from the original game's 30
+# `gan1`-`gan30` SEQ files (../research/research-data/pass-1/gan-extraction.yaml).
+#
+# ENTITY-NAME/stat data owned by the game config (KTD-5), not engine display text:
+# names/descriptions are the recruitable-gangster identities in the 1920s Mafia
+# world. Order is significant: list index (0-based here) + 1 == the original's
+# candidate file number `g(i)` (1..30, mf-prg.bas:12110's `int(rnd(1)*30)+1`), and
+# is also this config's `sg` "already hired" flag index.
+#
+# Fields per entry (read order at mf-prg.bas:12125-12126 -
+# `input#1,gn$:input#1,gw:input#1,ge$:input#1,p:input#1,x$`):
+#   name        — gn$, gangster name (German, verbatim)
+#   weapon      — gw, weapon index 0..8 (matches entities/weapons.yaml)
+#   kraft       — first 2 digits of ge$ (kk)
+#   intelligenz — next 2 digits of ge$ (ii)
+#   brutalitaet — last 2 digits of ge$ (bb)
+#   price       — p + 1000 (mf-prg.bas:12126's `p=p+1000` vorschuss surcharge) —
+#                 already-final hire price, 2000-5500$ across the table
+#   description — x$, the recruitment flavour text (verbatim, printed at :12131)
+#   female      — true for the 4 candidates the source's `fnwe(x)` predicate
+#                 treats as female (pronoun "sie" instead of "er", :12130) —
+#                 BLOODY MARY (4), JOSEFINE (14), DOROTHY (27), MA BAKER (30)
+#
+# Energy is NOT a per-candidate field: every recruited gangster starts at energy
+# 5 regardless of candidate (mf-prg.bas:12165's `'05'+ge$` prepend) — the handler
+# sets this when building the hired Gangster, not read from here.
+gangsters:
+  - {name: "killer-jack",           weapon: 1, kraft: 50, intelligenz: 10, brutalitaet: 70, price: 3000, female: false,
+     description: "ein verschlagener typ in schaebigen klamotten"}
+  - {name: "joe, 'das hirn'",       weapon: 0, kraft: 20, intelligenz: 90, brutalitaet: 30, price: 2000, female: false,
+     description: "ein schmaechtiger mensch mit einem duemmlichen gesichtsausdruck"}
+  - {name: "eddie, der spieler",    weapon: 0, kraft: 30, intelligenz: 60, brutalitaet: 40, price: 2500, female: false,
+     description: "ein falschspieler mit geschickten fingern"}
+  - {name: "bloody mary",           weapon: 2, kraft: 60, intelligenz: 10, brutalitaet: 75, price: 3100, female: true,
+     description: "eine derbe, brutal aussehende frau mit dem typischen 'killer-blick'"}
+  - {name: "wurfstern-freddy",      weapon: 4, kraft: 40, intelligenz: 10, brutalitaet: 60, price: 3700, female: false,
+     description: "er ist bekannt fuer die geschicklichkeit, mit der er seine sterne benutzt"}
+  - {name: "joseph",                weapon: 2, kraft: 80, intelligenz: 5,  brutalitaet: 80, price: 3500, female: false,
+     description: "ein fetter kerl mit aufgedunsenem gesicht"}
+  - {name: "der blinde",            weapon: 0, kraft: 5,  intelligenz: 90, brutalitaet: 90, price: 2500, female: false,
+     description: "ein schrulliger alter mit schwarzer brille und einem stock"}
+  - {name: "langfinger-fritz",      weapon: 0, kraft: 10, intelligenz: 60, brutalitaet: 5,  price: 2600, female: false,
+     description: "ein gewitzter junge mit schlitzohrigem gesichtsausdruck"}
+  - {name: "dschango",              weapon: 1, kraft: 50, intelligenz: 5,  brutalitaet: 5,  price: 3400, female: false,
+     description: "ein dicker mann mit pickeligem gesicht"}
+  - {name: "der mexikaner",         weapon: 2, kraft: 80, intelligenz: 50, brutalitaet: 90, price: 3700, female: false,
+     description: "er versteckt sein gesicht unter einem sombrero - ein komischer kauz"}
+  - {name: "jack, der trickser",    weapon: 0, kraft: 5,  intelligenz: 90, brutalitaet: 75, price: 3300, female: false,
+     description: "hat alle tricks vom falschspielen bis zum tresorknacken drauf"}
+  - {name: "johnny",                weapon: 1, kraft: 50, intelligenz: 30, brutalitaet: 30, price: 3100, female: false,
+     description: "einer mit einem schwarzen anzug - keiner kennt ihn hier"}
+  - {name: "killer-frank",          weapon: 1, kraft: 40, intelligenz: 10, brutalitaet: 30, price: 2800, female: false,
+     description: "ein untersetzter kerl mit dem gesichtsausdruck eines schafes"}
+  - {name: "josefine",              weapon: 3, kraft: 40, intelligenz: 10, brutalitaet: 30, price: 3200, female: true,
+     description: "ein staemmiges frauenzimmer - sie wird uebrigens auch 'die gemeine' genannt"}
+  - {name: "der stecher",           weapon: 1, kraft: 30, intelligenz: 5,  brutalitaet: 70, price: 3500, female: false,
+     description: "ein derber typ mit einem schwarzen hut"}
+  - {name: "billy",                 weapon: 0, kraft: 20, intelligenz: 10, brutalitaet: 30, price: 2200, female: false,
+     description: "ein unerfahrener, jugendlicher ganove"}
+  - {name: "steven flinkfinger",    weapon: 0, kraft: 30, intelligenz: 50, brutalitaet: 60, price: 3000, female: false,
+     description: "ein mensch mit taschendieb-qualitaeten"}
+  - {name: "poker-face",            weapon: 0, kraft: 40, intelligenz: 60, brutalitaet: 90, price: 3300, female: false,
+     description: "er kann nicht nur pokern..."}
+  - {name: "holzbein-sam",          weapon: 3, kraft: 60, intelligenz: 5,  brutalitaet: 70, price: 3400, female: false,
+     description: "ein humpelnder opa, der dauernd ein auge zukneift"}
+  - {name: "gary",                  weapon: 0, kraft: 30, intelligenz: 10, brutalitaet: 60, price: 3500, female: false,
+     description: "niemand weiss, was er fuer faehigkeiten hat"}
+  - {name: "zocker-alf",            weapon: 0, kraft: 5,  intelligenz: 80, brutalitaet: 65, price: 3300, female: false,
+     description: "seine heimat ist die spielhoelle, aber er ist auch zu anderem geeignet"}
+  - {name: "pistolen-henry",        weapon: 5, kraft: 40, intelligenz: 5,  brutalitaet: 60, price: 4100, female: false,
+     description: "er ist zwar nicht schlau, ist aber beruechtigt fuer seine schiesskunst"}
+  - {name: "jeff smart",            weapon: 2, kraft: 40, intelligenz: 10, brutalitaet: 80, price: 3300, female: false,
+     description: "ein typ, als waere er einem comic entsprungen..."}
+  - {name: "fred clever",           weapon: 0, kraft: 10, intelligenz: 85, brutalitaet: 50, price: 3300, female: false,
+     description: "ein verwandlungsfaehiger mensch, opfert sich fuer seine freunde auf"}
+  - {name: "jim",                   weapon: 0, kraft: 70, intelligenz: 5,  brutalitaet: 5,  price: 2900, female: false,
+     description: "ein farmer, der seinen beruf an den nagel gehaengt hat"}
+  - {name: "macky messer",          weapon: 1, kraft: 35, intelligenz: 40, brutalitaet: 60, price: 3500, female: false,
+     description: "ein geheinisvoller typ"}  # verbatim source typo (gan-extraction.yaml gan26; not "geheimnisvoller")
+  - {name: "dorothy",               weapon: 1, kraft: 30, intelligenz: 60, brutalitaet: 30, price: 3100, female: true,
+     description: "eine grosse, verschlagen wirkende frau"}
+  - {name: "prediger samuel",       weapon: 0, kraft: 55, intelligenz: 60, brutalitaet: 10, price: 3300, female: false,
+     description: "ein dicker, gutmuetig wirkender geistlicher"}
+  - {name: "mister x",              weapon: 5, kraft: 30, intelligenz: 45, brutalitaet: 60, price: 4000, female: false,
+     description: "ein mann ganz in schwarz"}
+  - {name: "ma baker",              weapon: 7, kraft: 20, intelligenz: 80, brutalitaet: 95, price: 5500, female: true,
+     description: "ma baker ist fuer ihre brutalitaet und ihre gemeinheit gefuerchtet"}

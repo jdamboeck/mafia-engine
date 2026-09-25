@@ -1,0 +1,13 @@
+# Per-screen-context color schemes for the terminal renderer.
+# Each context defines background (bg) and foreground (fg) palette names.
+# The original game changes VIC registers (POKE 53280/53281) per screen.
+
+overworld:      { bg: light_blue, fg: black }
+turn_start:     { bg: brown, fg: light_grey }
+location_entry: { bg: black, fg: light_grey }
+jail:           { bg: blue, fg: light_grey }
+police:         { bg: light_blue, fg: black }
+score:          { bg: red, fg: light_grey }
+jobs:           { bg: light_grey, fg: black }
+credit:         { bg: dark_grey, fg: light_grey }
+bank_robbery:   { bg: brown, fg: light_grey }

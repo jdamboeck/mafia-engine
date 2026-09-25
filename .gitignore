@@ -3,3 +3,19 @@
 
 # Local Claude Code plugin-enablement state (machine-specific)
 .claude/settings.json
+
+# Local agent-tool scratch dirs (machine-specific working copies)
+.opencode/
+
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+
+# Combat recordings — run artifacts, not versioned game content (U7)
+recordings/
+
+# Saved games — the terminal client's P key writes JSONL saves (U8, KTD-7)
+*.jsonl

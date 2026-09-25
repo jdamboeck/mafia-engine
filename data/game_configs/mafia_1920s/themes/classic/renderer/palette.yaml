@@ -1,0 +1,20 @@
+# C64 color palette — Pepto-accurate RGB values.
+# Used by clients/terminal/palette.py to generate ANSI truecolor escapes.
+# Different themes may override these values for different games/eras.
+
+black:       [0, 0, 0]
+white:       [255, 255, 255]
+red:         [158, 52, 38]
+cyan:        [100, 183, 199]
+purple:      [138, 70, 172]
+green:       [104, 169, 65]
+blue:        [74, 54, 181]
+yellow:      [208, 221, 94]
+brown:       [144, 95, 37]
+light_brown: [100, 87, 8]
+light_red:   [217, 124, 102]
+dark_grey:   [82, 82, 82]
+grey:        [135, 135, 135]
+light_green: [161, 214, 127]
+light_blue:  [155, 222, 255]
+light_grey:  [178, 178, 178]

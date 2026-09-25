@@ -1,0 +1,22 @@
+# slw (Schlupfwinkel / motel) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.slw.rent_quote")
+# and the theme resolves them to these strings. Ported byte-for-byte from the
+# research (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:10000-10105).
+# The double space in menu.rent ("UND  ICH") is intentional — it is in the
+# original. {price} is a template param the theme fills at render time.
+locations:
+  slw:
+    entry_prompt: "'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'"
+    menu:
+      rent: "'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'"
+      pay_rent: "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
+      leave: "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
+    no_room: "'nichts mehr frei!'"
+    rent_quote: "'gut. pro monat kostet das {price}$ miete.'"
+    months_prompt: "wieviele monate willst du mieten"
+    success: "'guten tag, der herr!'"
+    not_resident: "du wohnst hier nicht!"
+
+system:
+  not_enough_money: "du hast zu wenig kies!"

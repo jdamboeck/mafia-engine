@@ -1,0 +1,12 @@
+# The croupier's caught-cheating opponent (mf-prg.bas:25135): one gambler,
+# messer (weapon 1), 10 energy. grid kp.
+#
+# No declarable consequence: the caller sets `won` and the job pays out. Setup
+# in data, payout stays with the job. Values regroup jobs.py's _CROUPIER_OPPONENT.
+key: job_croupier
+enemies:
+  count: 1
+  weapon: 1           # messer — :25135
+  vitality: 10        # e=10 — :25135
+  name: spieler
+grid: kp

@@ -1,0 +1,22 @@
+# A COMPLETE, self-contained fight for the terminal debug tool (fightlab, U8).
+#
+# A scenario file describes a whole two-sided fight, buildable with NO GameState and
+# NO roster. The ENEMY side is built through this config's OWN kdh_ambush encounter
+# (content/encounters/kdh_ambush.yaml) — the SAME path the in-game kdh.collect ambush
+# uses — so a scenario's enemy side is by construction equal to
+# Scenario.from_encounter("kdh_ambush", …). One loader, two sources cannot diverge.
+#
+# The PLAYER side an encounter never declares; a scenario adds it here as INVENTED
+# fighters (there is no roster to draw from). Each is a plain gangster: a name, a
+# weapon id (into entities/weapons.yaml), energie, and the two combat stats.
+
+encounter: kdh_ambush   # the enemy side — one schuldner (gewehr, 35 energy) at grid ks
+
+seed: 42                # default RNG seed; --seed on the command line overrides it
+
+player:
+  - name: hero
+    weapon: 5           # revolver (ts=5, tg=10, range=15)
+    energie: 20
+    kraft: 34
+    brutalitaet: 28
