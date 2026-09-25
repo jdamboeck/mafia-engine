@@ -603,3 +603,127 @@ def test_losses_are_visible_on_the_screen_that_follows_a_knockout():
     # The downed fighter is still present in the payload, flagged rather than removed.
     assert screens[1]["sides"][1][0]["down"] is True
     assert screens[1]["sides"][1][0]["vitality"] == 0
+
+
+# --------------------------------------------------------------------------- #
+# #45 / KTD-8 — the opt-in observation frame after each non-human activation   #
+# --------------------------------------------------------------------------- #
+def _observe_fight_sides():
+    """A 1v1 on an open row that runs several CPU activations (moves AND shots).
+
+    The kdh-ambush pair from tests/test_recording.py: at ``Rng(42)`` with side 1
+    shooting right every turn, side 2 acts nine times (shots and moves) and wins.
+    """
+    return (
+        (
+            _f(
+                name="hero",
+                weapon=5,
+                energie=20,
+                kraft=34,
+                brutalitaet=28,
+                position=6 * 40 + 15,
+                roster_id=0,
+            ),
+        ),
+        (
+            _f(
+                name="ambusher",
+                weapon=6,
+                energie=35,
+                kraft=30,
+                brutalitaet=30,
+                position=6 * 40 + 22,
+                roster_id=None,
+            ),
+        ),
+    )
+
+
+def _counting_cpu():
+    """A non-human side 2 that plays the real AI and counts its own activations.
+
+    The count is taken where the decision is made, independently of anything the
+    input source sees — so "one frame per CPU activation" compares two separate tallies.
+    """
+    from engine.interactions import PolicyDriver
+
+    calls = []
+
+    def policy(view):
+        calls.append(1)
+        return view._fight.ai_decide(view)
+
+    return PolicyDriver(policy=policy), calls
+
+
+class _HumanShootsRight:
+    """Side 1's client: shoot right at every real prompt; tally observation frames."""
+
+    def __init__(self, *, observes_ai: bool) -> None:
+        if observes_ai:
+            self.observes_ai = True
+        self.frames: list = []
+
+    def __call__(self, interaction):
+        if not isinstance(interaction, CombatScreen):
+            raise AssertionError(f"unexpected interaction {interaction!r}")
+        if interaction.prompt == "observe":
+            self.frames.append(interaction)
+            # Display-only: whatever comes back must be ignored — a surrender here
+            # would flip the winner if the loop ever read it.
+            return ("surrender", None)
+        return ("shoot", +1)
+
+
+def _observed_fight(*, observes_ai: bool):
+    from engine.interactions import HumanDriver
+
+    cpu, calls = _counting_cpu()
+    src = _HumanShootsRight(observes_ai=observes_ai)
+    rng = Rng(42)
+    result = run_fight(
+        sides=_observe_fight_sides(),
+        rules=build_rules(),
+        drivers={1: HumanDriver(), 2: cpu},
+        input_source=src,
+        rng=rng,
+    )
+    return result, rng, src, calls
+
+
+def test_an_opted_in_source_sees_one_frame_per_cpu_activation_and_the_fight_is_unchanged():
+    watched, watched_rng, src, cpu_calls = _observed_fight(observes_ai=True)
+    plain, plain_rng, _, plain_calls = _observed_fight(observes_ai=False)
+
+    assert len(cpu_calls) >= 3, "the fixture must run several CPU activations"
+    assert len(src.frames) == len(cpu_calls)
+    # Every frame shows the CPU fighter that just acted, as a display-only screen.
+    assert {(f.active_side, f.active_fighter) for f in src.frames} == {(2, 1)}
+    assert all(f.to_json()["prompt"] == "observe" for f in src.frames)
+    # Same fight either way: winner, losses, and every RNG draw in order.
+    assert (watched.winner, watched.losses) == (plain.winner, plain.losses)
+    assert watched.winner == 2, "the CPU wins at seed 42; a surrender would not change that"
+    assert watched_rng.log == plain_rng.log
+    assert len(cpu_calls) == len(plain_calls)
+
+
+def test_a_source_that_does_not_opt_in_never_receives_an_observation_frame():
+    from engine.interactions import HumanDriver
+
+    cpu, calls = _counting_cpu()
+
+    def strict(interaction):
+        if isinstance(interaction, CombatScreen) and interaction.prompt == "observe":
+            raise AssertionError("observation frame sent to a source that never opted in")
+        return ("shoot", +1)
+
+    result = run_fight(
+        sides=_observe_fight_sides(),
+        rules=build_rules(),
+        drivers={1: HumanDriver(), 2: cpu},
+        input_source=strict,
+        rng=Rng(42),
+    )
+    assert calls, "no CPU activation ran, so there was nothing to (not) observe"
+    assert result.winner == 2

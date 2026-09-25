@@ -577,6 +577,7 @@ def play(
     score_weight: float | None = None,
     load: str | Path | None = None,
     save: str | Path | None = None,
+    watch_ai: bool = False,
 ) -> tuple:
     """Play the default config from ``seed`` over real stdin/stdout.
 
@@ -605,6 +606,10 @@ def play(
     rejects combining them). ``p`` on the map saves to ``save``, else the loaded file,
     else ``mafia-save.jsonl`` in the working directory, overwriting it (KTD-7).
 
+    ``watch_ai`` (``--watch-ai``, #45) opts the session's :class:`TerminalInput` into the
+    engine's observation frames: the board is shown after every CPU combat activation
+    and waits for one key. Off by default, as in the original.
+
     Returns the final ``(state, rng)`` on EVERY exit -- quit, EOF, or the ending
     (KTD-12). ``state`` is ``None`` only if the session ends before setup finished.
     :func:`main` ignores it; tests compare it.
@@ -626,7 +631,13 @@ def play(
     ]
 
     ranges = cfg.config["input_ranges"]
-    inp = TerminalInput(resolver=resolver, stdin=sys.stdin, stdout=out, weapon_names=weapon_names)
+    inp = TerminalInput(
+        resolver=resolver,
+        stdin=sys.stdin,
+        stdout=out,
+        weapon_names=weapon_names,
+        observe_ai=watch_ai,
+    )
     if load is not None:
         seed, state, rng = _load_session(load)  # raises LoadError (KTD-9); main() reports it
     else:
@@ -825,6 +836,11 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=f"Where P saves (default: the --load file, else ./{_DEFAULT_SAVE}).",
     )
+    parser.add_argument(
+        "--watch-ai",
+        action="store_true",
+        help="In fights, show the board after each computer move and wait for a key.",
+    )
     args = parser.parse_args(argv)
     if args.load is not None:
         # KTD-6: a save carries its own seed and setup; a new-game flag beside --load
@@ -875,6 +891,7 @@ def main(argv: list[str] | None = None) -> None:
             score_weight=args.score_weight,
             load=args.load,
             save=args.save,
+            watch_ai=args.watch_ai,
         )
     except LoadError as exc:
         _die(str(exc))

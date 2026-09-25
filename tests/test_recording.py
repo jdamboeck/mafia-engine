@@ -400,3 +400,41 @@ def test_two_recordings_of_the_same_fight_differ_only_in_driver_kind():
         assert normalized_ai == normalized_policy, (
             f"events at index {ai_event.index} differ beyond driver_kind"
         )
+
+
+# --------------------------------------------------------------------------- #
+# #45 — an opted-in (observed) fight records and replays exactly like a plain one
+# --------------------------------------------------------------------------- #
+def test_an_observed_fight_records_the_same_transcript_and_replays_without_divergence():
+    """Observation frames are display-only: a human-vs-AI fight whose client opted in
+    (``observes_ai``) records event-for-event what the same fight records without the
+    opt-in, and that recording replays with no divergence."""
+    from engine.interactions import HumanDriver
+
+    class Client:
+        def __init__(self, observes_ai: bool) -> None:
+            self.observes_ai = observes_ai
+            self.frames = 0
+
+        def __call__(self, interaction):
+            if interaction.prompt == "observe":
+                self.frames += 1
+                return ("surrender", None)  # ignored by the loop
+            return ("shoot", +1)
+
+    watched_client = Client(observes_ai=True)
+    _, watched = record_fight(
+        _kdh_ambush_scenario(), {1: HumanDriver(), 2: AiDriver()}, input_source=watched_client
+    )
+    _, plain = record_fight(
+        _kdh_ambush_scenario(), {1: HumanDriver(), 2: AiDriver()}, input_source=Client(False)
+    )
+
+    ai_activations = [e for e in watched.events if e.kind == "activation" and e.side == 2]
+    assert len(ai_activations) >= 3
+    assert watched_client.frames == len(ai_activations)
+    assert watched.events == plain.events
+    assert (watched.winner, tuple(watched.losses)) == (plain.winner, tuple(plain.losses))
+    report = replay(watched)
+    assert report.diverged is False
+    assert report.at_index is None

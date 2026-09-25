@@ -585,3 +585,114 @@ class TestClientErrorGuard:
         assert "Traceback" not in captured.err
         assert CURSOR_HIDE in captured.out
         assert captured.out.rstrip().endswith(CURSOR_SHOW)
+
+
+# --------------------------------------------------------------------------- #
+# #45 --watch-ai: the opt-in observation frame after each CPU activation        #
+# --------------------------------------------------------------------------- #
+class TestWatchAi:
+    @staticmethod
+    def _sides():
+        from tests.helpers import combat_fighter as _f
+
+        return (
+            (_f(name="hero", weapon=5, energie=20, kraft=34, brutalitaet=28, position=255),),
+            (_f(name="ambusher", weapon=6, energie=35, kraft=30, brutalitaet=30, position=262),),
+        )
+
+    def _frame(self):
+        from engine.interactions import CombatScreen
+
+        return CombatScreen(
+            sides=self._sides(), grid=(), active_side=2, active_fighter=1, prompt="observe"
+        )
+
+    def _fight(self, inp):
+        """Hero (side 1, the client) vs. the real AI on side 2, at Rng(42)."""
+        from data.game_configs.mafia_1920s.combat_rules import build_rules
+        from engine.interactions import StartCombat
+        from engine.rng import Rng
+
+        def handler(ctx):
+            result = yield StartCombat(sides=self._sides(), grid=(), rules=build_rules())
+            return result
+
+        return run(handler, inp, state=None, rng=Rng(42))
+
+    def test_only_an_opted_in_terminal_input_advertises_the_opt_in(self):
+        watching = TerminalInput(resolver=_resolver(), observe_ai=True)
+        plain = TerminalInput(resolver=_resolver())
+        assert watching.observes_ai is True
+        assert getattr(plain, "observes_ai", False) is False
+
+    def test_observe_frame_renders_the_board_and_consumes_exactly_one_line(self):
+        inp, out = _client(["x", "w"])
+        assert inp(self._frame()) is None
+        text = out.getvalue()
+        assert _resolver().resolve("combat.observe_prompt") in text
+        assert _resolver().resolve("combat.key_legend") not in text, "not an action prompt"
+        assert "ambusher" in text, "the acting CPU fighter's panel is drawn"
+        assert inp._stdin.readline() == "w\n", "the frame must consume one line, no more"
+
+    def test_eof_at_an_observe_frame_continues_instead_of_ending_input(self):
+        inp, _out = _eof_client("")
+        assert inp(self._frame()) is None  # no EndOfInput, no CANCEL/surrender
+
+    def test_a_watched_fight_shows_one_frame_per_cpu_move_through_the_real_driver(self):
+        # Human turn = fire + aim right ("f", "d"); each CPU activation = one key (".").
+        out = io.StringIO()
+        inp = TerminalInput(
+            resolver=_resolver(),
+            stdin=io.StringIO("f\nd\n.\n" * 30),
+            stdout=out,
+            observe_ai=True,
+        )
+        result = self._fight(inp)
+        assert result.status == "completed"
+        winner = result.payload.returned.winner
+        frames = out.getvalue().count(_resolver().resolve("combat.observe_prompt"))
+        human_turns = out.getvalue().count(_resolver().resolve("combat.key_legend"))
+        assert frames >= 3
+        # Human first each round and the CPU lands the last shot (seed 42): one frame
+        # per CPU activation, one per human turn, and no key was stolen from a turn.
+        assert winner == 2
+        assert frames == human_turns
+
+    def test_eof_mid_watched_fight_surrenders_at_the_next_real_prompt(self):
+        # One human turn, then EOF: the observe frame after the CPU's reply continues,
+        # and the next action prompt meets EOF -> surrender (KTD-2), side 2 wins.
+        out = io.StringIO()
+        inp = TerminalInput(
+            resolver=_resolver(), stdin=io.StringIO("f\nd\n"), stdout=out, observe_ai=True
+        )
+        result = self._fight(inp)
+        assert result.payload.returned.winner == 2
+        assert out.getvalue().count(_resolver().resolve("combat.observe_prompt")) == 1
+
+    def test_watch_ai_flag_reaches_play_and_defaults_off(self, monkeypatch):
+        import clients.terminal.__main__ as tmain
+
+        calls = []
+        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append(k))
+        tmain.main(["--watch-ai"])
+        tmain.main([])
+        assert calls[0]["watch_ai"] is True
+        assert calls[1]["watch_ai"] is False
+
+    def test_play_hands_the_opt_in_to_the_sessions_terminal_input(self, monkeypatch):
+        import clients.terminal.__main__ as tmain
+
+        seen = []
+
+        class _Stop(Exception):
+            pass
+
+        def spy(**kwargs):
+            seen.append(kwargs.get("observe_ai"))
+            raise _Stop
+
+        monkeypatch.setattr(tmain, "TerminalInput", spy)
+        for flag in (True, False):
+            with pytest.raises(_Stop):
+                tmain.play(seed=1, end_year=1950, score_weight=1.0, watch_ai=flag)
+        assert seen == [True, False]

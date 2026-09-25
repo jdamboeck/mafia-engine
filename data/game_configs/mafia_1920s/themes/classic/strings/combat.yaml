@@ -63,3 +63,8 @@ combat:
   # U7 key legend -- presentation-only (KTD-9: key bindings are presentation, not
   # ported source text), shown once per activation above the input line.
   key_legend: "[wasd] bewegen  [f]+[wasd] schiessen  [p] aussetzen  'surrender' aufgeben"
+
+  # #45 opt-in observation frame (--watch-ai) -- presentation-only: the original
+  # narrates nothing between CPU activations (mf-prg.bas:30110), so this line exists
+  # only for a viewer who opted in. Shown under the board after each CPU activation.
+  observe_prompt: "gegner am zug -- [enter] weiter"

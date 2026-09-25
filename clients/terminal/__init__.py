@@ -27,6 +27,7 @@ from typing import Any, TextIO
 
 from engine.interactions import (
     CANCEL,
+    OBSERVE_PROMPT,
     CombatScreen,
     Confirm,
     PromptChoice,
@@ -258,8 +259,14 @@ class TerminalInput:
         stdin: TextIO | None = None,
         stdout: TextIO | None = None,
         weapon_names: list[str] | None = None,
+        observe_ai: bool = False,
     ) -> None:
         self._resolver = resolver
+        #: #45 opt-in (``--watch-ai``): the engine's ``_drive_fight`` reads this attribute
+        #: and, only when it is true, hands us a display-only ``prompt="observe"``
+        #: CombatScreen after every CPU activation. Off by default -- the original shows
+        #: nothing between CPU moves (mf-prg.bas:30110).
+        self.observes_ai = observe_ai
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
         #: Weapon id -> name, for the combat fighter panel (U7). Optional: a caller
@@ -270,6 +277,17 @@ class TerminalInput:
         if isinstance(interaction, ShowMessage):
             # Driver auto-acks ShowMessage; if we are ever consulted, just render it.
             render_message(self._resolver, interaction, self._stdout)
+            return None
+
+        if isinstance(interaction, CombatScreen) and interaction.prompt == OBSERVE_PROMPT:
+            # #45: a display-only frame after a CPU activation. Draw the board, wait for
+            # one key, and return nothing -- the driver ignores the response, so no key
+            # can ever act in the fight. EOF here is NOT a surrender and NOT an
+            # EndOfInput: the frame just continues (readline() returns "" at once, so it
+            # cannot hang), and the next real prompt meets the same EOF and ends the
+            # fight/session through its own, already-defined EOF path.
+            self._render_combat_screen(interaction, footer=("combat.observe_prompt",))
+            self._stdin.readline()
             return None
 
         if isinstance(interaction, CombatScreen):
@@ -294,8 +312,15 @@ class TerminalInput:
         # Relay the raw line as-is; the driver coerces/validates and re-prompts if needed.
         return raw.strip()
 
-    def _render_combat_screen(self, screen: CombatScreen) -> None:
+    def _render_combat_screen(
+        self,
+        screen: CombatScreen,
+        footer: tuple[str, ...] = ("combat.action_prompt", "combat.key_legend"),
+    ) -> None:
         """Draw one activation's full combat screen: grid, message, panel, prompt.
+
+        ``footer`` is the theme keys printed under the panel: the action prompt + key
+        legend for a real activation, or the "press a key" line for an observe frame.
 
         Renders straight from ``screen.to_json()`` (the JSON-serializable payload,
         never the engine's ``CombatState``/``Fighter`` objects) so this client
@@ -314,8 +339,9 @@ class TerminalInput:
         render_combat_grid(payload, self._stdout)
         render_combat_message(payload, self._resolver, self._stdout)
         render_fighter_panel(payload, self._resolver, self._weapon_names, self._stdout)
-        self._stdout.write(self._resolver.resolve("combat.action_prompt") + "\n")
-        self._stdout.write(self._resolver.resolve("combat.key_legend") + "\n> ")
+        for key in footer:
+            self._stdout.write(self._resolver.resolve(key) + "\n")
+        self._stdout.write("> ")
         self._stdout.flush()
 
     def _read_combat_action(self) -> Any:

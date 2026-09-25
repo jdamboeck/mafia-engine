@@ -48,6 +48,7 @@ __all__ = [
     "Confirm",
     "StartCombat",
     "CombatScreen",
+    "OBSERVE_PROMPT",
     "LoadSubState",
     # Response / control
     "Ack",
@@ -184,6 +185,10 @@ class StartCombat:
     drivers: Any = None
 
 
+#: The ``CombatScreen.prompt`` of a display-only observation frame (#45, KTD-8).
+OBSERVE_PROMPT = "observe"
+
+
 @dataclass(frozen=True)
 class CombatScreen:
     """One activation's combat screen — the client-facing fight interaction (KTD-2).
@@ -211,9 +216,15 @@ class CombatScreen:
     — :data:`CANCEL`, and EOF, which a client surfaces as ``CANCEL`` — to a
     ``surrender``. Unrecognized responses simply re-prompt.
 
-    ``prompt`` is ``"action"`` today; the field exists so a client that wants a
-    separate aim step (the original reads the direction in a second GET at ``30205``)
-    can be served without changing the interaction's type.
+    ``prompt`` is ``"action"`` for a real activation prompt; the field exists so a
+    client that wants a separate aim step (the original reads the direction in a second
+    GET at ``30205``) can be served without changing the interaction's type.
+
+    ``prompt == "observe"`` (:data:`OBSERVE_PROMPT`, #45) is a **display-only** frame:
+    the board right after a NON-human activation applied, delivered only to an input
+    source that opts in (``observes_ai = True`` — see :func:`_drive_fight`). Its
+    ``active_side``/``active_fighter`` name the fighter that just ACTED and ``message``
+    carries that activation's shot result (or ``None``). Its response is ignored.
 
     :meth:`to_json` renders the payload; :data:`SCHEMA_VERSION` versions it from day
     one, since clients bind to this shape structurally.
@@ -892,8 +903,21 @@ def _drive_fight(
     a driver reassignment, and appends one ``ActivationEvent`` per applied action. A
     non-recording caller passes ``recorder=None`` and every hook is a no-op — the existing
     ``_run_combat``/``simulate`` signatures and behaviour are unchanged.
+
+    **Observation frames (#45, KTD-8).** If ``input_source`` carries a truthy
+    ``observes_ai`` attribute, the loop hands it one display-only :class:`CombatScreen`
+    with ``prompt=`` :data:`OBSERVE_PROMPT` after EACH non-human activation applies
+    (including the one that ends the fight), AFTER the recorder has captured it. The
+    response is ignored and nothing is drawn from the RNG, so the fight, its rng log, and
+    its recording are identical with or without the opt-in. The opt-in lives on the input
+    source (read with ``getattr``) rather than as a keyword so no signature changes:
+    ``simulate``/``record_fight``'s headless ``_no_input_source`` and every wrapper
+    callable (``persistence``'s chained input, ``upkeep``/``game_end`` fallbacks, test
+    scripts) lack the attribute and therefore stay OFF — the faithful default, since the
+    original's CPU path narrates nothing between activations (``mf-prg.bas:30110``).
     """
     message: Any = None
+    observes_ai = bool(getattr(input_source, "observes_ai", False))
     while True:
         winner = fight.winner()
         if winner is not None:
@@ -961,6 +985,20 @@ def _drive_fight(
                     calc_inputs=calc,
                     draw_start=draw_start,
                     decision_draw_count=decision_draw_count,
+                )
+            # Then (#45) the opt-in observation frame — after the recorder, so the
+            # recording never sees it; display-only, response discarded, no draws.
+            if observes_ai and driver.kind != "human":
+                input_source(
+                    CombatScreen(
+                        sides=fight.sides,
+                        grid=fight.grid,
+                        active_side=acting_side,
+                        active_fighter=acting_fighter_index + 1,
+                        losses=fight.losses,
+                        prompt=OBSERVE_PROMPT,
+                        message=result or None,
+                    )
                 )
 
         if action == "surrender":
