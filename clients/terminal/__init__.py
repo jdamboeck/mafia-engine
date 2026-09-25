@@ -40,6 +40,7 @@ from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
 _DEFAULT_CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 
 __all__ = [
+    "EndOfInput",
     "TerminalInput",
     "ScreenContext",
     "render_message",
@@ -221,6 +222,17 @@ def install_sigwinch_handler() -> None:
         signal.signal(signal.SIGWINCH, _sigwinch_handler)
 
 
+class EndOfInput(Exception):
+    """stdin is exhausted (real EOF, not a blank line) at a non-combat prompt (R11).
+
+    Raised by :class:`TerminalInput` out through the driver and the handler, so the
+    in-flight handler never resolves and its result -- hence its effects -- is never
+    adopted. :func:`clients.terminal.__main__.play` catches it and ends the session
+    exactly like a quit. Lives in the clients layer: the engine never sees it as
+    anything but an exception escaping its ``input_source``.
+    """
+
+
 def render_message(resolver: Resolver, message: ShowMessage, out: TextIO) -> None:
     """Resolve and print one ``ShowMessage`` (key + params -> text)."""
     out.write(resolver.resolve(message.key, message.params) + "\n")
@@ -353,8 +365,16 @@ class TerminalInput:
         return "> "
 
     def _read_line(self) -> str:
+        """Read one line for a non-combat prompt; raise :class:`EndOfInput` at EOF.
+
+        ``readline()`` returns ``""`` only at real EOF; a blank line is ``"\\n"``. The
+        two MUST differ here: a blank line is cancel (cancellable prompt) or re-ask
+        (non-cancellable), but EOF can never be answered -- relaying it as a blank
+        line made the driver re-ask a non-cancellable prompt forever.
+        """
         line = self._stdin.readline()
-        # EOF returns "" from readline; treat as an empty line (cancel/re-prompt fodder).
+        if line == "":
+            raise EndOfInput
         return line.rstrip("\n")
 
 

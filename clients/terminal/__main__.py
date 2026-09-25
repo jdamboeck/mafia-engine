@@ -40,6 +40,7 @@ from clients.terminal import (
     CLEAR,
     DIM,
     RESET,
+    EndOfInput,
     TerminalInput,
     check_resize,
     hide_cursor,
@@ -551,6 +552,11 @@ def play(seed: int, players: list[tuple[str, str]] | None = None) -> None:
             # advance_turn just opened — before this player's free turn (or job
             # shift) is offered.
             state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
+    except EndOfInput:
+        # R11: stdin ran out at a handler prompt. The in-flight handler never
+        # returned, so its EngineResult -- and every effect it would have
+        # committed -- is never adopted; end the session exactly like a quit.
+        out.write("bye.\n")
     finally:
         show_cursor(out)
 

@@ -183,6 +183,29 @@ def run_play(
     return out.getvalue()
 
 
+class _Deadline(Exception):
+    """Raised by :func:`_run_play_with_deadline`'s SIGALRM handler."""
+
+
+def _run_play_with_deadline(monkeypatch, *, seconds: float = 20.0, **kwargs) -> str:
+    """:func:`run_play`, but a hang (e.g. an EOF re-prompt spin) FAILS instead of
+    hanging the suite. SIGALRM interrupts the main thread and unwinds ``play()``;
+    pytest-timeout is not a dependency, and a watchdog thread could not stop a
+    spinning ``play()`` that shares the monkeypatched ``sys.stdin``/``sys.stdout``."""
+    import signal
+
+    def _on_alarm(signum, frame):
+        raise _Deadline(f"play() did not return within {seconds}s (EOF spin?)")
+
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, seconds)
+    try:
+        return run_play(monkeypatch, **kwargs)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+
+
 # --------------------------------------------------------------------------- #
 # Regression: sph gamble through the real client loop (the rng=None crash)    #
 # --------------------------------------------------------------------------- #
@@ -625,38 +648,52 @@ class TestSessionRngDeterminism:
 
 
 class TestEofMidHandlerExitsCleanly:
-    """An exhausted script inside a location's prompt sequence must not hang or crash
-    ``play()`` — ``TerminalInput._read_line`` treats readline() EOF as an empty line,
-    which the driver either re-prompts against (and immediately starves again, ending
-    the call) or accepts as a quiet abort, depending on the interaction."""
+    """An exhausted script at ANY prompt must end the session cleanly (R11, #51).
 
-    def test_eof_during_sph_wager_prompt_exits_without_crash(self, monkeypatch):
+    ``TerminalInput`` distinguishes real EOF (``readline()`` returns ``""``) from a
+    blank line (``"\\n"``). A blank line keeps its meaning (cancel at a cancellable
+    prompt, re-ask at a non-cancellable one), but real EOF at a non-combat prompt
+    raises ``EndOfInput``, which ``play()`` catches and exits on (``bye.``) WITHOUT
+    adopting the in-flight handler's result -- so its effects are never committed.
+    Before this, EOF at a non-cancellable prompt (sph's wager) read as a blank line
+    forever: the driver re-asked, starved again, and spun without end.
+    """
+
+    def _sph_keys(self, *answers):
         city_raw = load_city_raw()
         city = load_city(city_raw)
         state = new_state(42)
         sph_cell = find_door_cell(city_raw, "sph")
-        walk = walk_keys_to_cell(state, city, sph_cell)
-        # Walk in, dismiss the art splash, pick a game -- then stdin RUNS OUT before
-        # the wager prompt is answered (no crash, no infinite loop).
-        keys = walk + ["", "0"]
+        return walk_keys_to_cell(state, city, sph_cell) + list(answers)
 
-        # The protection here is STRUCTURAL: run_play returning at all proves the EOF
-        # neither raised nor hung, which is the whole point of the test. The old
-        # `assert isinstance(output, str)` was dead weight (run_play always returns
-        # StringIO.getvalue()), so assert the two things the EOF path really does
-        # determine: the run terminated cleanly, and it did NOT resolve the gamble.
-        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+    def test_eof_during_sph_wager_prompt_exits_without_committing(self, monkeypatch):
+        """Walk in, ack the art splash, pick "play" (location-menu 0), pick poker
+        (game 0) -- then stdin RUNS OUT at the non-cancellable wager prompt."""
+        keys = self._sph_keys("", "0", "0")
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=keys)
         low = output.lower()
-        # "bye." is play()'s clean-exit line (a show-cursor escape follows it, so
-        # match on containment, not suffix).
+        # The run genuinely reached the wager prompt (not the map, not the game menu).
+        assert "dein einsatz" in low, "the script never reached sph's wager prompt"
+        # "bye." is play()'s clean-exit line (a show-cursor escape follows it).
         assert "bye." in low, "the client did not exit cleanly on EOF"
         assert "gewonnen" not in low and "verloren" not in low, (
             "EOF must abandon the gamble, not resolve it"
         )
-        # NOTE (#51): despite this test's name and the comment above, `keys` does not
-        # actually reach sph's wager prompt — the walk ends on the map. The EOF is
-        # therefore exercised at the map loop, not mid-handler. The assertions above
-        # are true and meaningful as written; naming/coverage fix tracked in #51.
+        # Cash untouched: the pre-entry balance shows, the seed-42 win balance never does.
+        assert "cash 5500$" in low
+        assert "cash 5550$" not in low
+
+    def test_eof_at_cancellable_game_choice_prompt_exits_cleanly(self, monkeypatch):
+        """Walk in, ack the splash, pick "play" (location-menu 0) -- then stdin runs
+        out at sph's cancellable GAME-choice prompt (before any wager)."""
+        keys = self._sph_keys("", "0")
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=keys)
+        low = output.lower()
+        assert "bye." in low, "the client did not exit cleanly on EOF"
+        assert "dein einsatz" not in low, "EOF at the game choice must not reach the wager"
+        assert "gewonnen" not in low and "verloren" not in low, (
+            "EOF must abandon the gamble, not resolve it"
+        )
 
     def test_eof_at_map_loop_quits_cleanly(self, monkeypatch):
         """No keys at all after the title dismiss: the map loop's very first

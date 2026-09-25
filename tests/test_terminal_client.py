@@ -20,6 +20,7 @@ import io
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -40,7 +41,7 @@ from engine.interactions import (  # noqa: E402
 )
 from engine.strings import Resolver  # noqa: E402
 from engine.movement import DOWN, load_city  # noqa: E402
-from clients.terminal import TerminalInput, map_repl, render_message  # noqa: E402
+from clients.terminal import EndOfInput, TerminalInput, map_repl, render_message  # noqa: E402
 from tests.helpers import with_player  # noqa: E402
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -221,6 +222,57 @@ def test_cancel_unwinds_handler_to_cancelled_status():
     result = run(handler, inp, state=None, rng=None)
     assert result.status == "cancelled"
     assert result.effects == []
+
+
+# --------------------------------------------------------------------------- #
+# EOF vs blank line (R11): a blank line is cancel/re-ask fodder; real EOF ends   #
+# the session. (EOF at a CombatScreen still surrenders -- covered by             #
+# tests/test_client_loop.py::TestInteractiveCombatThroughTerminalInput::         #
+# test_eof_mid_fight_surrenders_and_exits_cleanly.)                              #
+# --------------------------------------------------------------------------- #
+def _eof_client(stdin_text: str):
+    """A TerminalInput over EXACT stdin text (``_client`` always appends a newline,
+    so it can never produce real EOF on the first read)."""
+    out = io.StringIO()
+    return TerminalInput(resolver=_resolver(), stdin=io.StringIO(stdin_text), stdout=out), out
+
+
+def test_eof_at_non_cancellable_prompt_int_raises_end_of_input():
+    inp, _out = _eof_client("")  # readline() returns "" -> real EOF
+    with pytest.raises(EndOfInput):
+        inp(PromptInt("locations.sph.wager_prompt", min=1, max=100))
+
+
+def test_eof_at_cancellable_prompt_raises_rather_than_cancelling():
+    """EOF is not a blank line even where a blank line would cancel: it ends input."""
+    inp, _out = _eof_client("")
+    with pytest.raises(EndOfInput):
+        inp(PromptChoice("locations.sph.wager_prompt", options=("a", "b"), cancellable=True))
+
+
+def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
+    """Through the real driver: the blank line re-asks (unchanged), the EOF on the
+    re-ask escapes ``run`` as EndOfInput instead of re-asking forever -- and the
+    handler's would-be effects are never returned."""
+    inp, _out = _eof_client("\n")  # one blank line, then EOF
+
+    def handler(ctx):
+        yield PromptInt("locations.sph.wager_prompt", min=1, max=100)
+        return ["an effect that must never be committed"]
+
+    import signal
+
+    def _on_alarm(signum, frame):
+        raise AssertionError("run() re-asked past EOF instead of ending input (spin)")
+
+    previous = signal.signal(signal.SIGALRM, _on_alarm)
+    signal.setitimer(signal.ITIMER_REAL, 5.0)  # a regression fails, not hangs
+    try:
+        with pytest.raises(EndOfInput):
+            run(handler, inp, state=None, rng=None)
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 # --------------------------------------------------------------------------- #
