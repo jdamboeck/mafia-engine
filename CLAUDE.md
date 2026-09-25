@@ -35,7 +35,10 @@ commit + branch conventions, and how to pick up the next unit. Then:
    (`2026-07-12-001-…`, including U10 terminal client and U12 save/load), the
    armed-closure plan (`2026-07-18-002-…`), and the Combat Engine Foundation plan
    (`2026-07-20-003-…`, U1–U8 + U6a — engine made attribute-agnostic, scenarios,
-   per-side drivers, data-defined encounters, recording/replay, terminal debug tool).
+   per-side drivers, data-defined encounters, recording/replay, terminal debug tool),
+   and the Vertical Slice Completion plan (`2026-09-25-001-…`, U1–U12 — year-end
+   ending, setup prompts, per-round standings, save/`--load`, error guard,
+   `--watch-ai`, CI on 3.11/3.14; closed #45/#49/#51).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).
