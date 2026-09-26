@@ -25,7 +25,7 @@ from __future__ import annotations
 import signal
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TextIO
+from typing import Any, TextIO
 
 from engine.interactions import (
     CANCEL,
@@ -42,24 +42,6 @@ from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
 
 #: The game config this client plays: the default ``mafia_1920s`` config.
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
-
-if TYPE_CHECKING:
-    from clients.terminal.__main__ import TerminalSession, main, play
-
-#: Names re-exported from the entry-point module. They are imported on first use
-#: (``__getattr__`` below), not here: an eager import would load ``__main__`` as a
-#: plain submodule before ``python -m clients.terminal`` runs it as ``__main__``,
-#: which ``runpy`` warns about.
-_ENTRY_POINT_NAMES = ("play", "main", "TerminalSession")
-
-
-def __getattr__(name: str) -> Any:
-    if name in _ENTRY_POINT_NAMES:
-        from clients.terminal import __main__ as entry_point
-
-        return getattr(entry_point, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 __all__ = [
     "CONFIG_DIR",
@@ -99,10 +81,10 @@ _YES_TOKENS = {"y", "yes", "j", "ja", "1", "true"}
 # RETURN to enter the aim-then-fire sub-loop (30134), SPACE to pass (30135), and
 # `q` to surrender (30136). Those raw glyphs are awkward on a real keyboard and
 # `q` for "surrender" collides with this client's OWN pre-existing "quit" key
-# (_is_quit in __main__.py) at every OTHER screen -- so this client maps to
+# (_is_quit in session.py) at every OTHER screen -- so this client maps to
 # client-appropriate keys instead of the original's literal GET characters (a
 # client may rebind keys; it may not change what an action does). WASD mirrors the
-# map-walk keys already bound in __main__.py (_MOVE_KEYS) so the player's fingers do not have to relearn
+# map-walk keys already bound in session.py (_MOVE_KEYS) so the player's fingers do not have to relearn
 # directions between the map and the grid; F is "fire" (enter the aim step); P
 # passes (SPACE is what the source binds, but a literal space is easy to lose in
 # a piped-stdin test script, so this client spells it as a letter key instead --
@@ -263,7 +245,7 @@ class EndOfInput(Exception):
 
     Raised by :class:`TerminalInput` out through the driver and the handler, so the
     in-flight handler never resolves and its result -- hence its effects -- is never
-    adopted. :func:`clients.terminal.__main__.play` catches it and ends the session
+    adopted. :func:`clients.terminal.session.play` catches it and ends the session
     exactly like a quit. Lives in the clients layer: the engine never sees it as
     anything but an exception escaping its ``input_source``.
     """
@@ -490,3 +472,11 @@ def map_repl(
         render_result(result, sink, resolver)
         if getattr(result.payload, "turn_over", False):
             return state
+
+
+# The session and the command line are re-exported last: both modules import the
+# building blocks above from this package, so those must exist before they load.
+# Neither is ``__main__``, so ``python -m clients.terminal`` stays free of runpy's
+# "found in sys.modules" warning.
+from clients.terminal.session import TerminalSession, play  # noqa: E402
+from clients.terminal.cli import main  # noqa: E402

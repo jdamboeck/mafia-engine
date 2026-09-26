@@ -7,7 +7,7 @@ problem_type: developer_experience
 component: testing_framework
 severity: medium
 applies_when:
-  - "Writing a test that drives clients/terminal/__main__.py play() over piped/scripted stdin"
+  - "Writing a test that drives clients.terminal play() over piped/scripted stdin"
   - "A scripted-stdin terminal test 'reaches the wrong screen' or ends one key too early/late"
   - "Deciding how to make a monolithic stdin/stdout REPL testable without refactoring the loop"
   - "Adding a quit/branch decision inside play() that must be asserted from a test"
@@ -24,7 +24,7 @@ tags:
 
 ## Context
 
-`clients/terminal/__main__.py::play()` is a monolithic stdin/stdout REPL: title
+`clients/terminal/session.py::play()` (a thin wrapper over `TerminalSession`) is a stdin/stdout REPL: title
 screen → `while True:` map loop → (on door entry) location sub-loops → turn-over
 prompt → `advance_turn`. It reads `sys.stdin` directly and only reaches later
 screens after real state is walked (e.g. movement points to 0). The client is
@@ -40,9 +40,10 @@ unmerged as of this writing — the SHA may be rewritten on merge).
 ## Guidance
 
 **1. The title screen consumes one stdin line before the map loop.** `play()`
-prints the title and calls `sys.stdin.readline()` (`clients/terminal/__main__.py:355`)
+prints the title and reads one line (`TerminalSession.start_new_game`, via `_read_line_visible`)
 to wait for "press a key", *before* the `while True:` map loop
-(`clients/terminal/__main__.py:360`). A scripted stdin whose first line is the
+(`TerminalSession.map_turn`). The setup prompts that follow the title read one
+line each too, unless `end_year`/`score_weight` are passed to `play()`. A scripted stdin whose first line is the
 first movement key is therefore off by one — the title read eats it, every
 subsequent key shifts, and the walk lands on the wrong screen. **Prepend one
 blank (title-dismiss) line to every scripted stdin body:**
@@ -80,7 +81,7 @@ so a test can `monkeypatch.setattr(tmain, "advance_turn", spy)`. A name imported
 outside.
 
 **4. EOF is a quit on both stdin paths.** `_read_key()` returns `"q"` on
-piped-stdin EOF (`clients/terminal/__main__.py:79-80`), and a real-TTY read
+piped-stdin EOF (`clients/terminal/session.py::_read_key`), and a real-TTY read
 returns `""`. A shared quit predicate must accept both (`key in ("q", "")`) so an
 exhausted script terminates the loop instead of spinning — assert this with a
 script that stops *before* the screen's key so stdin runs out there.

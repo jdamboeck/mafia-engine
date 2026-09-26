@@ -2,7 +2,7 @@
 
 This is the flow that REPLACES an employed player's free turn (the job-shift seam):
 once ``pub.job`` (``handlers/pub.py``) accepts a job, the CALLER (the client's turn
-loop, ``clients/terminal/__main__.py``'s ``play()``) dispatches this generator instead
+loop, ``clients/terminal/session.py``'s ``play()``) dispatches this generator instead
 of offering the map/menu, right after upkeep runs. This module owns no dispatch
 decision itself — it is a plain registered handler, driven exactly like any location
 option via :func:`engine.interactions.run`.

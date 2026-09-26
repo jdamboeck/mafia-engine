@@ -26,7 +26,7 @@ second formula path.
 ``engine/`` because reading this game's file format, resolving its weapon ids, and
 building its ``Gangster`` roster is config knowledge the engine does not hold.
 
-Invocation (mirrors ``clients/terminal/__main__.py``'s argparse)::
+Invocation (mirrors ``clients/terminal/cli.py``'s argparse)::
 
     python -m clients.terminal.fightlab play  --scenario PATH [--seed N] [--debug]
     python -m clients.terminal.fightlab watch --recording PATH      [--debug]
@@ -51,7 +51,7 @@ from engine.scenario import Scenario
 from engine.strings import Resolver
 
 from clients.terminal import TerminalInput
-from clients.terminal.__main__ import _read_key
+from clients.terminal.session import _read_key
 from clients.terminal.renderers import (
     render_combat_grid,
     render_fighter_panel,
@@ -565,7 +565,7 @@ def watch(
 
 
 # --------------------------------------------------------------------------- #
-# argparse entry point (mirrors clients/terminal/__main__.py:main)            #
+# argparse entry point (mirrors clients/terminal/cli.py:main)                 #
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
