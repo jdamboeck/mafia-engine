@@ -25,7 +25,7 @@ from clients.terminal.palette import (
     fg,
     load_palette,
 )
-from clients.terminal import CLEAR
+from clients.terminal import CLEAR, client_text
 
 # ---------------------------------------------------------------------------
 # Layout config (terminal-specific, loaded once at import time)
@@ -157,29 +157,40 @@ def render_status_bar(
     pos: int,
     ms: int,
     out: TextIO,
+    resolver: Any = None,
 ) -> None:
     """Full-width reverse-video status bar with player name.
 
-    Format: `` alcapone │ cash 5400$ │ pos 181 │ ms 19 ``
+    The bar's text is the theme's ``client.status_bar`` template, e.g.
+    `` alcapone │ cash 5400$ │ pos 181 │ ms 19 ``.
     """
     width = _term_width()
-    bar = f" {player_name} │ cash {cash}$ │ pos {pos} │ ms {ms} "
+    bar = client_text(
+        "client.status_bar",
+        {"name": player_name, "cash": cash, "pos": pos, "ms": ms},
+        resolver,
+    )
     padded = bar.center(width)
     pal = _get_palette()
     out.write(f"{REVERSE}{bg('brown', pal)}{fg('light_grey', pal)}{padded}{RESET_ALL}\n")
 
 
-def render_status_bar_from_state(state: Any, out: TextIO) -> None:
+def render_status_bar_from_state(state: Any, out: TextIO, resolver: Any = None) -> None:
     """Convenience wrapper: extract player info from GameState and render."""
     if state is None or not state.players:
         return
     p = state.players[state.clock.active_player]
+    if hasattr(p, "name"):
+        name = p.name
+    else:
+        name = client_text("client.unnamed_player", resolver=resolver)
     render_status_bar(
-        player_name=getattr(p, "name", "player"),
+        player_name=name,
         cash=p.ka,
         pos=p.po,
         ms=p.ms,
         out=out,
+        resolver=resolver,
     )
 
 
@@ -385,5 +396,9 @@ def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:
     out.write(resolver.resolve("combat.losses_heading") + "\n")
     for i, count in enumerate(losses, start=1):
         out.write(
-            resolver.resolve("combat.losses_line", {"name": f"side {i}", "count": count}) + "\n"
+            resolver.resolve(
+                "combat.losses_line",
+                {"name": client_text("client.side_name", {"index": i}, resolver), "count": count},
+            )
+            + "\n"
         )

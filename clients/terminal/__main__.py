@@ -52,6 +52,7 @@ from clients.terminal import (
     EndOfInput,
     TerminalInput,
     check_resize,
+    client_text,
     hide_cursor,
     install_sigwinch_handler,
     render_result,
@@ -71,9 +72,6 @@ from clients.terminal.renderers import (
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
-#: The map screen's default hint line.
-_MAP_NOTE = "move: W/A/S/D into a door to enter. P saves, Q quits."
-
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
 
 #: The map screen's save key (KTD-7) and the save target when neither ``--save`` nor
@@ -96,39 +94,46 @@ class LoadError(Exception):
     """
 
 
-def _load_reason(exc: BaseException) -> str:
+def _load_reason(exc: BaseException, resolver: Resolver) -> str:
     """Plain words for why a save could not be loaded (client diagnostics, not game text)."""
+
+    def reason(name: str, **params) -> str:
+        return resolver.resolve(f"client.load.reason.{name}", params)
+
     if isinstance(exc, FileNotFoundError):
-        return "file not found"
+        return reason("not_found")
     if isinstance(exc, IsADirectoryError):
-        return "is a directory, not a save file"
+        return reason("is_directory")
     if isinstance(exc, OSError):
         return exc.strerror or str(exc)
     if isinstance(exc, json.JSONDecodeError):
-        return f"not valid JSON ({exc.msg})"
+        return reason("not_json", detail=exc.msg)
     if isinstance(exc, UnicodeDecodeError):
-        return "not a text file"
+        return reason("not_text")
     if isinstance(exc, SchemaVersionError):
-        return f"unsupported save version ({exc})"
+        return reason("bad_version", detail=exc)
     if isinstance(exc, KeyError):
-        return f"save is missing the field {exc}"
-    return f"corrupt save ({type(exc).__name__}: {exc})"
+        return reason("missing_field", detail=exc)
+    return reason("corrupt", error_type=type(exc).__name__, detail=exc)
 
 
-def _load_session(path: str | Path) -> tuple[int, GameState, Rng]:
+def _load_session(path: str | Path, resolver: Resolver) -> tuple[int, GameState, Rng]:
     """Resume a save: its seed, its state and the session RNG rebuilt mid-stream (KTD-5).
 
     The snapshot is authoritative (the effect log is saved empty), and the session RNG
     resumes mid-stream: re-issuing every logged draw leaves it exactly where
     uninterrupted play would be. A draw log that does not match the save's seed makes
     :meth:`Rng.replayed` raise ``ValueError`` -- a load failure like any other.
-    Every failure becomes :class:`LoadError` ``"cannot load <path>: <reason>"``.
+    Every failure becomes :class:`LoadError` with the theme's ``client.load.error`` line.
     """
     try:
         loaded = load_game(path)
         return loaded.seed, replay(loaded), Rng.replayed(loaded.seed, loaded.rng_log)
     except Exception as exc:
-        raise LoadError(f"cannot load {path}: {_load_reason(exc)}") from exc
+        message = resolver.resolve(
+            "client.load.error", {"path": path, "reason": _load_reason(exc, resolver)}
+        )
+        raise LoadError(message) from exc
 
 
 def _read_line_visible(stdin, out) -> str:
@@ -262,7 +267,7 @@ def _door_location_map(city_raw: dict) -> dict[int, str]:
     return out
 
 
-def render_map(city, city_raw: dict, state, out) -> None:
+def render_map(city, city_raw: dict, state, out, resolver: Resolver | None = None) -> None:
     """Draw the 40x25 city with per-cell colors from the C64 color RAM.
 
     Uses ``city.color(cell)`` for each cell's foreground color, giving the full
@@ -332,13 +337,13 @@ def render_map(city, city_raw: dict, state, out) -> None:
     out.write(f"{bg}{fg(border_color, _PAL)}╚{border_h}╝{RESET_FG}{RESET_BG}\n")
 
     # Legend
-    legend_parts = [f"{player_char} you"]
+    legend_parts = [client_text("client.map.legend_you", {"player": player_char}, resolver)]
     for loc_key, lchar, lcolor in sorted({v for v in door_info.values()}, key=lambda x: x[0]):
         legend_parts.append(f"{fg(lcolor, _PAL)}{lchar}{RESET} {loc_key}")
     out.write("   ".join(legend_parts) + "\n")
 
     # Status bar at bottom
-    render_status_bar_from_state(state, out)
+    render_status_bar_from_state(state, out, resolver=resolver)
 
 
 def _run_location(
@@ -368,21 +373,21 @@ def _run_location(
     if not _shell_exists(location_key):
         # No state change, and no move spent beyond try_move's door-step charge.
         render_screen_clear(out)
-        out.write(f"({location_key} is closed for renovations.)\n\n")
+        out.write(resolver.resolve("client.location.closed", {"location": location_key}) + "\n\n")
         out.flush()
         return state
 
     shell = _load_shell(location_key)
     options = available_options(shell, state, ln)
     if not options:
-        out.write("(nothing to do here)\n")
+        out.write(resolver.resolve("client.location.nothing_to_do") + "\n")
         return state
 
     # Entry prompt sets the scene
     try:
         entry_text = resolver.resolve(f"locations.{location_key}.entry_prompt")
     except Exception:
-        entry_text = f"-- {location_key} --"
+        entry_text = resolver.resolve("client.location.entry_fallback", {"location": location_key})
 
     # --- render location screen ---
     render_screen_clear(out)
@@ -391,7 +396,7 @@ def _run_location(
     if art is not None:
         for line in art:
             out.write(f"{RESET}\n" if not line.strip() else f"{line}\n")
-        out.write("\n  ENTER druecken...\n")
+        out.write(f"\n  {resolver.resolve('client.location.press_enter')}\n")
         out.flush()
         _read_line_visible(stdin, out)
         render_screen_clear(out)
@@ -416,7 +421,7 @@ def _run_location(
         return state
 
     result = run_option(shell, chosen.id, state, ln=ln, input_source=inp, rng=rng)
-    render_result(result, out)
+    render_result(result, out, resolver=resolver)
     return result.state  # adopt (run_option is pure)
 
 
@@ -450,7 +455,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
     active = new_state.players[new_state.clock.active_player]
 
     render_screen_clear(out)
-    render_header("upkeep", out)
+    render_header(resolver.resolve("client.header.upkeep"), out)
     render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out)
 
     promoted = next((e for e in result.effects if isinstance(e, RankCommit)), None)
@@ -471,8 +476,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
             out,
         )
 
-    out.write(f"\n{DIM}press any key...{RESET}\n")
-    out.flush()
+    _write_press_any_key(resolver, out)
     _read_line_visible(stdin, out)
     return new_state
 
@@ -491,7 +495,7 @@ def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rn
     any other in-slice fight.
     """
     render_screen_clear(out)
-    render_header("job", out)
+    render_header(resolver.resolve("client.header.job"), out)
     result = run_handler(HANDLERS["job.shift"], inp, state=state, rng=rng)
     return result.state  # adopt (run is pure)
 
@@ -523,9 +527,14 @@ def _run_game_end_screen(runner, header: str, state, resolver: Resolver, out, rn
     render_screen_clear(out)
     render_header(header, out)
     render_body("\n".join(resolver.resolve(m.key, m.params) for m in messages), out)
-    out.write(f"\n{DIM}press any key...{RESET}\n")
-    out.flush()
+    _write_press_any_key(resolver, out)
     return not _is_quit(_read_key())
+
+
+def _write_press_any_key(resolver: Resolver, out) -> None:
+    """Write the dimmed "press any key" line that ends an acknowledge-only screen."""
+    out.write(f"\n{DIM}{resolver.resolve('client.press_any_key')}{RESET}\n")
+    out.flush()
 
 
 def _in_range(value: float, bounds: dict) -> bool:
@@ -620,7 +629,7 @@ class TerminalSession:
         )
         if load is not None:
             # raises LoadError (KTD-9); main() reports it
-            self.seed, self.state, self.rng = _load_session(load)
+            self.seed, self.state, self.rng = _load_session(load, self.resolver)
         else:
             self.seed = seed if seed is not None else _DEFAULT_SEED
             # the one session RNG (KTD-8) — threaded into every run_option call
@@ -628,7 +637,11 @@ class TerminalSession:
         self.save_path = Path(
             save if save is not None else load if load is not None else _DEFAULT_SAVE
         )
-        self.note = _MAP_NOTE
+        self.note = self.text("client.map.hint")
+
+    def text(self, key: str, params: dict | None = None) -> str:
+        """Resolve a theme key through this session's resolver."""
+        return self.resolver.resolve(key, params)
 
     def run(self) -> tuple:
         """Run the session to its end; return the final ``(state, rng)``."""
@@ -644,7 +657,7 @@ class TerminalSession:
             # R11: stdin ran out at a handler prompt. The in-flight handler never
             # returned, so its EngineResult -- and every effect it would have
             # committed -- is never adopted; end the session exactly like a quit.
-            out.write("bye.\n")
+            out.write(self.text("client.bye") + "\n")
         finally:
             show_cursor(out)
         return self.state, self.rng
@@ -732,15 +745,15 @@ class TerminalSession:
         out = self.out
         while True:
             out.write(CLEAR)
-            render_map(self.city, self.city_raw, self.state, out)
+            render_map(self.city, self.city_raw, self.state, out, resolver=self.resolver)
             out.write(f"{DIM}{self.note}{RESET}\n")
             out.flush()
             key = _read_key()
             if check_resize():
-                self.note = " resized"
+                self.note = self.text("client.map.resized")
                 continue
             if _is_quit(key):
-                out.write("bye.\n")
+                out.write(self.text("client.bye") + "\n")
                 return False
 
             if key == _SAVE_KEY:
@@ -749,17 +762,17 @@ class TerminalSession:
 
             delta = _MOVE_KEYS.get(key)
             if delta is None:
-                self.note = "(use W/A/S/D, P or Q)"
+                self.note = self.text("client.map.bad_key")
                 continue
 
             result = try_move(self.state, self.city, delta)
             self.state = result.state
             payload = result.payload
             kind = getattr(payload, "kind", None)
-            self.note = {
-                "wall": "(a wall)",
-                "oob": "(edge of the city)",
-            }.get(kind or "", _MAP_NOTE)
+            note_key = {"wall": "client.map.wall", "oob": "client.map.edge"}.get(
+                kind or "", "client.map.hint"
+            )
+            self.note = self.text(note_key)
             if kind == "enter":
                 key_for_la = self.la_to_key.get(payload.la)
                 if key_for_la is not None:
@@ -791,19 +804,23 @@ class TerminalSession:
         out = self.out
         p = self.state.players[self.state.clock.active_player]
         render_screen_clear(out)
-        render_header("turn_over", out)
+        render_header(self.text("client.header.turn_over"), out)
         render_body(
-            f"cash: {p.ka}$\n"
-            f"position: {p.po}\n"
-            f"movement: {p.ms}\n"
-            f"rank: {p.rank}\n"
-            f"jail: {p.wanted.jail_months} months",
+            self.text(
+                "client.turn_over.summary",
+                {
+                    "cash": p.ka,
+                    "position": p.po,
+                    "movement": p.ms,
+                    "rank": p.rank,
+                    "jail_months": p.wanted.jail_months,
+                },
+            ),
             out,
         )
-        out.write(f"\n{DIM}press any key...{RESET}\n")
-        out.flush()
+        _write_press_any_key(self.resolver, out)
         if _is_quit(_read_key()):
-            out.write("bye.\n")
+            out.write(self.text("client.bye") + "\n")
             return False
         return True
 
@@ -830,9 +847,14 @@ class TerminalSession:
     def round_end(self, played) -> bool:
         """Show the standings for ``played``, the round just finished; ``False`` on a quit."""
         if not _run_game_end_screen(
-            run_standings, "standings", played, self.resolver, self.out, self.rng
+            run_standings,
+            self.text("client.header.standings"),
+            played,
+            self.resolver,
+            self.out,
+            self.rng,
         ):
-            self.out.write("bye.\n")
+            self.out.write(self.text("client.bye") + "\n")
             return False
         return True
 
@@ -841,7 +863,12 @@ class TerminalSession:
         # :40100 — the year-end result (standings again, then winner/tie) on the
         # POST-advance state; the game ends here, so no upkeep and no new turn.
         _run_game_end_screen(
-            run_year_end, "game_over", self.state, self.resolver, self.out, self.rng
+            run_year_end,
+            self.text("client.header.game_over"),
+            self.state,
+            self.resolver,
+            self.out,
+            self.rng,
         )
 
 
@@ -903,51 +930,58 @@ def play(
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="clients.terminal", description="Play the mafia slice.")
+    # Every line main() prints comes from the theme, so it is loaded first. Without
+    # it there are no words to phrase the failure in: the error's own text is shown.
+    try:
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        _die(str(exc))
+
+    def text(key: str, **params) -> str:
+        return resolver.resolve(f"client.cli.{key}", params)
+
+    parser = argparse.ArgumentParser(prog="clients.terminal", description=text("description"))
     parser.add_argument(
         "--seed",
         type=int,
         default=None,
-        help=f"RNG seed for a new game (default {_DEFAULT_SEED}).",
+        help=text("help_seed", seed=_DEFAULT_SEED),
     )
     parser.add_argument(
         "--player",
         dest="players",
         action="append",
         metavar="NAME:GANG",
-        help=(
-            "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, "
-            "turn order = order given). Default: a single 'alcapone:the outfit'."
-        ),
+        help=text("help_player"),
     )
     parser.add_argument(
         "--end-year",
         type=int,
         default=None,
-        help="The year the game ends (asked at setup when omitted).",
+        help=text("help_end_year"),
     )
     parser.add_argument(
         "--score-weight",
         type=float,
         default=None,
-        help="Score weight, e.g. 0.5 (asked at setup when omitted).",
+        help=text("help_score_weight"),
     )
     parser.add_argument(
         "--load",
         metavar="PATH",
         default=None,
-        help="Resume a saved game (its seed and setup come from the save).",
+        help=text("help_load"),
     )
     parser.add_argument(
         "--save",
         metavar="PATH",
         default=None,
-        help=f"Where P saves (default: the --load file, else ./{_DEFAULT_SAVE}).",
+        help=text("help_save", save=_DEFAULT_SAVE),
     )
     parser.add_argument(
         "--watch-ai",
         action="store_true",
-        help="In fights, show the board after each computer move and wait for a key.",
+        help=text("help_watch_ai"),
     )
     args = parser.parse_args(argv)
     if args.load is not None:
@@ -964,9 +998,7 @@ def main(argv: list[str] | None = None) -> None:
             if value is not None
         ]
         if clashing:
-            parser.error(
-                f"--load resumes a saved game; it cannot be combined with {', '.join(clashing)}"
-            )
+            parser.error(text("load_clash", flags=", ".join(clashing)))
     # Same bounds as the setup prompts: input_ranges in config.yaml, never hardcoded.
     # A broken config dir (missing, malformed YAML, failed validation) is a known
     # failure: one line, not a traceback (KTD-9). Only config.yaml is read here;
@@ -974,13 +1006,15 @@ def main(argv: list[str] | None = None) -> None:
     try:
         ranges = load_config(_CONFIG_DIR / "config.yaml")["input_ranges"]
     except (OSError, yaml.YAMLError, ValueError, KeyError) as exc:
-        _die(f"cannot load game config {_CONFIG_DIR}: {exc}")
+        _die(text("config_error", config_dir=_CONFIG_DIR, error=exc))
     for flag, value, bounds in (
         ("--end-year", args.end_year, ranges["end_year"]),
         ("--score-weight", args.score_weight, ranges["score_weight"]),
     ):
         if value is not None and not _in_range(value, bounds):
-            parser.error(f"{flag} must be in [{bounds['min']}, {bounds['max']}], got {value}")
+            parser.error(
+                text("out_of_range", flag=flag, min=bounds["min"], max=bounds["max"], value=value)
+            )
     players = None
     if args.players:
         players = []

@@ -54,6 +54,8 @@ __all__ = [
     "CURSOR_SHOW",
     "hide_cursor",
     "show_cursor",
+    "client_text",
+    "default_resolver",
 ]
 
 # --- ANSI (cursor/screen control — color constants live in palette.py) ------ #
@@ -221,6 +223,30 @@ def install_sigwinch_handler() -> None:
     """Install the SIGWINCH handler (no-op if signal.SIGWINCH is unavailable)."""
     if hasattr(signal, "SIGWINCH"):
         signal.signal(signal.SIGWINCH, _sigwinch_handler)
+
+
+_DEFAULT_RESOLVER: Resolver | None = None
+
+
+def default_resolver() -> Resolver:
+    """The default config's ``classic`` theme resolver, loaded once on first use."""
+    global _DEFAULT_RESOLVER
+    if _DEFAULT_RESOLVER is None:
+        _DEFAULT_RESOLVER = Resolver.from_config(_DEFAULT_CONFIG_DIR, theme="classic")
+    return _DEFAULT_RESOLVER
+
+
+def client_text(key: str, params: dict | None = None, resolver: Any = None) -> str:
+    """Resolve one of the client's own ``client.*`` theme keys to display text.
+
+    ``resolver`` is the session's resolver. When it is ``None``, or its theme has no
+    ``client`` section at all (a stand-in resolver that only carries game strings),
+    the default config's ``classic`` theme supplies the text instead.
+    """
+    tree = getattr(resolver, "tree", None)
+    if resolver is None or not (isinstance(tree, dict) and "client" in tree):
+        resolver = default_resolver()
+    return resolver.resolve(key, params)
 
 
 class EndOfInput(Exception):
@@ -411,7 +437,7 @@ class TerminalInput:
         return line.rstrip("\n")
 
 
-def render_result(result: Any, out: TextIO) -> None:
+def render_result(result: Any, out: TextIO, resolver: Any = None) -> None:
     """Between actions, render a status bar off ``result.state``.
 
     Display-only. ``result`` is an :class:`engine.actions.EngineResult`; a ``cancelled``
@@ -421,7 +447,7 @@ def render_result(result: Any, out: TextIO) -> None:
         return
     from clients.terminal.renderers import render_status_bar_from_state
 
-    render_status_bar_from_state(result.state, out)
+    render_status_bar_from_state(result.state, out, resolver=resolver)
 
 
 def map_repl(

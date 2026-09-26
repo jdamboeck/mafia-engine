@@ -697,3 +697,105 @@ class TestWatchAi:
             with pytest.raises(_Stop):
                 tmain.play(seed=1, end_year=1950, score_weight=1.0, watch_ai=flag)
         assert seen == [True, False]
+
+
+# --------------------------------------------------------------------------- #
+# Client text lives in the theme (client.yaml), not in the client's code.     #
+# --------------------------------------------------------------------------- #
+class TestClientTextComesFromTheTheme:
+    _CLIENT_YAML = _CONFIG_DIR / "themes" / "classic" / "strings" / "client.yaml"
+
+    @staticmethod
+    def _leaf_keys(tree: dict, prefix: str) -> list[str]:
+        keys = []
+        for name, value in tree.items():
+            key = f"{prefix}.{name}"
+            keys.extend(
+                TestClientTextComesFromTheTheme._leaf_keys(value, key)
+                if isinstance(value, dict)
+                else [key]
+            )
+        return keys
+
+    @staticmethod
+    def _overridden(monkeypatch, override: dict):
+        """Make every ``Resolver.from_config`` in the client return ``override`` merged
+        over the classic theme -- a runtime theme swap, as the modding model allows."""
+        import clients.terminal.__main__ as tmain
+
+        real = Resolver.from_config(_CONFIG_DIR, theme="classic")
+
+        class _Themed:
+            @staticmethod
+            def from_config(*_a, **_k):
+                return real.with_override({"client": override})
+
+        monkeypatch.setattr(tmain, "Resolver", _Themed)
+        return tmain
+
+    def test_every_client_key_resolves(self):
+        import string
+
+        resolver = _resolver()
+        keys = self._leaf_keys(_yaml_load(self._CLIENT_YAML)["client"], "client")
+        assert "client.bye" in keys and "client.turn_over.summary" in keys
+        for key in keys:
+            template = resolver.tree
+            for segment in key.split("."):
+                template = template[segment]
+            params = {f: "x" for _, f, _, _ in string.Formatter().parse(template) if f}
+            assert resolver.resolve(key, params).strip(), key
+
+    def test_overriding_the_bye_line_changes_what_a_quit_prints(self, monkeypatch):
+        tmain = self._overridden(monkeypatch, {"bye": "ciao.", "map": {"hint": "walk on."}})
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\n\nq\n"))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(20, "play() did not return", exc_type=AssertionError):
+            tmain.play(seed=42, end_year=1930, score_weight=1.0)
+        text = out.getvalue()
+        assert "ciao." in text and "bye." not in text
+        assert "walk on." in text and "move: W/A/S/D" not in text
+
+    def test_overriding_a_turn_over_label_changes_the_summary(self, monkeypatch):
+        from engine.config_loader import load_game_config
+
+        summary = "geld: {cash}$ | {position} {movement} {rank} {jail_months}"
+        tmain = self._overridden(monkeypatch, {"turn_over": {"summary": summary}})
+        session_out = io.StringIO()
+        monkeypatch.setattr(sys, "stdout", session_out)
+        monkeypatch.setattr(sys, "stdin", io.StringIO("q\n"))
+        session = tmain.TerminalSession(
+            seed=42,
+            players=None,
+            end_year=1930,
+            score_weight=1.0,
+            load=None,
+            save=None,
+            watch_ai=False,
+        )
+        session.state = load_game_config(_CONFIG_DIR).module.new_game(
+            seed=42, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+        )
+        assert session.turn_over() is False  # "q" quits
+        text = session_out.getvalue()
+        cash = session.state.players[0].ka
+        assert f"geld: {cash}$" in text and "cash:" not in text
+
+    def test_overriding_the_load_error_changes_the_stderr_line(self, monkeypatch, capsys):
+        tmain = self._overridden(
+            monkeypatch,
+            {"load": {"error": "kaputt {path} -- {reason}", "reason": {"not_found": "weg"}}},
+        )
+        with pytest.raises(SystemExit):
+            tmain.main(["--load", "/nonexistent.jsonl"])
+        err = capsys.readouterr().err
+        assert err.strip() == "kaputt /nonexistent.jsonl -- weg"
+
+    def test_the_status_bar_reads_the_session_resolver(self):
+        from clients.terminal.renderers import render_status_bar
+
+        override = _resolver().with_override({"client": {"status_bar": "[{name}/{cash}]"}})
+        buf = io.StringIO()
+        render_status_bar("alcapone", 5400, 181, 19, buf, resolver=override)
+        assert "[alcapone/5400]" in buf.getvalue() and "cash" not in buf.getvalue()
