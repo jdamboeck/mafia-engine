@@ -568,6 +568,283 @@ def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out,
             return value
 
 
+class TerminalSession:
+    """One terminal play session: what :func:`play` builds, and one method per phase.
+
+    Collaborators (``advance_turn``, ``run_upkeep``, ``render_map``, ``save_game``,
+    ``TerminalInput``, the ``_run_*`` screens) are looked up as module globals at call
+    time, and ``sys.stdin``/``sys.stdout`` when the session is built, so tests can
+    patch them on this module.
+    """
+
+    def __init__(
+        self,
+        *,
+        seed: int | None,
+        players: list[tuple[str, str]] | None,
+        end_year: int | None,
+        score_weight: float | None,
+        load: str | Path | None,
+        save: str | Path | None,
+        watch_ai: bool,
+    ) -> None:
+        self.out = sys.stdout
+        self.state = None
+        self.players = players
+        self.end_year = end_year
+        self.score_weight = score_weight
+        self.loaded = load is not None
+        self.resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        self.cfg = load_game_config(_CONFIG_DIR)
+
+        self.city_raw = yaml.safe_load(
+            (_CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
+        )
+        self.city = load_city(self.city_raw)
+        self.la_to_key = _door_location_map(self.city_raw)
+
+        cfg = self.cfg
+        self.vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        self.weapon_names = [
+            w["name"]
+            for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
+        ]
+
+        self.ranges = cfg.config["input_ranges"]
+        self.inp = TerminalInput(
+            resolver=self.resolver,
+            stdin=sys.stdin,
+            stdout=self.out,
+            weapon_names=self.weapon_names,
+            observe_ai=watch_ai,
+        )
+        if load is not None:
+            # raises LoadError (KTD-9); main() reports it
+            self.seed, self.state, self.rng = _load_session(load)
+        else:
+            self.seed = seed if seed is not None else _DEFAULT_SEED
+            # the one session RNG (KTD-8) — threaded into every run_option call
+            self.rng = Rng(self.seed)
+        self.save_path = Path(
+            save if save is not None else load if load is not None else _DEFAULT_SAVE
+        )
+        self.note = _MAP_NOTE
+
+    def run(self) -> tuple:
+        """Run the session to its end; return the final ``(state, rng)``."""
+        out = self.out
+        hide_cursor(out)
+        try:
+            install_sigwinch_handler()
+            if self.loaded:
+                self.resume_loaded_game()
+            else:
+                self.start_new_game()
+        except EndOfInput:
+            # R11: stdin ran out at a handler prompt. The in-flight handler never
+            # returned, so its EngineResult -- and every effect it would have
+            # committed -- is never adopted; end the session exactly like a quit.
+            out.write("bye.\n")
+        finally:
+            show_cursor(out)
+        return self.state, self.rng
+
+    def start_new_game(self) -> None:
+        """Title screen, setup prompts, the new game and its first upkeep, then the turns."""
+        out, resolver = self.out, self.resolver
+        # Title screen
+        out.write(CLEAR)
+        out.write(title_screen())
+        out.flush()
+        _read_line_visible(sys.stdin, out)
+
+        # Setup (mf-prg.bas:170-176): ask only for what the caller did not supply.
+        end_year, score_weight = self.end_year, self.score_weight
+        if end_year is None:
+            end_year = _prompt_setup_value(
+                "setup.end_year_prompt",
+                self.ranges["end_year"],
+                integer=True,
+                resolver=resolver,
+                out=out,
+                stdin=sys.stdin,
+            )
+        if score_weight is None:
+            score_weight = _prompt_setup_value(
+                "setup.score_weight_prompt",
+                self.ranges["score_weight"],
+                integer=False,
+                resolver=resolver,
+                out=out,
+                stdin=sys.stdin,
+            )
+        # new_game validates both against input_ranges and stores the weight as
+        # Config.score_mult -- nothing here sets the config directly.
+        self.state = self.cfg.module.new_game(
+            seed=self.seed,
+            end_year=end_year,
+            score_weight=score_weight,
+            players=self.players or [("alcapone", "the outfit")],
+        )
+
+        # KTD-3: the engine owns the coupling — upkeep runs at EVERY turn start,
+        # including the very first (before the map loop's first render), so no path
+        # through this client can reach a free turn without it. Later turns run it
+        # right after advance_turn rotates (in next_turn), at the exact same seam.
+        self.state = _run_upkeep_screen(self.state, resolver, out, self.rng, inp=self.inp)
+        self.run_turns(resuming_free_turn=False)
+
+    def resume_loaded_game(self) -> None:
+        """Enter the turns of a loaded game: no title, no setup, no upkeep."""
+        # A loaded game skips all of that (KTD-6): it was set up, and this turn's
+        # upkeep already ran, before the save.
+        # A save is only ever taken on the map during a free turn -- including the rest
+        # of the turn in which a job was just accepted (ms=0, job already set). So the
+        # first iteration after a load resumes that free turn; the shift belongs to the
+        # NEXT turn start, exactly as in uninterrupted play.
+        self.run_turns(resuming_free_turn=True)
+
+    def run_turns(self, *, resuming_free_turn: bool) -> None:
+        """The turn loop: a job shift or a map turn, then turn-over, until the session ends."""
+        while True:
+            # U10 job-shift seam: an EMPLOYED player never reaches the map/menu this
+            # turn -- the shift flow replaces the free turn entirely (mirrors the
+            # source's :1012 dispatch). Checked fresh every turn start, right after
+            # upkeep (in start_new_game on the first turn, in next_turn on later ones).
+            active = self.state.players[self.state.clock.active_player]
+            if active.jobs.type and not resuming_free_turn:
+                self.job_shift()
+            else:
+                resuming_free_turn = False
+                if not self.map_turn():
+                    return
+            if not self.turn_over():
+                return
+            if not self.next_turn():
+                return
+
+    def job_shift(self) -> None:
+        """Run the employed active player's job shift in place of the free turn."""
+        self.state = _run_job_shift_screen(self.state, self.resolver, self.inp, self.out, self.rng)
+
+    def map_turn(self) -> bool:
+        """Play the free turn on the map until ``ms`` runs out; ``False`` on a quit."""
+        out = self.out
+        while True:
+            out.write(CLEAR)
+            render_map(self.city, self.city_raw, self.state, out)
+            out.write(f"{DIM}{self.note}{RESET}\n")
+            out.flush()
+            key = _read_key()
+            if check_resize():
+                self.note = " resized"
+                continue
+            if _is_quit(key):
+                out.write("bye.\n")
+                return False
+
+            if key == _SAVE_KEY:
+                self.save()
+                continue
+
+            delta = _MOVE_KEYS.get(key)
+            if delta is None:
+                self.note = "(use W/A/S/D, P or Q)"
+                continue
+
+            result = try_move(self.state, self.city, delta)
+            self.state = result.state
+            payload = result.payload
+            kind = getattr(payload, "kind", None)
+            self.note = {
+                "wall": "(a wall)",
+                "oob": "(edge of the city)",
+            }.get(kind or "", _MAP_NOTE)
+            if kind == "enter":
+                key_for_la = self.la_to_key.get(payload.la)
+                if key_for_la is not None:
+                    self.state = _run_location(
+                        key_for_la, payload.ln, self.state, self.resolver, self.inp, out, self.rng
+                    )
+            if getattr(payload, "turn_over", False):
+                return True
+
+    def save(self) -> None:
+        """Save the game from the map (``p``) and set the map note to the outcome."""
+        # KTD-7: a map-turn save -- the snapshot is authoritative, so
+        # the effect log is empty; the RNG log lets a load resume the
+        # stream mid-way (KTD-5). Overwrites without asking.
+        # A failed save (missing directory, full disk, no permission)
+        # must never end the game: say so and keep playing.
+        try:
+            save_game(
+                self.save_path, self.state, effect_log=[], rng_log=self.rng.log, seed=self.seed
+            )
+        except OSError as exc:
+            reason = exc.strerror or str(exc)
+            self.note = self.resolver.resolve("session.save_failed", {"reason": reason})
+        else:
+            self.note = self.resolver.resolve("session.saved", {"path": self.save_path})
+
+    def turn_over(self) -> bool:
+        """Show the turn-over summary and wait for a key; ``False`` on a quit."""
+        out = self.out
+        p = self.state.players[self.state.clock.active_player]
+        render_screen_clear(out)
+        render_header("turn_over", out)
+        render_body(
+            f"cash: {p.ka}$\n"
+            f"position: {p.po}\n"
+            f"movement: {p.ms}\n"
+            f"rank: {p.rank}\n"
+            f"jail: {p.wanted.jail_months} months",
+            out,
+        )
+        out.write(f"\n{DIM}press any key...{RESET}\n")
+        out.flush()
+        if _is_quit(_read_key()):
+            out.write("bye.\n")
+            return False
+        return True
+
+    def next_turn(self) -> bool:
+        """Advance to the next turn (standings, ending, upkeep); ``False`` ends the session."""
+        played = self.state  # the round just finished, for the standings (KTD-2)
+        # advance_turn is pure — the rotated/replenished state must be adopted.
+        self.state, game_over = advance_turn(self.state, self.vehicles)
+        # :1010 — on a round wrap (back to player 0) gosub4500 shows the standings
+        # BEFORE ja=ja+1/12, so they get the pre-advance state: the date shown is
+        # the round just played.
+        if self.state.clock.active_player == 0:
+            if not self.round_end(played):
+                return False
+        if game_over:
+            self.ending()
+            return False
+        # KTD-3: upkeep for the NEW active player, right at the turn-start seam
+        # advance_turn just opened — before this player's free turn (or job
+        # shift) is offered.
+        self.state = _run_upkeep_screen(self.state, self.resolver, self.out, self.rng, inp=self.inp)
+        return True
+
+    def round_end(self, played) -> bool:
+        """Show the standings for ``played``, the round just finished; ``False`` on a quit."""
+        if not _run_game_end_screen(
+            run_standings, "standings", played, self.resolver, self.out, self.rng
+        ):
+            self.out.write("bye.\n")
+            return False
+        return True
+
+    def ending(self) -> None:
+        """Show the year-end result; the game ends here."""
+        # :40100 — the year-end result (standings again, then winner/tie) on the
+        # POST-advance state; the game ends here, so no upkeep and no new turn.
+        _run_game_end_screen(
+            run_year_end, "game_over", self.state, self.resolver, self.out, self.rng
+        )
+
+
 def play(
     seed: int | None = None,
     players: list[tuple[str, str]] | None = None,
@@ -613,193 +890,16 @@ def play(
     (KTD-12). ``state`` is ``None`` only if the session ends before setup finished.
     :func:`main` ignores it; tests compare it.
     """
-    out = sys.stdout
-    state = None
-    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
-    cfg = load_game_config(_CONFIG_DIR)
-
-    city_raw = yaml.safe_load(
-        (_CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
+    session = TerminalSession(
+        seed=seed,
+        players=players,
+        end_year=end_year,
+        score_weight=score_weight,
+        load=load,
+        save=save,
+        watch_ai=watch_ai,
     )
-    city = load_city(city_raw)
-    la_to_key = _door_location_map(city_raw)
-
-    vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
-    weapon_names = [
-        w["name"] for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
-    ]
-
-    ranges = cfg.config["input_ranges"]
-    inp = TerminalInput(
-        resolver=resolver,
-        stdin=sys.stdin,
-        stdout=out,
-        weapon_names=weapon_names,
-        observe_ai=watch_ai,
-    )
-    if load is not None:
-        seed, state, rng = _load_session(load)  # raises LoadError (KTD-9); main() reports it
-    else:
-        if seed is None:
-            seed = _DEFAULT_SEED
-        rng = Rng(seed)  # the one session RNG (KTD-8) — threaded into every run_option call
-    save_path = Path(save if save is not None else load if load is not None else _DEFAULT_SAVE)
-
-    hide_cursor(out)
-    try:
-        install_sigwinch_handler()
-        # A loaded game skips all of this (KTD-6): it was set up, and this turn's
-        # upkeep already ran, before the save.
-        if load is None:
-            # Title screen
-            out.write(CLEAR)
-            out.write(title_screen())
-            out.flush()
-            _read_line_visible(sys.stdin, out)
-
-            # Setup (mf-prg.bas:170-176): ask only for what the caller did not supply.
-            if end_year is None:
-                end_year = _prompt_setup_value(
-                    "setup.end_year_prompt",
-                    ranges["end_year"],
-                    integer=True,
-                    resolver=resolver,
-                    out=out,
-                    stdin=sys.stdin,
-                )
-            if score_weight is None:
-                score_weight = _prompt_setup_value(
-                    "setup.score_weight_prompt",
-                    ranges["score_weight"],
-                    integer=False,
-                    resolver=resolver,
-                    out=out,
-                    stdin=sys.stdin,
-                )
-            # new_game validates both against input_ranges and stores the weight as
-            # Config.score_mult -- nothing here sets the config directly.
-            state = cfg.module.new_game(
-                seed=seed,
-                end_year=end_year,
-                score_weight=score_weight,
-                players=players or [("alcapone", "the outfit")],
-            )
-
-            # KTD-3: the engine owns the coupling — upkeep runs at EVERY turn start,
-            # including the very first (before the map loop's first render), so no path
-            # through this client can reach a free turn without it. Later turns run it
-            # right after advance_turn rotates (below), at the exact same seam.
-            state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
-
-        note = _MAP_NOTE
-        # A save is only ever taken on the map during a free turn -- including the rest
-        # of the turn in which a job was just accepted (ms=0, job already set). So the
-        # first iteration after a load resumes that free turn; the shift belongs to the
-        # NEXT turn start, exactly as in uninterrupted play.
-        resuming_free_turn = load is not None
-        while True:
-            # U10 job-shift seam: an EMPLOYED player never reaches the map/menu this
-            # turn -- the shift flow replaces the free turn entirely (mirrors the
-            # source's :1012 dispatch). Checked fresh every turn start, right after
-            # upkeep (above on the first turn, after advance_turn below on later ones).
-            active = state.players[state.clock.active_player]
-            if active.jobs.type and not resuming_free_turn:
-                state = _run_job_shift_screen(state, resolver, inp, out, rng)
-            else:
-                resuming_free_turn = False
-                while True:
-                    out.write(CLEAR)
-                    render_map(city, city_raw, state, out)
-                    out.write(f"{DIM}{note}{RESET}\n")
-                    out.flush()
-                    key = _read_key()
-                    if check_resize():
-                        note = " resized"
-                        continue
-                    if _is_quit(key):
-                        out.write("bye.\n")
-                        return state, rng
-
-                    if key == _SAVE_KEY:
-                        # KTD-7: a map-turn save -- the snapshot is authoritative, so
-                        # the effect log is empty; the RNG log lets a load resume the
-                        # stream mid-way (KTD-5). Overwrites without asking.
-                        # A failed save (missing directory, full disk, no permission)
-                        # must never end the game: say so and keep playing.
-                        try:
-                            save_game(save_path, state, effect_log=[], rng_log=rng.log, seed=seed)
-                        except OSError as exc:
-                            reason = exc.strerror or str(exc)
-                            note = resolver.resolve("session.save_failed", {"reason": reason})
-                        else:
-                            note = resolver.resolve("session.saved", {"path": save_path})
-                        continue
-
-                    delta = _MOVE_KEYS.get(key)
-                    if delta is None:
-                        note = "(use W/A/S/D, P or Q)"
-                        continue
-
-                    result = try_move(state, city, delta)
-                    state = result.state
-                    payload = result.payload
-                    kind = getattr(payload, "kind", None)
-                    note = {
-                        "wall": "(a wall)",
-                        "oob": "(edge of the city)",
-                    }.get(kind or "", _MAP_NOTE)
-                    if kind == "enter":
-                        key_for_la = la_to_key.get(payload.la)
-                        if key_for_la is not None:
-                            state = _run_location(
-                                key_for_la, payload.ln, state, resolver, inp, out, rng
-                            )
-                    if getattr(payload, "turn_over", False):
-                        break
-
-            p = state.players[state.clock.active_player]
-            render_screen_clear(out)
-            render_header("turn_over", out)
-            render_body(
-                f"cash: {p.ka}$\n"
-                f"position: {p.po}\n"
-                f"movement: {p.ms}\n"
-                f"rank: {p.rank}\n"
-                f"jail: {p.wanted.jail_months} months",
-                out,
-            )
-            out.write(f"\n{DIM}press any key...{RESET}\n")
-            out.flush()
-            if _is_quit(_read_key()):
-                out.write("bye.\n")
-                return state, rng
-            played = state  # the round just finished, for the standings (KTD-2)
-            # advance_turn is pure — the rotated/replenished state must be adopted.
-            state, game_over = advance_turn(state, vehicles)
-            # :1010 — on a round wrap (back to player 0) gosub4500 shows the standings
-            # BEFORE ja=ja+1/12, so they get the pre-advance state: the date shown is
-            # the round just played.
-            if state.clock.active_player == 0:
-                if not _run_game_end_screen(run_standings, "standings", played, resolver, out, rng):
-                    out.write("bye.\n")
-                    return state, rng
-            if game_over:
-                # :40100 — the year-end result (standings again, then winner/tie) on the
-                # POST-advance state; the game ends here, so no upkeep and no new turn.
-                _run_game_end_screen(run_year_end, "game_over", state, resolver, out, rng)
-                return state, rng
-            # KTD-3: upkeep for the NEW active player, right at the turn-start seam
-            # advance_turn just opened — before this player's free turn (or job
-            # shift) is offered.
-            state = _run_upkeep_screen(state, resolver, out, rng, inp=inp)
-    except EndOfInput:
-        # R11: stdin ran out at a handler prompt. The in-flight handler never
-        # returned, so its EngineResult -- and every effect it would have
-        # committed -- is never adopted; end the session exactly like a quit.
-        out.write("bye.\n")
-    finally:
-        show_cursor(out)
-    return state, rng
+    return session.run()
 
 
 def main(argv: list[str] | None = None) -> None:

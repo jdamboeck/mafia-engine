@@ -2035,3 +2035,66 @@ class TestLoadFlagConflicts:
         (_a, kw) = calls[0]
         assert kw["load"] == "x.jsonl" and kw["save"] == "y.jsonl"
         assert kw.get("seed") is None
+
+
+# --------------------------------------------------------------------------- #
+# The TerminalSession phases, driven directly                                  #
+# --------------------------------------------------------------------------- #
+def _session(monkeypatch, lines: list[str], **kwargs):
+    """A :class:`tmain.TerminalSession` over EXACT stdin ``lines``; returns it and its stdout."""
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
+    monkeypatch.setattr(sys, "stdout", out)
+    defaults = {
+        "seed": None,
+        "players": None,
+        "end_year": None,
+        "score_weight": None,
+        "load": None,
+        "save": None,
+        "watch_ai": False,
+    }
+    return tmain.TerminalSession(**{**defaults, **kwargs}), out
+
+
+class TestTerminalSession:
+    def test_a_session_from_a_loaded_save_starts_on_the_map_without_upkeep(
+        self, monkeypatch, tmp_path
+    ):
+        from engine.persistence import save_game
+
+        save = tmp_path / "s.jsonl"
+        save_game(save, new_state(42), effect_log=[], rng_log=[], seed=42)
+
+        upkeep_calls = []
+        monkeypatch.setattr(tmain, "run_upkeep", lambda *a, **k: upkeep_calls.append(a))
+        rendered = []
+        real_render = tmain.render_map
+
+        def spy_render(*a, **k):
+            rendered.append(list(upkeep_calls))  # upkeep calls seen BEFORE this render
+            return real_render(*a, **k)
+
+        monkeypatch.setattr(tmain, "render_map", spy_render)
+        session, out = _session(monkeypatch, ["q"], load=str(save))
+        with deadline(20, "session did not end", exc_type=_Deadline):
+            state, _rng = session.run()
+
+        assert rendered == [[]], "the first screen was not the map, or upkeep ran first"
+        assert upkeep_calls == []
+        assert state == new_state(42)
+        assert "bye.\n" in out.getvalue()
+
+    def test_round_end_renders_the_standings_of_the_pre_advance_state(self, monkeypatch):
+        from engine.movement import advance_turn
+
+        session, out = _session(monkeypatch, ["x"], seed=42, end_year=1930, score_weight=1.0)
+        played = new_state(42)
+        session.state, game_over = advance_turn(played, session.vehicles)
+        assert session.state.clock.active_player == 0 and not game_over, "not a round wrap"
+
+        assert session.round_end(played) is True
+        output = out.getvalue()
+        assert "spielstand 1925-1\n" in output
+        assert "spielstand 1925-2" not in output
+        assert "bye." not in output
