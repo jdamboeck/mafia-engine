@@ -34,13 +34,18 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import io
+import re
 import signal
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from dataclasses import replace
+
+import pytest
 
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
 from engine.combat import CombatFight
@@ -48,6 +53,35 @@ from engine.effects import commit
 from engine.interactions import ShowMessage, run
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
+
+
+#: The decompiled BASIC listing in the sibling research tree. It is absent in CI, so
+#: every test that reads it goes through :func:`load_source`, which skips with a reason.
+MF_PRG = (
+    Path(__file__).resolve().parents[2] / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
+)
+
+
+def parse_source(text: str) -> dict[int, str]:
+    """``{line number: statement text}`` from the decompiled listing."""
+    lines: dict[int, str] = {}
+    for raw in text.splitlines():
+        match = re.match(r"\s*(\d+) (.*)$", raw)
+        if match:
+            lines[int(match.group(1))] = match.group(2)
+    return lines
+
+
+@functools.cache
+def _parsed_source(path: Path) -> Mapping[int, str]:
+    return MappingProxyType(parse_source(path.read_text(encoding="utf-8")))
+
+
+def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
+    """The parsed listing, read once per path; skips the calling test when it is absent."""
+    if not path.exists():
+        pytest.skip(f"this test needs the research tree: {path} is not present")
+    return _parsed_source(path)
 
 
 def make_walk_script(keys: list[str]) -> io.StringIO:

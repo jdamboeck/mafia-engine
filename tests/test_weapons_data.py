@@ -27,7 +27,7 @@ import yaml
 
 from data.game_configs.mafia_1920s.setup import load_weapons, weapon_stats_by_id
 from engine.types import ConfigValidationError
-from tests.test_citations import parse_source
+from tests.helpers import load_source
 
 _WEAPONS_YAML = (
     Path(__file__).resolve().parents[1]
@@ -186,9 +186,6 @@ _DATA = (
     (50110, 'data "revolver",4000,5,10,2,"gewehr",4500,5,12,2'),
     (50115, 'data "maschinenpistole",8000,6,15,10,"handgranaten",10000,7,18,3'),
 )
-_SOURCE = (
-    Path(__file__).resolve().parents[2] / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
-)
 
 
 def _read_weapon_records() -> list[tuple[str, int, int, int, int]]:
@@ -204,10 +201,9 @@ def _read_weapon_records() -> list[tuple[str, int, int, int, int]]:
     ]
 
 
-@pytest.mark.skipif(not _SOURCE.exists(), reason=f"research tree absent: {_SOURCE}")
 @pytest.mark.parametrize(("line", "text"), _READS + _DATA)
 def test_weapon_read_quotes_are_verbatim(line: int, text: str) -> None:
-    source = parse_source(_SOURCE.read_text(encoding="utf-8"))
+    source = load_source()
     assert source.get(line) == text, f"mf-prg.bas:{line} is {source.get(line)!r}"
 
 

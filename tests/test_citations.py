@@ -47,8 +47,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.helpers import load_source, parse_source
+
 _REPO = Path(__file__).resolve().parents[1]
-_SOURCE = _REPO.parent / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
 
 #: The trees whose code, comments and docs are scanned for citations.
 ROOTS = ("engine", "clients", "data", "tests", "docs/solutions")
@@ -61,24 +62,8 @@ ALLOWED: Mapping[tuple[str, str], str] = {}
 # --------------------------------------------------------------------------- #
 # Source                                                                      #
 # --------------------------------------------------------------------------- #
+#: ``{line: text}`` as :func:`tests.helpers.load_source` returns it.
 Source = Mapping[int, str]
-
-
-def parse_source(text: str) -> dict[int, str]:
-    """``{line number: statement text}`` from the decompiled listing."""
-    lines: dict[int, str] = {}
-    for raw in text.splitlines():
-        match = re.match(r"\s*(\d+) (.*)$", raw)
-        if match:
-            lines[int(match.group(1))] = match.group(2)
-    return lines
-
-
-def load_source(path: Path = _SOURCE) -> dict[int, str]:
-    """The parsed source; skips the calling test, with the reason, when it is absent."""
-    if not path.exists():
-        pytest.skip(f"citation check needs the research tree: {path} is not present")
-    return parse_source(path.read_text(encoding="utf-8"))
 
 
 # --------------------------------------------------------------------------- #

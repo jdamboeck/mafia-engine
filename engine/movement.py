@@ -31,6 +31,7 @@ never statically imports anything under ``data/``.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -54,6 +55,7 @@ __all__ = [
     "load_city",
     "try_move",
     "advance_turn",
+    "start_free_turn",
     "police_interrupt_would_fire",
 ]
 
@@ -346,9 +348,10 @@ MONTHS_PER_YEAR = 12
 
 
 def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, bool]:
-    """End the active player's turn and rotate to the next (mf-prg.bas:1010-1013).
+    """End the active player's turn and rotate to the next (mf-prg.bas:1010-1012).
 
-    Ports the turn-loop head:
+    Ports the turn-loop head (``:1013``'s score truncation is :func:`start_free_turn`,
+    since it runs only after upkeep and only for a player without a job):
 
     * ``sp = sp + 1``; when it passes the player count it **wraps to player 0**
       (0-based here; the original is 1-based). On wrap, a full round has elapsed,
@@ -392,6 +395,45 @@ def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, boo
 
     # Game-over hook: report reaching end_year; the client ends the game on it.
     return new_state, int(year) >= clock.end_year
+
+
+#: Decimal places ``gf * 100`` is rounded to before :func:`start_free_turn` floors it.
+#: A representation guard, not a rule: IEEE doubles store most whole-cent scores a hair
+#: off (``0.29 * 100`` is ``28.999999999999996``), and a plain floor would take a cent
+#: off such a score every turn. Rounding to 1e-6 of a cent (5e-9 in ``gf``) absorbs
+#: that drift -- at ``gf <= 100`` it is thousands of times the double's own error --
+#: while staying at or below the C64's float resolution there (a 32-bit mantissa is
+#: about 7e-9 at ``gf`` = 25), so no difference the original could hold is erased.
+_SCORE_SNAP_DECIMALS = 6
+
+
+def start_free_turn(state: GameState) -> GameState:
+    """Truncate the active player's score to two decimals (mf-prg.bas:1013).
+
+    ``:1013`` ``gf(sp)=int(gf(sp)*100)/100`` runs once per turn start, and only on
+    the path to a free turn:
+
+    * after upkeep (``:1011`` ``gosub4000``), so the upkeep screens show the score
+      before truncation;
+    * after ``:1012``'s job dispatch (``ifjo(sp)thengosub25000:goto1010``), so an
+      employed player's turn never reaches it;
+    * after ``:1010``'s year-end jump (``goto40100``), so the final scoring sees each
+      score as it stood when that player's last turn ended.
+
+    The caller (the client's turn loop) calls this where the free turn begins. BASIC
+    ``int`` is floor, so a negative score goes toward -inf (-0.125 becomes -0.13).
+    ``gf * 100`` is rounded to :data:`_SCORE_SNAP_DECIMALS` places first, so every
+    whole-cent score is a fixed point and a second call changes nothing.
+
+    Sets ``gf`` by ``replace`` rather than an effect, as :func:`advance_turn` sets
+    ``ms``: both are the engine's own turn machinery, not a handler. Pure: returns a
+    NEW state.
+    """
+    sp = state.clock.active_player
+    active = state.players[sp]
+    cents = math.floor(round(active.gf * 100, _SCORE_SNAP_DECIMALS))
+    truncated = replace(active, gf=cents / 100)
+    return replace(state, players=tuple_replace(state.players, sp, truncated))
 
 
 def police_interrupt_would_fire(state, ms: int, rng: Any) -> bool:

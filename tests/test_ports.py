@@ -36,22 +36,20 @@ from __future__ import annotations
 import itertools
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest import mock
 
 import pytest
 
-from data.game_configs.mafia_1920s import setup as cfg_setup
 from data.game_configs.mafia_1920s.combat_rules import damage_roll, is_hit
 from data.game_configs.mafia_1920s.gangster import Gangster
-from data.game_configs.mafia_1920s.handlers.jobs import _completion_score
 from data.game_configs.mafia_1920s.setup import (
     apply_outcome,
     fnm,
     load_encounter,
+    load_gangster_candidates,
     load_vehicles,
     load_weapons,
     new_game,
@@ -72,6 +70,8 @@ from engine.interactions import (
     StartCombat,
 )
 from engine.locations import HANDLERS
+from engine.movement import start_free_turn
+from engine.rng import Rng
 from engine.state import (
     Business,
     Clock,
@@ -79,15 +79,17 @@ from engine.state import (
     Config,
     Contraband,
     Debt,
+    Flags,
     GameState,
     Job,
+    MapState,
     Player,
 )
 from tests.basic_eval import eval_assignment, eval_expr
+from tests.helpers import load_source
 
 _REPO = Path(__file__).resolve().parents[1]
 _CONFIG_DIR = _REPO / "data" / "game_configs" / "mafia_1920s"
-_SOURCE = _REPO.parent / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
 
 load_game_config(_CONFIG_DIR)
 
@@ -95,6 +97,7 @@ _PARAMS: dict[str, Any] = dict(load_config(_CONFIG_DIR / "config.yaml")["formula
 _WEAPONS = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
 _VEHICLES = load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
 _AMBUSH = load_encounter(_CONFIG_DIR / "content" / "encounters" / "kdh_ambush.yaml")
+_CANDIDATES = load_gangster_candidates(_CONFIG_DIR / "entities" / "gangsters.yaml")
 
 Values = Mapping[str, Any]
 
@@ -203,6 +206,8 @@ class _Run:
     state: GameState
     effects: list[Any]
     asked: list[Any] = field(default_factory=list)
+    shown: list[ShowMessage] = field(default_factory=list)
+    draws_used: int = 0
 
 
 def _drive(
@@ -210,22 +215,30 @@ def _drive(
     state: GameState,
     draws: Sequence[float] = (),
     answer: Callable[[Any], Any] = lambda interaction: None,
+    fight: Any = None,
 ) -> _Run:
     """Step ``handler`` to completion and commit its effects.
 
-    ``ShowMessage`` is acked and ``LoadSubState`` (display only here) answered with
-    ``None``; every other interaction goes to ``answer``. ``StartCombat`` raises
-    :class:`_FightStarted`.
+    ``ShowMessage`` is acked (and kept in ``shown``) and ``LoadSubState`` (display
+    only here) answered with ``None``; every other interaction goes to ``answer``.
+    ``StartCombat`` is answered with ``fight`` when one is given (a stand-in
+    ``CombatResult``), and otherwise raises :class:`_FightStarted`.
     """
-    ctx = _RecordingCtx(state, StubRng(draws))
+    rng = StubRng(draws)
+    ctx = _RecordingCtx(state, rng)
     gen = handler(ctx)
     asked: list[Any] = []
+    shown: list[ShowMessage] = []
     try:
         interaction = next(gen)
         while True:
             if isinstance(interaction, StartCombat):
-                raise _FightStarted(list(ctx.applied))
+                if fight is None:
+                    raise _FightStarted(list(ctx.applied))
+                interaction = gen.send(fight)
+                continue
             if isinstance(interaction, ShowMessage):
+                shown.append(interaction)
                 response = Ack
             elif isinstance(interaction, LoadSubState):
                 response = None
@@ -235,7 +248,7 @@ def _drive(
             interaction = gen.send(response)
     except StopIteration:
         pass
-    return _Run(commit(state, ctx.applied).state, ctx.applied, asked)
+    return _Run(commit(state, ctx.applied).state, ctx.applied, asked, shown, rng.used)
 
 
 def _gangster(kr: int = 99, in_: int = 99, bt: int = 99, en: int = 5, weapon: int = 0) -> Gangster:
@@ -325,6 +338,18 @@ def _engine_score(v: Values) -> Any:
     state = _state(_player(gf=v["gf"]), score_mult=v["x8"])
     p = apply(state, score_and_rank(v["x"], _PARAMS)).players[0]
     return (p.gf, p.nr)
+
+
+# --- :1013 per-turn score truncation --------------------------------------------------
+Q_1013 = q(1013, "gf(sp)=int(gf(sp)*100)/100")
+
+
+def _basic_truncate(v: Values) -> Any:
+    return Q_1013.assign({"sp": 1, "gf(1)": v["gf"]})
+
+
+def _engine_truncate(v: Values) -> Any:
+    return start_free_turn(_state(_player(gf=v["gf"]))).players[0].gf
 
 
 # --- :4015/:4020 energy regen -------------------------------------------------------
@@ -599,8 +624,25 @@ def _basic_completion(v: Values) -> Any:
     return Q_25560.assign({"sp": 1, "jo(1)": v["jo"]})
 
 
+#: Per job type, the draws that make the last shift of a contract succeed: bouncer and
+#: doorman get a quiet night (:25025 draw 0), the croupier is not caught (:25120) and
+#: takes the minimum bonus; the killer's fight is answered as won.
+_WINNING_SHIFT_DRAWS = {1: (0.0,), 2: (0.5, 0.0), 3: (0.0,), 4: ()}
+
+
 def _engine_completion(v: Values) -> Any:
-    return _completion_score(v["jo"])
+    # months_left=1: the shift completes the contract, which awards the :25560 score
+    # through score_and_rank at x8=1, so the award is the change in gf.
+    player = _player(gf=50, jobs=Job(type=v["jo"], pending_pay=1000, months_left=1))
+    run = _drive(
+        HANDLERS["job.shift"],
+        _state(player),
+        draws=_WINNING_SHIFT_DRAWS[v["jo"]],
+        answer=lambda i: 1,  # the croupier's trick
+        fight=SimpleNamespace(winner=1, losses=(0, 0)),
+    )
+    assert run.state.players[0].jobs == Job(), "the contract did not complete"
+    return run.state.players[0].gf - 50
 
 
 # --- :25120-25126 croupier catch check and bonus ---------------------------------------
@@ -631,6 +673,133 @@ def _engine_croupier(v: Values) -> Any:
     except _FightStarted:
         return "caught"
     return run.state.players[0].ka
+
+
+# --- :12106/:12107 pub recruit offer count ------------------------------------------
+Q_12106_Y0 = q(12106, "y=0")
+Q_12106_Y = q(12106, "y=y-(sg(i)=0)")
+Q_12106_CAP = q(12106, "y>3")
+Q_12106_SET = q(12106, "y=3")
+Q_12107_X = q(12107, "x=int(rnd(1)*(y+1))")
+Q_12107_NONE = q(12107, "x=0orln=3")
+
+
+def _sg(hired: Iterable[int]) -> dict[str, int]:
+    """``sg(1..30)``: 1 for a hired candidate (:12165 ``sg(g(i))=1``), else 0."""
+    return {f"sg({i})": int(i - 1 in hired) for i in range(1, 31)}
+
+
+def _basic_pool(b: dict[str, Any]) -> None:
+    """:12106 into ``b["y"]``: the unhired candidates among ``sg(1..30)``, at most 3."""
+    b["y"] = Q_12106_Y0.assign(b)
+    for i in range(1, 31):  # `fori=1to30 ... next`
+        b["i"] = i
+        b["y"] = Q_12106_Y.assign(b)
+    if Q_12106_CAP.holds(b):
+        b["y"] = Q_12106_SET.assign(b)
+
+
+def _basic_offer_count(v: Values) -> Any:
+    b: dict[str, Any] = {"ln": v["ln"], "rnd(1)": v["r"], **_sg(v["hired"])}
+    _basic_pool(b)
+    b["x"] = Q_12107_X.assign(b)
+    return 0 if Q_12107_NONE.holds(b) else b["x"]
+
+
+def _recruit_state(hired: Iterable[int], ln: int) -> GameState:
+    """Rank 5 with an apartment and a one-man gang: every :12100-12105 guard passes."""
+    player = _player(rank=5, last_location=ln)
+    return replace(
+        _state(player),
+        map=MapState(tenancy={1: 0}),
+        flags=Flags(hired_gangsters=tuple(sorted(hired))),
+    )
+
+
+def _offered(run: _Run) -> tuple[int, ...]:
+    """The 1-based candidate numbers (``g(i)``) of the offers the handler showed."""
+    names = [c["name"] for c in _CANDIDATES]
+    return tuple(
+        names.index(m.params["name"]) + 1
+        for m in run.shown
+        if m.key == "locations.pub.recruit_offer"
+    )
+
+
+def _engine_offer_count(v: Values) -> Any:
+    # Every offer is declined. The pick draws land on distinct unhired candidates, so
+    # each offer takes one draw whatever the count.
+    free = [c for c in range(len(_CANDIDATES)) if c not in v["hired"]]
+    picks = tuple((c + 0.5) / len(_CANDIDATES) for c in free[:3])
+    run = _drive(
+        HANDLERS["pub.recruit"],
+        _recruit_state(v["hired"], v["ln"]),
+        draws=(v["r"], *picks),
+        answer=lambda i: False,
+    )
+    return len(_offered(run))
+
+
+# --- :12110-12113 pub recruit pick and reroll ------------------------------------------
+Q_12110_G = q(12110, "g(i)=int(rnd(1)*30)+1")
+Q_12110_HIRED = q(12110, "sg(g(i))")
+Q_12112 = q(12112, "g(j)=g(i)")
+
+#: rnd(1) for every offer count: `int(rnd(1)*(y+1))` is y, the whole capped pool.
+_ALL_OFFERS = 0.9990234375
+
+
+def _basic_pick(v: Values) -> Any:
+    """``(g(1), .., g(x))`` and the number of ``rnd(1)`` draws the picks took."""
+    b: dict[str, Any] = {"rnd(1)": _ALL_OFFERS, **_sg(v["hired"])}
+    _basic_pool(b)
+    x = int(Q_12107_X.assign(b))
+    draws = iter(v["draws"])
+    used = 0
+    for i in range(1, x + 1):  # :12108 `fori=1tox`
+        b["i"] = i
+        while True:  # :12110 rerolls by `goto12110`
+            b["rnd(1)"] = next(draws)
+            used += 1
+            b[f"g({i})"] = Q_12110_G.assign(b)
+            if Q_12110_HIRED.holds(b):
+                continue
+            # :12111 `ifi=1goto12115`, then :12112 `forj=1toi-1` over earlier picks.
+            earlier = range(1, i)
+            if any(Q_12112.holds({**b, "j": j}) for j in earlier):
+                continue
+            break
+    return (tuple(int(b[f"g({i})"]) for i in range(1, x + 1)), used)
+
+
+def _engine_pick(v: Values) -> Any:
+    run = _drive(
+        HANDLERS["pub.recruit"],
+        _recruit_state(v["hired"], 1),
+        draws=(_ALL_OFFERS, *v["draws"]),
+        answer=lambda i: False,  # declined: only the batch check stops a repeat
+    )
+    return (_offered(run), run.draws_used - 1)
+
+
+def _pick_draws(*candidates: float) -> tuple[float, ...]:
+    """rnd(1) values landing on the given 0-based candidates; a fraction moves within one."""
+    return tuple(c / len(_CANDIDATES) for c in candidates)
+
+
+_PICK_GRID = tuple(
+    {"hired": hired, "draws": _pick_draws(*draws)}
+    for hired, draws in (
+        ((), (5.5, 5.5, 7.5, 9.5)),  # a repeat of the first pick is redrawn
+        ((), (0.0, 0.5, 29.99, 29.5, 1.0)),  # the edges of the 1..30 range
+        ((), (3.5, 8.5, 3.5, 8.5, 3.5, 12.5)),  # the third pick repeats both earlier
+        ((4,), (4.5, 4.5, 5.5, 4.5, 5.5, 6.5, 7.5)),  # a hired candidate is redrawn
+        ((4, 6), (6.5, 4.5, 6.5, 7.5, 4.5, 7.5, 8.5, 0.5)),
+        (tuple(range(27)), (0.5, 27.5, 26.5, 27.5, 28.5, 3.5, 29.5)),  # three left
+        (tuple(range(28)), (28.5, 1.5, 28.5, 29.5)),  # two left: two offers
+        (tuple(range(29)), (0.5, 12.5, 29.5)),  # one left
+    )
+)
 
 
 # --- :16026-16040 casino --------------------------------------------------------------
@@ -864,12 +1033,32 @@ def _basic_new_game(v: Values) -> Any:
     return tuple(out)
 
 
+_FOUR = [("a", "b"), ("c", "d"), ("e", "f"), ("g", "h")]
+
+
 def _engine_new_game(v: Values) -> Any:
-    with mock.patch.object(cfg_setup, "Rng", lambda seed: StubRng(v["r"])):
-        state = new_game(seed=0, end_year=1930, score_weight=1.0, players=[("a", "b")])
-    p = state.players[0]
+    state = new_game(seed=v["seed"], end_year=1930, score_weight=1.0, players=_FOUR)
+    p = state.players[v["player"]]
     g = p.roster[0]
     return (g.attrs["kraft"], g.attrs["intelligenz"], g.attrs["brutalitaet"], p.ka)
+
+
+def _new_game_grid(seeds: Iterable[int]) -> tuple[dict[str, Any], ...]:
+    """Each player of a four-player game per seed, with the ``rnd(1)`` it rolled.
+
+    ``new_game(seed)`` draws from ``Rng(seed)``, so the same seed replays its rolls:
+    per player, :310-312 roll kr, in and bt through :350 (``int(rnd(1)*9)``) and then
+    :315 rolls the cash (``int(rnd(1)*5)``). Each roll ``k`` of ``n`` becomes the
+    ``rnd(1)`` value ``(k+0.5)/n``, the middle of the interval that yields ``k``.
+    """
+    points = []
+    for seed in seeds:
+        rng = Rng(seed)
+        for player in range(len(_FOUR)):
+            rolls = [(rng.range(n), n) for n in (9, 9, 9, 5)]
+            r = tuple((k + 0.5) / n for k, n in rolls)
+            points.append({"seed": seed, "player": player, "r": r})
+    return tuple(points)
 
 
 # --- :30000 combat side anchors -------------------------------------------------------
@@ -955,10 +1144,7 @@ _R_PAIRS = tuple(itertools.product((0.0, 0.25, 0.3, 0.5, 0.7, 0.9990234375), rep
 _KRAFT = (0, 1, 5, 9, 10, 15, 19, 20, 25, 30, 37, 40, 50, 55, 90, 99)
 _STAT_TRIPLES = ((10, 10, 10), (50, 93, 94), (94, 96, 97), (95, 97, 98), (99, 99, 99))
 _CAMP_R = ((0.0, 0.0, 0.0), (0.125, 0.5, 0.875), (0.3, 0.7, 0.9990234375), (0.9990234375,) * 3)
-_NEW_GAME_R = tuple(
-    ((k + 0.5) / 9, ((k + 3) % 9 + 0.5) / 9, ((k + 5) % 9 + 0.5) / 9, (k % 5 + 0.5) / 5)
-    for k in range(9)
-) + ((0.0, 0.0, 0.0, 0.0), (0.9990234375,) * 4)
+_NEW_GAME_GRID = _new_game_grid(range(25))
 _CAPITALS = (1, 2, 9, 10, 19, 20, 21, 99, 100, 101, 999, 1000, 1234, 2500, 4999, 5000)
 
 PORTS: list[Port] = [
@@ -989,6 +1175,20 @@ PORTS: list[Port] = [
         ),
         _basic_score,
         _engine_score,
+    ),
+    Port(
+        "per-turn score truncation",
+        (Q_1013,),
+        "movement.start_free_turn",
+        # Values whose gf*100 is exact or far from a whole number, where IEEE and C64
+        # floats agree. Near a whole cent the engine snaps the float drift first (see
+        # movement._SCORE_SNAP_DECIMALS), which this float evaluator does not model.
+        _grid(
+            gf=(0, 0.0078125, 0.125, 0.5, 11.1, 25.1953125, 25.5, 33.337, 51.25, 88.8)
+            + (99.9990234375, 100, 101.5, -0.0078125, -0.125, -2.9990234375, -3.5, -12.345)
+        ),
+        _basic_truncate,
+        _engine_truncate,
     ),
     Port(
         "energy regen",
@@ -1069,7 +1269,7 @@ PORTS: list[Port] = [
     Port(
         "job completion score",
         (Q_25560,),
-        "jobs._completion_score",
+        "HANDLERS['job.shift'] (contract completed)",
         _grid(jo=range(1, 5)),
         _basic_completion,
         _engine_completion,
@@ -1085,6 +1285,27 @@ PORTS: list[Port] = [
         ),
         _basic_croupier,
         _engine_croupier,
+    ),
+    Port(
+        "pub recruit offer count",
+        (Q_12106_Y0, Q_12106_Y, Q_12106_CAP, Q_12106_SET, Q_12107_X, Q_12107_NONE),
+        "HANDLERS['pub.recruit'] (pool and roll)",
+        _grid(
+            hired=((), (0, 1), tuple(range(26)), tuple(range(27)), tuple(range(1, 29)))
+            + (tuple(range(29)), tuple(range(30))),
+            ln=(1, 3),
+            r=(0.0, 0.25, 0.34, 0.5, 0.66, 0.67, 0.75, 0.9990234375),
+        ),
+        _basic_offer_count,
+        _engine_offer_count,
+    ),
+    Port(
+        "pub recruit pick and reroll",
+        (Q_12110_G, Q_12110_HIRED, Q_12112, Q_12106_Y, Q_12107_X),
+        "HANDLERS['pub.recruit'] (candidate draw)",
+        _PICK_GRID,
+        _basic_pick,
+        _engine_pick,
     ),
     Port(
         "casino",
@@ -1164,8 +1385,8 @@ PORTS: list[Port] = [
     Port(
         "new-game stats and cash",
         (Q_350, Q_310, Q_311, Q_312, Q_315),
-        "setup.new_game (_roll_stat)",
-        _grid(r=_NEW_GAME_R),
+        "setup.new_game (seeded; _roll_stat)",
+        _NEW_GAME_GRID,
         _basic_new_game,
         _engine_new_game,
     ),
@@ -1236,7 +1457,21 @@ def test_port_matches_basic(port: Port) -> None:
 def test_completion_score_ae1() -> None:
     """AE1: :25560 gives 0 for the croupier (jo=2) and 3 for every other job."""
     assert [Q_25560.assign({"sp": 1, "jo(1)": jo}) for jo in (1, 2, 3, 4)] == [3, 0, 3, 3]
-    assert [_completion_score(jo) for jo in (1, 2, 3, 4)] == [3, 0, 3, 3]
+    assert [_engine_completion({"jo": jo}) for jo in (1, 2, 3, 4)] == [3, 0, 3, 3]
+
+
+def test_new_game_grid_rolls_every_value() -> None:
+    """The seeded grid reaches every stat roll (0..8) and cash roll (0..4)."""
+    stats = {int(p["r"][i] * 9) for p in _NEW_GAME_GRID for i in range(3)}
+    cash = {int(p["r"][3] * 5) for p in _NEW_GAME_GRID}
+    assert (stats, cash) == (set(range(9)), set(range(5)))
+
+
+def test_pick_grid_redraws_for_both_reasons() -> None:
+    """The pick grid is not vacuous: its scripts reroll on a hired and a repeated pick."""
+    redrawn = [p for p in _PICK_GRID if _basic_pick(p)[1] > len(_basic_pick(p)[0])]
+    assert any(p["hired"] == () for p in redrawn), "no repeat-only reroll"
+    assert any(p["hired"] == (4,) for p in redrawn), "no hired reroll"
 
 
 def test_every_quote_belongs_to_a_port() -> None:
@@ -1245,25 +1480,15 @@ def test_every_quote_belongs_to_a_port() -> None:
     assert [quote for quote in QUOTES if quote not in used] == []
 
 
-def _source_lines() -> dict[int, str]:
-    lines: dict[int, str] = {}
-    for raw in _SOURCE.read_text(encoding="utf-8").splitlines():
-        match = re.match(r"\s*(\d+) (.*)$", raw)
-        if match:
-            lines[int(match.group(1))] = match.group(2)
-    return lines
-
-
 # A quote must start at a statement or condition boundary and end at one.
 _BEFORE = r"(?:^|:|\bif|then)\s*"
 _AFTER = r"\s*(?:$|:|then|goto|gosub)"
 
 
-@pytest.mark.skipif(not _SOURCE.exists(), reason="research tree (mf-prg.bas) not present")
 @pytest.mark.parametrize("quote", QUOTES, ids=lambda quote: f"{quote.line}:{quote.text}")
 def test_quote_is_verbatim(quote: Quote) -> None:
     """Every quote is one statement (or ``if`` condition) of its cited line, verbatim."""
-    line = _source_lines().get(quote.line)
+    line = load_source().get(quote.line)
     assert line is not None, f"mf-prg.bas has no line {quote.line}"
     pattern = _BEFORE + re.escape(quote.text) + _AFTER
     assert re.search(pattern, line), (

@@ -1622,8 +1622,12 @@ def burn_turn_keys(
     *,
     end_year: int = 1930,
     turns: int | None = None,
+    state=None,
 ) -> list[str]:
     """The key stream that walks every turn to its turn-over, mirroring ``play()``.
+
+    ``state`` starts the walk from a given position (a session driven through
+    :meth:`TerminalSession.run_turns`) instead of a new game from ``seed``.
 
     Per the piped-stdin learning, the walk is asked of the engine (the first
     direction that STEPS from the current state, so no move enters a location), not
@@ -1641,12 +1645,13 @@ def burn_turn_keys(
     cfg = load_game_config(_CONFIG_DIR)
     vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
     city = load_city(load_city_raw())
-    state = cfg.module.new_game(
-        seed=seed,
-        end_year=end_year,
-        score_weight=1.0,
-        players=players or [("alcapone", "the outfit")],
-    )
+    if state is None:
+        state = cfg.module.new_game(
+            seed=seed,
+            end_year=end_year,
+            score_weight=1.0,
+            players=players or [("alcapone", "the outfit")],
+        )
     keys: list[str] = []
     done = 0
     while turns is None or done < turns:
@@ -2150,3 +2155,83 @@ class TestTerminalSession:
         assert "spielstand 1925-1\n" in output
         assert "spielstand 1925-2" not in output
         assert "bye." not in output
+
+    # :1013 `gf(sp)=int(gf(sp)*100)/100`, placed after :1011's upkeep and :1012's job
+    # dispatch, before the free turn. Player 1 is the one the rotation reaches.
+    @staticmethod
+    def _second_player(**fields):
+        from dataclasses import replace
+
+        state = new_state(42, [("alcapone", "the outfit"), ("moran", "north side")])
+        players = (state.players[0], replace(state.players[1], **fields))
+        return replace(state, players=players)
+
+    def test_the_free_turn_truncates_the_score_after_upkeep_shows_it(self, monkeypatch):
+        # rank 1 with nr 3 pending: :4030's promotion screen prints gf(sp) (:4215).
+        session, out = _session(monkeypatch, ["x", "q"], seed=42, end_year=1930, score_weight=1.0)
+        session.state = self._second_player(gf=25.199999, nr=3)
+
+        assert session.next_turn() is True
+        assert session.state.players[1].gf == 25.199999, "truncated before or during upkeep"
+        assert "25.199999 p." in out.getvalue(), "upkeep did not show the untruncated score"
+        with deadline(20, "session did not end", exc_type=_Deadline):
+            session.run_turns(resuming_free_turn=False)
+
+        assert "move: W/A/S/D" in out.getvalue(), "the free turn never opened"
+        assert session.state.players[1].gf == 25.19
+        assert session.state.players[0].gf == 0, "a player not on turn was touched"
+
+    def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch):
+        from engine.state import Job
+
+        # Croupier, trick 1, then quit at the turn-over. seed=1 is not caught, and with
+        # months_left=2 a successful shift only ticks the contract: no score moves.
+        session, out = _session(monkeypatch, ["x", "1", "q"], seed=1, end_year=1930)
+        session.state = self._second_player(
+            gf=25.199999, jobs=Job(type=2, pending_pay=1200, months_left=2)
+        )
+
+        assert session.next_turn() is True
+        with deadline(20, "session did not end", exc_type=_Deadline):
+            session.run_turns(resuming_free_turn=False)
+
+        assert "welchen trick" in out.getvalue(), "the job shift did not run"
+        assert "move: W/A/S/D" not in out.getvalue(), "the employed player reached the map"
+        assert session.state.players[1].jobs.months_left == 1, "the shift did not complete"
+        assert session.state.players[1].gf == 25.199999
+
+    def test_the_same_score_by_different_steps_ties_at_the_year_end(self, monkeypatch):
+        """:40105/:40106 compare gf with `>` and `=`: 36 points at x8=0.7 must tie.
+
+        Twelve awards of 3 and four awards of 9 (:1160 `gf(sp)=gf(sp)+(x*x8)`) are both
+        25.2, but in doubles the first is 25.199999999999996. Each player's final-round
+        free turn truncates it (:1013), so the year end sees a tie, as the source does.
+        """
+        from dataclasses import replace
+
+        from data.game_configs.mafia_1920s.setup import score_and_rank
+        from engine.effects import commit
+
+        state = new_state(42, [("alcapone", "the outfit"), ("moran", "north side")])
+        state = replace(
+            state,
+            clock=replace(state.clock, year=1927, month=11, end_year=1928),
+            config=replace(state.config, score_mult=0.7),
+        )
+        params = state.config.formula_params
+        awards = [score_and_rank(3, params)] * 12 + [
+            replace(score_and_rank(9, params), player=1)
+        ] * 4
+        state = commit(state, awards).state
+        assert state.players[0].gf != state.players[1].gf, "no float drift: vacuous"
+
+        keys = burn_turn_keys(42, state=state, end_year=1928)
+        session, out = _session(monkeypatch, keys, seed=42, end_year=1928, score_weight=0.7)
+        session.state = state
+        with deadline(60, "session did not end", exc_type=_Deadline):
+            session.run_turns(resuming_free_turn=False)
+
+        output = out.getvalue()
+        assert "diesmal haben mehrere die gleichen" in output, "no tie at the year end"
+        assert "hat gewonnen!" not in output
+        assert session.state.players[0].gf == session.state.players[1].gf == 25.2

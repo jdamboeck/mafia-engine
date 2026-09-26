@@ -41,7 +41,16 @@ from engine.game_end import run_standings, run_year_end
 from engine.interactions import ShowMessage
 from engine.interactions import run as run_handler
 from engine.locations import HANDLERS, available_options, load_location
-from engine.movement import DOWN, LEFT, RIGHT, UP, advance_turn, load_city, try_move
+from engine.movement import (
+    DOWN,
+    LEFT,
+    RIGHT,
+    UP,
+    advance_turn,
+    load_city,
+    start_free_turn,
+    try_move,
+)
 from engine.persistence import SchemaVersionError, load_game, replay, save_game
 from engine.rng import Rng
 from engine.state import GameState
@@ -762,6 +771,10 @@ class TerminalSession:
             if active.jobs.type and not resuming_free_turn:
                 self.job_shift()
             else:
+                # :1013 -- the free turn opens with the score truncation. A resumed
+                # turn already had it before the save, as the source runs it once.
+                if not resuming_free_turn:
+                    self.state = start_free_turn(self.state)
                 resuming_free_turn = False
                 if not self.map_turn():
                     return

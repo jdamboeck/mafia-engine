@@ -39,12 +39,9 @@ from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, GameState, json_safe
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.basic_eval import eval_assignment, eval_expr
-from tests.test_citations import parse_source
+from tests.helpers import load_source
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
-_SOURCE = (
-    Path(__file__).resolve().parents[2] / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
-)
 
 
 # --------------------------------------------------------------------------- #
@@ -100,11 +97,10 @@ def _poke_value(statement: str) -> str:
     return statement.rsplit(",", 1)[1]
 
 
-@pytest.mark.skipif(not _SOURCE.exists(), reason=f"research tree absent: {_SOURCE}")
 @pytest.mark.parametrize(("line", "text"), _STRUCTURAL_QUOTES)
 def test_structural_proof_quotes_are_verbatim(line: int, text: str) -> None:
     """Each proof's statement is a ``:``-delimited statement of its cited line."""
-    statements = parse_source(_SOURCE.read_text(encoding="utf-8"))[line].split(":")
+    statements = load_source()[line].split(":")
     assert text in statements, f"{text!r} is not a statement of mf-prg.bas:{line}"
 
 
