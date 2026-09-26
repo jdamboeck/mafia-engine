@@ -146,8 +146,8 @@ def test_a_scenario_with_an_invented_weapon_resolves_a_shot_from_on_fighter_stat
     )
     assert scenario.sides is not None
     state = CombatState(sides=scenario.sides, grid=scenario.grid or ())
-    # StubRng: two non-zero hit factors + a damage draw -> a guaranteed hit.
-    fight = CombatFight(state, rng=StubRng(1, 1, 5), rules=scenario.rules)
+    # StubRng: weapon factor non-zero, kraft draw >= 10, then a damage draw -> a hit.
+    fight = CombatFight(state, rng=StubRng(1, 10, 50), rules=scenario.rules)
     outcome = fight.shoot(+1)  # fire right at the adjacent enemy
 
     assert outcome["hit"] is True  # resolved from the invented stats, not a (0,0) miss
@@ -187,7 +187,7 @@ def test_scenario_runs_to_a_combat_result_with_no_gamestate():
     )
     assert scenario.sides is not None
     state = CombatState(sides=scenario.sides, grid=scenario.grid or ())
-    fight = CombatFight(state, rng=StubRng(1, 1, 5), rules=scenario.rules)
+    fight = CombatFight(state, rng=StubRng(1, 10, 50), rules=scenario.rules)
     fight.shoot(+1)  # downs the 1-vitality enemy
     winner = fight.winner()
     assert winner is not None  # the fight is over: the only enemy is down

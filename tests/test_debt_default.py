@@ -252,9 +252,10 @@ _WINNING_GANG = tuple(
     for name in ("alcapone", "luigi", "mario", "vito", "tony")
 )
 
-#: Per shot: ``:30247``'s two miss factors (``ts`` then kraft — both nonzero = a hit),
-#: then ``:30255``'s damage draw (0: the brutalitaet term alone downs the collector).
-_ONE_SHOT_KILL = (1, 1, 0)
+#: Per shot: ``:30247``'s two miss factors (``ts`` nonzero, and the kraft draw of
+#: ``range(kr+10)`` at 10 or above = a hit), then ``:30255``'s damage draw (0: the
+#: brutalitaet term alone downs the collector).
+_ONE_SHOT_KILL = (1, 10, 0)
 
 
 def _win_the_collectors_fight(st):

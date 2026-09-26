@@ -911,8 +911,9 @@ class Port:
 _TS = sorted({w["ts"] for w in _WEAPONS})
 _TG = sorted({w["tg"] for w in _WEAPONS})
 _R_PAIRS = tuple(itertools.product((0.0, 0.25, 0.3, 0.5, 0.7, 0.9990234375), repeat=2))
-_KRAFT_TENS = (0, 10, 20, 30, 40, 50, 90)
-_KRAFT_OTHER = (1, 5, 9, 15, 19, 25, 37, 55, 99)
+# kr/10 is continuous at :30247, so kraft off a multiple of 10 is where a truncating
+# port would diverge.
+_KRAFT = (0, 1, 5, 9, 10, 15, 19, 20, 25, 30, 37, 40, 50, 55, 90, 99)
 _STAT_TRIPLES = ((10, 10, 10), (50, 93, 94), (94, 96, 97), (95, 97, 98), (99, 99, 99))
 _CAMP_R = ((0.0, 0.0, 0.0), (0.125, 0.5, 0.875), (0.3, 0.7, 0.9990234375), (0.9990234375,) * 3)
 _NEW_GAME_R = tuple(
@@ -1001,25 +1002,15 @@ PORTS: list[Port] = [
         _engine_camp,
     ),
     Port(
-        "waf buy score and trade-in, score stays in 0..100",
+        "waf buy score and trade-in",
         (Q_13065_NEW, Q_13065_GF, Q_13070, Q_13072_UP, Q_13072_GF, Q_13073_GF, Q_13075),
         "HANDLERS['waf.buy'] (_pick_gangster_and_arm)",
-        _grid(old=range(9), x=range(1, 9), gf=(10, 50, 90), x8=(0.1, 1.0, 2.0)),
+        # The second grid sits at the edge of 0..100, where the unclamped source takes
+        # gf past it (gf=99,x8=2 upgrading gives 101; gf=1,x8=2 downgrading gives -3).
+        _grid(old=range(9), x=range(1, 9), gf=(10, 50, 90), x8=(0.1, 1.0, 2.0))
+        + _grid(old=(0, 3), x=(2, 5), gf=(0, 0.5, 1, 99, 99.5, 100), x8=(0.1, 1.0, 2.0)),
         _basic_buy,
         _engine_buy,
-    ),
-    Port(
-        "waf buy score, score at the edge of 0..100",
-        (Q_13065_GF, Q_13072_GF, Q_13073_GF),
-        "HANDLERS['waf.buy'] (_pick_gangster_and_arm)",
-        _grid(old=(0, 3), x=(2, 5), gf=(0, 0.5, 1, 99, 99.5, 100), x8=(0.1, 1.0, 2.0)),
-        _basic_buy,
-        _engine_buy,
-        divergence=(
-            ":13065/:13072/:13073 change gf directly with no clamp (only gosub 1160-1161 "
-            "clamps), so gf=99,x8=2 upgrading gives 101 and gf=1,x8=2 downgrading gives "
-            "-3; the port applies ScoreChange, which clamps to [0,100]."
-        ),
     ),
     Port(
         "job completion score",
@@ -1141,47 +1132,21 @@ PORTS: list[Port] = [
         _engine_toggle,
     ),
     Port(
-        "hit test, kraft a multiple of 10",
+        "hit test",
         (Q_30247,),
         "combat_rules.is_hit",
-        _grid(ts=_TS, kr=_KRAFT_TENS, r=_R_PAIRS),
+        _grid(ts=_TS, kr=_KRAFT, r=_R_PAIRS),
         _basic_hit,
         _engine_hit,
     ),
     Port(
-        "hit test, kraft not a multiple of 10",
-        (Q_30247,),
-        "combat_rules.is_hit",
-        _grid(ts=_TS, kr=_KRAFT_OTHER, r=_R_PAIRS),
-        _basic_hit,
-        _engine_hit,
-        divergence=(
-            ":30247's second miss factor is int(rnd(1)*(kr/10+1)), a continuous scale; the "
-            "port draws rng.range(kraft//10+1), truncating kr/10 first. For kr=15 the source "
-            "misses on that factor with p=1/2.5=0.4, the port with p=1/2=0.5."
-        ),
-    ),
-    Port(
-        "damage roll, brutalitaet a multiple of 10",
+        "damage roll",
         (Q_30255,),
         "combat_rules.damage_roll",
-        _grid(tg=_TG, bt=(0, 10, 30, 50, 90), r=R),
+        # bt not a multiple of 10 is where bt/10's fraction carries into the int().
+        _grid(tg=_TG, bt=(0, 5, 10, 15, 25, 30, 37, 50, 90, 99), r=R),
         _basic_damage,
         _engine_damage,
-    ),
-    Port(
-        "damage roll, brutalitaet not a multiple of 10",
-        (Q_30255,),
-        "combat_rules.damage_roll",
-        _grid(tg=_TG, bt=(5, 15, 25, 37, 99), r=R),
-        _basic_damage,
-        _engine_damage,
-        divergence=(
-            ":30255 is int(rnd(1)*tg(w)+bt/10)+1 with a continuous rnd(1), so bt/10's "
-            "fraction carries into the int(); the port draws an integer rng.range(tg) "
-            "first, so int(k+bt/10) drops the fraction. The source's damage is on average "
-            "(bt mod 10)/10 higher per hit, and can reach tg+int(bt/10)+1, which the port never does."
-        ),
     ),
 ]
 

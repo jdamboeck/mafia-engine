@@ -205,7 +205,7 @@ def test_hostile_to_is_the_two_party_complement():
 def test_near_adjacent_skips_the_fifty_percent_roll_entirely():
     """30410 jumps to 30420 BEFORE the 30415 roll — an adjacent enemy is never
     subject to the coin flip."""
-    rng = _StubRng(1, 1, 0)  # only the hit/damage rolls; no range(2) queued
+    rng = _StubRng(1, 10, 0)  # only the hit/damage rolls; no range(2) queued
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=20, position=_cell(5, 11))],
         side2=[_f(name="cpu", weapon=5, position=_cell(5, 10))],
@@ -221,7 +221,7 @@ def test_column_aligned_ai_fires_vertically():
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=20, position=_cell(3, 10))],
         side2=[_f(name="cpu", weapon=5, position=_cell(6, 10))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
     outcome = fight.ai_take_turn()
     assert outcome["action"] == "shoot"
@@ -234,7 +234,7 @@ def test_row_aligned_ai_fires_horizontally():
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=20, position=_cell(5, 16))],
         side2=[_f(name="cpu", weapon=5, position=_cell(5, 10))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
     outcome = fight.ai_take_turn()
     assert outcome["action"] == "shoot"
@@ -270,7 +270,7 @@ def test_fifty_percent_roll_of_zero_forces_the_move_branch():
 
 
 def test_fifty_percent_roll_of_one_lets_a_ranged_ai_fire():
-    rng = _StubRng(1, 1, 1, 0)  # roll=1 (no forced move), then hit/hit/damage
+    rng = _StubRng(1, 1, 10, 0)  # roll=1 (no forced move), then hit/hit/damage
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=20, position=_cell(5, 20))],
         side2=[_f(name="cpu", weapon=5, position=_cell(5, 10))],
@@ -297,7 +297,7 @@ def test_non_melee_weapons_are_not_forced_to_close(weapon):
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=99, position=_cell(5, 20))],
         side2=[_f(name="cpu", weapon=weapon, position=_cell(5, 10))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
     outcome = fight.ai_take_turn()
     assert outcome["action"] == "shoot"
@@ -315,7 +315,7 @@ def test_the_close_distance_branch_fires_for_exactly_the_old_weapon_id_set(weapo
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=99, position=_cell(5, 20))],
         side2=[_f(name="cpu", weapon=weapon, position=_cell(5, 10))],
-        rng=_NeverMoveRng(1, 1, 0),  # the coin flip alone never forces a move
+        rng=_NeverMoveRng(1, 10, 0),  # the coin flip alone never forces a move
     )
     outcome = fight.ai_take_turn()
     forced_to_close = outcome["action"] == "move"
@@ -334,7 +334,7 @@ def test_an_invented_melee_weapon_forces_the_cpu_to_close():
         fight = _fight(
             side1=[_f(name="player", weapon=0, energie=99, position=_cell(5, 20))],
             side2=[_f(name="cpu", weapon=weapon, position=_cell(5, 10))],
-            rng=_NeverMoveRng(1, 1, 0),
+            rng=_NeverMoveRng(1, 10, 0),
             weapon_stats=stats,
         )
         assert fight.ai_take_turn()["action"] == expected, f"weapon {weapon}"
@@ -349,7 +349,7 @@ def test_melee_ai_closes_to_adjacency_then_attacks():
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=99, position=_cell(5, 10))],
         side2=[_f(name="cpu", weapon=0, position=_cell(5, 16))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
     actions = []
     for _ in range(6):
@@ -568,7 +568,7 @@ def test_pursuit_on_an_open_grid_converges_without_oscillation():
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=99, position=target_cell)],
         side2=[_f(name="cpu", weapon=0, position=_cell(10, 4))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
     seen = [fight.sides[1][0].position]
     for _ in range(60):
@@ -594,7 +594,7 @@ def test_pursuit_closes_the_distance_on_an_open_grid():
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=99, position=_cell(2, 5))],
         side2=[_f(name="cpu", weapon=0, position=_cell(10, 30))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
 
     def metric():
@@ -638,7 +638,7 @@ def test_same_row_rightward_pursuit_walks_left_and_wraps_to_the_previous_row():
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=99, position=_cell(6, 30))],
         side2=[_f(name="cpu", weapon=0, position=_cell(6, 5))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
     for _ in range(5):
         assert fight.ai_take_turn()["direction"] == STEP_LEFT
@@ -673,7 +673,7 @@ def test_row_zero_rightward_pursuit_stalls_at_cell_zero_forever():
     fight = _fight(
         side1=[_f(name="player", weapon=0, energie=99, position=_cell(0, 20))],
         side2=[_f(name="cpu", weapon=0, position=_cell(0, 5))],
-        rng=_NeverMoveRng(1, 1, 0),
+        rng=_NeverMoveRng(1, 10, 0),
     )
     for _ in range(5):
         assert fight.ai_take_turn()["direction"] == STEP_LEFT
@@ -718,7 +718,7 @@ def test_the_driver_never_prompts_the_client_for_the_cpu_side():
         prompted_sides.append(interaction.active_side)
         return ("surrender", None)
 
-    run_fight(**_ai_spec(), input_source=src, rng=_NeverMoveRng(1, 1, 0))
+    run_fight(**_ai_spec(), input_source=src, rng=_NeverMoveRng(1, 10, 0))
     assert prompted_sides == [1], "the client must only ever be asked for side 1"
 
 

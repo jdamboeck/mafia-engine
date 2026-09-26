@@ -34,6 +34,7 @@ from engine.effects import (
     MsChange,
     RankCommit,
     RosterAppend,
+    ScoreAndRank,
     ScoreChange,
     SetEntryContext,
     SetPosition,
@@ -151,6 +152,22 @@ def test_score_change_normal_delta_lands_exactly():
     state = make_state()  # gf starts at 50
     out = apply(state, ScoreChange(25.0))
     assert out.players[0].gf == 75.0
+
+
+def test_score_change_unclamped_leaves_0_to_100():
+    """``clamp=False`` is the weapon-buy score (``:13065``/``:13072``/``:13073``),
+    which changes gf with no bound: only ``gosub 1160-1161`` clamps."""
+    state = make_state()  # gf starts at 50
+    assert apply(state, ScoreChange(60.0, clamp=False)).players[0].gf == 110.0
+    assert apply(state, ScoreChange(-53.5, clamp=False)).players[0].gf == -3.5
+
+
+def test_score_and_rank_clamps_an_out_of_range_gf():
+    """A gf left above 100 by an unclamped change is clamped at the next ``:1160``."""
+    state = apply(make_state(), ScoreChange(51.0, clamp=False))  # gf 101
+    out = apply(state, ScoreAndRank(amount=0.0, rank_divisor=11.1))
+    assert out.players[0].gf == 100.0
+    assert out.players[0].nr == 10
 
 
 # --------------------------------------------------------------------------- #

@@ -223,8 +223,8 @@ def _find_draw(draws: list, bound: int, used: set[int]) -> tuple[int, int] | Non
     """Find the next unconsumed ``range(bound)`` draw; return ``(value, position)``.
 
     The recorded draws are ``[method, [args], value]`` triples. A shot draws
-    ``range(ts)`` (weapon accuracy factor), ``range(kraft//10+1)`` (craft factor), then
-    ``range(tg)`` (damage) — we pick each out by its bound so the dump names the exact
+    ``range(ts)`` (weapon accuracy factor), ``range(kraft+10)`` (kraft factor), then
+    ``range(10*tg)`` (damage) — we pick each out by its bound so the dump names the exact
     draw each formula input consumed, straight off the record (no recompute).
     """
     for i, rec in enumerate(draws):
@@ -268,15 +268,15 @@ def render_shot_debug(
 
     action_draws = _action_draws(event)
     used: set[int] = set()
-    # The hit check draws range(ts) (weapon factor) then range(kraft//10+1) (craft
+    # The hit check draws range(ts) (weapon factor) then range(kraft+10) (kraft
     # factor); the shot block shows the weapon-factor draw as "the" hit draw.
     hit_draw = _find_draw(action_draws, ts, used)
-    # The craft factor draw (bound kraft//10+1); consumed so it is not mistaken for the
-    # damage draw when ts == kraft//10+1.
-    craft_bound = (hit_value // 10 + 1) if isinstance(hit_value, int) else None
+    # The kraft factor draw (bound kraft+10); consumed so it is not mistaken for the
+    # damage draw when 10*tg == kraft+10.
+    craft_bound = (hit_value + 10) if isinstance(hit_value, int) else None
     if craft_bound is not None:
         _find_draw(action_draws, craft_bound, used)
-    dmg_draw = _find_draw(action_draws, tg, used)
+    dmg_draw = _find_draw(action_draws, 10 * tg, used)
 
     prefix = "(replayed) " if replayed else ""
     hdr_dir = f" {_DIR_LABELS.get(direction, direction)}" if direction is not None else ""
@@ -296,22 +296,21 @@ def render_shot_debug(
         out.write(f"    draw = rng.range(ts={ts})          -> {hit_draw[0]}\n")
         out.write(f"    accuracy attr ({hit_attr})           -> {hit_value}\n")
         verdict = "HIT" if result.get("hit") else "MISS"
-        out.write(f"    both factors non-zero           -> {verdict}\n")
+        out.write(f"    weapon != 0, kraft draw >= 10   -> {verdict}\n")
 
     if result.get("hit"):
         dmg_draw_value = dmg_draw[0] if dmg_draw is not None else None
         damage = result.get("damage")
         out.write("  damage roll:\n")
-        out.write(f"    draw = rng.range(tg={tg})         -> {dmg_draw_value}\n")
+        out.write(f"    draw = rng.range(10*tg={10 * tg})    -> {dmg_draw_value}\n")
         out.write(f"    damage attr ({dmg_attr})         -> {dmg_value}\n")
         if isinstance(dmg_draw_value, int) and isinstance(dmg_value, int):
-            frac = dmg_value / 10
             out.write(
-                f"    int(draw + attr/10) + 1         -> "
-                f"int({dmg_draw_value} + {frac}) + 1 = {damage}\n"
+                f"    (draw + attr) // 10 + 1         -> "
+                f"({dmg_draw_value} + {dmg_value}) // 10 + 1 = {damage}\n"
             )
         else:
-            out.write(f"    int(draw + attr/10) + 1         -> {damage}\n")
+            out.write(f"    (draw + attr) // 10 + 1         -> {damage}\n")
 
         tgt_side = result.get("target_side")
         tgt_index = result.get("target_index")

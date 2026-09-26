@@ -1,20 +1,24 @@
 """U2 — the attribute-agnostic combat contract.
 
-Two things are proven here. First (step 2), that moving the two combat formulas out
-of the engine and into ``data/game_configs/mafia_1920s/combat_rules.py`` did not
-change them: the differential tests exhaust the whole reachable input domain and
-compare the relocated formula against the original, draw for draw. Second, that the
-engine really is attribute-agnostic afterwards — the role machinery, the layer
-boundary, and a second invented config with entirely different attribute names.
+Two things are proven here. First, that the two combat formulas in
+``data/game_configs/mafia_1920s/combat_rules.py`` give the source's exact
+probabilities: the distribution tests exhaust the whole reachable input domain,
+enumerate every value of each bounded draw, and compare the resulting distribution
+with the one ``mf-prg.bas:30247``/``30255`` give a continuous ``rnd(1)``.
+(``tests/test_ports.py`` compares the same two ports with the quoted BASIC text, point
+by point.) Second, that the engine really is attribute-agnostic — the role machinery,
+the layer boundary, and a second invented config with entirely different attribute
+names.
 
-The differential domain, stated concretely: stats are typed ``int`` with no enforced
-range, but ``ts``/``tg`` only ever take the ~7 distinct values in ``weapons.yaml``,
-and ``kraft``/``brutalitaet`` are rolled 10-50 and capped at 99. **0-99 inclusive**
-therefore covers every reachable value with margin — ~700 pairs per formula, which
-runs in milliseconds.
+The domain, stated concretely: stats are typed ``int`` with no enforced range, but
+``ts``/``tg`` only ever take the ~7 distinct values in ``weapons.yaml``, and
+``kraft``/``brutalitaet`` are rolled 10-50 and capped at 99. **0-99 inclusive**
+therefore covers every reachable value with margin, and runs in well under a second.
 """
 
 from __future__ import annotations
+
+from fractions import Fraction
 
 import pytest
 
@@ -29,61 +33,69 @@ STAT_DOMAIN = range(0, 100)
 WEAPON_STAT_DOMAIN = (0, 1, 2, 3, 5, 8, 10, 15, 20)
 
 
-def _original_is_hit(rng, *, ts: int, kraft: int) -> bool:
-    """The pre-U2 engine formula, pinned here as the differential baseline.
+def _enumerate(formula, bound):
+    """Run ``formula`` once per possible value of its bounded draw (``0..bound-1``).
 
-    A verbatim copy of ``engine.combat.is_hit`` as of U1, kept independent of the
-    engine so step 7's deletion cannot quietly turn this comparison into a
-    tautology (importing the engine's copy would make the test pass by identity
-    the moment both point at the same function).
+    Each value is equally likely under ``rng.range(bound)``, so the list of results
+    IS the port's exact distribution.
     """
-    weapon_factor = rng.range(ts) if ts > 0 else 0
-    craft_factor = rng.range(kraft // 10 + 1)
-    return weapon_factor != 0 and craft_factor != 0
+    return [formula(k) for k in range(bound)]
 
 
-def _original_damage_roll(rng, *, tg: int, brutalitaet: int) -> int:
-    """The pre-U2 engine damage formula, pinned as the differential baseline."""
-    draw = rng.range(tg) if tg > 0 else 0
-    return int(draw + brutalitaet / 10) + 1
+def test_is_hit_miss_probability_matches_30247_across_the_whole_domain():
+    """The kraft factor misses with exactly the source's probability, for every kraft.
 
-
-def test_is_hit_matches_the_original_across_the_whole_domain():
-    """The relocated hit test is draw-for-draw identical to the engine's original.
-
-    Both formulas run against their OWN ``Rng`` seeded identically, so any
-    divergence in draw count or draw order shows up as a mismatch, not just a
-    different verdict.
+    ``:30247``'s factor ``int(rnd(1)*(kr/10+1))`` is 0 iff ``rnd(1) < 1/(kr/10+1)``,
+    so the source misses on it with p = ``1/(kr/10+1)`` = ``10/(kr+10)``. The port
+    draws ``rng.range(kraft+10)``; enumerating every draw value (weapon factor held
+    non-zero) must give that same fraction of misses, for the whole stat domain.
     """
-    for ts in WEAPON_STAT_DOMAIN:
-        for kraft in STAT_DOMAIN:
-            old = _original_is_hit(Rng(4242), ts=ts, kraft=kraft)
-            new = game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, Rng(4242))
-            assert old == new, f"is_hit diverged at ts={ts} kraft={kraft}"
+    for kraft in STAT_DOMAIN:
+        bound = kraft + 10
+        hits = _enumerate(
+            lambda k, kraft=kraft: game_rules.is_hit(kraft, {"ts": 2, "tg": 0}, StubRng(1, k)),
+            bound,
+        )
+        port_p_miss = Fraction(hits.count(False), bound)
+        basic_p_miss = 1 / (Fraction(kraft, 10) + 1)
+        assert port_p_miss == basic_p_miss, f"is_hit miss probability diverged at kraft={kraft}"
 
 
-def test_damage_roll_matches_the_original_across_the_whole_domain():
-    """The relocated damage roll is draw-for-draw identical to the engine's original."""
+def test_damage_roll_distribution_matches_30255_across_the_whole_domain():
+    """Every damage value comes up with exactly the source's probability.
+
+    ``:30255`` is ``y=int(rnd(1)*tg+bt/10)+1`` with ``rnd(1)`` uniform on [0, 1), so
+    ``y=d`` iff ``rnd(1)*tg`` lies in ``[d-1-bt/10, d-bt/10)``: its probability is that
+    interval's overlap with ``[0, tg)``, divided by ``tg``. Enumerating every value of
+    the port's ``rng.range(10*tg)`` draw must give the same distribution, for every
+    weapon and the whole stat domain.
+    """
     for tg in WEAPON_STAT_DOMAIN:
-        for brutalitaet in STAT_DOMAIN:
-            old = _original_damage_roll(Rng(99), tg=tg, brutalitaet=brutalitaet)
-            new = game_rules.damage_roll(brutalitaet, {"ts": 0, "tg": tg}, Rng(99))
-            assert old == new, f"damage_roll diverged at tg={tg} bt={brutalitaet}"
+        if tg == 0:
+            continue  # no draw: pinned by test_damage_roll_tg_zero_is_the_bonus_plus_one
+        for bt in STAT_DOMAIN:
+            bound = 10 * tg
+            rolls = _enumerate(
+                lambda k, tg=tg, bt=bt: game_rules.damage_roll(bt, {"ts": 0, "tg": tg}, StubRng(k)),
+                bound,
+            )
+            offset = Fraction(bt, 10)
+            for d in range(1, tg + 12):
+                lo = max(Fraction(d - 1) - offset, Fraction(0))
+                hi = min(Fraction(d) - offset, Fraction(tg))
+                basic_p = max(hi - lo, Fraction(0)) / tg
+                port_p = Fraction(rolls.count(d), bound)
+                assert port_p == basic_p, f"damage_roll diverged at tg={tg} bt={bt} y={d}"
+            assert all(1 <= y <= tg + 11 for y in rolls)
 
 
-def test_damage_roll_truncates_the_brutalitaet_bonus_and_always_costs_one():
-    """The ``bt/10`` bonus TRUNCATES, and every hit costs at least 1 (``30255``).
+def test_damage_roll_tg_zero_is_the_bonus_plus_one():
+    """With ``tg`` 0 the random term is 0, so damage is ``int(bt/10)+1`` (``30255``).
 
-    A ``tg`` of 0 admits no variance (the formula skips the draw entirely), which
-    pins the result without scripting a single draw — determinism from shaping the
-    DATA (KTD-6). brutalitaet 0-9 all floor to a +0 bonus, so damage stays at the
-    trailing ``+1``; 25 floors to +2, giving 3.
-
-    Note on ``int()`` placement: the source writes ``int(rnd(1)*tg(w)+bt/10)+1``,
-    wrapping the whole sum. Because ``rng.range`` returns an INTEGER, wrapping the
-    sum and wrapping only the bonus are mathematically identical here — so no test
-    can distinguish them. This asserts the truncation that IS observable rather
-    than pretending to pin the parenthesis.
+    ``tg`` 0 admits no variance (the formula skips the draw entirely), which pins the
+    result without scripting a single draw — determinism from shaping the DATA
+    (KTD-6). brutalitaet 0-9 give a +0 bonus, so damage stays at the trailing ``+1``;
+    25 gives +2, so 3.
     """
     assert game_rules.damage_roll(0, {"ts": 0, "tg": 0}, Rng(1)) == 1
     assert game_rules.damage_roll(9, {"ts": 0, "tg": 0}, Rng(1)) == 1
@@ -96,44 +108,53 @@ def test_hit_misses_when_either_factor_rolls_zero(ts):
     """30247: a shot misses iff EITHER factor rolls 0. Moved from the engine's own
     formula tests when the formula moved out (U2); now on the live config path.
 
-    ``ts`` is restricted to > 0 here: at ``ts == 0`` the weapon factor is a forced 0
-    (the draw is skipped entirely), so the "neither rolls zero" case cannot arise —
-    an unarmed weapon always misses, which ``test_unarmed_always_misses`` pins.
+    The kraft factor ``int(rnd(1)*(kr/10+1))`` is 0 exactly when the port's
+    ``rng.range(kr+10)`` draw is below 10, so 9 is its highest miss and 10 its lowest
+    pass. ``ts`` is restricted to > 0 here: at ``ts == 0`` the weapon factor is a
+    forced 0 (the draw is skipped entirely), so the "neither rolls zero" case cannot
+    arise — an unarmed weapon always misses, which ``test_unarmed_always_misses`` pins.
     """
-    kraft = 30  # kr/10+1 = 4
-    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(0, 1)) is False  # weapon 0
-    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(1, 0)) is False  # craft 0
-    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(1, 1)) is True  # neither
+    kraft = 30  # range(40); kr/10+1 = 4
+    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(0, 10)) is False  # weapon 0
+    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(1, 9)) is False  # kraft 0
+    assert game_rules.is_hit(kraft, {"ts": ts, "tg": 0}, StubRng(1, 10)) is True  # neither
 
 
 def test_unarmed_always_misses():
     """``ts == 0`` forces the weapon factor to 0, so the shot never connects (the
-    craft factor is not even drawn)."""
-    rng = StubRng(1)  # would be a hit if the weapon factor were read
+    weapon factor is not even drawn)."""
+    rng = StubRng(10)  # would be a hit if the weapon factor were read
     assert game_rules.is_hit(50, {"ts": 0, "tg": 0}, rng) is False
-    assert rng.calls == [("range", 6)]  # only the craft draw, bound int(50/10)+1
+    assert rng.calls == [("range", 60)]  # only the kraft draw, bound 50+10
 
 
-def test_hit_draws_ts_then_kraft_over_ten_plus_one():
-    """The two factors are drawn with bounds ``ts`` and ``int(kr/10)+1`` in that order."""
-    rng = StubRng(1, 1)
+def test_hit_draws_ts_then_kraft_plus_ten():
+    """The two factors are drawn with bounds ``ts`` and ``kr+10`` in that order."""
+    rng = StubRng(1, 10)
     game_rules.is_hit(37, {"ts": 5, "tg": 0}, rng)
-    assert rng.calls == [("range", 5), ("range", 4)]  # int(37/10)+1 == 4
+    assert rng.calls == [("range", 5), ("range", 47)]  # 37+10
 
 
 @pytest.mark.parametrize("tg", WEAPON_STAT_DOMAIN)
 def test_damage_bounds_and_never_zero(tg):
-    """30255: minimum hit is 1 (draw 0, bt 0); maximum is (tg-1) + 9 + 1."""
+    """30255: minimum hit is 1 (draw 0, bt 0); the maximum, at bt 99 and the top draw,
+    is ``tg+10``: ``rnd(1)*tg`` just under ``tg`` plus 9.9 truncates to ``tg+9``."""
     assert game_rules.damage_roll(0, {"ts": 0, "tg": tg}, StubRng(0)) == 1
-    hi_draw = max(tg - 1, 0)
-    assert game_rules.damage_roll(99, {"ts": 0, "tg": tg}, StubRng(hi_draw)) == hi_draw + 9 + 1
+    hi_draw = max(10 * tg - 1, 0)
+    expected = tg + 10 if tg > 0 else 10
+    assert game_rules.damage_roll(99, {"ts": 0, "tg": tg}, StubRng(hi_draw)) == expected
 
 
 def test_damage_draw_uses_tg_only():
-    """The damage roll draws once, bounded by ``tg`` — brutalitaet is not a draw."""
-    rng = StubRng(3)
-    assert game_rules.damage_roll(35, {"ts": 0, "tg": 10}, rng) == 7  # int(3 + 3.5) + 1
-    assert rng.calls == [("range", 10)]
+    """The damage roll draws once, bounded by ``10*tg`` — brutalitaet is not a draw.
+
+    Draw 30 of 100 stands for ``rnd(1)=0.3``: ``int(0.3*10 + 3.5)+1`` is 7. Draw 35
+    (``rnd(1)=0.35``) shows the carry: ``int(3.5 + 3.5)+1`` is 8.
+    """
+    rng = StubRng(30)
+    assert game_rules.damage_roll(35, {"ts": 0, "tg": 10}, rng) == 7
+    assert rng.calls == [("range", 100)]
+    assert game_rules.damage_roll(35, {"ts": 0, "tg": 10}, StubRng(35)) == 8
 
 
 def test_bundle_declares_this_games_roles():

@@ -181,8 +181,10 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
 
         old = g.weapon  # gw(sp,y) — the gangster's CURRENT weapon (0 = unarmed)
         # x8 == the score weight (Config.score_mult); the buy-score modifies gf DIRECTLY
-        # by ±x8 (13065/13072/13073) and does NOT recompute rank (no gosub 1160), so it
-        # is a plain ScoreChange (the intrinsic [0,100] clamp is enough), not ScoreAndRank.
+        # by ±x8 (13065/13072/13073) and does NOT go through gosub 1160, so it neither
+        # recomputes rank nor clamps: an unclamped ScoreChange, not ScoreAndRank. Only the
+        # gf<100 / gf>0 guards bound it, so gf=99,x8=2 upgrading reaches 101 and stays
+        # there until the next gosub 1160 (ScoreAndRank) clamps it.
         x8 = ctx.state.config.score_mult
 
         if old == 0:
@@ -191,7 +193,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             # previously unarmed gangster raises the gang's notoriety.
             q = 0
             if active.gf < 100:
-                ctx.apply(ScoreChange(x8))
+                ctx.apply(ScoreChange(x8, clamp=False))
         else:
             # 13070-13071 — trade-in offer on the OLD weapon's price, yes/no confirm.
             # :13070 `q=int(wp(gw(sp,y))/1.5)`
@@ -206,10 +208,10 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             #   :13073 downgrade  `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)` -> DOWN by 2*x8 (while gf>0)
             if x > old:
                 if active.gf < 100:
-                    ctx.apply(ScoreChange(x8))
+                    ctx.apply(ScoreChange(x8, clamp=False))
             else:
                 if active.gf > 0:
-                    ctx.apply(ScoreChange(-2 * x8))
+                    ctx.apply(ScoreChange(-2 * x8, clamp=False))
 
         # 13075 — settle: cash += q - new_price; assign the weapon to the gangster.
         # :13075 `ka(sp)=ka(sp)+q-wp(x)`

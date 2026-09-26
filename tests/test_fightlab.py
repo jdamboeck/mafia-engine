@@ -255,8 +255,8 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
     the values come off the recorded event, never a recompute.
 
     The pinned shot is side 1's hero's first HIT (activation 18): hit draw
-    ``rng.range(ts=5) -> 4``, kraft 34, damage draw ``rng.range(tg=10) -> 0``,
-    brutalitaet 28, damage = int(0 + 2.8) + 1 = 3, schuldner energie 35 -> 32."""
+    ``rng.range(ts=5) -> 4``, kraft 34, damage draw ``rng.range(10*tg=100) -> 0``,
+    brutalitaet 28, damage = (0 + 28) // 10 + 1 = 3, schuldner energie 35 -> 32."""
     scenario = fightlab.load_scenario(_SCENARIO)
     _result, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
 
@@ -283,9 +283,9 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
     assert "accuracy attr (kraft)           -> 34" in text
     assert "HIT" in text
     # The damage roll: the draw with its BOUND, the damage attr value, the arithmetic.
-    assert "draw = rng.range(tg=10)         -> 0" in text
+    assert "draw = rng.range(10*tg=100)    -> 0" in text
     assert "damage attr (brutalitaet)         -> 28" in text
-    assert "int(0 + 2.8) + 1 = 3" in text
+    assert "(0 + 28) // 10 + 1 = 3" in text
     # The target line: real name (NOT "side {i}"), energie before -> after.
     assert "schuldner" in text
     assert "energie 35 -> 32" in text

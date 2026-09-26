@@ -62,14 +62,19 @@ def is_hit(attacker: Any, equipment: Any, rng: Any) -> bool:
     fidelity-neutral deviation (the outcome is identical either way, since a miss
     is a miss) that the behavioral bar explicitly permits.
 
-    ``int(kr/10+1)`` is BASIC's truncation, so the second factor's bound is
-    ``kraft // 10 + 1`` — never 0, so ``rng.range`` is always called legally.
+    The second factor scales ``rnd(1)`` by the CONTINUOUS ``kr/10+1`` before the
+    ``int()``: for ``kr=15`` it is 0 with p=1/2.5, not the 1/2 that truncating
+    ``kr/10`` first would give. It is 0 exactly when ``rnd(1)*(kr/10+1) < 1``, i.e.
+    ``rnd(1)*(kr+10) < 10``, so the port draws ``rng.range(kraft + 10)`` and misses
+    below 10. That is exact because kraft is always an integer (rolled at ``:350``,
+    raised by integer training gains, fixed 30 for the CPU); the bound is at least 10,
+    so ``rng.range`` is always called legally.
     """
     ts = equipment["ts"]
     kraft = attacker
     weapon_factor = rng.range(ts) if ts > 0 else 0
-    craft_factor = rng.range(kraft // 10 + 1)
-    return weapon_factor != 0 and craft_factor != 0
+    craft_miss = rng.range(kraft + 10) < 10
+    return weapon_factor != 0 and not craft_miss
 
 
 def damage_roll(attacker: Any, equipment: Any, rng: Any) -> int:
@@ -84,11 +89,17 @@ def damage_roll(attacker: Any, equipment: Any, rng: Any) -> int:
 
     The trailing ``+1`` makes damage at least 1 on every hit — a connecting shot
     always costs the target energy.
+
+    With a continuous ``rnd(1)``, ``int(rnd(1)*tg + bt/10)`` is
+    ``int((rnd(1)*10*tg + bt)/10)``, and because brutalitaet is always an integer
+    that equals ``(int(rnd(1)*10*tg) + bt) // 10``: the port draws
+    ``rng.range(10 * tg)`` so the carry from ``bt``'s last digit survives. A weapon
+    with ``tg=0`` draws nothing and deals ``bt // 10 + 1`` (``rnd(1)*0`` is 0).
     """
     tg = equipment["tg"]
     brutalitaet = attacker
-    draw = rng.range(tg) if tg > 0 else 0
-    return int(draw + brutalitaet / 10) + 1
+    draw = rng.range(10 * tg) if tg > 0 else 0
+    return (draw + brutalitaet) // 10 + 1
 
 
 def equipper(weapon_stats: Any) -> Any:

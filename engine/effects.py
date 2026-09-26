@@ -102,14 +102,21 @@ class MoneyChange:
 class ScoreChange:
     """Add ``amount`` (signed) to the target player's score ``gf``, clamped to [0, 100].
 
-    The clamp is intrinsic to ``gf`` in the original: ``mf-prg.bas:1160`` caps at 100 and
-    ``:1161`` floors at 0. NOTE: the score *weighting* (``x * x8``, ``Config.score_mult``)
-    is a LATER helper's concern — this raw effect just applies the delta and clamps.
+    The clamp is the one ``mf-prg.bas:1160`` (cap at 100) and ``:1161`` (floor at 0)
+    apply. NOTE: the score *weighting* (``x * x8``, ``Config.score_mult``) is a LATER
+    helper's concern — this raw effect just applies the delta and clamps.
+
+    ``clamp=False`` adds the delta with NO bound, for the source lines that change
+    ``gf`` directly without going through ``gosub 1160`` (the weapon-buy score at
+    ``:13065``/``:13072``/``:13073``), so ``gf`` can leave [0, 100] until the next
+    ``gosub 1160`` (:class:`ScoreAndRank`) clamps it. The default keeps the clamp, so
+    saves and recordings written before the field existed replay unchanged.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: float
     player: int | None = None
+    clamp: bool = True
 
 
 @dataclass(frozen=True)
@@ -231,7 +238,7 @@ class ScoreAndRank:
     ``gf = clamp(gf + amount*score_mult, 0, 100)`` then ``nr = int(gf/rank_divisor)+1``,
     computed from the CLAMPED ``gf``. Fusing the two avoids the ordering hazard a
     separate score-then-rank pair would face (rank must see the post-clamp ``gf``). The
-    ``[0, 100]`` clamp is the intrinsic ``gf`` domain, reused from :class:`ScoreChange`
+    ``[0, 100]`` clamp is the one :class:`ScoreChange` applies by default
     (the one bound the engine owns rather than config). ``amount`` is the raw reward
     ``x``; ``score_mult`` is ``x8``
     (``Config.score_mult``). ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded.
@@ -665,8 +672,10 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, ScoreChange):
         idx = _target_index(state, effect.player)
-        # Clamp intrinsic to gf: cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
-        gf = _clamp(state.players[idx].gf + effect.amount, 0.0, 100.0)
+        gf = state.players[idx].gf + effect.amount
+        if effect.clamp:
+            # cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
+            gf = _clamp(gf, 0.0, 100.0)
         return _with_player(state, idx, gf=gf)
 
     if isinstance(effect, MsChange):

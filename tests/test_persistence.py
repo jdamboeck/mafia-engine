@@ -280,6 +280,20 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     assert restored.side == 1
 
 
+def test_a_score_change_recorded_before_the_clamp_field_loads_clamped():
+    """A ScoreChange logged before ``clamp`` existed has no such key; it must load, and
+    replay with the clamp it was recorded under."""
+    from engine.effects import ScoreChange
+
+    restored = persistence._effect_from_dict(
+        {"_type": "ScoreChange", "amount": 3.0, "player": None}
+    )
+    assert restored == ScoreChange(3.0)
+    assert restored.clamp is True
+    unclamped = ScoreChange(3.0, clamp=False)
+    assert persistence._effect_from_dict(persistence._effect_to_dict(unclamped)) == unclamped
+
+
 def test_session_save_resumes_the_rng_stream(tmp_path):
     """U8/KTD-5: a map-turn save carries an EMPTY effect log (the snapshot is
     authoritative) plus the session seed and RNG log, and a load rebuilds an RNG whose
