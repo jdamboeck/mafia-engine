@@ -67,7 +67,7 @@ are only *coherent* under `true = -1`:
    `true=+1` gives a bound of `-1`, but a C64 `FOR` loop tests at `NEXT` and runs its body
    once anyway, so nothing breaks; this site only fits `-1` better.
 5. **`:13073` vs. `:13065`/`:13072` — the weapon buy score.** Weapon indices ascend in
-   power and price (`DATA 50100-50115`: 0 `haende` 0$, 7 `handgranaten` 10000$), so at
+   power and price (`DATA 50100-50115`, read as index 0-8 at `:121`: 0 `haende` 0$ up to 8 `handgranaten` 10000$), so at
    `:13072` `x > gw` is an **upgrade**. `gf` is notoriety, positive for successes
    (`x=2` for won fights/heists) and negative for failures (`x=-2`, `-5`, `-10`). Only
    `true=-1` makes arming/upgrading *raise* notoriety and downgrading *lower* it.
