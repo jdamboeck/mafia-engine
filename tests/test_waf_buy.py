@@ -114,10 +114,8 @@ def _by_type_source(answers):
     registered sub-state), so callers only script PromptInt/PromptChoice/Confirm.
     """
     iters = {k: iter(v) for k, v in answers.items()}
-    seen: list = []
 
     def source(interaction):
-        seen.append(interaction)
         if isinstance(interaction, ShowMessage):
             # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
             # and the driver acks regardless of what we return here.
@@ -127,9 +125,6 @@ def _by_type_source(answers):
                 return next(it)
         raise AssertionError(f"unscripted interaction {interaction!r}")
 
-    source.seen = seen
-    source.messages = lambda: [i for i in seen if isinstance(i, ShowMessage)]
-    source.message_keys = lambda: [i.key for i in seen if isinstance(i, ShowMessage)]
     return source
 
 

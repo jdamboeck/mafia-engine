@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+from typing import Any
 
 from engine.strings import Resolver
 
@@ -230,7 +231,7 @@ class _FakeResolver:
         return self._TREE
 
     def resolve(self, key, params=None):
-        node = self._TREE
+        node: Any = self._TREE
         for seg in key.split("."):
             node = node[seg]
         return node.format(**(params or {}))
@@ -437,7 +438,7 @@ class TestFighterPanelIsAttributeAgnostic:
                 return self._TREE
 
             def resolve(self, key, params=None):
-                node = self._TREE
+                node: Any = self._TREE
                 for seg in key.split("."):
                     node = node[seg]
                 return node.format(**(params or {}))

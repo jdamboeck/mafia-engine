@@ -24,7 +24,7 @@ import yaml
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
-from engine.state import Clock, Config, GameState, MapState, Player, freeze
+from engine.state import Clock, Config, GameState, MapState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_pure, scripted as _scripted
 
@@ -55,8 +55,8 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
-        config=Config(formula_params=freeze({"fnm": _FNM_PARAMS})),
-        map=MapState(tenancy=freeze(tenancy or {})),
+        config=Config(formula_params={"fnm": _FNM_PARAMS}),
+        map=MapState(tenancy=tenancy or {}),
     )
 
 

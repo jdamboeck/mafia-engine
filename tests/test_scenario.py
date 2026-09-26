@@ -15,6 +15,7 @@ Covers the plan's U5 scenarios, reconciled with amendments A1/A5/A6:
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from engine.combat import CombatFight, CombatResult
 from engine.combat_setup import setup_combat
@@ -41,7 +42,7 @@ def _weapon_stats() -> dict:
 def test_from_roster_matches_setup_combat_field_for_field():
     """The procedural path reproduces ``setup_combat``'s output exactly (U5)."""
     roster = [Gangster(name="capone", weapon=5, energie=20, kraft=40, brutalitaet=50)]
-    kwargs = dict(
+    kwargs: dict[str, Any] = dict(
         enemy_count=3,
         enemy_weapon=6,
         enemy_vitality=35,
@@ -55,6 +56,7 @@ def test_from_roster_matches_setup_combat_field_for_field():
 
     assert scenario.sides == state.sides
     assert scenario.grid == state.grid
+    assert scenario.dir_memory is not None
     assert dict(scenario.dir_memory) == dict(state.dir_memory)
     # The two fields setup_combat does not carry, but the scenario does:
     assert scenario.rules == build_rules()
@@ -72,6 +74,7 @@ def test_from_roster_equips_each_fighter_via_setup_combat_not_a_table():
         enemy_attrs={"kraft": 30, "brutalitaet": 30},
         equip=equipper(_weapon_stats()),
     )
+    assert scenario.sides is not None
     assert scenario.sides[0][0].equipment["ts"] == 5  # revolver (id 5)
     assert scenario.sides[1][0].equipment["ts"] == 2  # bare hands (id 0)
     assert not hasattr(scenario, "weapon_stats")  # no parallel table (A1/A6)
@@ -90,6 +93,7 @@ def test_explicit_scenario_needs_no_gamestate_or_config():
         grid=(),
         rules=build_rules(),
     )
+    assert scenario.sides is not None
     assert scenario.sides[0][0].name == "hero"
     assert scenario.sides[1][0].name == "thug"
     assert scenario.rules == build_rules()
@@ -140,6 +144,7 @@ def test_a_scenario_with_an_invented_weapon_resolves_a_shot_from_on_fighter_stat
         ),
         rules=build_rules(),
     )
+    assert scenario.sides is not None
     state = CombatState(sides=scenario.sides, grid=scenario.grid or ())
     # StubRng: two non-zero hit factors + a damage draw -> a guaranteed hit.
     fight = CombatFight(state, rng=StubRng(1, 1, 5), rules=scenario.rules)
@@ -180,10 +185,12 @@ def test_scenario_runs_to_a_combat_result_with_no_gamestate():
         ),
         rules=build_rules(),
     )
+    assert scenario.sides is not None
     state = CombatState(sides=scenario.sides, grid=scenario.grid or ())
     fight = CombatFight(state, rng=StubRng(1, 1, 5), rules=scenario.rules)
     fight.shoot(+1)  # downs the 1-vitality enemy
     winner = fight.winner()
+    assert winner is not None  # the fight is over: the only enemy is down
     result = CombatResult(winner=winner, losses=fight.losses)
 
     assert result.winner == 1  # side 1 wins; side 2's only fighter is down

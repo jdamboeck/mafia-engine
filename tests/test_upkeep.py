@@ -35,11 +35,13 @@ load_game_config(_CONFIG_DIR)
 
 def _state(*, roster=None, rank=1, nr=1, gf=0.0, name="alcapone", gang_name="the outfit"):
     roster = (
-        roster if roster is not None else [Gangster(name=name, energie=5, kraft=15, brutalitaet=30)]
+        roster
+        if roster is not None
+        else (Gangster(name=name, energie=5, kraft=15, brutalitaet=30),)
     )
     player = Player(name=name, gang_name=gang_name, rank=rank, nr=nr, gf=gf, roster=roster)
     return GameState(
-        players=[player],
+        players=(player,),
         clock=Clock(active_player=0, player_count=1),
         config=Config(),
     )
@@ -69,7 +71,7 @@ def test_regen_formula_unclamped_case():
     assert result.status == "completed"
     energy_effects = [e for e in result.effects if isinstance(e, EnergyChange)]
     assert energy_effects == [EnergyChange(amount=2, cap=12, gangster=0)]
-    assert result.state.players[0].roster[0].energie == 7
+    assert result.state.players[0].roster[0].vitality == 7
 
 
 def test_regen_works_on_a_reloaded_roster():
@@ -92,7 +94,7 @@ def test_regen_formula_clamps_at_cap():
     # ifen>xthenen=x (an upper clamp, not a floor-only guard).
     state = _state(roster=[Gangster(energie=5, kraft=0, brutalitaet=0)])
     result = run_upkeep(state)
-    assert result.state.players[0].roster[0].energie == 2
+    assert result.state.players[0].roster[0].vitality == 2
 
 
 def test_regen_formula_gain_added_then_clamped():
@@ -100,7 +102,7 @@ def test_regen_formula_gain_added_then_clamped():
     # energie starts at 10 -> 10+5=15, under cap -> unclamped.
     state = _state(roster=[Gangster(energie=10, kraft=40, brutalitaet=20)])
     result = run_upkeep(state)
-    assert result.state.players[0].roster[0].energie == 15
+    assert result.state.players[0].roster[0].vitality == 15
 
 
 def test_regen_runs_for_every_gangster_including_the_boss():
@@ -116,8 +118,8 @@ def test_regen_runs_for_every_gangster_including_the_boss():
         EnergyChange(amount=2, cap=6, gangster=0),
         EnergyChange(amount=3, cap=17, gangster=1),
     ]
-    assert result.state.players[0].roster[0].energie == 6  # 5+2=7 clamped to 6
-    assert result.state.players[0].roster[1].energie == 8  # 5+3=8 under cap 17
+    assert result.state.players[0].roster[0].vitality == 6  # 5+2=7 clamped to 6
+    assert result.state.players[0].roster[1].vitality == 8  # 5+3=8 under cap 17
 
 
 # --------------------------------------------------------------------------- #
@@ -176,7 +178,7 @@ def test_effects_commit_atomically_energy_and_rank_together():
     assert "EnergyChange" in kinds
     assert "RankCommit" in kinds
     # Both landed on the SAME returned state (one commit, not two separate ones).
-    assert result.state.players[0].roster[0].energie == 7
+    assert result.state.players[0].roster[0].vitality == 7
     assert result.state.players[0].rank == 2
 
 
@@ -210,14 +212,14 @@ def test_run_pure_clean_for_the_registered_handler():
 # multi-player: upkeep targets the ACTIVE player only                         #
 # --------------------------------------------------------------------------- #
 def test_upkeep_only_touches_the_active_player():
-    p0 = Player(name="p0", rank=1, nr=1, roster=[Gangster(energie=5, kraft=10, brutalitaet=10)])
+    p0 = Player(name="p0", rank=1, nr=1, roster=(Gangster(energie=5, kraft=10, brutalitaet=10),))
     p1 = Player(
-        name="p1", rank=1, nr=3, gf=25.0, roster=[Gangster(energie=5, kraft=10, brutalitaet=10)]
+        name="p1", rank=1, nr=3, gf=25.0, roster=(Gangster(energie=5, kraft=10, brutalitaet=10),)
     )
     state = GameState(
-        players=[p0, p1], clock=Clock(active_player=1, player_count=2), config=Config()
+        players=(p0, p1), clock=Clock(active_player=1, player_count=2), config=Config()
     )
     result = run_upkeep(state)
     assert result.state.players[0] == p0  # untouched — not the active player
     assert result.state.players[1].rank == 3  # promoted
-    assert result.state.players[1].roster[0].energie == 6  # 5 + (10//10+1)=2 -> cap 2+2+2=6
+    assert result.state.players[1].roster[0].vitality == 6  # 5 + (10//10+1)=2 -> cap 2+2+2=6

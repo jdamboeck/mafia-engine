@@ -169,7 +169,7 @@ def test_movement_blocked_by_plain_scenery_code():
 
 
 def test_movement_allowed_onto_empty_codes():
-    grid = list((160,) * CELL_COUNT)
+    grid = list[int]((160,) * CELL_COUNT)
     grid[5] = 32
     grid[6] = 96
     grid = tuple(grid)
@@ -178,7 +178,7 @@ def test_movement_allowed_onto_empty_codes():
 
 
 def test_movement_blocked_by_occupied_cell():
-    grid = list((160,) * CELL_COUNT)
+    grid = list[int]((160,) * CELL_COUNT)
     grid[5] = 32
     grid = tuple(grid)
     assert can_move_onto(5, grid, occupied=frozenset({5})) is False
@@ -193,7 +193,7 @@ def test_movement_blocked_out_of_bounds():
 def test_shot_blocked_only_by_wall_codes_not_scenery():
     # A shot's projectile is NOT stopped by plain scenery (224) or an occupied cell —
     # only by an actual wall code (160/156) or the bounds (30225-30226).
-    grid = list((32,) * CELL_COUNT)
+    grid = list[int]((32,) * CELL_COUNT)
     grid[10] = 224  # decorative scenery — blocks a MOVE but not a SHOT
     grid[11] = 160  # wall — blocks a SHOT
     grid[12] = 156  # wall (alt code) — blocks a SHOT
@@ -217,7 +217,7 @@ def test_shot_blocked_out_of_bounds():
 
 
 def test_movement_and_shot_obstruction_sets_genuinely_differ():
-    grid = list((32,) * CELL_COUNT)
+    grid = list[int]((32,) * CELL_COUNT)
     grid[20] = 224  # scenery: blocks move, not shot
     grid = tuple(grid)
     move_blocked = not can_move_onto(20, grid, occupied=frozenset())
@@ -236,7 +236,7 @@ def test_cell_520_is_max_cell():
 
 
 def test_cell_520_legally_reachable_when_empty():
-    grid = list((160,) * CELL_COUNT)
+    grid = list[int]((160,) * CELL_COUNT)
     grid[520] = 32
     grid = tuple(grid)
     assert can_move_onto(520, grid, occupied=frozenset()) is True
@@ -247,7 +247,7 @@ def test_cell_520_not_rejected_by_strict_row_math():
     # bound. A correct linear implementation must not reject it as row 13 col 0.
     assert 520 // GRID_COLS == 13
     assert 520 % GRID_COLS == 0
-    grid = list((32,) * CELL_COUNT)
+    grid = list[int]((32,) * CELL_COUNT)
     grid = tuple(grid)
     assert can_move_onto(520, grid, occupied=frozenset()) is True
     assert blocks_shot(520, grid) is False  # empty cell, in bounds -> not a wall

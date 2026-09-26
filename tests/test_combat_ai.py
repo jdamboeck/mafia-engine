@@ -103,16 +103,19 @@ def test_target_direction_codes_are_step_deltas():
     # target up-left of the CPU fighter
     fight = _fight(side1=[_f(position=_cell(4, 18))], side2=[cpu])
     t = ai_target(fight)
+    assert t is not None
     assert t.x == STEP_LEFT
     assert t.y == STEP_UP
     # target down-right
     fight = _fight(side1=[_f(position=_cell(8, 22))], side2=[cpu])
     t = ai_target(fight)
+    assert t is not None
     assert t.x == STEP_RIGHT
     assert t.y == STEP_DOWN
     # aligned on both axes -> zero deltas
     fight = _fight(side1=[_f(position=_cell(6, 25))], side2=[cpu])
     t = ai_target(fight)
+    assert t is not None
     assert (t.x, t.y) == (STEP_RIGHT, 0)
 
 
@@ -125,6 +128,7 @@ def test_downed_side_one_fighters_are_not_targeted():
         side2=[_f(name="cpu", position=_cell(5, 10))],
     )
     t = ai_target(fight)
+    assert t is not None
     assert t.index == 1
 
 
@@ -144,6 +148,7 @@ def test_the_ai_hunts_side_one_even_when_side_two_acts_second():
         side2=[_f(name="cpu", position=_cell(5, 10)), _f(name="ally", position=_cell(5, 11))],
     )
     t = ai_target(fight)
+    assert t is not None
     assert t.side == 1
     assert t.index == 0
 

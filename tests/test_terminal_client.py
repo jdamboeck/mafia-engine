@@ -20,6 +20,7 @@ import io
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -274,7 +275,7 @@ def test_eof_at_cancellable_prompt_raises_rather_than_cancelling():
     """EOF is not a blank line even where a blank line would cancel: it ends input."""
     inp, _out = _eof_client("")
     with pytest.raises(EndOfInput):
-        inp(PromptChoice("locations.sph.wager_prompt", options=("a", "b"), cancellable=True))
+        inp(PromptChoice("locations.sph.wager_prompt", options=["a", "b"], cancellable=True))
 
 
 def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
@@ -479,7 +480,7 @@ class TestClientErrorGuard:
         return path
 
     @staticmethod
-    def _fail(capsys, argv) -> tuple[int, str]:
+    def _fail(capsys, argv) -> tuple[int | str | None, str]:
         with pytest.raises(SystemExit) as exc:
             main(argv)
         return exc.value.code, capsys.readouterr().err
@@ -757,7 +758,7 @@ class TestClientTextComesFromTheTheme:
         keys = self._leaf_keys(_yaml_load(self._CLIENT_YAML)["client"], "client")
         assert "client.bye" in keys and "client.turn_over.summary" in keys
         for key in keys:
-            template = resolver.tree
+            template: Any = resolver.tree
             for segment in key.split("."):
                 template = template[segment]
             params = {f: "x" for _, f, _, _ in string.Formatter().parse(template) if f}

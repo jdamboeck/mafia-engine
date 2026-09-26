@@ -79,6 +79,7 @@ def test_scenario_file_enemy_side_equals_from_encounter():
 
     # The enemy side (side 2) must match exactly — same schuldner, gewehr, 35 energy,
     # 30/30 attrs, same position/equipment.
+    assert from_file.sides is not None and from_encounter.sides is not None
     assert from_file.sides[1] == from_encounter.sides[1]
     # And the player side is the invented fighter the file declares.
     assert [f.name for f in from_file.sides[0]] == ["hero"]

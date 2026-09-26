@@ -91,7 +91,9 @@ def test_optional_player_present():
 
 
 def test_optional_player_absent_uses_default():
-    assert effect_from_dict({"type": "money_change", "amount": 10}).player is None
+    effect = effect_from_dict({"type": "money_change", "amount": 10})
+    assert isinstance(effect, MoneyChange)
+    assert effect.player is None
 
 
 # --------------------------------------------------------------------------- #

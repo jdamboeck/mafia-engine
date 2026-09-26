@@ -184,6 +184,7 @@ def test_mid_slw_rent_save_resume_matches_uninterrupted(tmp_path: Path):
 
     # --- uninterrupted reference run --------------------------------------- #
     ref_handler = _opt(slw, "rent").handler
+    assert ref_handler is not None
     ref = run(ref_handler, _Recorder(2), state=state, rng=None)
     assert ref.status == "completed"
 

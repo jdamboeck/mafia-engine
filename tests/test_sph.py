@@ -33,7 +33,7 @@ _FORMULA_PARAMS = {"casino_payout_offset": 0.5}
 
 
 def _state(*, ka=5000, active=0, players=1):
-    plist = [Player(ka=ka, roster=[Gangster()]) for _ in range(players)]
+    plist = tuple(Player(ka=ka, roster=(Gangster(),)) for _ in range(players))
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),

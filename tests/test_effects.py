@@ -253,7 +253,7 @@ def test_movement_effects_work_through_commit():
 def test_stat_change_adjusts_named_stat():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChange("kraft", 5))
-    assert out.players[0].roster[0].kraft == 25
+    assert out.players[0].roster[0].attrs["kraft"] == 25
 
 
 def test_stat_change_unknown_stat_raises_value_error():
@@ -276,8 +276,8 @@ def test_stat_change_rejects_energie_which_is_the_vitality_slot():
 def test_stat_change_targets_the_right_gangster_index():
     state = _with_second_gangster(make_state(), Gangster(name="g0b", brutalitaet=1))
     out = apply(state, StatChange("brutalitaet", 7, gangster=1))
-    assert out.players[0].roster[1].brutalitaet == 8
-    assert out.players[0].roster[0].brutalitaet == 10  # index 0 untouched
+    assert out.players[0].roster[1].attrs["brutalitaet"] == 8
+    assert out.players[0].roster[0].attrs["brutalitaet"] == 10  # index 0 untouched
 
 
 # --------------------------------------------------------------------------- #
@@ -286,26 +286,26 @@ def test_stat_change_targets_the_right_gangster_index():
 def test_stat_change_capped_clamps_at_cap():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", 90, cap=99))
-    assert out.players[0].roster[0].kraft == 99  # 20+90=110 -> clamped to 99
+    assert out.players[0].roster[0].attrs["kraft"] == 99  # 20+90=110 -> clamped to 99
 
 
 def test_stat_change_capped_normal_raise_unclamped():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", 5, cap=99))
-    assert out.players[0].roster[0].kraft == 25  # under cap -> unclamped
+    assert out.players[0].roster[0].attrs["kraft"] == 25  # under cap -> unclamped
 
 
 def test_stat_change_capped_floors_at_zero_by_default():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", -50, cap=99))
-    assert out.players[0].roster[0].kraft == 0  # 20-50=-30 -> floored at 0
+    assert out.players[0].roster[0].attrs["kraft"] == 0  # 20-50=-30 -> floored at 0
 
 
 def test_stat_change_capped_cap_is_a_parameter_not_hardcoded():
     # Config-boundary (KTD-10): pass cap=50 -> clamps at 50, proving no hardcoded 99.
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", 90, cap=50))
-    assert out.players[0].roster[0].kraft == 50
+    assert out.players[0].roster[0].attrs["kraft"] == 50
 
 
 def test_stat_change_capped_unknown_stat_raises_value_error():
@@ -326,19 +326,19 @@ def test_stat_change_capped_bad_gangster_index_raises_indexerror():
 def test_energy_change_applies_unclamped_under_cap():
     state = make_state()  # g0 energie starts at 5
     out = apply(state, EnergyChange(amount=3, cap=99))
-    assert out.players[0].roster[0].energie == 8
+    assert out.players[0].roster[0].vitality == 8
 
 
 def test_energy_change_clamps_at_cap():
     state = make_state()  # g0 energie starts at 5
     out = apply(state, EnergyChange(amount=50, cap=10))
-    assert out.players[0].roster[0].energie == 10
+    assert out.players[0].roster[0].vitality == 10
 
 
 def test_energy_change_floors_at_zero():
     state = make_state()  # g0 energie starts at 5
     out = apply(state, EnergyChange(amount=-50, cap=99))
-    assert out.players[0].roster[0].energie == 0
+    assert out.players[0].roster[0].vitality == 0
 
 
 def test_energy_change_bad_gangster_index_raises_indexerror():
@@ -350,7 +350,7 @@ def test_energy_change_bad_gangster_index_raises_indexerror():
 def test_energy_change_purity():
     state = make_state()
     out = apply(state, EnergyChange(amount=3, cap=99))
-    assert state.players[0].roster[0].energie == 5  # original untouched
+    assert state.players[0].roster[0].vitality == 5  # original untouched
     assert out is not state
 
 

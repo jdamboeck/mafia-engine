@@ -66,7 +66,7 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
     roster = (
         roster
         if roster is not None
-        else [Gangster(name="alcapone", energie=40, kraft=30, brutalitaet=30)]
+        else (Gangster(name="alcapone", energie=40, kraft=30, brutalitaet=30),)
     )
     player = Player(
         name="alcapone",
@@ -76,7 +76,7 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
         roster=roster,
     )
     return GameState(
-        players=[player],
+        players=(player,),
         clock=Clock(active_player=0, player_count=1),
         config=Config(formula_params=_PARAMS),
     )

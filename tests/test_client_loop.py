@@ -503,7 +503,7 @@ class TestPubRecruitThroughClient:
         assert result.state.players[0].ka == 97000  # 100000 - 3000$ price
         assert len(result.state.players[0].roster) == 2  # boss + killer-jack
         assert result.state.players[0].roster[1].name == "killer-jack"
-        assert result.state.players[0].roster[1].energie == 5
+        assert result.state.players[0].roster[1].vitality == 5
         assert result.state.flags.hired_gangsters == (0,)
         # The Confirm prompt genuinely reached the real TerminalInput wire.
         assert "ok (j/n)?" in out.getvalue()

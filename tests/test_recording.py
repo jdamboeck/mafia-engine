@@ -284,6 +284,7 @@ def test_replaying_against_an_altered_damage_formula_diverges(ambush_recording):
     # at_index names the first activation whose damage changed (a valid seek target).
     first_hit = next(e for e in recording.events if e.kind == "activation" and e.result.get("hit"))
     assert report.at_index == first_hit.index
+    assert report.expected is not None and report.got is not None
     assert report.expected["damage"] != report.got["damage"]
     assert report.got["damage"] >= report.expected["damage"] + 999
 
@@ -450,6 +451,7 @@ def test_an_observed_fight_records_the_same_transcript_and_replays_without_diver
     assert len(ai_activations) >= 3
     assert watched_client.frames == len(ai_activations)
     assert watched.events == plain.events
+    assert watched.losses is not None and plain.losses is not None
     assert (watched.winner, tuple(watched.losses)) == (plain.winner, tuple(plain.losses))
     report = replay(watched)
     assert report.diverged is False
