@@ -51,7 +51,7 @@ exist.
 The research checkout is authoritative for *game knowledge* — rules,
 probabilities, formulas — but its derived columns are an interpretation layer.
 This is the same trap that produced the inverted relational-sign convention
-(see `basic-relational-boolean-is-plus-one-when-porting.md`): a value the
+(see `basic-relational-boolean-is-minus-one-when-porting.md`): a value the
 research layer *computed* was mistaken for a value it *observed*.
 
 When the decompiled source and a research column disagree, the source wins

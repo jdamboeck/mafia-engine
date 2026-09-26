@@ -8,7 +8,7 @@ THE COUNTER DIRECTION (the U2-flagged relational-sign landmine)
 --------------------------------------------------------------
 ``:4305`` is ``kz(sp)=kz(sp)+(kz(sp)>0)``. Under this project's pinned porting
 convention (``docs/solutions/architecture-patterns/
-basic-relational-boolean-is-plus-one-when-porting.md``, ``true=+1``) that would count
+basic-relational-boolean-is-minus-one-when-porting.md``, ``true=+1``) that would count
 **UP** from 6 forever — a grace period that never expires and a headline flow that
 never fires. Under strict C64 semantics (``true=-1``) it counts **DOWN**.
 

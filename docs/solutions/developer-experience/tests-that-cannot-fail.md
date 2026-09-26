@@ -240,7 +240,7 @@ nominally guarding), #51 (the EOF test's name/coverage mismatch).
   identity-based snapshot reduced its assertions to `state == state`, which "can
   never fail, for any handler." The fix there (snapshot by value, not identity)
   is a specific case of "inject a real difference and confirm the check reacts."
-- `docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md`
+- `docs/solutions/architecture-patterns/basic-relational-boolean-is-minus-one-when-porting.md`
   — the #47 sign-convention reversal. Six tests had encoded the inverted
   convention and therefore could not have caught it. That doc's caution ("a
   derived value is not evidence for the rule that derived it") is the same

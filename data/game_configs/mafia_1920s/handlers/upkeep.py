@@ -54,7 +54,7 @@ COUNTER DIRECTION — the relational-sign landmine (``:4305``)
 relationals the counter would climb from 6 forever — a grace period that never expires
 and a headline flow that never fires. Under C64 semantics (``true=-1``, the project's
 porting convention: ``docs/solutions/architecture-patterns/
-basic-relational-boolean-is-plus-one-when-porting.md``) it counts DOWN.
+basic-relational-boolean-is-minus-one-when-porting.md``) it counts DOWN.
 
 **The source pins DOWN** — sibling lines stating the rule with literal constants agree
 (the same resolution shape as ``:30450``). Three independent confirmations:

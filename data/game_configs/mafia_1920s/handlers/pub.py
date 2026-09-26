@@ -36,7 +36,7 @@ Faithfulness notes
   ``formula_params`` — nothing here is a bare literal.
 - Relational terms use the C64 ``true = -1`` evaluation (confirmed by the #47
   fidelity audit — do not revert to ``true = +1``; see
-  ``docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md``).
+  ``docs/solutions/architecture-patterns/basic-relational-boolean-is-minus-one-when-porting.md``).
   None of this module's ported expressions contains a relational factor; the
   note stays because a future addition to this file will need the right convention.
 - Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,

@@ -1,7 +1,7 @@
 ---
 title: "Porting BASIC relational terms: a true relational contributes -1, not +1"
 date: 2026-07-15
-updated: 2026-07-19
+updated: 2026-09-26
 category: architecture-patterns
 module: data/game_configs/mafia_1920s
 problem_type: porting_convention
@@ -50,9 +50,9 @@ combat side anchors/colours (`30000-30015`), and the job-completion score (`2556
 `(a=b)` / `(a>b)` as `-1` when true and `0` when false.** Evaluate the expression
 exactly as C64 BASIC would.
 
-**Why this is settled.** Six independent sites in the source are only coherent under
-`true = -1`, several of which are *structurally* decidable (a wrong sign makes the
-program malformed, not merely differently balanced):
+**Why this is settled.** Three sites in the source are *structurally* decidable: under
+`true = +1` the program would be malformed, not merely differently balanced. Three more
+are only *coherent* under `true = -1`:
 
 1. **`:30015` / `:30115` — `poke211,-20*(i=2)`.** `$D3`/211 is the KERNAL cursor-*column*
    zero page location and cannot hold a negative value. `true=-1` → column **20** (side 2
@@ -62,8 +62,10 @@ program malformed, not merely differently balanced):
    (blue) for side 2 vs. 2 (red) for side 1. `true=+1` → **-2**, not a colour.
 3. **`:30108` — `s=1-(s=1)`, the side toggle.** Must map 1↔2. `true=-1`: `1-(-1)=2`, and
    `1-0=1`. ✓  `true=+1`: `1-1=0` — a side that does not exist.
-4. **`:30240` — `fori=1to1-2*(w=4)`.** A loop bound. `true=-1` → 3 iterations for `w=4`
-   (the machine gun's three-pulse burst). `true=+1` → `-1` → the loop never runs.
+4. **`:30240` — `fori=1to1-2*(w=4)`.** Supporting, not decisive. `true=-1` → 3 flash
+   frames for `w=4` (the throwing stars, `wurfsterne`) against 1 for other weapons.
+   `true=+1` gives a bound of `-1`, but a C64 `FOR` loop tests at `NEXT` and runs its body
+   once anyway, so nothing breaks; this site only fits `-1` better.
 5. **`:13073` vs. `:13065`/`:13072` — the weapon buy score.** Weapon indices ascend in
    power and price (`DATA 50100-50115`: 0 `haende` 0$, 7 `handgranaten` 10000$), so at
    `:13072` `x > gw` is an **upgrade**. `gf` is notoriety, positive for successes
@@ -92,13 +94,14 @@ For the job-completion score (`:25560`, `x=3+3*(jo(sp)=2)`): every job scores `3
 croupier (`jo=2`) scores **`0`** — not `6`. The croupier is the job that already paid an
 immediate per-shift bonus (`:25125`), so it earns no completion award.
 
-## Where the research interpretation layer disagrees
+## The research interpretation layer
 
-`research-data/`'s prose glosses several of these sites with the `true=+1` value
-(`fnm` `result_range: "-50 | 0 | 50"`; `25560` "3 or 6"; `30015` "x = 0 or -20"; and
-`13072` mislabelled "downgrade" when the index comparison says upgrade). Per KTD-9 the
-**code wins over the interpretation**: those glosses are derived readings, not observed
-behaviour. The raw `mf-prg.bas` line is the authority.
+`research-data/`'s prose used to gloss these sites with the `true=+1` value (`fnm`
+`result_range: "-50 | 0 | 50"`, `25560` "3 or 6", `30015` "x = 0 or -20", `13072`
+labelled a downgrade). The research repo corrected 16 such descriptions and now states
+the rule for its agents (research commit `478ecc3`, 2026-09-26). The principle stands:
+the **raw `mf-prg.bas` line wins over any interpretation**, because a gloss is a derived
+reading, not observed behaviour.
 
 ## Post-mortem: why the original pin was wrong
 
@@ -112,8 +115,8 @@ call," which discouraged the per-site cross-checks that would have caught it.
 Two lessons:
 
 - **A derived value is not evidence for the rule that derived it.** Pin conventions on
-  *structural* constraints (a column that cannot be negative, a loop that must execute, a
-  branch that must be reachable) — those cannot be argued into agreement.
+  *structural* constraints (a column that cannot be negative, a colour code that must be
+  0-15, a branch that must be reachable) — those cannot be argued into agreement.
 - **Beware a convention that makes code dead.** Both wrong pins found in this project
   (`fnm`/`:10035` and `kz`/`:4305`) announced themselves by rendering a branch
   unreachable. Treat "this check can never fire — that is faithful" as a red flag.
@@ -122,7 +125,7 @@ Two lessons:
 
 Structural re-confirmation, any of which fails under `true=+1`:
 `oracle.py conclude 30015 "poke211 is a column and cannot be negative"`,
-`oracle.py conclude 30108 "s=1-(s=1) must toggle between sides 1 and 2"`,
-`oracle.py conclude 30240 "for i=1 to 1-2*(w=4) must execute for w=4"`.
+`oracle.py conclude 30010 "2-4*(i=2) must be a colour code 0-15"`,
+`oracle.py conclude 30108 "s=1-(s=1) must toggle between sides 1 and 2"`.
 The `waf` buy-score, training, `fnm`, combat-anchor and job-completion tests encode the
 corrected signs and are the regression guard.

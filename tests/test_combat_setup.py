@@ -65,7 +65,7 @@ def test_side2_anchor_is_147_under_c64_true_is_minus_one():
     #   :30015 `poke211,-20*(i=2)` is a cursor COLUMN -> 20, not -20
     #   :30108 `s=1-(s=1)` is the side toggle -> 2, not 0
     # See docs/solutions/architecture-patterns/
-    # basic-relational-boolean-is-plus-one-when-porting.md.
+    # basic-relational-boolean-is-minus-one-when-porting.md.
     assert SIDE2_ANCHOR == 147
 
 

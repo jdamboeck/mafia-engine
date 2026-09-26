@@ -509,7 +509,7 @@ class CombatFight:
         ``30250``): under C64 ``true = -1`` that is ``s=1 -> 2`` / ``s=2 -> 1`` (one of
         the structural proofs the relational is -1, not +1 — +1 gives ``1-1=0``, a side
         that does not exist; see
-        docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md).
+        docs/solutions/architecture-patterns/basic-relational-boolean-is-minus-one-when-porting.md).
         """
         return (2,) if side == 1 else (1,)
 
@@ -911,7 +911,7 @@ class CombatFight:
         reverse of your last step", encoded once here rather than re-derived per site.
 
         (Relational-sign note, per docs/solutions/architecture-patterns/
-        basic-relational-boolean-is-plus-one-when-porting.md: the four literal sidestep
+        basic-relational-boolean-is-minus-one-when-porting.md: the four literal sidestep
         guards pin the rule independently of any sign convention, and the C64
         ``true = -1`` evaluation agrees with them — it makes ``1+2*(x=1)`` equal ``-x``,
         the exact reverse of the last step. A ``true=+1`` reading would yield the

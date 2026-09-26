@@ -18,7 +18,7 @@ Faithfulness notes
   ranges, ratios, roll odds are read from config and passed into the effects, never
   hardcoded here.
 - Every relational term uses the C64 ``true = -1`` evaluation (see
-  ``docs/solutions/.../basic-relational-boolean-is-plus-one-when-porting.md``, confirmed
+  ``docs/solutions/.../basic-relational-boolean-is-minus-one-when-porting.md``, confirmed
   by the #47 fidelity audit — do not revert to ``true = +1``).
 - Stat gates are HANDLER branching, not shell guards: they test the CHOSEN
   gangster mid-handler, which the option-entry guard DSL cannot express.
