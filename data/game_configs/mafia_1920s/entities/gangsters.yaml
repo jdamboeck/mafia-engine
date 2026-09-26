@@ -7,8 +7,8 @@
 # candidate file number `g(i)` (1..30, mf-prg.bas:12110's `int(rnd(1)*30)+1`), and
 # is also this config's `sg` "already hired" flag index.
 #
-# Fields per entry (read order at mf-prg.bas:12125-12126 -
-# `input#1,gn$:input#1,gw:input#1,ge$:input#1,p:input#1,x$`):
+# Fields per entry (read order at mf-prg.bas:12125 `input#1,gn$:input#1,gw` and
+# :12126 `input#1,ge$:input#1,p:...:input#1,x$`):
 #   name        — gn$, gangster name (German, verbatim)
 #   weapon      — gw, weapon index 0..8 (matches entities/weapons.yaml)
 #   kraft       — first 2 digits of ge$ (kk)

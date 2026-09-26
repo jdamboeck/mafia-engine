@@ -5,7 +5,10 @@ decompiled source and quoting the part of it the claim rests on (a ``#`` comment
 ``:30108 `s=1-(s=1)` `` is one). A quote that drifted from its line (a typo, or the
 right text under the wrong line number) reads as proof while proving nothing. This
 module finds every such quote in the tree and checks it against the source (KTD-9),
-and checks that every test a learning doc names by name exists (KTD-10).
+and checks that every test a learning doc names by name exists (KTD-10), as does every
+entry of a parametrized port test it names (``test_port_matches_basic`` (entry
+``slw rent``)), read from :data:`tests.test_ports.PORTS` through the test's own
+``parametrize`` mark.
 
 Rules (KTD-9)
 -------------
@@ -16,13 +19,25 @@ Rules (KTD-9)
   not citations. A backtick span whose whole content is a citation is a citation.
   Citations joined by ``/``, ``,``, ``+``, ``and``, ``or`` or ``vs.`` form one group
   (``:30015`` / ``:30115``); any line of the group may hold the fragment.
-- **Quoted fragment.** The first backtick span *directly* after a citation group: only
-  whitespace and at most one separator (``—``, ``-``, ``:``, ``,``, ``(``, ``=``, ``'s``,
-  or the word ``is`` or ``sets``) may stand between them. A span holding only line numbers
-  (``mf-prg.bas:30106``, ``30108``) continues the group instead. In Python code and
-  docstrings only double-backtick spans count (single backticks there are Sphinx roles);
-  in ``#`` comments and Markdown a span of any backtick length counts. Spans elsewhere on
-  the line, often Python, are ignored.
+- **Quoted fragment.** The first backtick span after a citation group, when either
+  - only whitespace and at most one separator (``—``, ``-``, ``:``, ``,``, ``(``, ``=``,
+    ``'s``, or the word ``is`` or ``sets``) stand between them, or
+  - the span looks like crunched BASIC (:func:`looks_like_basic`: no whitespace, no
+    Python operators or attribute access, variables of one or two letters once the
+    keywords are cut out) and the gap is at most :data:`MAX_GAP` characters that
+    neither close a bracket or clause (``)``, ``]``, ``;``), start a new sentence, nor
+    end in a negation (``:12075`` has no ``gosub1160``).
+  A span holding only line numbers (``mf-prg.bas:30106``, ``30108``) continues the group
+  instead. In Python code and docstrings only double-backtick spans count (single
+  backticks there are Sphinx roles); in ``#`` comments and Markdown a span of any
+  backtick length counts. Other spans, often Python, are ignored.
+- **Blocks.** A citation stays open across line breaks within its block: consecutive
+  ``#`` comment lines, consecutive code/docstring lines, or a Markdown paragraph; a
+  blank line ends it. So a quote that wraps onto the next line is paired, but across a
+  line break only a BASIC-looking span is (``:30245``, then ``energie=35`` on the next
+  line, is not).
+- **Heading citation.** A ``#`` comment that opens with a bare line number or range
+  and an em dash (``# 13065 — no old weapon``) cites it.
 - **Match.** Case and all whitespace are dropped from both sides; the fragment must be
   a substring of one of the cited lines (any line within a range). A fragment that
   elides with ``...`` must have each piece, in order, within one line.
@@ -41,9 +56,10 @@ import ast
 import io
 import re
 import tokenize
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 
 import pytest
 
@@ -142,35 +158,124 @@ def _merge(first: Citation | None, second: Citation) -> Citation:
     return Citation(first.numbers + second.numbers, first.ranges + second.ranges)
 
 
-def quotes_in_text(text: str, *, any_fence: bool) -> list[tuple[Citation, str]]:
-    """The ``(citation, fragment)`` pairs in one line of text.
+# A ``#`` comment that opens with a bare line number and a dash (``# 13065 — no old
+# weapon``) cites that line: the handlers' step-by-step convention.
+_LEAD_CITATION = re.compile(r"\s*(?P<nums>\d{3,5}(?:\s?[-–/]\s?\d{1,5}|,\s?\d{1,5})*)\s+—")
+#: The longest gap (in characters, each whitespace run counted as one) a BASIC-looking
+#: fragment may stand behind its citation.
+MAX_GAP = 60
+# A gap that closes a bracket or a clause, or starts a sentence, has left the citation;
+# one ending in a negation (``:12075`` has no ``gosub1160``) says the line lacks it.
+_GAP_BREAK = re.compile(r"[)\];]|[.!?]\s+[A-Z]|\b(?:no|not|never|without|unlike)\s*$")
+_BASIC_TEXT = re.compile(r"[a-z0-9$%#()=<>+\-*/:;,.^\"]+")
+_PYTHON_ONLY = re.compile(r"==|!=|[+\-*/]=|\*\*|//|\(\)|\.[a-z]|^[\d.]+$")
+_BASIC_MARK = re.compile(r"[=<>:$]|[a-z]\(|(?:goto|gosub|then)\d")
+_STRING = re.compile(r'"[^"]*"?')
+# C64 BASIC V2 keywords, longest first so ``gosub`` is not read as ``go`` + ``sub``.
+_KEYWORDS = re.compile(
+    "|".join(
+        sorted(
+            "end for next data input dim read let goto run if restore gosub return rem stop "
+            "on wait load save verify def poke print cont list clr cmd sys open close get new "
+            "tab to fn spc then not step and or sgn int abs usr fre pos sqr rnd log exp cos "
+            "sin tan atn peek len str val asc chr left right mid go".split(),
+            key=len,
+            reverse=True,
+        )
+    )
+)
 
-    ``any_fence`` is true for ``#`` comments and Markdown, where a single-backtick span
-    is a quote; in Python code and docstrings only double-backtick spans are.
+
+def looks_like_basic(fragment: str) -> bool:
+    """Whether a span reads as crunched BASIC rather than Python.
+
+    Crunched BASIC has no whitespace, underscores, capitals, brackets or braces, glues
+    keywords to operands, and names variables with one or two letters. A fragment
+    qualifies when every letter run, once the keywords are cut out of it, is at most
+    two letters long, and it holds an assignment, comparison, statement separator,
+    string variable, ``x(``-style subscript or jump (``gosub4500``); string literals
+    are set aside first. Python's ``==``, ``!=``, ``+=``, ``**``,
+    ``//``, an empty call ``f()`` and attribute access ``a.b`` rule a span out, as do
+    ``seed=42``-style keyword arguments and a bare number.
     """
-    # Tokens in line order: ("cite", start, end, Citation) or ("span", start, end, text).
-    tokens: list[tuple[str, int, int, object]] = []
+    text = _STRING.sub('""', fragment.strip().replace("...", "").replace("…", ""))
+    if not text or _BASIC_TEXT.fullmatch(text) is None or _PYTHON_ONLY.search(text):
+        return False
+    names = re.findall(r"[a-z]+", text)
+    if any(len(piece) > 2 for name in names for piece in _KEYWORDS.split(name)):
+        return False
+    return _BASIC_MARK.search(text) is not None
+
+
+def _pairs_across(gap: str, fragment: str) -> bool:
+    """Whether ``fragment`` is the quote of a citation ``gap`` characters before it.
+
+    A direct gap (only a separator) pairs any fragment on the same line; across a line
+    break the fragment must look like BASIC. A longer gap, up to :data:`MAX_GAP`
+    within the sentence and the bracket the citation sits in, pairs only BASIC.
+    """
+    if _FRAGMENT_GAP.fullmatch(gap):
+        return "\n" not in gap or looks_like_basic(fragment)
+    return (
+        len(re.sub(r"\s+", " ", gap)) <= MAX_GAP
+        and _GAP_BREAK.search(gap) is None
+        and looks_like_basic(fragment)
+    )
+
+
+# Tokens: ("cite" | "more" | "span", start, end, Citation | str), offsets into the block.
+_Token = tuple[str, int, int, object]
+
+
+def _line_tokens(text: str, offset: int, *, any_fence: bool, lead: bool) -> list[_Token]:
+    tokens: list[_Token] = []
     masked = list(text)
     for start, end, fence, content in _spans(text):
         masked[start:end] = " " * (end - start)
         if _WHOLE_CITATION.fullmatch(content):
             match = _CITATION.search(content)
             assert match is not None
-            tokens.append(("cite", start, end, _citation_from(match.group("nums"))))
+            cited = _citation_from(match.group("nums"))
+            tokens.append(("cite", offset + start, offset + end, cited))
         elif _MORE_NUMBERS.fullmatch(content):
-            tokens.append(("more", start, end, _citation_from(content.strip())))
+            cited = _citation_from(content.strip())
+            tokens.append(("more", offset + start, offset + end, cited))
         elif any_fence or fence == 2:
-            tokens.append(("span", start, end, content))
+            tokens.append(("span", offset + start, offset + end, content))
     plain = "".join(masked)
     for match in _CITATION.finditer(plain):
         if not match.group("prefix"):
             before = plain[match.start() - 1] if match.start() else ""
             if before and _NOT_BEFORE_BARE.match(before):
                 continue
-        tokens.append(("cite", match.start(), match.end(), _citation_from(match.group("nums"))))
+        cited = _citation_from(match.group("nums"))
+        tokens.append(("cite", offset + match.start(), offset + match.end(), cited))
+    heading = _LEAD_CITATION.match(plain) if lead else None
+    if heading is not None:
+        cited = _citation_from(heading.group("nums"))
+        tokens.append(("cite", offset + heading.start("nums"), offset + heading.end("nums"), cited))
+    return tokens
+
+
+def quotes_in_block(
+    lines: Sequence[str], *, any_fence: bool, lead: bool = False
+) -> list[tuple[int, Citation, str]]:
+    """The ``(line index, citation, fragment)`` triples in one block of text.
+
+    A block is one comment, docstring paragraph or Markdown paragraph: consecutive
+    non-blank lines, comment markers already blanked. An open citation carries across
+    its line breaks, so a quote that wraps onto the next line is still paired. ``lead``
+    turns on the leading ``NNNN —`` citation of ``#`` comments.
+    """
+    text = "\n".join(lines)
+    tokens: list[_Token] = []
+    offset = 0
+    for line in lines:
+        tokens.extend(_line_tokens(line, offset, any_fence=any_fence, lead=lead))
+        offset += len(line) + 1
     tokens.sort(key=lambda token: token[1])
 
-    found: list[tuple[Citation, str]] = []
+    found: list[tuple[int, Citation, str]] = []
     group: Citation | None = None
     group_end = 0
     for kind, start, end, value in tokens:
@@ -190,11 +295,25 @@ def quotes_in_text(text: str, *, any_fence: bool) -> list[tuple[Citation, str]]:
             else:
                 group = None
             continue
-        if group is not None and _FRAGMENT_GAP.fullmatch(gap):
-            assert isinstance(value, str)
-            found.append((group, value))
+        assert isinstance(value, str)
+        if group is not None and _pairs_across(gap, value):
+            found.append((text.count("\n", 0, start), group, value))
         group = None
     return found
+
+
+def quotes_in_text(text: str, *, any_fence: bool, lead: bool = False) -> list[tuple[Citation, str]]:
+    """The ``(citation, fragment)`` pairs in one line (or ``\\n``-joined block) of text.
+
+    ``any_fence`` is true for ``#`` comments and Markdown, where a single-backtick span
+    is a quote; in Python code and docstrings only double-backtick spans are.
+    """
+    return [
+        (citation, fragment)
+        for _index, citation, fragment in quotes_in_block(
+            text.split("\n"), any_fence=any_fence, lead=lead
+        )
+    ]
 
 
 def _comment_starts(text: str) -> dict[int, int]:
@@ -214,20 +333,55 @@ def _yaml_comment_start(line: str) -> int | None:
     return None if match is None else match.end() - 1
 
 
+def _unmark(comment: str) -> str:
+    """A ``#`` comment with its marker (``#``, ``#:``) blanked, columns kept."""
+    marker = re.match(r"#+:?", comment)
+    assert marker is not None
+    return " " * marker.end() + comment[marker.end() :]
+
+
 def quotes_in_file(path: str, text: str) -> list[Quote]:
-    """Every quote in one file; ``path`` is only recorded, never read."""
+    """Every quote in one file; ``path`` is only recorded, never read.
+
+    Each line splits into a code part and a ``#`` comment part (Markdown is all one
+    part); consecutive non-blank parts of the same kind form a block.
+    """
     suffix = Path(path).suffix
     comments = _comment_starts(text) if suffix == ".py" else {}
+    # kind -> (lines of the open block, line number of its first line)
+    streams: dict[str, tuple[list[str], int]] = {}
     quotes: list[Quote] = []
+
+    def close(kind: str) -> None:
+        lines, first = streams.pop(kind, ([], 0))
+        if not lines:
+            return
+        any_fence = kind != "code"
+        for index, citation, fragment in quotes_in_block(
+            lines, any_fence=any_fence, lead=kind == "comment"
+        ):
+            quotes.append(Quote(path, first + index, citation, fragment))
+
     for lineno, line in enumerate(text.splitlines(), start=1):
         if suffix == ".md":
-            parts = [(line, True)]
+            parts = {"markdown": line}
         else:
             col = comments.get(lineno) if suffix == ".py" else _yaml_comment_start(line)
-            parts = [(line, False)] if col is None else [(line[:col], False), (line[col:], True)]
-        for part, any_fence in parts:
-            for citation, fragment in quotes_in_text(part, any_fence=any_fence):
-                quotes.append(Quote(path, lineno, citation, fragment))
+            parts = (
+                {"code": line}
+                if col is None
+                else {"code": line[:col], "comment": _unmark(line[col:])}
+            )
+        for kind in ("markdown", "code", "comment"):
+            part = parts.get(kind, "")
+            if not part.strip():
+                close(kind)
+                continue
+            lines, first = streams.setdefault(kind, ([], lineno))
+            lines.append(part)
+    for kind in list(streams):
+        close(kind)
+    quotes.sort(key=lambda quote: quote.lineno)
     return quotes
 
 
@@ -331,9 +485,65 @@ def defined_names(tests_root: Path) -> dict[str, set[str]]:
     return names
 
 
-def missing_test_refs(doc_path: str, text: str, tests_root: Path) -> list[str]:
-    """A message for each backticked test a doc names that ``tests_root`` lacks."""
-    defined = defined_names(tests_root)
+_PARAMETER_SET = type(pytest.param(None))
+
+
+def entry_names(module: ModuleType) -> dict[str, set[str]]:
+    """``{test name: its entry names}`` for each test of ``module`` parametrized over
+    objects with a ``name`` (the :class:`tests.test_ports.Port` inventory), read from
+    the test's own ``parametrize`` mark."""
+    entries: dict[str, set[str]] = {}
+    for test_name, function in vars(module).items():
+        if not test_name.startswith("test_"):
+            continue
+        for mark in getattr(function, "pytestmark", []):
+            if mark.name != "parametrize":
+                continue
+            for value in mark.args[1]:
+                if isinstance(value, _PARAMETER_SET):
+                    value = value.values[0]
+                name = getattr(value, "name", None)
+                if isinstance(name, str):
+                    entries.setdefault(test_name, set()).add(name)
+    return entries
+
+
+# ``test_port_matches_basic`` (entry `slw rent`), (entries `a` and `b`); may wrap.
+_ENTRY_REF = re.compile(
+    r"`(?P<test>test_\w+)`\s*\(entr(?:y|ies)"
+    r"(?P<names>\s+`[^`]+`(?:\s*(?:,|and|,\s*and)\s*`[^`]+`)*)"
+)
+
+
+def missing_entry_refs(doc_path: str, text: str, entries: Mapping[str, set[str]]) -> list[str]:
+    """A message for each entry of a parametrized test a doc names that the test lacks."""
+    errors: list[str] = []
+    for match in _ENTRY_REF.finditer(text):
+        test = match.group("test")
+        for span in re.finditer(r"`([^`]+)`", match.group("names")):
+            lineno = text.count("\n", 0, match.start("names") + span.start()) + 1
+            where = f"{doc_path}:{lineno}: `{test}` entry `{span.group(1)}`"
+            if test not in entries:
+                errors.append(f"{where}: {test} has no entry inventory")
+            elif span.group(1) not in entries[test]:
+                errors.append(f"{where}: no such entry in {test}'s inventory")
+    return errors
+
+
+def missing_test_refs(
+    doc_path: str,
+    text: str,
+    tests_root: Path,
+    *,
+    defined: Mapping[str, set[str]] | None = None,
+) -> list[str]:
+    """A message for each backticked test a doc names that ``tests_root`` lacks.
+
+    ``defined`` is :func:`defined_names` of ``tests_root``; a caller checking many docs
+    computes it once and passes it in.
+    """
+    if defined is None:
+        defined = defined_names(tests_root)
     every = set().union(*defined.values()) if defined else set()
     errors: list[str] = []
     for lineno, line in enumerate(text.splitlines(), start=1):
@@ -419,6 +629,66 @@ def test_python_comments_are_single_backtick_quotes() -> None:
     assert [q.fragment for q in quotes_in_file("c.yaml", yaml)] == ["sp=0:ja=1925"]
 
 
+def test_a_quote_wrapped_onto_the_next_line_is_paired() -> None:
+    # A citation still open at a line break carries into the rest of its block.
+    comment = "# Side toggle (mf-prg.bas:30108,\n#: `s=1-(s=1)` walks both sides).\n"
+    assert [(q.lineno, q.fragment) for q in quotes_in_file("m.py", comment)] == [(2, "s=1-(s=1)")]
+    doc = '"""Rolls the tip (mf-prg.bas:12225:\n    the roll ``tp(sp)=int(rnd(1)*5)+1``)."""\n'
+    assert [(q.lineno, q.fragment) for q in quotes_in_file("m.py", doc)] == [
+        (2, "tp(sp)=int(rnd(1)*5)+1")
+    ]
+    assert _pairs("mf-prg.bas:30108's\n`s=1-(s=1)`", any_fence=True) == [("30108", "s=1-(s=1)")]
+
+
+def test_a_wrapped_span_must_look_like_basic_and_stay_in_its_block() -> None:
+    # Across a line break a Python span is not a quote, even directly after a citation.
+    assert _pairs("ambusher (``mf-prg.bas:30245``,\n``energie=35`` from the fixture)") == []
+    # A blank line, or code between comments, ends the block.
+    assert quotes_in_file("m.py", "# :30108\n#\n# `s=1-(s=1)`\n") == []
+    assert quotes_in_file("m.py", "# :30108\nx = 1\n# `s=1-(s=1)`\n") == []
+    assert quotes_in_file("d.md", ":30108\n\n`s=1-(s=1)`\n") == []
+
+
+def test_a_basic_fragment_after_a_short_gap_is_paired() -> None:
+    assert _pairs(":13072 upgrade    `gf(sp)=gf(sp)-x8`", any_fence=True) == [
+        ("13072", "gf(sp)=gf(sp)-x8")
+    ]
+    assert _pairs(":12075 — settle, no score effect: ``ka(sp)=ka(sp)+y*x``") == [
+        ("12075", "ka(sp)=ka(sp)+y*x")
+    ]
+    # A comment that opens with a bare line number and a dash cites it.
+    comment = "# 13065 — no old weapon: q=0. `gf(sp)=gf(sp)-x8`\n"
+    assert [q.fragment for q in quotes_in_file("m.py", comment)] == ["gf(sp)=gf(sp)-x8"]
+    assert quotes_in_file("m.py", "x = 13065 - 2  # `gf(sp)=gf(sp)-x8`\n") == []
+
+
+def test_a_python_span_after_a_gap_is_ignored() -> None:
+    for span in ("hostile_to(s)", "ctx.state", "play()", "seed=42", "kr(sp)+=x", "x > old"):
+        assert _pairs(f":30108 is ported by ``{span}``") == [], span
+    assert _pairs(":30108 is ported by ``s=1-(s=1)``") == [("30108", "s=1-(s=1)")]
+
+
+def test_a_gap_that_leaves_the_citation_ends_it() -> None:
+    assert _pairs(":12075 has no ``gosub1160``") == []  # a negation
+    assert _pairs("(:170) -- truncated; the weight is ``val(x$)``") == []  # a bracket
+    assert _pairs(":16010. The three games,\npoker ``x=1``") == []  # a new sentence
+    assert _pairs(":30108 " + "then a long stretch of prose " * 3 + "``s=1-(s=1)``") == []
+
+
+def test_looks_like_basic() -> None:
+    basic = [
+        "s=1-(s=1)",
+        "fori=1to10:readp(i):next",
+        "gosub4500",
+        'print"{down}taste druecken!":poke198,0',
+        "input#1,gn$:input#1,gw",
+        "s=1-...then30108",
+    ]
+    python = ["play()", "seed=42", "true=-1", "ctx.state", "a == b", "x > old", "gf", "30108"]
+    assert [f for f in basic if not looks_like_basic(f)] == []
+    assert [f for f in python if looks_like_basic(f)] == []
+
+
 # --------------------------------------------------------------------------- #
 # Tests: matcher                                                              #
 # --------------------------------------------------------------------------- #
@@ -502,6 +772,40 @@ def test_a_doc_naming_a_missing_test_fails(tmp_path: Path) -> None:
     assert "test_three" in errors[0]
 
 
+def _inventory() -> ModuleType:
+    """A stand-in for ``tests/test_ports.py``: a test parametrized over named entries."""
+    module = ModuleType("fake_ports")
+    entries = [SimpleNamespace(name="slw rent"), SimpleNamespace(name="waf range training")]
+
+    @pytest.mark.parametrize("port", [entries[0], pytest.param(entries[1], id="x")])
+    def test_port_matches_basic(port: object) -> None:  # pragma: no cover - never run
+        pass
+
+    module.__dict__["test_port_matches_basic"] = test_port_matches_basic
+    return module
+
+
+def test_entry_names_are_read_from_the_parametrize_mark() -> None:
+    assert entry_names(_inventory()) == {
+        "test_port_matches_basic": {"slw rent", "waf range training"}
+    }
+
+
+def test_a_doc_naming_a_missing_port_entry_fails() -> None:
+    entries = entry_names(_inventory())
+    doc = (
+        "held by `test_port_matches_basic` (entry `slw rent`, which runs `x`) and\n"
+        "`test_port_matches_basic` (entries `waf range training` and\n"
+        "`waf camp training`); `test_other` (entry `y`).\n"
+    )
+    errors = missing_entry_refs("d.md", doc, entries)
+    assert errors == [
+        "d.md:3: `test_port_matches_basic` entry `waf camp training`: no such entry in "
+        "test_port_matches_basic's inventory",
+        "d.md:3: `test_other` entry `y`: test_other has no entry inventory",
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Tests: the real tree                                                        #
 # --------------------------------------------------------------------------- #
@@ -514,8 +818,15 @@ def test_every_quoted_fragment_matches_its_cited_line() -> None:
 
 
 def test_every_test_a_doc_names_exists() -> None:
+    from tests import test_ports
+
+    defined = defined_names(_REPO / "tests")
+    entries = entry_names(test_ports)
+    assert entries.get("test_port_matches_basic"), "the port inventory was not read"
     errors: list[str] = []
     for path in sorted((_REPO / "docs" / "solutions").rglob("*.md")):
         rel = path.relative_to(_REPO).as_posix()
-        errors.extend(missing_test_refs(rel, path.read_text(encoding="utf-8"), _REPO / "tests"))
+        text = path.read_text(encoding="utf-8")
+        errors.extend(missing_test_refs(rel, text, _REPO / "tests", defined=defined))
+        errors.extend(missing_entry_refs(rel, text, entries))
     assert errors == [], "\n".join(errors)

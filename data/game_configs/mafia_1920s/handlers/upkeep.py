@@ -59,7 +59,8 @@ RENT — ``:4045-4046`` and ``:4600-4652``
 * ``:4046`` ``um(sp)=um(sp)-1:ifum(sp)=0thenum(sp)=1:gosub4600`` — on reaching 0 the
   counter is put straight back to 1 and the late-rent routine runs. So ``um`` never
   leaves 1 on its own: EVERY later turn start fines again, until the tenant pays at
-  slw (``:10105`` re-enters the same rent block, ``um(sp)=um(sp)+x`` on top of the 1).
+  slw (``:10105`` re-enters the same rent block, whose ``:10040``
+  ``um(sp)=um(sp)+x`` adds on top of the 1).
 * ``:4605`` ``p=int(rnd(1)*100)+200:ifp>ka(sp)thenp=ka(sp):ifp=0goto4650`` — a fine
   of 200..299$. The ``:ifp=0`` sits inside the ``then`` of ``ifp>ka(sp)``, but a
   fine that was not capped is at least 200, so this reads exactly as "cap at cash,

@@ -462,7 +462,8 @@ class TipSet:
 
     Applied by the pub tip flow. Targets :class:`~engine.state.Player.tip_target`
     (mf-prg.bas:12225-12226:
-    the tip roll ``tp(sp)=1-5`` dispatching to one of five heist-rumour texts).
+    the tip roll ``tp(sp)=int(rnd(1)*5)+1`` (1-5) dispatching to one of five heist-rumour
+    texts).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
