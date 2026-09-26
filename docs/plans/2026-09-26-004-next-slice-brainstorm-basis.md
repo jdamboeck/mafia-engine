@@ -27,6 +27,7 @@ status: input-for-brainstorm
 ## Added by the quality gates plan
 
 - **#98: numbers print Python-style, not C64 `PRINT`/`str$` style.** `22.0` where the source prints `22`; the rank screen's `mid$(str$(gf(sp)),2)` (`:4215`) strips a negative score's minus sign, reachable now that the weapon buy moves `gf` unclamped.
-- **Ports not yet made** (found by the U7 inventory): `:1013` `gf(sp)=int(gf(sp)*100)/100` at turn start, `:4046` `um(sp)=um(sp)-1`, `:4050` `pl(sp)=pl(sp)+(pl(sp)>0)`.
+- **Ports not yet made:** `:4050` `pl(sp)=pl(sp)+(pl(sp)>0)` (bribe-protection aging) and `:4055-4056`; jail (`:1013`'s `ifgs(sp)thengosub1500`, `:1500-1515`) has no session skip yet. (`:1013`'s truncation and the `:4045-4652` rent countdown were ported in the review follow-up, #99/#101.)
+- **#105: recruit cap order.** `:12145` checks the 10-gangster cap after the offer; the engine checks it before the next one, so display and draw order differ when the gang fills mid-batch.
 - **Recordings made before `2621ccc` no longer replay** past the first shot whose draw changed (the `:30247`/`:30255` fixes). The replay detector reports this correctly; re-record any fixture that matters.
 - **Process:** `docs/AGENTS.md` now requires a fresh-context check of doc game claims and orchestrator verification of subagent reports; `make check` needs pyright, so the local gate runs through uv on an externally managed Python.
