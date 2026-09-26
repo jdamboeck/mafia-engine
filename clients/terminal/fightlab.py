@@ -88,19 +88,14 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 
 
 def _config_helpers():
-    """Import this config's OWN build helpers (setup + combat_rules), package or bare.
+    """Import this config's OWN build helpers (setup + combat_rules + Gangster).
 
-    The mafia_1920s config is importable both as a package (``data.game_configs.…``)
-    and, in some tool contexts, bare with its directory on ``sys.path``. Mirror the
-    dual import ``setup.py`` itself uses so the loader works either way.
+    fightlab runs as ``python -m clients.terminal.fightlab`` from the repo root, so
+    the config is always importable as the package ``data.game_configs.mafia_1920s``.
     """
-    try:
-        from data.game_configs.mafia_1920s import combat_rules, setup
-        from data.game_configs.mafia_1920s.gangster import Gangster
-    except ImportError:  # loaded bare (config dir on sys.path)
-        import combat_rules  # type: ignore
-        import setup  # type: ignore
-        from gangster import Gangster  # type: ignore
+    from data.game_configs.mafia_1920s import combat_rules, setup
+    from data.game_configs.mafia_1920s.gangster import Gangster
+
     return setup, combat_rules, Gangster
 
 

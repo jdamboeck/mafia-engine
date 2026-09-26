@@ -112,13 +112,13 @@ def test_location_action_cancelled_fields():
 )
 def test_events_are_frozen(event):
     with pytest.raises(dataclasses.FrozenInstanceError):
-        event.player = 99  # type: ignore[misc]  # attribute may not exist; frozen still wins
+        event.player = 99  # attribute may not exist; frozen still wins
 
 
 def test_frozen_blocks_existing_field_assignment():
     e = OptionDenied(location_key="slw", option_id="rent")
     with pytest.raises(dataclasses.FrozenInstanceError):
-        e.location_key = "bnk"  # type: ignore[misc]
+        e.location_key = "bnk"  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 # --------------------------------------------------------------------------- #

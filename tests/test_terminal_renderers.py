@@ -8,7 +8,7 @@ from typing import Any
 from engine.strings import Resolver
 
 from clients.terminal import CONFIG_DIR
-from clients.terminal.palette import _PEPTO_FALLBACK, ColorSupport, Colors
+from clients.terminal.palette import ColorSupport, Colors, load_palette
 from clients.terminal.renderers import (
     render_body,
     render_colored,
@@ -35,8 +35,8 @@ def _classic() -> Resolver:
     return Resolver.from_config(CONFIG_DIR, theme="classic")
 
 
-#: The Pepto fallback palette in truecolor: deterministic ANSI codes whatever the host.
-_COLORS = Colors(dict(_PEPTO_FALLBACK), ColorSupport.TRUECOLOR)
+#: The built-in Pepto palette (no config) in truecolor: deterministic ANSI codes whatever the host.
+_COLORS = Colors(load_palette(), ColorSupport.TRUECOLOR)
 
 
 class TestRenderScreenClear:

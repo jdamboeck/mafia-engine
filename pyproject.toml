@@ -42,3 +42,6 @@ select = ["E4", "E7", "E9", "F"]
 include = ["engine", "clients", "data", "tests"]
 typeCheckingMode = "standard"
 pythonVersion = "3.11"
+# A bare `# type: ignore` hides errors with no reason; only a named
+# `# pyright: ignore[rule]  # <reason>` may suppress one (KTD-2).
+enableTypeIgnoreComments = false

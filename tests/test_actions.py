@@ -34,7 +34,7 @@ def test_engine_result_is_frozen_with_defaults():
     assert result.payload is None  # default
     assert result.error is None  # default
     with pytest.raises(dataclasses.FrozenInstanceError):
-        result.status = "blocked"  # type: ignore[misc]
+        result.status = "blocked"  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 def test_engine_result_carries_payload_and_error():
@@ -60,7 +60,7 @@ def test_handler_result_is_frozen_with_default():
     hr2 = HandlerResult(returned=["done"])
     assert hr2.returned == ["done"]
     with pytest.raises(dataclasses.FrozenInstanceError):
-        hr.returned = 1  # type: ignore[misc]
+        hr.returned = 1  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 def test_denied_result_is_frozen_with_defaults():
@@ -70,7 +70,7 @@ def test_denied_result_is_frozen_with_defaults():
     assert dr.reason_key is None  # default
     assert dr.guard is None  # default
     with pytest.raises(dataclasses.FrozenInstanceError):
-        dr.reason_key = "x"  # type: ignore[misc]
+        dr.reason_key = "x"  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 def test_denied_result_carries_reason_and_guard():

@@ -66,7 +66,7 @@ def _field_sets(effect_cls: type) -> tuple[set[str], set[str]]:
     required: set[str] = set()
     optional: set[str] = set()
     for f in fields(effect_cls):
-        if f.default is MISSING and f.default_factory is MISSING:  # type: ignore[misc]
+        if f.default is MISSING and f.default_factory is MISSING:
             required.add(f.name)
         else:
             optional.add(f.name)

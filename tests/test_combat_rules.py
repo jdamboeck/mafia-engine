@@ -231,7 +231,7 @@ def test_attrs_carries_the_non_vitality_stats_and_stays_read_only():
     assert g.vitality == 5
     assert dict(g.attrs) == {"kraft": 40, "intelligenz": 30, "brutalitaet": 20}
     with pytest.raises(TypeError):
-        g.attrs["kraft"] = 1  # type: ignore[index]
+        g.attrs["kraft"] = 1  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
 
 
 def test_extra_attrs_survive_alongside_the_named_stats():

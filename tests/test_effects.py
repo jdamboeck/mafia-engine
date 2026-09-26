@@ -119,7 +119,7 @@ def test_effects_are_frozen_and_versioned():
     assert e.SCHEMA_VERSION == 1
     assert SCHEMA_VERSION == 1
     with pytest.raises(dataclasses.FrozenInstanceError):
-        e.amount = 1  # type: ignore[misc]
+        e.amount = 1  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 # --------------------------------------------------------------------------- #
@@ -168,9 +168,9 @@ def test_score_change_cannot_be_built_without_choosing_the_clamp():
     """A port of a direct ``gf(sp)=...`` line that writes ``ScoreChange(x)`` must not
     silently get the :1160/:1161 clamp no such line has: the constructor refuses it."""
     with pytest.raises(TypeError, match="clamp"):
-        ScoreChange(1.0)  # type: ignore[call-arg]
+        ScoreChange(1.0)  # pyright: ignore[reportCallIssue]  # the missing clamp is the test: it must raise
     with pytest.raises(TypeError, match="clamp"):
-        ScoreChange(1.0, 0)  # type: ignore[call-arg, misc]
+        ScoreChange(1.0, 0)  # pyright: ignore[reportCallIssue]  # a positional clamp is the test: it must raise
 
 
 def test_score_and_rank_clamps_an_out_of_range_gf():
@@ -1092,4 +1092,4 @@ def test_mapping_set_returns_new_readonly_mapping():
     assert updated == {1: 0, 2: 1}
     assert dict(source) == {1: 0}  # purity
     with pytest.raises(TypeError):
-        updated[3] = 9  # type: ignore[index]
+        updated[3] = 9  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise

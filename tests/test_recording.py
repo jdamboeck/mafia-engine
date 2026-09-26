@@ -16,6 +16,7 @@ reports the divergence — the fidelity detector. Serialization is JSON via
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -30,8 +31,6 @@ from engine.combat import RulesBundle
 from engine.effects import SCHEMA_VERSION
 from engine.fight_loop import AiDriver, PolicyDriver, simulate
 from engine.recording import (
-    _recording_from_dict,
-    _recording_to_dict,
     load,
     record_fight,
     replay,
@@ -307,16 +306,15 @@ def test_shape_drift_discards_snapshots_rebuilds_and_matches_every_state(
     _, recording = ambush_recording
     original_snapshots = [e.snapshot for e in recording.events]
 
-    # Serialize, then corrupt: bump every snapshot to a stale shape version and garble the
-    # snapshot payload so a naive load that trusted it would be visibly wrong.
-    raw = _recording_to_dict(recording)
+    # Save, then corrupt the file: bump every snapshot to a stale shape version and garble
+    # the snapshot payload so a naive load that trusted it would be visibly wrong.
+    path = tmp_path / "drifted.json"
+    save(recording, path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
     for event in raw["events"]:
         event["snapshot_shape_version"] = SCHEMA_VERSION + 99
         event["snapshot"] = {"garbled": True}
-    import json
-
-    path = tmp_path / "drifted.json"
-    path.write_text(json.dumps(raw))
+    path.write_text(json.dumps(raw), encoding="utf-8")
 
     loaded = load(path, rules=build_rules())
 
@@ -336,41 +334,48 @@ def test_shape_drift_discards_snapshots_rebuilds_and_matches_every_state(
 # A recording round-trips through serialization unchanged                       #
 # --------------------------------------------------------------------------- #
 def test_a_recording_round_trips_through_serialization_unchanged(ambush_recording, tmp_path):
-    """save(path) then load(path) yields a recording whose JSON dict form is identical to
-    the original's — no field is dropped or reshaped by the round-trip."""
+    """save(path) then load(path) yields a recording that saves to the identical file —
+    no field is dropped or reshaped by the round-trip."""
     _, recording = ambush_recording
-    before = _recording_to_dict(recording)
+    first, second = tmp_path / "roundtrip.json", tmp_path / "resaved.json"
 
-    path = tmp_path / "roundtrip.json"
-    save(recording, path)
-    reloaded = load(path, rules=build_rules())
-    after = _recording_to_dict(reloaded)
+    save(recording, first)
+    reloaded = load(first, rules=build_rules())
+    save(reloaded, second)
 
-    assert before == after
+    assert second.read_text(encoding="utf-8") == first.read_text(encoding="utf-8")
 
 
-def test_the_dict_round_trip_alone_is_stable(ambush_recording):
-    """_recording_to_dict -> _recording_from_dict -> _recording_to_dict is a fixed point
-    (the in-memory half of the serialization round-trip, no disk)."""
+def test_a_load_without_rules_resaves_to_the_same_file(ambush_recording, tmp_path):
+    """Loading a current-version recording needs no rebuild (and so no rules): the file
+    parses back into a recording that saves to the identical file."""
     _, recording = ambush_recording
-    once = _recording_to_dict(recording)
-    twice = _recording_to_dict(_recording_from_dict(once))
-    assert once == twice
+    first, second = tmp_path / "saved.json", tmp_path / "resaved.json"
+
+    save(recording, first)
+    reloaded = load(first)  # no rules: nothing is replayed
+    assert reloaded.scenario is not None and reloaded.scenario.rules is None
+    save(reloaded, second)
+
+    assert second.read_text(encoding="utf-8") == first.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize("side_count", [1, 3])
 def test_a_recording_whose_scenario_is_not_two_sided_is_rejected_on_load(
-    ambush_recording, side_count
+    ambush_recording, side_count, tmp_path
 ):
     """A fight has exactly two sides. A (hand-edited or corrupt) recording with any other
     count must fail at load, not load and replay "without divergence" while silently
     ignoring the extra side (three) or crash deep inside the fight (one)."""
     _, recording = ambush_recording
-    raw = _recording_to_dict(recording)
+    path = tmp_path / "sides.json"
+    save(recording, path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
     first, second = raw["scenario"]["sides"]
     raw["scenario"]["sides"] = [first, second, second][:side_count]
+    path.write_text(json.dumps(raw), encoding="utf-8")
     with pytest.raises(ValueError):
-        _recording_from_dict(raw)
+        load(path)
 
 
 # --------------------------------------------------------------------------- #
