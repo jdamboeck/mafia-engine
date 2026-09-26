@@ -212,7 +212,9 @@ class _FakeResolver:
             "panel_attr_brutalitaet": "brutalitaet: {value}",
             "action_prompt": "deine aktion:",
             "key_legend": "[wasd] bewegen  [f]+[wasd] schiessen  [p] aussetzen",
-        }
+        },
+        # A theme must carry the client's own keys too (a gap fails loudly).
+        "client": {"side_name": "side {index}"},
     }
 
     @property

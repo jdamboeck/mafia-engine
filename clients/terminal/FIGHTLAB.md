@@ -190,7 +190,7 @@ produce a recording for `watch`, record a fight programmatically with the engine
 
 ```python
 from clients.terminal.fightlab import load_scenario
-from engine.interactions import AiDriver
+from engine.fight_loop import AiDriver
 from engine.recording import record_fight, save
 
 scenario = load_scenario(

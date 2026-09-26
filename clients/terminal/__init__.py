@@ -241,12 +241,11 @@ def default_resolver() -> Resolver:
 def client_text(key: str, params: dict | None = None, resolver: Any = None) -> str:
     """Resolve one of the client's own ``client.*`` theme keys to display text.
 
-    ``resolver`` is the session's resolver. When it is ``None``, or its theme has no
-    ``client`` section at all (a stand-in resolver that only carries game strings),
-    the default config's ``classic`` theme supplies the text instead.
+    ``resolver`` is the session's resolver; a theme that lacks a ``client.*`` key
+    fails loudly (``MissingKeyError``) like any other theme gap. Only when no
+    resolver is given at all does the default config's ``classic`` theme supply it.
     """
-    tree = getattr(resolver, "tree", None)
-    if resolver is None or not (isinstance(tree, dict) and "client" in tree):
+    if resolver is None:
         resolver = default_resolver()
     return resolver.resolve(key, params)
 

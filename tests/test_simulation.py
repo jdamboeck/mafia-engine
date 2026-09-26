@@ -4,9 +4,9 @@ This unit split combat's *decision* from its *execution*: a driver
 (:meth:`~engine.combat.CombatFight.ai_decide`, a policy callable) CHOOSES an
 ``(action, argument)`` off a read-only :class:`~engine.combat.CombatView`, and the
 loop's single apply-block EXECUTES it. Every fight — human, AI, policy, hot-seat —
-runs through the SAME shared activation loop (:func:`engine.interactions._drive_fight`),
-whether a client is in it (:func:`engine.interactions._run_combat`) or not
-(:func:`engine.interactions.simulate`).
+runs through the SAME shared activation loop (:func:`engine.fight_loop._drive_fight`),
+whether a client is in it (:func:`engine.fight_loop._run_combat`) or not
+(:func:`engine.fight_loop.simulate`).
 
 The tests here cover the plan's four fight shapes plus the split's own invariants:
 no double-execution, ``ai_decide`` purity, and the read-only view surface.
