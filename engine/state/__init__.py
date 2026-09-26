@@ -1,9 +1,11 @@
-"""Modular ``GameState`` dataclasses for the first vertical slice.
+"""Modular ``GameState`` dataclasses — the frozen, deeply read-only state graph.
 
-Each subsystem owns its own data (docs/design/engine-architecture.md). This is scaffolding only:
-happy-path construction with sensible defaults, no game logic or formulas.
-Combat and wanted subsystems are empty stubs. Source-variable names from the
-decompiled BASIC (``mf-prg.bas``) are noted in comments where helpful.
+Each subsystem owns its own data (docs/design/engine-architecture.md). Construction
+with sensible defaults only — no game logic or formulas (state changes go through
+``engine.effects``). Every collection field is coerced to a tuple or
+``MappingProxyType`` at construction, so the graph is immutable all the way down.
+Source-variable names from the decompiled BASIC (``mf-prg.bas``) are noted in
+comments where helpful.
 
 Pure dataclasses + stdlib only; the ``engine/`` package imports nothing from
 ``server/``, ``clients/``, or any transport/render library, and holds no
@@ -16,12 +18,12 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any
 
-#: Shared empty read-only mapping — a safe immutable default (R2).
+#: Shared empty read-only mapping — a safe immutable default.
 _EMPTY_MAP: Mapping = MappingProxyType({})
 
 
 def freeze(value):
-    """Recursively convert plain containers into read-only ones (R2/KTD-2).
+    """Recursively convert plain containers into read-only ones.
 
     ``dict`` -> :class:`~types.MappingProxyType`, ``list``/``tuple`` -> ``tuple``,
     applied all the way down. Config data arrives from YAML (and from a JSON save) as
@@ -42,7 +44,7 @@ def tuple_replace(items, idx: int, value) -> tuple:
 
     The read-only-preserving sequence update every functional rebuild funnels through:
     the result is always a ``tuple``, so a rebuilt collection can never be a mutable
-    ``list`` a handler could append to (R2). Structural sharing is implicit — untouched
+    ``list`` a handler could append to. Structural sharing is implicit — untouched
     elements are the same objects, which is safe because they are themselves frozen.
 
     Raises ``IndexError`` for an out-of-range ``idx`` (including a negative one). Python
@@ -85,7 +87,7 @@ def json_safe(value) -> Any:
 
 
 def _coerce_readonly(instance, *field_names) -> None:
-    """Force ``instance``'s named collection fields into read-only form (R2).
+    """Force ``instance``'s named collection fields into read-only form.
 
     Freezing a dataclass stops attribute writes but says nothing about what its
     fields *hold* — a caller passing a plain ``dict``/``list`` would reopen the very
@@ -130,10 +132,10 @@ __all__ = [
 
 # eq=False: use the hand-written cross-class __eq__ below, not a dataclass-generated
 # one (which would require an identical class and so never equal a Gangster to a
-# reloaded Combatant). See __eq__ for why (U2, amendment A4).
+# reloaded Combatant). See __eq__ for why.
 @dataclass(frozen=True, eq=False)
 class Combatant:
-    """A single roster member — the engine's blueprint for anything that can fight (KTD-2).
+    """A single roster member — the engine's blueprint for anything that can fight.
 
     The engine addresses this through FOUR slots and knows nothing else about it:
 
@@ -147,14 +149,13 @@ class Combatant:
         are NOT engine slots: they live here, and adding another is a config-only
         change.
     ``identity`` / ``equipment``
-        Opaque label and opaque equipment handle (the latter passed to the rules
-        bundle's ``equipment_stats``).
+        Opaque label (``name``) and opaque equipment id (``weapon``); the game turns
+        the id into the fighter's constructed ``equipment`` mapping at fight setup.
 
-    The depleting resource is named by the game's :class:`~engine.combat.RulesBundle`
-    (``vitality``), not by the engine — the engine only ever subtracts from it and
-    clamps at zero.
+    The depleting resource is the ``vitality`` slot — the engine only ever subtracts
+    from it and clamps at zero; the game decides what it means.
 
-    **No game-stat fields (U2, amendment A4).** ``kraft``/``brutalitaet``/
+    **No game-stat fields.** ``kraft``/``brutalitaet``/
     ``intelligenz``/``energie`` are NOT fields here — they are this game's vocabulary,
     and the engine names none of them. A roster member's stats live in ``attrs`` as an
     opaque ``name -> int`` map. The reference title's named-field roster member is
@@ -173,7 +174,7 @@ class Combatant:
 
     name: str = ""
     weapon: int = 0  # weapon index 0..8; 0 = unarmed — the opaque equipment id
-    #: The ONE depleting resource, first-class like ``position``/``down`` (U2, A4).
+    #: The ONE depleting resource, first-class like ``position``/``down``.
     #: The engine subtracts from it and clamps at zero; ``down`` derives from it hitting
     #: zero. This game NAMES it "energie" and maps that onto this slot at construction —
     #: the engine spells only the role, never the game's word.
@@ -189,7 +190,7 @@ class Combatant:
 
     def __eq__(self, other: object) -> bool:
         # Compare across the Combatant/Gangster boundary by the blueprint fields, not by
-        # exact class (U2, amendment A4). A save-then-reload rebuilds a roster member as
+        # exact class. A save-then-reload rebuilds a roster member as
         # a bare ``Combatant``; the live one is a config ``Gangster`` with the SAME four
         # fields. The default dataclass ``__eq__`` requires an identical class, so a
         # reconstructed state would never equal the live one — and every purity/replay
@@ -210,7 +211,7 @@ class Combatant:
     # never used as dict keys or set members, so this costs nothing.
 
     def with_attr(self, name: str, value: int) -> "Combatant":
-        """Return a copy with ``attrs[name]`` set to ``value`` (U2, amendment A4).
+        """Return a copy with ``attrs[name]`` set to ``value``.
 
         The engine's stat-name-free way to write a roster attribute: it names the key
         only as data passed in, never as a field.
@@ -227,8 +228,8 @@ class Job:
     Field semantics confirmed against the source (mf-prg.bas:12308-12335,25550-25560):
     ``type`` is ``jo(sp)`` (the accepted job's type id; 0 = no job), ``pending_pay`` is
     ``jl(sp)`` (the lump sum paid out when the job completes — despite the source
-    comment "monthly pay", it is a single payout on completion, not a per-turn wage;
-    see the Product Contract's R6/F3 correction), and ``months_left`` is ``jd(sp)``
+    comment "monthly pay", it is a single payout on completion, not a per-turn wage),
+    and ``months_left`` is ``jd(sp)``
     (the remaining-duration counter, decremented once per elapsed month and completing
     the job at 0, :25550).
     """
@@ -243,17 +244,16 @@ class Debt:
     """Per-player debt.
 
     Renamed from the original ``kr(sp)`` to avoid colliding with the gangster
-    stat ``kraft`` — a required correctness point for this unit.
+    stat ``kraft``.
 
     ``amount`` is ``kr(sp)`` (the outstanding loan-shark balance). ``months`` is
     ``kz(sp)`` — a grace-period counter set to 6 on borrowing (mf-prg.bas:15030) and
     0 on full repayment (:15075).
 
-    U12 resolved the relational-sign flag on its upkeep tick
-    (``kz(sp)=kz(sp)+(kz(sp)>0)``, :4305): the counter **DECREMENTS** once per elapsed
-    month while positive, and reaching 0 triggers the debt-collector encounter
-    (:4350). This is the C64 ``true=-1`` reading, NOT the project's usual ``true=+1``
-    porting convention — see the COUNTER DIRECTION section of
+    The upkeep tick (``kz(sp)=kz(sp)+(kz(sp)>0)``, :4305) **DECREMENTS** the counter
+    once per elapsed month while positive, and reaching 0 triggers the debt-collector
+    encounter (:4350). This is the C64 ``true=-1`` reading (#47: C64 true is -1) — see
+    the COUNTER DIRECTION section of
     ``data/game_configs/mafia_1920s/handlers/upkeep.py`` for the three source lines
     that pin it. The ``>0`` guard makes 0 a fixed point, which is what makes a won
     collectors fight recur every turn.
@@ -267,10 +267,9 @@ class Debt:
 class Business:
     """Per-player shop/business ownership.
 
-    ``shop_tile`` replaces the earlier ``shop_owner: bool`` (KTD-7 groundwork): the
-    original tracks ownership by WHICH ``kdh`` tile the player bought (an ``ln``
-    value), not a bare flag — a later unit's shop-income/sale logic needs the tile
-    to compute income, so the boolean was a lossy placeholder. ``0`` means "no shop"
+    ``shop_tile`` is a tile, not an ownership flag: the original tracks ownership by
+    WHICH ``kdh`` tile the player bought (an ``ln`` value), and shop-income/sale logic
+    needs the tile to compute income, so a boolean would be lossy. ``0`` means "no shop"
     (``ln`` is 1-based in the source, so 0 is not a valid owned tile).
     """
 
@@ -301,17 +300,17 @@ class Wanted:
 class Player:
     """A single player: identity, resources, roster, and owned subsystems.
 
-    ``roster[0]`` is ALWAYS the player's own boss/persona gangster (KTD-6, matching
+    ``roster[0]`` is ALWAYS the player's own boss/persona gangster (matching
     ``mf-prg.bas:300``: ``gz(i)=1`` gives the player exactly one gangster at setup,
     named after the player, ``gn$(i,1)=sp$(i)`` — first-array-slot, i.e. index 0 here).
     There is no separate parallel "player stat" representation: the boss's
     kraft/intelligenz/brutalitaet/energie/weapon live entirely on this one
     ``Combatant`` entry, and every roster-length check (``gz(sp)``, e.g. the pub's
     10-gangster cap at :12105) counts the boss too. Later hires are appended after
-    it. This is already how :func:`data.game_configs.mafia_1920s.setup.new_game`
-    and every roster read site (``engine/conditions.py``'s ``gang_size``,
-    ``data/game_configs/mafia_1920s/handlers/waf.py``) are written — there is no
-    separate index shift to perform.
+    it. :func:`data.game_configs.mafia_1920s.setup.new_game` and every roster read
+    site (``engine/conditions.py``'s ``gang_size``,
+    ``data/game_configs/mafia_1920s/handlers/waf.py``) rely on this — there is no
+    separate index shift.
     """
 
     name: str = ""
@@ -359,7 +358,7 @@ class MapState:
 
 @dataclass(frozen=True)
 class Fighter:
-    """A single combatant on the combat grid — the per-fighter setup snapshot (U4).
+    """A single combatant on the combat grid — the per-fighter setup snapshot.
 
     Mirrors the source's parallel per-side arrays: ``kp(s,f)`` (position),
     ``gw(s,f)`` (weapon), ``ec(f)``/``en`` (energy → the ``vitality`` slot), plus the
@@ -369,7 +368,7 @@ class Fighter:
     so index-addressed arrays (``dir_memory``, UI panels) stay stable across a fight
     (mirrors ``30106/30109``'s dead-skip checks).
 
-    **No game-stat fields (U2, amendment A5).** Like :class:`Combatant`, the on-grid
+    **No game-stat fields.** Like :class:`Combatant`, the on-grid
     ``Fighter`` names no game stat: the depleting resource is the engine-named
     ``vitality`` SLOT (this game maps ``energie`` onto it at construction), and every
     other stat lives in the opaque ``attrs`` map. The engine reads/writes ``.vitality``
@@ -378,13 +377,13 @@ class Fighter:
     slot, the rest in ``attrs``), so a reloaded ``Fighter`` round-trips to the same
     shape (no double-store).
 
-    A player-side fighter's ``name`` is the roster gangster's name (boss included,
-    KTD-6); an enemy-side fighter's ``name`` comes from the ``StartCombat`` spec.
+    A player-side fighter's ``name`` is the roster gangster's name (boss included);
+    an enemy-side fighter's ``name`` comes from the ``StartCombat`` spec.
     """
 
     name: str = ""
     weapon: int = 0
-    #: The ONE depleting resource, an engine slot like ``position``/``down`` (U2, A5).
+    #: The ONE depleting resource, an engine slot like ``position``/``down``.
     #: The engine subtracts from it and clamps at zero; ``down`` derives from it hitting
     #: zero. This game NAMES it "energie" and maps that onto this slot at construction —
     #: the engine spells only the role, never the game's word.
@@ -395,11 +394,11 @@ class Fighter:
         default_factory=lambda: _EMPTY_MAP
     )  # the OPAQUE stat map — see Combatant's docstring
     #: This fighter's CONSTRUCTED equipment: the stat mapping itself, not a key into
-    #: a table the engine would have to hold (amendment A1). The game builds it from
+    #: a table the engine would have to hold. The game builds it from
     #: its own entity data before the fight starts, so combat reads no equipment data
     #: from outside the roster and there is no second source to disagree with.
     equipment: Mapping[str, int] = field(default_factory=lambda: _EMPTY_MAP)
-    #: Which roster entry this fighter IS, for mapping the outcome back (amendment A1).
+    #: Which roster entry this fighter IS, for mapping the outcome back.
     #: A fight consumes a roster and returns consequences — vitality loss, who went
     #: down — that the caller has to apply to the right gangster. ``None`` for a
     #: fighter with no roster entry (every NPC/enemy).
@@ -407,18 +406,18 @@ class Fighter:
     #: The engine never interprets it: it carries the value through and hands it back,
     #: exactly as it does ``attrs``. It exists because the alternative is matching on
     #: POSITION, which is only correct while side 1's order happens to equal roster
-    #: order — an assumption nothing enforces and a scenario (U5) can break outright.
+    #: order — an assumption nothing enforces and a scenario can break outright.
     roster_id: int | None = None
 
     def __post_init__(self):
         _coerce_readonly(self, "attrs", "equipment")
 
-    # -- KTD-2 blueprint slots ------------------------------------------------ #
+    # -- blueprint slots ------------------------------------------------------ #
     # The engine addresses a combatant through the four blueprint slots, not through
     # this game's field names. ``position``/``down``/``attrs``/``equipment`` already
     # carry their blueprint names; the alias below keeps engine code from spelling a
-    # game-specific one. It is a property rather than a renamed field because the
-    # 113 existing ``name=``/``weapon=`` construction sites stay valid that way.
+    # game-specific one. It is a property rather than a renamed field so the many
+    # ``name=``/``weapon=`` construction sites stay valid.
     @property
     def identity(self) -> str:
         """The combatant's opaque label (this game: the gangster/NPC name)."""
@@ -427,8 +426,10 @@ class Fighter:
 
 @dataclass(frozen=True)
 class CombatState:
-    """The serializable combat-screen snapshot: populated at setup (U4), evolves
-    each activation (U5), finalized by outcome effects (U5).
+    """The serializable combat-screen snapshot: populated at setup
+    (:func:`engine.combat_setup.setup_combat`); the mid-fight evolution lives in
+    :class:`engine.combat.CombatFight`, whose ``snapshot()`` freezes it back into this
+    shape.
 
     ``sides`` holds side 1 (the active player's roster-as-fighters) and side 2 (the
     enemy party spawned from the ``StartCombat`` spec) as two fighter tuples — ports
@@ -441,8 +442,8 @@ class CombatState:
     (``mf-prg.bas:30020``: initialized to -1, "no last move yet"), keyed by enemy
     fighter index — the source only tracks this for the CPU side (``ks(2)=0``).
     ``active_side``/``active_fighter`` are the ``s``/``f`` activation cursors (1/2
-    and 1-based fighter index, matching the source so the cursor bookkeeping in U5
-    needs no reindexing). ``losses`` mirrors ``v(1)``/``v(2)`` (per-side downed
+    and 1-based fighter index, matching the source so the cursor bookkeeping in
+    :mod:`engine.combat` needs no reindexing). ``losses`` mirrors ``v(1)``/``v(2)`` (per-side downed
     count). ``result_flag`` is the original ``s`` post-fight winner flag (0 = fight
     in progress / unset).
     """
@@ -472,7 +473,7 @@ class Clock:
     plus a 0-11 month counter rather than a float, so a full round (one lap of
     all players, mf-prg.bas:1010's ``sp=sp+1`` wrap) advances ``month`` by one
     and ``year`` only rolls over every 12 rounds — matching ``int(ja)``
-    incrementing only once every 12 additions of ``1/12`` (KTD-4).
+    incrementing only once every 12 additions of ``1/12``.
     """
 
     year: int = 1925  # int(ja) — current year; starts at 1925 (mf-prg.bas:1000 ja=1925)
@@ -503,7 +504,7 @@ class Flags:
     ``i`` is 1-based) already hired by ANY player this game. It lives on ``Flags``
     rather than on ``Player`` because the source array has no player dimension: once
     a candidate is hired by one player, every player's recruit roll skips them
-    (U9's ``pub.recruit``). A tuple, not a ``set``/``frozenset`` (R2/KTD-7): every
+    (the pub's ``pub.recruit``). A tuple, not a ``set``/``frozenset``: every
     other read-only COLLECTION field in this module is a tuple or
     ``MappingProxyType`` so ``json_safe``/persistence's generic walkers handle it
     for free; a bare Python ``set`` is not JSON-serializable and would need its own

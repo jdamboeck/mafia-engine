@@ -1,4 +1,9 @@
-"""Combat CPU targeting: the `cr` nearest-hostile target selection and the default CPU sides."""
+"""Combat CPU targeting: the ``cr`` nearest-hostile target selection and the default CPU sides.
+
+Holds :class:`AiTarget`, :func:`ai_target` (the port of the ``cr`` machine-code routine)
+and :data:`DEFAULT_CPU_SIDES`. The CPU *decision* built on the target (move vs shoot)
+is :meth:`engine.combat.CombatFight.ai_decide`.
+"""
 
 from __future__ import annotations
 
@@ -16,10 +21,10 @@ __all__ = [
 ]
 
 # --------------------------------------------------------------------------- #
-# CPU target selection — the `cr` machine-code routine (U6)                   #
+# CPU target selection — the `cr` machine-code routine                        #
 # --------------------------------------------------------------------------- #
 # The CPU hunts whoever is HOSTILE to the acting side, derived per-fight from
-# :meth:`CombatFight.hostile_to` (U4) rather than a hardcoded "always side 1" constant.
+# :meth:`CombatFight.hostile_to` rather than a hardcoded "always side 1" constant.
 # The original's colour-RAM/``cr`` mechanism that made it always side 1 — and why that
 # reduces to the two-party ``(2,)``/``(1,)`` default — is documented on ``hostile_to``.
 
@@ -91,7 +96,7 @@ def ai_target(fight: "CombatFight | CombatView") -> AiTarget | None:
 
     **Who is a candidate.** The fighters on the side(s) hostile to the ACTIVE side
     (:meth:`CombatFight.hostile_to`), never the active fighter's own — self-exclusion
-    falls out of the derivation, since a side is never hostile to itself (U4). In the
+    falls out of the derivation, since a side is never hostile to itself. In the
     original ``cr`` scans for cells holding char 193 with colour-RAM low nibble 2, which
     is always side 1; deriving from ``active_side`` here is bit-identical for the
     side-2-acts case the original produces, and additionally correct when a caller puts

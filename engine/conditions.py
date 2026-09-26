@@ -4,7 +4,7 @@ A guard is a small, nested dict — pure data — that decides whether a menu op
 is *available*. This is the logic half of the **declarative shell layer**: the
 YAML shell (``engine.locations``) carries the guards, this module evaluates them.
 The engine holds no display text; a denied guard's message key lives on the
-option (``on_denied``), never here (KTD-5).
+option (``on_denied``), never here.
 
 The DSL is deliberately tiny and its constraints are a *contract* (CLAUDE.md,
 docs/design/config-and-content-contract.md) — enforced here at evaluation time:

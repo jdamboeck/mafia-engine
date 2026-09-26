@@ -30,9 +30,8 @@ STAGGER_OFFSETS: tuple[int, ...] = (122, 81, 161, 120, 42, 202, 40, 200, 1, 241)
 #: Side 1 (i=1): ``(i=2)`` is false (0) -> anchor 129. Side 2 (i=2): ``(i=2)`` is
 #: true, which in C64 BASIC is -1 -> anchor = 129 - 18*(-1) = 147.
 #:
-#: Corrected by the #47 fidelity audit (this previously shipped 111, from the
-#: since-reversed true=+1 pin). The sibling expressions in this same block decide
-#: the sign structurally, and all three fail under true=+1:
+#: #47: C64 true is -1, not +1 (true=+1 would give 111). The sibling expressions in
+#: this same block decide the sign structurally, and all three fail under true=+1:
 #:   :30010 ``pokefr+kp(i,j),2-4*(i=2)`` — a C64 colour code (0..15). true=-1
 #:          gives 6 (blue) for side 2 vs 2 (red) for side 1; true=+1 gives -2.
 #:   :30015 ``poke211,-20*(i=2)`` — 211/$D3 is the KERNAL cursor COLUMN and
@@ -40,7 +39,6 @@ STAGGER_OFFSETS: tuple[int, ...] = (122, 81, 161, 120, 42, 202, 40, 200, 1, 241)
 #:          right half of the 40-column screen); true=+1 gives -20.
 #:   :30108 ``s=1-(s=1)`` — the side toggle, which must map 1<->2. true=-1 gives
 #:          1->2 and 2->1; true=+1 gives 1->0, a nonexistent side.
-#: 147 also matches this unit's plan prose ("side anchors 129/147").
 SIDE1_ANCHOR = 129
 SIDE2_ANCHOR = 129 + 18  # 147 — (i=2) is true = -1, so 129 - 18*(-1)
 
@@ -72,12 +70,12 @@ def placement_positions(anchor: int, count: int) -> tuple[int, ...]:
 # Fighter-side construction                                                   #
 # --------------------------------------------------------------------------- #
 def build_player_side(roster: Any) -> tuple[Fighter, ...]:
-    """Build side 1 from the active player's roster (boss first, KTD-6).
+    """Build side 1 from the active player's roster (boss first).
 
     Each roster :class:`~engine.state.Combatant` becomes one
     :class:`~engine.state.Fighter` carrying its ``vitality`` slot and opaque ``attrs``
     WHOLESALE — the function names no game stat, it copies the two blueprint carriers
-    the engine already reads through (amendment A5). ``roster[0]`` is always the boss
+    the engine already reads through. ``roster[0]`` is always the boss
     (``Player`` docstring, ``mf-prg.bas:300``) — this function does not reorder it, it
     only maps roster order onto placement-slot order 1:1 (``mf-prg.bas:30000``'s
     ``forj=1togz(ks(i))`` walks the roster in its stored order).
@@ -93,7 +91,7 @@ def build_player_side(roster: Any) -> tuple[Fighter, ...]:
             down=False,
             equipment=getattr(g, "equipment", None) or {},
             # The roster slot this fighter came from, so the outcome maps back to the
-            # right gangster by identity rather than by position (amendment A1).
+            # right gangster by identity rather than by position.
             roster_id=slot,
         )
         for slot, (g, pos) in enumerate(zip(roster, positions))
@@ -115,8 +113,8 @@ def build_enemy_side(
     gw(0,i)=w:ec(i)=e:next`` — one weapon/energy value broadcast across the whole
     enemy roster, not per-fighter). The non-vitality stats come from ``attrs`` supplied
     by the CALLER — the source's fixed ``bt=30:kr=30`` (``mf-prg.bas:30245``) is config
-    data now, so the engine names neither the stat nor its value (amendment A5,
-    Finding 4). Placed at :data:`SIDE2_ANCHOR`.
+    data, so the engine names neither the stat nor its value. Placed at
+    :data:`SIDE2_ANCHOR`.
     """
     positions = placement_positions(SIDE2_ANCHOR, count)
     enemy_attrs = dict(attrs or {})
@@ -159,16 +157,17 @@ def setup_combat(
 
     The enemy party enters with ``enemy_vitality`` (its ``vitality`` slot) and the
     non-vitality stats in ``enemy_attrs`` — both CALLER-supplied config data. The
-    engine names no enemy stat and holds no fixed enemy value (amendment A5).
+    engine names no enemy stat and holds no fixed enemy value.
 
     ``grid`` is the backdrop's linear 521-cell wall/scenery code array (config data,
-    pre-decoded — see this module's docstring); an empty ``grid`` (fidelity-deviation
-    fallback) still produces a legally-playable open arena, since :func:`can_move_onto`
+    pre-decoded — see :mod:`engine.combat`'s docstring); an empty ``grid`` (fidelity-deviation
+    fallback) still produces a legally-playable open arena, since
+    :func:`engine.combat.can_move_onto`
     treats any cell past the end of a short ``grid`` as open ground (code 32).
 
     ``equip`` is the GAME's ``weapon id -> stat mapping`` constructor, called once per
-    fighter here so every combatant enters the fight already carrying its equipment
-    (amendment A1). It is a parameter rather than an engine table because resolving a
+    fighter here so every combatant enters the fight already carrying its equipment.
+    It is a parameter rather than an engine table because resolving a
     weapon id is entity knowledge the engine does not have — and because building the
     equipment HERE, once, is what stops a second copy existing to disagree later.
     """

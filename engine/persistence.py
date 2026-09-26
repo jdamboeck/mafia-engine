@@ -1,4 +1,4 @@
-"""U12 — Save / load: append-only event store + snapshot round-trip (KTD-6).
+"""Save / load: append-only event store + snapshot round-trip.
 
 A game is ``initial seed + setup + ordered effect/RNG log`` (docs/design/engine-architecture.md
 § Save/replay). This module persists exactly that and reconstructs a ``GameState`` from it,
@@ -17,7 +17,7 @@ Store shape (append-only JSONL, one JSON object per line)
 Replay = restore the snapshot, then ``commit`` the ordered effects. RNG draws are carried in
 the log so a replay does not re-roll. A **mid-handler** save is restored by replaying the
 recorded input responses into a fresh ``run_option`` so the handler re-suspends at the same
-prompt — generators are not serializable and none lives in ``GameState`` (see U12 in the plan).
+prompt — generators are not serializable and none lives in ``GameState``.
 
 Serialization is **type-tagged**: each effect is written as ``{"_type": "<ClassName>", ...}``
 and reconstructed by looking the tag up in :data:`_EFFECT_TYPES`. ``GameState`` is nested
@@ -95,8 +95,8 @@ _EFFECT_TYPES: dict[str, type] = _build_effect_types()
 def _effect_to_dict(effect: Any) -> dict:
     """Serialize a frozen Effect dataclass to a type-tagged plain dict.
 
-    Walks with :func:`~engine.state.json_safe`, NOT ``dataclasses.asdict``. Since U2
-    a nested :class:`~engine.state.Fighter` carries an ``attrs`` mapping held as a
+    Walks with :func:`~engine.state.json_safe`, NOT ``dataclasses.asdict``. A nested
+    :class:`~engine.state.Fighter` carries an ``attrs`` mapping held as a
     read-only ``mappingproxy``, and ``asdict`` deepcopies internally — ``mappingproxy``
     is not picklable, so it cannot walk a frozen graph at all. ``json_safe`` is the
     engine's declared inverse of that frozen form and unwraps it correctly.
@@ -142,7 +142,7 @@ def _restore_int_keys(d: dict) -> Mapping[int, int]:
     """Return ``d`` with keys coerced back to int (JSON stringified them).
 
     Yields a READ-ONLY mapping: a restored graph must satisfy the same deep-immutability
-    invariant as a freshly built one (R2/KTD-6).
+    invariant as a freshly built one.
     """
     return MappingProxyType({int(k): v for k, v in d.items()})
 
@@ -159,7 +159,7 @@ def _restore_numeric_keys(value: Any) -> Any:
         restored = {k: _restore_numeric_keys(v) for k, v in value.items()}
         if restored and all(isinstance(k, str) and _is_int_literal(k) for k in restored):
             restored = {int(k): v for k, v in restored.items()}
-        return MappingProxyType(restored)  # read-only: R2 holds after load too
+        return MappingProxyType(restored)  # read-only: the graph stays immutable after load
     if isinstance(value, list):
         return tuple(_restore_numeric_keys(v) for v in value)
     return value
@@ -171,7 +171,7 @@ def _is_int_literal(s: str) -> bool:
 
 
 #: The roster-member blueprint fields the engine names; every other saved key is a
-#: game stat that folds into ``attrs`` (U2, amendment A4). ``vitality`` is a slot,
+#: game stat that folds into ``attrs``. ``vitality`` is a slot,
 #: not an attr — this game's ``energie`` was mapped onto it at construction.
 _ROSTER_BLUEPRINT_FIELDS = ("name", "weapon", "vitality")
 
@@ -183,7 +183,7 @@ def _roster_member_from_dict(raw: dict) -> Combatant:
     reconstructs the named-field form. ``name``/``weapon`` are read by name; every
     other saved key is a game stat and is folded into ``attrs`` — which is exactly
     where the engine reads stats from, so the round-trip is lossless. A config that
-    needs the named-field form reads it through ``attrs`` (amendment A4).
+    needs the named-field form reads it through ``attrs``.
     """
     blueprint = {k: raw[k] for k in _ROSTER_BLUEPRINT_FIELDS if k in raw}
     stats = {k: v for k, v in raw.items() if k not in _ROSTER_BLUEPRINT_FIELDS and k != "attrs"}
@@ -229,7 +229,7 @@ def _config_from_dict(raw: dict) -> Config:
 
 
 def _combat_from_dict(raw: dict) -> CombatState:
-    """Reconstruct ``CombatState``, restoring the nested ``Fighter`` dataclasses (U4).
+    """Reconstruct ``CombatState``, restoring the nested ``Fighter`` dataclasses.
 
     ``sides`` is a 2-tuple of fighter-dict lists (JSON-safed by :func:`~engine.state.json_safe`
     into plain lists of plain dicts) — each dict rebuilds into a :class:`~engine.state.Fighter`.

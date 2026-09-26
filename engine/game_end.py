@@ -1,4 +1,4 @@
-"""The standings and year-end runners — ENGINE mechanism, config-driven body (U6, KTD-1).
+"""The standings and year-end runners — ENGINE mechanism, config-driven body.
 
 Mirrors :mod:`engine.upkeep` exactly. The two end-of-round / end-of-game screens of the
 reference title (the between-rounds standings table, ``mf-prg.bas:4500-4515``, and the
@@ -12,7 +12,7 @@ supplies the generic runners that look a generator up, drive it via
 :func:`engine.interactions.run`, and return the :class:`~engine.actions.EngineResult`
 for the caller to adopt.
 
-WHEN these run is the engine's decision, not the client's (KTD-2): the client calls
+WHEN these run is the engine's decision, not the client's: the client calls
 :func:`run_standings` on a round wrap and :func:`run_year_end` whenever
 ``advance_turn`` reports ``game_over``. Both flows are display-only — they ask the
 player nothing and commit no effects — so each runner's default input source swallows
@@ -83,7 +83,7 @@ def run_standings(
 ) -> EngineResult:
     """Run the config's standings generator against ``state`` and return its result.
 
-    Per KTD-2 the caller passes the state from BEFORE ``advance_turn`` so the date
+    The caller passes the state from BEFORE ``advance_turn`` so the date
     shown is the round just finished. The flow is display-only: ``result.state`` equals
     ``state``. ``handlers`` is a test seam (defaults to :data:`engine.locations.HANDLERS`).
 
@@ -103,7 +103,7 @@ def run_year_end(
 ) -> EngineResult:
     """Run the config's year-end generator (standings, then the result) and return it.
 
-    Per KTD-2 the caller passes the post-``advance_turn`` state, as ``:40100`` does.
+    The caller passes the post-``advance_turn`` state, as ``:40100`` does.
     Display-only: ``result.state`` equals ``state``. ``handlers`` is a test seam.
 
     Raises:

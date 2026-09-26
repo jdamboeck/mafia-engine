@@ -1,4 +1,4 @@
-"""The ``SUBSTATES`` registry — nested sub-state handlers for ``LoadSubState`` (KTD-1).
+"""The ``SUBSTATES`` registry — nested sub-state handlers for ``LoadSubState``.
 
 A **sub-state handler** is a factory ``(ctx, params) -> Generator[Interaction, Response, result]``
 — the same generator/interaction protocol a location handler uses, one nesting level
@@ -6,7 +6,7 @@ down. When a parent handler yields :class:`~engine.interactions.LoadSubState(kin
 the driver (:func:`engine.interactions.run`) looks up the factory registered under
 ``kind`` here, drives the child generator to completion **sharing the parent's**
 ``Ctx`` (so the child's ``ctx.apply``/``ctx.record`` append into the parent's buffers —
-one atomic action across the nesting boundary, KTD-1), and ``.send()``s the child's
+one atomic action across the nesting boundary), and ``.send()``s the child's
 return value back into the parent as the ``LoadSubState`` response.
 
 This mirrors the ``HANDLERS`` / :func:`engine.locations.register` registry shape exactly:

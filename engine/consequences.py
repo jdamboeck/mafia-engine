@@ -1,4 +1,4 @@
-"""Strict conversion of YAML **consequence dicts** into typed effects (T6).
+"""Strict conversion of YAML **consequence dicts** into typed effects.
 
 A game config's declarative shell may express an option's outcome as a flat list of
 pure-data ``consequences`` — raw dicts loaded from YAML (see an option's

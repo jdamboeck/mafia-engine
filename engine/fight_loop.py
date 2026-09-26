@@ -1,4 +1,13 @@
-"""The fight loop: per-side combat drivers and the shared activation loop that runs a fight to a result."""
+"""The fight loop: per-side combat drivers and the shared activation loop that runs a fight to a result.
+
+Holds the :class:`Driver` kinds (human / ai / policy / replay), :func:`_run_combat` (the
+``StartCombat`` sub-protocol a handler's fight runs through, called from
+:mod:`engine.interactions`'s driver), :func:`_drive_fight` (the ONE activation loop,
+shared by every entry point) and :func:`simulate` (the headless entry). The rules of a
+fight live in :mod:`engine.combat`; this module only sequences them. ``engine.combat``
+is imported lazily inside the functions so this module's runtime import graph stays
+free of it.
+"""
 
 from __future__ import annotations
 
@@ -9,15 +18,15 @@ from typing import TYPE_CHECKING, Any
 from engine.interactions import CANCEL, OBSERVE_PROMPT, CombatScreen, Ctx, StartCombat
 
 if TYPE_CHECKING:
-    # Type-only: keep this module's RUNTIME import graph free of engine.combat (the
-    # spine imports it lazily inside _run_combat, see the module docstring). The
+    # Type-only: keep this module's RUNTIME import graph free of engine.combat (it is
+    # imported lazily inside the functions, see the module docstring). The
     # ``from __future__ import annotations`` above makes every annotation a string, so
     # ``-> CombatResult`` never triggers a runtime import; this block only lets a type
     # checker resolve the name.
     from engine.combat import CombatResult
 
 __all__ = [
-    # Per-side combat drivers (U6)
+    # Per-side combat drivers
     "Driver",
     "HumanDriver",
     "AiDriver",
@@ -29,11 +38,11 @@ __all__ = [
 
 
 # --------------------------------------------------------------------------- #
-# Per-side combat drivers (U6) — who answers each side's activations           #
+# Per-side combat drivers — who answers each side's activations                #
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Driver:
-    """How ONE side's activations are answered inside :func:`_run_combat` (U6, R10/R11).
+    """How ONE side's activations are answered inside :func:`_drive_fight`.
 
     The combat loop's dispatch is a **two-way branch on ``kind``**: suspend-and-ask
     (the human path — the ONLY path that ``yield``s a :class:`CombatScreen`) vs.
@@ -52,10 +61,10 @@ class Driver:
         Calls ``decide(view)``, a ``Callable[[CombatView], tuple[str, Any]]`` — a
         scripted or heuristic side with no client in the loop.
     ``replay``
-        Reserved here so **U7 need not touch this dispatch again** (R15). It is a
-        declared kind, not yet functional — a replay driver must NOT execute (the
-        recorded result is the thing being reproduced), which is precisely why every
-        kind obeys the same "choose, return, let one place apply" contract.
+        A declared kind, not functional (see :class:`ReplayDriver`). A replay driver
+        must NOT execute (the recorded result is the thing being reproduced), which is
+        precisely why every kind obeys the same "choose, return, let one place apply"
+        contract.
 
     A base :class:`Driver` is any of these; the concrete subclasses below set ``kind``
     and, where relevant, carry the callable.
@@ -67,7 +76,7 @@ class Driver:
         """Choose ``(action, argument)`` from a read-only ``CombatView``.
 
         The default raises — a plain ``human`` :class:`Driver` never decides (the
-        loop yields a screen for it instead), and ``replay`` is not yet functional.
+        loop yields a screen for it instead), and ``replay`` is not functional.
         The ``ai``/``policy`` subclasses override this.
         """
         raise NotImplementedError(f"{type(self).__name__}(kind={self.kind!r}) cannot decide")
@@ -107,11 +116,11 @@ class PolicyDriver(Driver):
 
 @dataclass(frozen=True)
 class ReplayDriver(Driver):
-    """Reserved for U7 (R15). Declared so this dispatch need not change again.
+    """A declared ``replay`` kind that is not functional; :meth:`decide` raises.
 
-    Not functional this unit: a replay driver reproduces a recorded transcript, and
-    the recording/replay machinery is U7's. :meth:`decide` therefore raises with a
-    clear message rather than guessing.
+    :func:`engine.recording.replay` applies a recording's decisions itself and does not
+    go through a driver, so nothing constructs a working one. :meth:`decide` raises
+    with a clear message rather than guessing.
     """
 
     kind: str = "replay"
@@ -125,60 +134,51 @@ def _run_combat(
     input_source: Callable[[Any], Any],
     ctx: "Ctx",
 ) -> "CombatResult":
-    """Drive a full fight to a winner and return the winning side (KTD-1/KTD-2).
+    """Drive a full fight to a winner and return its :class:`~engine.combat.CombatResult`.
 
-    The combat sub-protocol, structurally a sibling of :func:`_run_substate`: an
-    INLINE loop over the parent's ``ctx`` (so the fight's effects buffer into the
-    parent action and commit or discard with it), never a nested :func:`run` call
-    (which would commit the fight independently and break that atomicity).
+    The combat sub-protocol, structurally a sibling of
+    :func:`engine.interactions._run_substate`: an INLINE loop over the parent's ``ctx``
+    (so the fight's effects buffer into the parent action and commit or discard with
+    it), never a nested :func:`engine.interactions.run` call (which would commit the
+    fight independently and break that atomicity).
 
-    Ports the activation loop ``mf-prg.bas:30100-30155``. Each pass:
+    Ports the activation loop ``mf-prg.bas:30100-30155`` via :func:`_drive_fight`
+    (victory check, one action per activation, CPU sides decided with no prompt,
+    human sides prompted with a :class:`CombatScreen`).
 
-    1. Check victory (``30106``) — the fight ends the moment one side has no
-       standing fighter, mid-round, without finishing the current side's turn.
-    2. If the active side is CPU-controlled (``30110``: ``ifks(s)=0``), run the AI
-       decision routine (:meth:`engine.combat.CombatFight.ai_take_turn`, ports
-       ``30400-30492``) and advance — **no** :class:`CombatScreen` is yielded and the
-       client is never prompted for that side. Otherwise:
-    3. Yield a :class:`CombatScreen` for the active fighter and read one action.
-    4. Apply exactly ONE action per activation (``30130-30155``): a legal move, a
-       shot, a pass, or a surrender. An ILLEGAL move or an unrecognized response
-       re-prompts the SAME activation (``30145``/``30139`` jump back to ``30125``)
-       rather than consuming it.
-    5. Advance the cursor (``30105``), skipping downed fighters (``30109``).
-
-    **Non-cancellable (KTD-2).** :data:`CANCEL` — which is also how a client
+    **Non-cancellable.** :data:`CANCEL` — which is also how a client
     surfaces EOF — is mapped to a surrender, never to a ``Cancelled`` throw. A
     mandatory fight must not be escapable through a cancel unwind, so this loop
-    deliberately does not consult the cancel path that :func:`_resolve` owns.
+    deliberately does not consult the cancel path that
+    :func:`engine.interactions._resolve` owns.
 
-    The invoking handler owns the fight's ENTRY-POINT consequence (KTD-1 — "losing a
+    The invoking handler owns the fight's ENTRY-POINT consequence ("losing a
     fight carries only the entry point's consequence": debt seizure, job pay, reward,
     etc.) — that is still on the caller. But the fight's OWN persistent side-effect on
     the roster — energy spent, fighters knocked down — is NOT entry-point-specific, it
     is true of every fight regardless of who triggered it, so this function buffers it
-    directly (#44): before returning, it diffs side 1's (the acting player's roster,
+    directly: before returning, it diffs side 1's (the acting player's roster,
     ``mf-prg.bas:5010``'s ``ks(1)=sp`` — SpawnFighter's docstring pins this convention)
     per-fighter energy against its pre-fight snapshot and buffers one
     :class:`~engine.effects.EnergyChange` per fighter whose energy changed, in roster
-    order (1:1 with ``start.sides[0]``, since :func:`engine.combat.build_player_side`
+    order (1:1 with ``start.sides[0]``, since :func:`engine.combat_setup.build_player_side`
     never reorders the roster). ``cap`` is set to the fighter's OWN pre/post energy
     ceiling (never a fresh regen-cap computation) so the clamp in
     ``engine.effects._apply``'s ``EnergyChange`` branch is a structural no-op here —
-    combat only ever LOWERS energy this slice (no mid-fight healing exists), so the
+    combat only ever LOWERS energy (no mid-fight healing exists), so the
     post-fight value is by construction the correct final value, not merely a floor.
     Side 2 (the enemy party) is NPC working state, never a roster, so it is not
     persisted here. A no-op fight (no side-1 fighter's energy moved, e.g. a
     zero-activation surrender before anyone was struck) buffers nothing.
     """
     # Lazy imports keep this module's top-level import graph free of engine.state /
-    # engine.combat, mirroring the commit() import in run().
+    # engine.combat, mirroring the commit() import in engine.interactions.run().
     from engine.combat import CombatResult
     from engine.effects import EnergyChange
 
     fight = _build_fight(start, rng=ctx.rng)
     drivers = _resolve_drivers(start)
-    # The depleting resource is the engine's ``vitality`` SLOT (amendment A5) — the
+    # The depleting resource is the engine's ``vitality`` SLOT — the
     # driver reads it directly and never spells this game's word for it. Every Fighter
     # carries the slot, so there is nothing to guard: a bundle-less fight (surrendered
     # without a shot) simply sees an unchanged ``vitality`` and buffers no delta.
@@ -188,7 +188,7 @@ def _run_combat(
     # `simulate` cannot drift — the same loop, whether a client is in it or not.
     winner = _drive_fight(fight, drivers, input_source)
 
-    # #44 — buffer the roster's persistent energy/down consequence BEFORE handing
+    # Buffer the roster's persistent energy/down consequence BEFORE handing
     # the winner back, so it commits atomically with the invoking handler's own
     # entry-point effects (one shared ctx, one atomic buffer).
     for i, f in enumerate(fight.sides[0]):
@@ -196,7 +196,7 @@ def _run_combat(
         if now == pre_vitality[i]:
             continue
         # Address the gangster this fighter IS, not the slot it happens to sit in
-        # (amendment A1). These coincide today because build_player_side maps roster
+        # These coincide today because build_player_side maps roster
         # order onto placement order 1:1 — but a fighter without a roster entry must
         # not write to gangster 0 just because it is first.
         if f.roster_id is None:
@@ -208,16 +208,16 @@ def _run_combat(
                 gangster=f.roster_id,
             )
         )
-    # R8/U3: hand back the winner AND the real per-side death tallies (v(1)/v(2)).
+    # Hand back the winner AND the real per-side death tallies (v(1)/v(2)).
     return CombatResult(winner=winner, losses=fight.losses)
 
 
 def _build_fight(start: "StartCombat", *, rng: Any) -> Any:
     """Construct the :class:`~engine.combat.CombatFight` a ``StartCombat`` describes.
 
-    Prefers ``start.scenario`` (amendment A6 — the whole payload in one field); when
-    absent, falls back to the four legacy fields so every pre-U6 call site is
-    unchanged. Shared by :func:`_run_combat` and :func:`simulate`.
+    Prefers ``start.scenario`` (the whole payload in one field); when absent, falls
+    back to the four separate fields (``sides``/``grid``/``rules``/``dir_memory``).
+    Shared by :func:`_run_combat` and :func:`simulate`.
     """
     from engine.combat import CombatFight
     from engine.state import CombatState
@@ -247,8 +247,8 @@ def _build_fight(start: "StartCombat", *, rng: Any) -> Any:
 def _resolve_drivers(start: "StartCombat") -> "dict[int, Driver]":
     """The ``{side: Driver}`` map for a fight — explicit map OVERRIDES ``cpu_sides``.
 
-    An explicit ``start.drivers`` wins outright (two knobs on one axis never merge —
-    plan §U6). Otherwise the map is derived from ``cpu_sides``: an :class:`AiDriver`
+    An explicit ``start.drivers`` wins outright (two knobs on one axis never
+    merge). Otherwise the map is derived from ``cpu_sides``: an :class:`AiDriver`
     for a CPU side, a :class:`HumanDriver` for a client side. ``cpu_sides is None``
     means the default (side 2 is CPU); an explicit ``()`` means a fully hot-seat fight.
     """
@@ -266,7 +266,7 @@ def _drive_fight(
     input_source: Callable[[Any], Any],
     recorder: Any = None,
 ) -> int:
-    """Advance a fight to a winner, one activation at a time — the SHARED loop (U6).
+    """Advance a fight to a winner, one activation at a time — the SHARED loop.
 
     Ports the activation loop ``mf-prg.bas:30100-30155``, driver-agnostic:
 
@@ -286,21 +286,20 @@ def _drive_fight(
     Returns the winning side. Records the fight's result via :meth:`CombatFight.finish`
     / :meth:`surrender` so ``fight.result_flag`` and ``fight.losses`` are final.
 
-    **Non-cancellable (KTD-2).** :data:`CANCEL` / EOF at a human prompt is mapped to a
+    **Non-cancellable.** :data:`CANCEL` / EOF at a human prompt is mapped to a
     surrender, never a ``Cancelled`` throw — a mandatory fight must not be escapable.
 
     A ``human`` driver on a side reached during a **headless** run (``input_source is
     None``) is a caller error: :func:`simulate` rejects human drivers up front, so this
     loop can assume a human side always has a usable ``input_source``.
 
-    **Recording seam (U7).** An optional ``recorder`` (a
+    **Recording seam.** An optional ``recorder`` (a
     :class:`engine.recording._Recorder`) observes the loop without altering it: it marks
     the rng-log high-water mark before each activation draws, emits a ``HandoffEvent`` on
     a driver reassignment, and appends one ``ActivationEvent`` per applied action. A
-    non-recording caller passes ``recorder=None`` and every hook is a no-op — the existing
-    ``_run_combat``/``simulate`` signatures and behaviour are unchanged.
+    non-recording caller passes ``recorder=None`` and every hook is a no-op.
 
-    **Observation frames (#45, KTD-8).** If ``input_source`` carries a truthy
+    **Observation frames.** If ``input_source`` carries a truthy
     ``observes_ai`` attribute, the loop hands it one display-only :class:`CombatScreen`
     with ``prompt=`` :data:`OBSERVE_PROMPT` after EACH non-human activation applies
     (including the one that ends the fight), AFTER the recorder has captured it. The
@@ -319,7 +318,7 @@ def _drive_fight(
         if winner is not None:
             return fight.finish(winner)
 
-        # U7 recording seam: observe driver reassignments (a HandoffEvent) and mark the
+        # Recording seam: observe driver reassignments (a HandoffEvent) and mark the
         # rng-log high-water mark BEFORE this activation draws, so its draws are the
         # exact slice ``rng.log[draw_start:]``. Optional — a non-recording caller passes
         # ``recorder=None`` and this block is a no-op.
@@ -382,7 +381,7 @@ def _drive_fight(
                     draw_start=draw_start,
                     decision_draw_count=decision_draw_count,
                 )
-            # Then (#45) the opt-in observation frame — after the recorder, so the
+            # Then the opt-in observation frame — after the recorder, so the
             # recording never sees it; display-only, response discarded, no draws.
             if observes_ai and driver.kind != "human":
                 input_source(
@@ -450,11 +449,11 @@ def simulate(
     *,
     rng: Any = None,
 ) -> "CombatResult":
-    """Run a fight to a result HEADLESSLY, with no client and no ``GameState`` (U6).
+    """Run a fight to a result HEADLESSLY, with no client and no ``GameState``.
 
     The programmatic sibling of the handler-driven :func:`_run_combat`: a caller hands
     it a :class:`~engine.scenario.Scenario` and an explicit ``{side: Driver}`` map and
-    gets back U3's :class:`~engine.combat.CombatResult` (winner + real per-side losses)
+    gets back a :class:`~engine.combat.CombatResult` (winner + real per-side losses)
     — the SAME value a fight run through a handler yields, so a caller cannot tell which
     path produced it. There is no ``cpu_sides`` sugar here; this is the explicit entry
     point, so the driver map is required and complete.
@@ -462,7 +461,7 @@ def simulate(
     It drives the fight through the SAME shared activation loop (:func:`_drive_fight`)
     as the handler path, so the two cannot drift. It builds no :class:`Ctx` and buffers
     no effects — a headless simulation has no roster to persist energy back onto (that
-    is :func:`_run_combat`'s #44 concern, tied to the invoking handler's shared ctx).
+    is :func:`_run_combat`'s concern, tied to the invoking handler's shared ctx).
 
     ``rng`` seeds the fight's draws; when ``None`` and the scenario carries a ``seed``,
     a fresh seeded :class:`~engine.rng.Rng` is built from it, which is what makes a
@@ -513,7 +512,8 @@ def _parse_combat_response(raw: Any) -> tuple[str, Any]:
 
     Accepts the ``(action, argument)`` pair the protocol specifies, a bare action
     string for the argument-less actions, and maps :data:`CANCEL` (a client's quit /
-    EOF vocabulary) to a surrender per KTD-2. Anything else returns an unknown action
+    EOF vocabulary) to a surrender (a fight is non-cancellable). Anything else returns
+    an unknown action
     so the loop re-prompts rather than guessing.
     """
     if raw is CANCEL or raw is None:

@@ -1,4 +1,4 @@
-"""Recording and replay of a fight — the observable, replayable transcript (U7, R12).
+"""Recording and replay of a fight — the observable, replayable transcript.
 
 A **recording** is an ordered list of :class:`Event` sharing one monotonic ``index``
 (which doubles as the seek key). It is a TAGGED UNION on ``kind``: an
@@ -6,7 +6,7 @@ A **recording** is an ordered list of :class:`Event` sharing one monotonic ``ind
 driver is reassigned between activations. Every variant carries ``index``, ``snapshot``,
 ``snapshot_shape_version`` and ``parent_index`` (a shared base), so a seek never
 special-cases which kind sits at an index and a future third variant (an environmental
-actor, reaction fire) is a new ``kind`` case and nothing else (plan §U7).
+actor, reaction fire) is a new ``kind`` case and nothing else.
 
 **Recording is "replay with snapshotting on."** The one function :func:`_replay_and_snapshot`
 both *records* a live fight (driving it, capturing each activation's decision/draws/result,
@@ -23,7 +23,7 @@ different hit/damage, so the recomputed ``result`` no longer matches the recorde
 **Serialization is JSON via** :func:`engine.state.json_safe` — the SAME path save/load
 uses for every state graph (never a second snapshot serializer). Recordings are RUN
 ARTIFACTS, not versioned game content, so :func:`save`/:func:`load` are directory-agnostic
-(U8 picks the directory). Shape versioning reuses :data:`engine.effects.SCHEMA_VERSION`;
+(the caller picks the directory). Shape versioning reuses :data:`engine.effects.SCHEMA_VERSION`;
 on a load whose ``snapshot_shape_version`` mismatches, every snapshot is discarded and the
 recording is rebuilt from index 0 at the current version.
 
@@ -73,14 +73,14 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class Event:
-    """Shared fields every recorded event carries — the seek/snapshot base (plan §U7).
+    """Shared fields every recorded event carries — the seek/snapshot base.
 
     ``index`` is monotonic from 0 and doubles as the seek key. ``snapshot`` (a
     :func:`json_safe`-ed :class:`~engine.state.CombatState`) and its
     ``snapshot_shape_version`` live on EVERY variant so seeking to any index finds a
     board state without branching on ``kind``. ``parent_index`` reserves room for
     out-of-turn events (reaction fire, interrupts); the source's activation loop is
-    strictly sequential (``mf-prg.bas:30105-30110``), so nothing in this arc sets it —
+    strictly sequential (``mf-prg.bas:30105-30110``), so nothing sets it —
     it stays ``None`` on every recorded event.
     """
 
@@ -98,8 +98,9 @@ class ActivationEvent(Event):
     ``draws`` is the exact slice of ``rng.log`` this activation consumed, in order, as
     ``[(method, args, value), …]`` — replay feeds these back so the live formula sees the
     same randomness. ``calc_inputs`` names what the hit/damage formulas *read* (the
-    accuracy/damage attribute values, the weapon stats, both draw bounds) so U8's
-    ``--debug`` can print the arithmetic WITHOUT recomputing. ``result`` is the
+    accuracy/damage attribute values, the weapon stats, both draw bounds) so a debug
+    tool (``clients/terminal/fightlab.py``) can print the arithmetic WITHOUT
+    recomputing. ``result`` is the
     :meth:`~engine.combat.CombatFight.shoot` dict for a shot (empty for move/pass);
     replay recomputes and compares against it.
     """
@@ -120,7 +121,7 @@ class ActivationEvent(Event):
 
 @dataclass(frozen=True)
 class HandoffEvent(Event):
-    """A side's driver was reassigned between activations (U6's mid-fight handoff, R11).
+    """A side's driver was reassigned between activations (a mid-fight handoff).
 
     Carries the same seek/snapshot base as every other variant; the handoff itself is
     the ``from_driver_kind`` -> ``to_driver_kind`` transition observed on ``drivers[side]``.
@@ -181,7 +182,7 @@ class ReplayReport:
 
     ``diverged`` is True iff some activation's recomputed ``result`` (hit/damage/downed)
     differs from the recorded one — the fidelity detector firing. ``at_index`` names that
-    activation (a valid seek target, so U8 can jump to the board just before the change);
+    activation (a valid seek target, so a viewer can jump to the board just before the change);
     ``expected`` is the recorded result, ``got`` the freshly recomputed one. On a faithful
     replay ``diverged`` is False and the other fields are ``None``.
     """
@@ -196,7 +197,7 @@ class ReplayReport:
 # The recorder — observes the shared drive loop, one call per activation       #
 # --------------------------------------------------------------------------- #
 class _Recorder:
-    """Observes :func:`engine.interactions._drive_fight`, appending one event per step.
+    """Observes :func:`engine.fight_loop._drive_fight`, appending one event per step.
 
     The drive loop is one-iteration-per-activation. Before an activation applies, the
     loop tells the recorder the acting side/fighter, the driver kind, and the rng-log
@@ -206,8 +207,8 @@ class _Recorder:
 
     The recorder is deliberately dumb about *rules*: it captures whatever the fight and
     the shoot-result already expose (draws, attribute values, weapon stats). If a value
-    U8 needs is not exposed, the fix is to expose it at record time here — never to
-    recompute it in U8 off a second path.
+    a debug viewer needs is not exposed, the fix is to expose it at record time here —
+    never to recompute it in the viewer off a second path.
     """
 
     def __init__(self, fight: Any, rng: Any) -> None:
@@ -296,8 +297,8 @@ class _Recorder:
 def _shoot_calc_inputs(fight: Any, direction: int) -> dict:
     """The named inputs the hit/damage formulas read for a shot — captured at record time.
 
-    Enough for U8's ``--debug`` to print the arithmetic WITHOUT recomputing (plan lines
-    1647-1662): both draw bounds, the accuracy attribute value (this game: kraft), the
+    Enough for a debug viewer to print the arithmetic WITHOUT recomputing: both draw
+    bounds, the accuracy attribute value (this game: kraft), the
     damage attribute value (brutalitaet), and the weapon stats. Read off the fight's own
     surface (the rules bundle's role maps + the attacker's equipment), so it names no game
     word itself — a second game's roles flow through unchanged.
@@ -312,7 +313,8 @@ def _shoot_calc_inputs(fight: Any, direction: int) -> dict:
         "range": fight.equipment_range(attacker),
     }
     # The accuracy/damage attribute values, keyed by the role->attr map the config declared
-    # (so U8 can print "accuracy attr (kraft) -> 34" without knowing the game's vocabulary).
+    # (so a viewer can print "accuracy attr (kraft) -> 34" without knowing the game's
+    # vocabulary).
     for capability, roles in (("hit", rules.hit_roles), ("damage", rules.damage_roles)):
         for role, attr in roles.items():
             inputs[f"{capability}.{role}.attr"] = attr
@@ -332,15 +334,15 @@ def record_fight(
 ) -> tuple[Any, "Recording"]:
     """Drive ``scenario`` to a result while recording every activation.
 
-    The recording sibling of :func:`engine.interactions.simulate`: same fight, same
+    The recording sibling of :func:`engine.fight_loop.simulate`: same fight, same
     shared drive loop, but with a :class:`_Recorder` threaded in. Returns
     ``(CombatResult, Recording)``. The recording holds the live ``scenario`` (its rules
     carry the live formulas, so :func:`replay` re-runs real code) and every
     :class:`ActivationEvent` / :class:`HandoffEvent`.
 
-    Headless by default (``input_source is None``) — a :class:`~engine.interactions.HumanDriver`
-    is rejected exactly as :func:`simulate` rejects it, because a human side needs a
-    client to suspend to. Pass an ``input_source`` (an ``(interaction) -> response``
+    Headless by default (``input_source is None``) — a :class:`~engine.fight_loop.HumanDriver`
+    is rejected exactly as :func:`~engine.fight_loop.simulate` rejects it, because a human
+    side needs a client to suspend to. Pass an ``input_source`` (an ``(interaction) -> response``
     callable) to record a client-driven fight: the recorded transcript is byte-identical
     to the headless one EXCEPT each event's ``driver_kind`` (the point of the
     same-fight/same-seed equality test).
@@ -365,7 +367,7 @@ def record_fight(
     fight = _build_fight(StartCombat(scenario=scenario), rng=rng)
     recorder = _Recorder(fight, rng)
     # Drive the CALLER's drivers mapping directly (not a copy), so a policy that
-    # reassigns ``drivers[side]`` between activations (U6's mid-fight handoff, R11) is
+    # reassigns ``drivers[side]`` between activations (a mid-fight handoff) is
     # visible to both the loop and the recorder's HandoffEvent detection.
     winner = _drive_fight(fight, drivers, input_source, recorder=recorder)
     recording = Recording(
@@ -586,7 +588,7 @@ def _recording_from_dict(raw: dict) -> "Recording":
 
 
 def save(recording: "Recording", path: Any) -> None:
-    """Write ``recording`` to ``path`` as JSON (directory-agnostic — U8 picks the dir)."""
+    """Write ``recording`` to ``path`` as JSON (directory-agnostic — the caller picks the dir)."""
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(_recording_to_dict(recording), fh, indent=2)
 
@@ -610,7 +612,7 @@ def load(path: Any, *, rules: Any = None) -> "Recording":
         recording.scenario = replace(recording.scenario, rules=rules)
 
     if not _snapshots_current(recording):
-        # Shape drift (KTD-8): the stored snapshots are an old shape. Discard them all and
+        # Shape drift: the stored snapshots are an old shape. Discard them all and
         # rebuild from the decision log at the current version.
         recording = _replay_and_snapshot(recording)
     return recording

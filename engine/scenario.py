@@ -1,32 +1,27 @@
-"""``Scenario`` — one value that fully describes a fight (U5, R6/R7).
+"""``Scenario`` — one value that fully describes a fight.
 
-Before this unit the "payload in" half of a fight was an ephemeral set of kwargs:
-a handler called :func:`engine.combat.setup_combat`, pulled ``sides``/``grid``/
-``dir_memory`` off the returned :class:`~engine.state.CombatState`, and passed them
-straight into a ``StartCombat`` — nothing a test or tool could hold, name, or build
-without a ``GameState``. ``Scenario`` makes that payload a **named, inspectable,
-freely-constructible value**.
+``Scenario`` is the "payload in" half of a fight as a **named, inspectable,
+freely-constructible value** — something a test or tool can hold, name, and build
+without a ``GameState``.
 
 Two construction paths converge on one shape:
 
 * **Explicit** — build the fighter tuples directly, no ``GameState`` / roster / YAML.
-  This is what ``tests/test_driver.py`` already does by hand; a ``Scenario`` gives it
-  a name. A scenario can carry **invented entities**: a fighter with a weapon id the
+  A scenario can carry **invented entities**: a fighter with a weapon id the
   real game never defined, carrying its own ``equipment`` stat mapping. Because a
-  fighter carries its **constructed equipment** (amendment A1 — the engine holds no
+  fighter carries its **constructed equipment** (the engine holds no
   weapon table), inventing one needs no new machinery and no parallel stats entry to
   keep in sync. There is no ``(0, 0)`` fallback and no ``KeyError`` to fall into: the
   stats are simply on the fighter.
-* **Procedural** — :meth:`Scenario.from_roster` is a **thin wrapper over the unchanged**
-  :func:`engine.combat.setup_combat`. It does not re-implement side placement,
+* **Procedural** — :meth:`Scenario.from_roster` is a **thin wrapper over**
+  :func:`engine.combat_setup.setup_combat`. It does not re-implement side placement,
   equipment construction, or direction-memory init — it calls ``setup_combat`` and
   copies the three fields onto the scenario. This is the form the three in-game combat
   handlers share.
 
-**Payload OUT is U3's :class:`~engine.combat.CombatResult`, not this.** ``Scenario`` is
-only the payload *in*. And ``StartCombat`` is deliberately **not** widened to accept a
-``Scenario`` here (that belongs to U6, which already touches that dataclass) — a handler
-unpacks the scenario into the same ``StartCombat`` kwargs it always used.
+**Payload OUT is :class:`~engine.combat.CombatResult`, not this.** ``Scenario`` is
+only the payload *in*; a handler passes it whole as ``StartCombat(scenario=...)``, and
+:func:`engine.fight_loop.simulate` takes it directly.
 """
 
 from __future__ import annotations
@@ -51,7 +46,7 @@ class Scenario:
 
     ``sides``
         The two sides as tuples of fully-constructed :class:`~engine.state.Fighter`
-        (positions set, equipment on each — amendment A1). ``None`` only for a
+        (positions set, equipment on each). ``None`` only for a
         placeholder a caller fills in later; a runnable scenario has both sides.
     ``grid``
         The backdrop's linear wall/scenery code array (empty = open arena).
@@ -62,7 +57,8 @@ class Scenario:
         The CPU side's per-fighter direction memory (``ri(i)``), keyed by fighter index.
     ``seed``
         An optional RNG seed a runner may use to make the fight reproducible. The
-        engine does not consume it directly; a caller (U6's ``simulate``, a debug tool)
+        engine does not consume it directly; a caller
+        (:func:`engine.fight_loop.simulate`, a debug tool)
         seeds its RNG from it.
     """
 
@@ -87,15 +83,15 @@ class Scenario:
         rules: RulesBundle | None = None,
         seed: int | None = None,
     ) -> "Scenario":
-        """Build the procedural scenario the three in-game handlers share (U5).
+        """Build the procedural scenario the three in-game handlers share.
 
-        A **thin wrapper over the unchanged** :func:`engine.combat.setup_combat`: it
+        A **thin wrapper over** :func:`engine.combat_setup.setup_combat`: it
         forwards every fight-construction argument, then copies the resulting
         ``CombatState``'s ``sides``/``grid``/``dir_memory`` onto the scenario. Side
         placement, per-fighter equipment construction (``equip``), and direction-memory
         init all stay in ``setup_combat`` — this method adds no combat logic of its own.
 
-        The signature matches ``setup_combat``'s current shape (amendments A5/A1):
+        The signature matches ``setup_combat``'s shape:
         ``enemy_vitality`` is the enemy's vitality slot, ``enemy_attrs`` its non-vitality
         stats, and ``equip`` the per-fighter equipment constructor. ``rules`` and
         ``seed`` ride alongside — they are not ``setup_combat``'s concern but they are
@@ -131,13 +127,13 @@ class Scenario:
         equip: Any = None,
         seed: int | None = None,
     ) -> "Scenario":
-        """Build a scenario from a **parsed encounter declaration** (U6a).
+        """Build a scenario from a **parsed encounter declaration**.
 
         Produces the SAME ``Scenario`` :meth:`from_roster` builds — it simply reads the
         four enemy-setup fields (``count``/``weapon``/``vitality``/``name``) off the
         parsed ``encounter`` instead of taking them as keyword arguments, then delegates
         to :meth:`from_roster`. No new combat logic: same thin wrapper over
-        :func:`engine.combat.setup_combat`.
+        :func:`engine.combat_setup.setup_combat`.
 
         ``encounter`` is the config's own **already-parsed** encounter value — it exposes
         ``count``/``weapon``/``vitality``/``name`` attributes (see the config's encounter

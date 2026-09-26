@@ -4,20 +4,23 @@ A **handler** is a factory ``(ctx) -> Generator[Interaction, Response, list[Even
 It ``yield``s a typed **Interaction**; the **driver** (:func:`run`) turns that into an
 obtained **Response** and ``.send()``s it back. This same request/response protocol is,
 unchanged, the eventual network message protocol — the WebSocket server (docs/design/engine-architecture.md) is
-merely an async transport driving the identical generators. This module builds ONLY the
-in-process synchronous driver; it imports nothing from ``server``/``clients``/transport.
+merely an async transport driving the identical generators. This module holds the
+interaction catalog, the response/cancel sentinels, :class:`Ctx`, and the in-process
+synchronous driver (:func:`run`, with the :class:`LoadSubState` sub-state loop). A
+yielded :class:`StartCombat` is delegated to :func:`engine.fight_loop._run_combat`,
+which holds the fight loop. It imports nothing from ``server``/``clients``/transport.
 
 Two firmly separated categories (docs/design/engine-architecture.md):
 
 - **Interactions** control *execution flow* — they suspend the handler to ask the client
   something. A handler reaches the client *only* by ``yield``ing one of these.
 - **Effects** mutate *game state*. A handler never mutates state directly; it calls
-  ``ctx.apply(effect)``, which buffers the effect. U4 treats an effect as an opaque
-  object (any value) — interpreting/applying effects to state is U5's job. The driver
+  ``ctx.apply(effect)``, which buffers the effect. The driver treats an effect as an
+  opaque object; applying it to state is :func:`engine.effects.commit`'s job. The driver
   commits the buffer atomically: on clean return the buffered effects are the committed
   list, on cancel the buffer is discarded (committed effects == ``[]``).
 
-Cancellation (KTD-2, mechanism *(a)*): the driver calls ``gen.throw(Cancelled())`` INTO
+Cancellation: the driver calls ``gen.throw(Cancelled())`` INTO
 the handler when the input source supplies the :data:`CANCEL` sentinel at a
 ``cancellable`` prompt. The handler unwinds through its ``try/finally`` (it does not need
 to catch ``Cancelled``); the driver catches ``Cancelled`` as expected control flow and
@@ -100,56 +103,56 @@ class Confirm:
 
 @dataclass(frozen=True)
 class StartCombat:
-    """Combat entry: run a full fight as a driver sub-protocol (U5, KTD-1/KTD-2).
+    """Combat entry: run a full fight as a non-cancellable driver sub-protocol.
 
     A top-level handler yields this to hand control to the driver's inline combat
-    loop (:func:`_run_combat`). The loop shares the parent's :class:`Ctx`, so any
-    effects the fight buffers commit — or are discarded — atomically WITH the
-    invoking handler's, exactly as :class:`LoadSubState` does for sub-states. The
-    response ``.send()`` back into the handler is the **winning side** (1 or 2), so
-    the handler applies its own entry-point consequence (debt seizure, reward, …).
+    loop (:func:`engine.fight_loop._run_combat`). The loop shares the parent's
+    :class:`Ctx`, so any effects the fight buffers commit — or are discarded —
+    atomically WITH the invoking handler's, exactly as :class:`LoadSubState` does for
+    sub-states. The response ``.send()`` back into the handler is the fight's
+    :class:`~engine.combat.CombatResult` (``winner`` + per-side ``losses``), so the
+    handler applies its own entry-point consequence (debt seizure, reward, …).
 
     Fields:
 
     ``sides``
         The two fighter tuples for the fight, already built and placed — normally
-        the output of :func:`engine.combat.setup_combat` (``CombatState.sides``).
+        the output of :func:`engine.combat_setup.setup_combat` (``CombatState.sides``).
     ``grid``
         The backdrop's linear 521-cell wall/scenery code array (config data). An
         empty tuple is a legal open arena.
     ``rules``
-        The game's :class:`~engine.combat.RulesBundle` (U2) — the hit/damage formulas
+        The game's :class:`~engine.combat.RulesBundle` — the hit/damage formulas
         and the attribute roles they read. Passed in because the engine owns *when* a
         hit test happens, never the formula or the attribute names it reads.
 
-        There is no ``weapon_stats`` field (amendment A1): each combatant in ``sides``
+        There is no ``weapon_stats`` field: each combatant in ``sides``
         arrives carrying its own constructed ``equipment`` mapping, so equipment data
         travels with the roster rather than as a parallel table the engine resolves.
     ``dir_memory``
         Optional per-enemy-fighter direction memory seed (``ri()``), consumed by
-        U6's AI; harmless to omit. Keyed by 0-based fighter index (the source's
-        ``ri(i)`` is 1-based; :func:`engine.combat.setup_combat` established the
+        the AI; harmless to omit. Keyed by 0-based fighter index (the source's
+        ``ri(i)`` is 1-based; :func:`engine.combat_setup.setup_combat` established the
         0-based keying and the AI follows it).
     ``cpu_sides``
         Which sides the engine plays itself instead of prompting the client
         (``mf-prg.bas:30110``: ``ifks(s)=0thengosub30400``). Defaults to
-        :data:`engine.combat.DEFAULT_CPU_SIDES` — side 2, the NPC party the
+        :data:`engine.combat_ai.DEFAULT_CPU_SIDES` — side 2, the NPC party the
         combat-launch helper marks with ``ks(2)=0`` (``5010``). Pass an empty
         tuple for a hot-seat fight where both sides are client-driven (the source
         supports this shape at ``27020``, the bandenkrieg launch).
 
-    Combat is only ever yielded from a TOP-LEVEL handler this slice (KTD-1) — the
-    driver asserts this rather than supporting it inside :func:`_run_substate`.
+    Combat is only ever yielded from a TOP-LEVEL handler — the driver asserts this
+    rather than supporting it inside :func:`_run_substate`.
 
     ``scenario``
-        The whole fight payload in ONE field (U6, amendment A6): a
+        The whole fight payload in ONE field: a
         :class:`~engine.scenario.Scenario` supplying ``sides``/``grid``/``rules``/
-        ``dir_memory``. When given, the legacy four fields are IGNORED; when ``None``,
-        today's four-field path is unchanged, so every pre-U6 call site still works.
-        This is the widening U5 deferred — the three in-game handlers already build a
-        ``Scenario``, so they now pass it straight through.
+        ``dir_memory``. When given, the four separate fields are IGNORED; when
+        ``None``, those four fields describe the fight. The in-game handlers pass a
+        ``Scenario``.
     ``drivers``
-        Optional explicit ``{side: Driver}`` map (U6). When given it OVERRIDES
+        Optional explicit ``{side: Driver}`` map. When given it OVERRIDES
         ``cpu_sides`` (the two knobs on one axis never merge); when ``None`` the loop
         derives the map from ``cpu_sides`` — ``AiDriver`` for a CPU side, ``HumanDriver``
         otherwise. A ``policy`` side is expressed by passing a ``drivers`` map.
@@ -163,20 +166,20 @@ class StartCombat:
     #: side at all" — the two are deliberately distinguishable, so a hot-seat fight
     #: can be requested without the default silently reasserting itself.
     cpu_sides: Any = None
-    #: The whole fight payload in one value (amendment A6). Overrides the four legacy
-    #: fields above when present.
+    #: The whole fight payload in one value. Overrides the four separate fields above
+    #: when present.
     scenario: Any = None
     #: An explicit ``{side: Driver}`` map. Overrides ``cpu_sides`` when present.
     drivers: Any = None
 
 
-#: The ``CombatScreen.prompt`` of a display-only observation frame (#45, KTD-8).
+#: The ``CombatScreen.prompt`` of a display-only observation frame.
 OBSERVE_PROMPT = "observe"
 
 
 @dataclass(frozen=True)
 class CombatScreen:
-    """One activation's combat screen — the client-facing fight interaction (KTD-2).
+    """One activation's combat screen — the client-facing fight interaction.
 
     Yielded once per activation (and again after an illegal input) while a fight is
     running. It carries everything a client needs to render the board and ask for the
@@ -196,7 +199,7 @@ class CombatScreen:
     - ``("pass", None)`` — end the activation without acting (``30135``, SPACE).
     - ``("surrender", None)`` — give up; the OTHER side wins (``30136``).
 
-    Combat prompts are **non-cancellable** (KTD-2): a mandatory fight cannot be
+    Combat prompts are **non-cancellable**: a mandatory fight cannot be
     escaped through a cancel unwind, so the driver maps the client's quit vocabulary
     — :data:`CANCEL`, and EOF, which a client surfaces as ``CANCEL`` — to a
     ``surrender``. Unrecognized responses simply re-prompt.
@@ -205,9 +208,10 @@ class CombatScreen:
     client that wants a separate aim step (the original reads the direction in a second
     GET at ``30205``) can be served without changing the interaction's type.
 
-    ``prompt == "observe"`` (:data:`OBSERVE_PROMPT`, #45) is a **display-only** frame:
+    ``prompt == "observe"`` (:data:`OBSERVE_PROMPT`) is a **display-only** frame:
     the board right after a NON-human activation applied, delivered only to an input
-    source that opts in (``observes_ai = True`` — see :func:`_drive_fight`). Its
+    source that opts in (``observes_ai = True`` — see
+    :func:`engine.fight_loop._drive_fight`). Its
     ``active_side``/``active_fighter`` name the fighter that just ACTED and ``message``
     carries that activation's shot result (or ``None``). Its response is ignored.
 
@@ -256,7 +260,7 @@ class CombatScreen:
 
 @dataclass(frozen=True)
 class LoadSubState:
-    """Run a nested sub-state (minigame / spec sheet) as a child generator (U1, KTD-1).
+    """Run a nested sub-state (minigame / spec sheet) as a child generator.
 
     When a parent handler yields this, the driver looks up the sub-state handler
     registered under ``kind`` in :data:`engine.substates.SUBSTATES`, drives it to
@@ -311,7 +315,7 @@ CANCEL = _CancelType()
 
 
 class Cancelled(Exception):
-    """Thrown INTO a handler (``gen.throw``) to unwind it on cancel (KTD-2, mechanism a).
+    """Thrown INTO a handler (``gen.throw``) to unwind it on cancel.
 
     Handlers unwind via ``try/finally`` and do not need to catch this. The driver
     catches it as expected control flow and discards the action's effect buffer.
@@ -319,7 +323,7 @@ class Cancelled(Exception):
 
 
 # --------------------------------------------------------------------------- #
-# Ctx — the handler's window into the engine (the U4/U5 seam)                 #
+# Ctx — the handler's window into the engine                                  #
 # --------------------------------------------------------------------------- #
 class Ctx:
     """Per-handler-run context passed to the handler factory as ``handler(ctx)``.
@@ -327,7 +331,7 @@ class Ctx:
     Exposes the *only* surface a handler may touch for state/rng/effects (the rest
     of the Handler API — ``yield`` and named helpers — lives elsewhere). ``apply``
     buffers effects; the driver decides whether that buffer commits or is discarded.
-    U4 does not interpret effects (any object) — that is U5's ``apply(state, effect)``.
+    ``Ctx`` does not interpret effects (any object); :func:`engine.effects.apply` does.
     """
 
     def __init__(self, state: Any = None, rng: Any = None) -> None:
@@ -404,8 +408,9 @@ def run(
         ValueError: if the handler yields ``LoadSubState`` with a ``kind`` that is not
             registered in :data:`engine.substates.SUBSTATES` (a config bug).
 
-    A yielded ``StartCombat`` runs the combat sub-protocol (:func:`_run_combat`) and
-    resolves with the winning side (U5) — it no longer raises.
+    A yielded ``StartCombat`` runs the combat sub-protocol
+    (:func:`engine.fight_loop._run_combat`) and resolves with the fight's
+    :class:`~engine.combat.CombatResult`.
 
     Note:
         Synchronous by construction. The SAME protocol is later driven by an async
@@ -418,7 +423,7 @@ def run(
         interaction = next(gen)  # prime the generator to its first yield
         while True:
             if isinstance(interaction, LoadSubState):
-                # KTD-1: run the nested sub-state HERE (not in _resolve, which has no
+                # Run the nested sub-state HERE (not in _resolve, which has no
                 # handle to ctx or the parent generator). The child shares this ctx —
                 # its ctx.apply/ctx.record append into the parent's buffers, so the
                 # whole nesting commits or discards as ONE atomic action. A Cancelled
@@ -428,7 +433,7 @@ def run(
                 interaction = gen.send(response)
                 continue
             if isinstance(interaction, StartCombat):
-                # KTD-1: the combat sub-protocol runs HERE for the same reason
+                # The combat sub-protocol runs HERE for the same reason
                 # LoadSubState does — it shares this ctx, so a fight's effects
                 # buffer into the parent action and commit (or discard) with it.
                 from engine.fight_loop import _run_combat
@@ -505,7 +510,7 @@ def _resolve(
     the handler via ``gen.throw``). Never throws into the generator itself.
     """
     if isinstance(interaction, ShowMessage):
-        # Display-only, but DELIVERY and RESPONSE are separate concerns (#43). The
+        # Display-only, but DELIVERY and RESPONSE are separate concerns. The
         # message still has to reach the client — a driver that acks without handing
         # it over makes every handler's narration structurally invisible. So the
         # input source SEES it, and its return value is DISCARDED: nothing a client
@@ -565,7 +570,7 @@ def _run_substate(
     input_source: Callable[[Any], Any],
     ctx: "Ctx",
 ) -> Any:
-    """Drive a nested sub-state generator to completion and return its value (KTD-1).
+    """Drive a nested sub-state generator to completion and return its value.
 
     Looks up the sub-state factory registered under ``load.kind`` in
     :data:`engine.substates.SUBSTATES`, builds the child generator sharing the
@@ -584,7 +589,7 @@ def _run_substate(
     Raises:
         ValueError: if ``load.kind`` is not registered (a config bug).
         AssertionError: if the child yields ``StartCombat`` — combat is only ever
-            yielded from top-level handlers this slice (KTD-1).
+            yielded from top-level handlers.
     """
     from engine.substates import SUBSTATES
 
@@ -595,11 +600,11 @@ def _run_substate(
     child = factory(ctx, load.params)
     interaction = next(child)  # prime the child to its first yield
     while True:
-        # KTD-1: combat is only ever yielded from TOP-LEVEL handlers this slice. The
-        # driver asserts that rather than supporting nesting, because a fight inside a
-        # sub-state would need cancel semantics ("combat is non-cancellable" vs. "a
-        # cancelled sub-state unwinds the whole action") that this slice has not
-        # decided. Failing loud here beats silently picking one.
+        # Combat is only ever yielded from TOP-LEVEL handlers. The driver asserts that
+        # rather than supporting nesting, because a fight inside a sub-state would need
+        # cancel semantics ("combat is non-cancellable" vs. "a cancelled sub-state
+        # unwinds the whole action") that are not decided. Failing loud here beats
+        # silently picking one.
         assert not isinstance(interaction, StartCombat), (
             "StartCombat inside a sub-state is not supported this slice (KTD-1): "
             "yield combat from a top-level handler."

@@ -1,4 +1,4 @@
-"""U10 — the shared, headless string resolver (KTD-5).
+"""The shared, headless string resolver.
 
 The engine emits ``(key, params)`` and never any display text; a **theme** resolves the
 key to a parameterized template and the resolver fills the params. This lives in

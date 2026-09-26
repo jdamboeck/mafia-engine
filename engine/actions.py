@@ -1,4 +1,4 @@
-"""The action/result spine: typed outcomes of running one option (T1).
+"""The action/result spine: typed outcomes of running one option.
 
 Running an option (``run_option``) produces exactly one :class:`EngineResult`. It bundles
 the four things a caller needs after an action: the resulting :class:`GameState`, the
@@ -107,7 +107,7 @@ def run_option(
        not a recoverable runtime outcome).
     2. **Guard fails** -> a ``"blocked"`` result: an :class:`~engine.events.OptionDenied`
        event and a :class:`DeniedResult` payload, ZERO effects, and the UNCHANGED input
-       ``state`` object (denial is a normal outcome; the handler is never entered — KTD-8).
+       ``state`` object (denial is a normal outcome; the handler is never entered).
     3. **Consequence option** -> the raw dicts are converted (strictly, via
        :func:`engine.consequences.effects_from_dicts`) and committed
        (:func:`engine.effects.commit`); returns ``"completed"`` with the committed effects,
@@ -190,7 +190,6 @@ def run_option(
     else:
         # Clean completion. slw.rent's rejection paths (x<=0, insufficient cash) return
         # with status="completed" and NO machine-readable rejection marker, so there is
-        # no unambiguous signal to emit LocationActionRejected — treat as completed
-        # (see the T7 report note).
+        # no unambiguous signal to emit LocationActionRejected — treat as completed.
         lifecycle = LocationActionCompleted(location_key=location.key, option_id=option_id)
     return dataclasses.replace(result, events=[*result.events, lifecycle])
