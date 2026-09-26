@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from clients.terminal.palette import (
-    _PEPTO_FALLBACK,
     RESET_ALL,
     RESET_BG,
     RESET_FG,
@@ -36,14 +35,16 @@ class TestLoadPalette:
 
     def test_fallback_when_file_missing(self, tmp_path: Path) -> None:
         pal = load_palette(tmp_path, theme="classic")
-        assert pal == _PEPTO_FALLBACK
+        assert pal == load_palette()  # the built-in Pepto palette
+        assert pal["light_blue"] == (155, 222, 255)
 
     def test_fallback_on_malformed_yaml(self, tmp_path: Path) -> None:
         rdr = tmp_path / "themes" / "classic" / "renderer"
         rdr.mkdir(parents=True)
         (rdr / "palette.yaml").write_text("{{bad yaml", encoding="utf-8")
         pal = load_palette(tmp_path, theme="classic")
-        assert pal == _PEPTO_FALLBACK
+        assert pal == load_palette()  # the built-in Pepto palette
+        assert pal["light_blue"] == (155, 222, 255)
 
     def test_merges_with_fallback(self, tmp_path: Path) -> None:
         rdr = tmp_path / "themes" / "classic" / "renderer"
