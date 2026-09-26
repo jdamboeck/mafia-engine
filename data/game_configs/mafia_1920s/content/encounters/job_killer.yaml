@@ -2,7 +2,7 @@
 # weapon 0), 20 energy. grid km.
 #
 # No declarable consequence: the caller sets `won` and the job pays out. Setup
-# in data, payout stays with the job. Values regroup jobs.py's _KILLER_VICTIM.
+# in data, payout stays with the job.
 key: job_killer
 enemies:
   count: 1

@@ -1,14 +1,14 @@
-"""The sph (Spielhoelle / casino) handler — U4, the warm-up handler.
+"""The sph (Spielhoelle / casino) handler.
 
 A faithful port of the casino block ``mf-prg.bas:16010-16040``. The three games —
 poker (``x=1``), black jack (``x=2``), roulette (``x=3``) — are mechanically identical
 except for ``x``, which sets both the win probability and the payout multiplier (verified
 ``16030`` is the sole resolver for all three), so one code path parameterized by the
-chosen game index is faithful (A3).
+chosen game index is faithful.
 
-KTD-7 conformance: touches ONLY ``ctx.state`` (read-only), ``ctx.rng``, ``yield
+Handler-API conformance: touches ONLY ``ctx.state`` (read-only), ``ctx.rng``, ``yield
 <Interaction>``, and ``ctx.apply(<Effect>)`` — nothing else in ``engine/``. It never
-mutates state directly and emits no content-specific events (KTD-6): the casino outcome
+mutates state directly and emits no content-specific events: the casino outcome
 is fully reconstructable from the committed ``MoneyChange`` + the logged RNG draw.
 
 The negative-EV house edge (``1/(1+x)`` win chance vs a ``0.5+x`` gross multiplier) is

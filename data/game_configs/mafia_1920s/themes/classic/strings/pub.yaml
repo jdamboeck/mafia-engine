@@ -1,6 +1,6 @@
 # pub (Kneipe) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.pub.rank_too_low")
+# DATA, not code: the engine emits KEYS (e.g. "locations.pub.rank_too_low")
 # and the theme resolves them to these strings. Ported from the research
 # (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:12000-12335) — verbatim.
 #
@@ -20,14 +20,14 @@ locations:
       job: "'ICH BRAUCHE DRINGEND EINEN JOB, EINEN  AUFTRAG! DU VERSTEHST SCHON...'"
     rank_too_low: "'als {rank} kannst du noch keine eigenen leute haben!'"
 
-    # --- alcohol trade (U8, mf-prg.bas:12010-12075) ---
+    # --- alcohol trade (mf-prg.bas:12010-12075) ---
     drink_refused: "'was? alkohol? ist doch verboten!'"
     drink_offer: "'ich habe {stock} faesser fuer {price}$ pro fass.'"
     drink_quantity_prompt: "wieviele willst du"
     sell_offer: "'nein. vielleicht hast du aber was fuer mich? ich zahle {price}$ pro fass!'"
     sell_quantity_prompt: "wieviel willst du abgeben"
 
-    # --- tips (U8, mf-prg.bas:12200-12252) ---
+    # --- tips (mf-prg.bas:12200-12252) ---
     tip_too_inexperienced: "'du bist noch zu unerfahren!'"
     tip_nothing: "'leider habe ich nichts fuer dich!'"
     tip_teaser: "'ich habe etwas gehoert...aber das kostet dich {price}$.'"
@@ -41,7 +41,7 @@ locations:
     arms_deal_confirm: "ok (j/n)?"
     arms_deal_accepted: "'du wirst es nicht bereuen...'"
 
-    # --- job (U10, mf-prg.bas:12300-12335) ---
+    # --- job (mf-prg.bas:12300-12335) ---
     job_rank_too_high: "'als '{rank}' findest du was besseres!'"
     job_nobody_available: "'niemand hat einen job fuer dich.'"
     job_offer_bouncer: "'der inhaber der bahnhofskneipe will dich fuer 3 monate als rausschmeisser anstellen.'"
@@ -52,7 +52,7 @@ locations:
     job_pay_confirm_prompt: "ok (j/n)?"
     job_accepted: "'du hast den job!'"
 
-    # --- recruit (U9, mf-prg.bas:12100-12175) ---
+    # --- recruit (mf-prg.bas:12100-12175) ---
     recruit_no_housing: "'du brauchst eine unterkunft fuer die gangster!'"
     recruit_gang_full: "'maximal 10 gangster!'"
     recruit_nobody_available: "'es ist niemand da.'"

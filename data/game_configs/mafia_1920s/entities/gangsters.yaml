@@ -1,7 +1,7 @@
 # Recruitable gangster candidate table — verbatim from the original game's 30
 # `gan1`-`gan30` SEQ files (../research/research-data/pass-1/gan-extraction.yaml).
 #
-# ENTITY-NAME/stat data owned by the game config (KTD-5), not engine display text:
+# ENTITY-NAME/stat data owned by the game config, not engine display text:
 # names/descriptions are the recruitable-gangster identities in the 1920s Mafia
 # world. Order is significant: list index (0-based here) + 1 == the original's
 # candidate file number `g(i)` (1..30, mf-prg.bas:12110's `int(rnd(1)*30)+1`), and

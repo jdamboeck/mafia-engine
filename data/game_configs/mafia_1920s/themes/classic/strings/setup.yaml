@@ -1,6 +1,6 @@
 # setup (new-game prompts) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the terminal client emits these KEYS and the theme resolves
+# DATA, not code: the terminal client emits these KEYS and the theme resolves
 # them. Ported byte-for-byte from mf-prg.bas:170 and :175. The accepted ranges are NOT
 # read from this text -- they come from input_ranges in config.yaml (the text simply
 # mirrors the original's printed bounds).

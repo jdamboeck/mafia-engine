@@ -1,6 +1,6 @@
-# job shifts (U10) — classic-theme strings (VERBATIM German).
+# job shifts — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): engine emits KEYS (job.shift_*), the theme resolves them.
+# DATA, not code: engine emits KEYS (job.shift_*), the theme resolves them.
 # Ports the shift-flow narration (mf-prg.bas:25000-25560, research-data/pass-1/
 # game-text.yaml lines 25000-25556) — the flow that takes over an EMPLOYED player's
 # turn (data/game_configs/mafia_1920s/handlers/jobs.py's job_shift). {amount}/{pay}

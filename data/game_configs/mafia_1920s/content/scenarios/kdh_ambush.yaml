@@ -1,4 +1,4 @@
-# A COMPLETE, self-contained fight for the terminal debug tool (fightlab, U8).
+# A COMPLETE, self-contained fight for the terminal debug tool (fightlab).
 #
 # A scenario file describes a whole two-sided fight, buildable with NO GameState and
 # NO roster. The ENEMY side is built through this config's OWN kdh_ambush encounter

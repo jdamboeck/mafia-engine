@@ -1,10 +1,9 @@
-"""This game's combat formulas — the ``mafia_1920s`` rules bundle (U2).
+"""This game's combat formulas — the ``mafia_1920s`` rules bundle.
 
-The engine no longer knows *how* a shot hits or how hard it lands: it knows only
+The engine does not know *how* a shot hits or how hard it lands: it knows only
 that a fight needs a hit test and a damage roll, and asks the bundle it was handed
-at construction. Both formulas below are the ports that used to live in
-``engine/combat.py``, moved here verbatim (BASIC citations intact) and rewritten to
-read their inputs through a **role map** rather than named keyword arguments.
+at construction. Both formulas below are BASIC ports (citations inline) that read
+their inputs through a **role map** rather than named keyword arguments.
 
 A role is this game's answer to an engine question. The engine asks "what does the
 attacker's hit chance depend on?"; this config answers ``{"attacker": "kraft"}``,
@@ -29,8 +28,8 @@ __all__ = [
     "build_rules",
 ]
 
-# The depleting resource is the engine's ``vitality`` SLOT (amendment A5): the engine
-# reads and writes it directly, so this game no longer tells the bundle which key holds
+# The depleting resource is the engine's ``vitality`` SLOT: the engine
+# reads and writes it directly, so this game does not tell the bundle which key holds
 # it. This game's name for the role ("energie") lives only at the CONSTRUCTION boundary
 # — ``Gangster(energie=…)`` and the handlers' ``enemy_vitality=`` fold it into the slot.
 
@@ -54,8 +53,8 @@ def is_hit(attacker: Any, equipment: Any, rng: Any) -> bool:
     by the engine through :data:`HIT_ROLES`: ``30246`` loads ``a=ks(s):b=f`` — the
     ACTIVE side and fighter, i.e. the attacker — before this roll, and the CPU
     branch ``30245`` substitutes the attacker's fixed ``kr=30``. (The research
-    interpretation layer glosses this factor as "dodge by craft"; per KTD-9 the
-    decompiled code wins, and the code unambiguously loads the attacker.)
+    interpretation layer glosses this factor as "dodge by craft"; where research and
+    decompiled code disagree the code wins, and the code unambiguously loads the attacker.)
 
     Both factors are drawn unconditionally, even though BASIC's ``or`` short-circuits
     past the second when the first is already 0. Drawing both keeps the RNG log
@@ -96,8 +95,8 @@ def equipper(weapon_stats: Any) -> Any:
     """Build the ``weapon id -> equipment mapping`` constructor ``setup_combat`` calls.
 
     This runs ONCE PER FIGHTER at fight setup, not per shot: the result is attached to
-    the combatant, and the fight then reads equipment off the roster it was handed
-    (amendment A1). The table therefore stops existing the moment setup finishes,
+    the combatant, and the fight then reads equipment off the roster it was handed.
+    The table therefore stops existing the moment setup finishes,
     which is precisely why it cannot later disagree with the roster.
 
     Raises ``KeyError`` on an unknown weapon id rather than yielding a zeroed default —
@@ -124,7 +123,7 @@ def build_rules() -> RulesBundle:
     """Build this game's :class:`~engine.combat.RulesBundle`.
 
     Takes no equipment lookup: the formulas read stats off the attacker's own
-    ``equipment`` (amendment A1), so the bundle carries only formulas and roles.
+    ``equipment``, so the bundle carries only formulas and roles.
     """
     return RulesBundle(
         hit_roles=HIT_ROLES,
@@ -138,8 +137,8 @@ def enemy_attrs(params: Any) -> dict:
     """The non-vitality stats every CPU-enemy fighter fights with (``mf-prg.bas:30245``).
 
     The source's ``ifks(s)=0thenbt=30:kr=30`` gives every NPC/enemy the same fixed
-    kraft/brutalitaet instead of a gangster's own. That 30/30 is config data now
-    (amendment A5, Finding 4), so this reads it from ``formula_params`` -- the single
+    kraft/brutalitaet instead of a gangster's own. That 30/30 is config data, so
+    this reads it from ``formula_params`` -- the single
     place the three combat handlers (jobs/kdh/upkeep) build the enemy stat map, rather
     than each repeating the two keys and their meaning.
     """

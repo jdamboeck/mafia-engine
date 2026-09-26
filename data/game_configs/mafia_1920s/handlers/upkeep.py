@@ -1,34 +1,32 @@
-"""The turn-start upkeep generator — ports ``mf-prg.bas:4000-4090`` (U3).
+"""The turn-start upkeep generator — ports ``mf-prg.bas:4000-4090``.
 
 Registered under :data:`engine.upkeep.UPKEEP_HANDLER_KEY` in the SAME
 :data:`engine.locations.HANDLERS` registry a location option's ``handler`` string
-resolves against (KTD-3) — :func:`engine.upkeep.run_upkeep` is the engine-level runner
+resolves against — :func:`engine.upkeep.run_upkeep` is the engine-level runner
 that looks this generator up and drives it at every player's turn start, before the
-free turn (or, from U10, a job shift).
+free turn (or a job shift).
 
-This unit lands the flow's HEAD per the order fixed by KTD-3
+The flow runs in this fixed order
 (``banner -> regen -> rank -> debt -> shop income -> arms deal -> job-shift/free-turn``):
 
 * **banner** (``4005-4006``) — announce the active player.
 * **per-gangster energy regen** (``4015-4025``) — ``en += int(kraft/10)+1``, capped at
   ``2+int(kraft/4)+int(brutalitaet/4)``, once per gangster in ``gz(sp)`` order (the
-  boss included — ``roster[0]`` IS gangster 1 of ``gz``, KTD-6).
+  boss included — ``roster[0]`` IS gangster 1 of ``gz``).
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-Three slots were declared as no-ops in U3; U8 filled the arms-deal slot, U11 the
-shop-income slot, and this unit (U12) fills the debt slot — each in place, without
-reordering anything already here:
+followed by three resolution slots:
 
-* **debt check** (``4040``, ``4300-4370``, U12) — the loan-shark grace countdown and
+* **debt check** (``4040``, ``4300-4370``) — the loan-shark grace countdown and
   its collectors fight. Ports ``:4305``'s tick, ``:4306-4309``'s warning,
   ``:4350-4355``'s fight, and ``:4365-4370``'s seizure. See COUNTER DIRECTION below.
-* **shop income** (``4041-4420``, U11) — the passive kdh-shop payout roll. Ports
+* **shop income** (``4041-4420``) — the passive kdh-shop payout roll. Ports
   ``mf-prg.bas:4041``'s guard (``kg(sp)<>0andkk(sp)<>0`` — must own a shop AND have
   nonzero capital) gosub'd to ``4400-4420``: 1-in-3 quiet month (no income, no
   effect); else a payout ``p=int(rnd(1)*kk(sp)/20+kk(sp)/10)`` — 10%-15% of the
   shop's capital.
-* **arms deal** (``4060``, U8) — the staked heist-tip resolution, ports
+* **arms deal** (``4060``) — the staked heist-tip resolution, ports
   ``mf-prg.bas:31000-31051``. Only fires when the active player's ``tip_target ==
   pub.ARMS_DEAL_TIP`` (4) — set by ``pub.tip``'s stake sub-flow. The tip is CLEARED
   FIRST (``:31000``'s ``tp(sp)=0`` is the line's first statement, before the RNG roll)
@@ -42,25 +40,24 @@ reordering anything already here:
 The job-shift seam (``employed -> shift flow instead of the free turn``, mirroring the
 source's ``1012`` dispatch) is **out of this generator entirely**: upkeep only prepares
 the player for their turn, it does not decide what KIND of turn follows. That dispatch
-belongs to the caller (the client's turn loop today; U10 gives it a real shift-flow
-branch) — this generator's ``return []`` handing control back is exactly the hand-off
+belongs to the caller (the client's turn loop, which dispatches ``job.shift`` for an
+employed player) — this generator's ``return []`` handing control back is exactly the hand-off
 point.
 
-Deferred lines NOT ported here (Scope Boundaries): ``4045-4046`` (rent countdown/
-eviction — an out-of-scope system this slice), ``4050`` (bribe-protection aging),
-``4055-4056`` (fake-papers/counterfeit decay) — none are triggered by anything in-slice.
+Lines NOT ported here: ``4045-4046`` (rent countdown/eviction — a system this config
+does not implement), ``4050`` (bribe-protection aging), ``4055-4056`` (fake-papers/
+counterfeit decay) — nothing in this config triggers them.
 
-COUNTER DIRECTION — the U2-flagged relational-sign landmine (``:4305``)
------------------------------------------------------------------------
-``:4305`` is ``kz(sp)=kz(sp)+(kz(sp)>0)``. This project pins a porting convention of
-``true=+1`` (``docs/solutions/architecture-patterns/
-basic-relational-boolean-is-plus-one-when-porting.md``), under which the counter would
-climb from 6 forever — a grace period that never expires and a headline flow that
-never fires. Under strict C64 semantics (``true=-1``) it counts DOWN.
+COUNTER DIRECTION — the relational-sign landmine (``:4305``)
+-------------------------------------------------------------
+``:4305`` is ``kz(sp)=kz(sp)+(kz(sp)>0)``. Under a ``true=+1`` reading of BASIC
+relationals the counter would climb from 6 forever — a grace period that never expires
+and a headline flow that never fires. Under C64 semantics (``true=-1``, the project's
+porting convention: ``docs/solutions/architecture-patterns/
+basic-relational-boolean-is-plus-one-when-porting.md``) it counts DOWN.
 
-**The source pins DOWN**, and the convention loses here — the same resolution shape
-U6 applied at ``:30450`` (sibling lines stating the rule with literal constants beat
-the convention). Three independent confirmations:
+**The source pins DOWN** — sibling lines stating the rule with literal constants agree
+(the same resolution shape as ``:30450``). Three independent confirmations:
 
 1. ``:15030`` sets ``kz(sp)=6`` on borrowing, and ``:15025`` prints "du hast 6 monate
    zeit". A counter that ascends from 6 has no terminus; one that descends from 6
@@ -78,9 +75,9 @@ pass — so ``tests/test_debt_default.py::test_counter_counts_down_not_up`` exis
 specifically to fail if the sign is ever inverted.
 
 The ``(kz(sp)>0)`` guard also makes **0 a fixed point**, which is load-bearing: it is
-what makes a WON fight recur every turn (KTD-9) rather than silently resetting.
+what makes a WON fight recur every turn (source-confirmed) rather than silently resetting.
 
-KTD-7 conformance: touches only ``ctx.state`` (read-only), ``yield <Interaction>``,
+Handler-API conformance: touches only ``ctx.state`` (read-only), ``yield <Interaction>``,
 ``ctx.apply(<Effect>)``, and this config's own ``..setup``/entity-loader helpers.
 """
 
@@ -114,7 +111,7 @@ __all__ = ["upkeep_turn_start"]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
-#: The debt-default collectors fight, declared as data (U6a): five "eintreiber",
+#: The debt-default collectors fight, declared as data: five "eintreiber",
 #: schlagkette (weapon id 3), energy 30 each, on the "ks" backdrop (mf-prg.bas:4355).
 #: SETUP ONLY — the consequence is a seizure of the cash the player holds AT THAT
 #: MOMENT (a live state reference the declarable vocabulary excludes), so the encounter
@@ -128,7 +125,7 @@ _COLLECTORS_ENCOUNTER = load_encounter(
 def _weapon_stats() -> dict:
     """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
 
-    Matches ``kdh.py``/``jobs.py``'s fresh-per-call loader (KTD-7: a handler reads its
+    Matches ``kdh.py``/``jobs.py``'s fresh-per-call loader (a handler reads its
     OWN config's entity data, never the engine's).
     """
     return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
@@ -144,7 +141,7 @@ def _rank_names() -> list[str]:
     Goes through the config's own ``load_ranks`` loader — which validates every entry
     against ``engine.types.validate_rank`` — rather than reading the YAML directly, so
     the handler and the client's promotion screen share one validated path. Matches
-    ``waf.py``'s ``_weapons()`` pattern (KTD-7: a handler reads its OWN config's entity
+    ``waf.py``'s ``_weapons()`` pattern (a handler reads its OWN config's entity
     data, never the engine's); the config is frozen per game, so a fresh read per call
     is harmless.
     """
@@ -204,7 +201,7 @@ def upkeep_turn_start(ctx):
     if debt_amount != 0 or months != 0:
         # :4305's `+(kz(sp)>0)` — decrement ONLY while positive, so 0 is a fixed
         # point. That fixed point is exactly what makes a won fight recur every turn
-        # (KTD-9): the counter never leaves 0, so every later turn re-enters :4350.
+        # (source-confirmed): the counter never leaves 0, so every later turn re-enters :4350.
         if months > 0:
             months -= 1
             ctx.apply(DebtChange(amount=0, months=months))
@@ -221,12 +218,12 @@ def upkeep_turn_start(ctx):
             # :4350-4370 — the grace period has expired. Guarded on a NONZERO debt so
             # a fully repaid player (:15075 leaves kr=0 AND kz=0) is never ambushed.
             #
-            # The jail gate (:4040) is a read that trivially passes in-slice: jail is
-            # declared-but-stubbed (KTD-7) and nothing can imprison a player, so the
+            # The jail gate (:4040) is a read that trivially passes: jail is
+            # declared-but-stubbed and nothing can imprison a player, so the
             # not-jailed precondition is always true and is not re-encoded here.
             yield ShowMessage("upkeep.debt_collectors_intro")
             debt_params = ctx.state.config.formula_params
-            # U6a: the collectors' SETUP is the declared encounter (:4355 —
+            # The collectors' SETUP is the declared encounter (:4355 —
             # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"); the enemy stats and
             # equipment stay handler-supplied. The SEIZURE consequence below is NOT
             # declarable (it reads live `active.ka`), so the encounter carries no
@@ -242,12 +239,11 @@ def upkeep_turn_start(ctx):
             )
             result = yield StartCombat(scenario=scenario)
 
-            # Outcome narration (KTD-1: the invoking handler's job — _run_combat
-            # yields no final screen). Shared with jobs.py/kdh.py's own fights. This is
-            # the one in-slice fight with 5 enemies (gz(0)=5, :4355), so the losses
-            # block reads its per-side tallies off the CombatResult (v(1)/v(2), U3) —
-            # closing the #50 deviation that suppressed the block rather than print a
-            # 1v1-shortcut count that would be wrong here.
+            # Outcome narration (the invoking handler's job — _run_combat yields no
+            # final screen). Shared with jobs.py/kdh.py's own fights. This is the one
+            # fight with 5 enemies (gz(0)=5, :4355), so the losses block reads its
+            # per-side tallies off the CombatResult (v(1)/v(2)) — a 1v1-shortcut count
+            # would be wrong here.
             yield from narrate_combat_outcome(
                 winner=result.winner,
                 player_name=active.name,
@@ -268,7 +264,7 @@ def upkeep_turn_start(ctx):
             # and crucially no debt relief either. The loan and its expired counter
             # both survive, so the collectors come back next turn and every turn
             # after, until the player repays at kdh or finally loses. This is
-            # source-confirmed behaviour kept deliberately per KTD-9 — NOT a bug.
+            # source-confirmed behaviour kept deliberately — NOT a bug.
 
     # --- 4041-4420: shop income — ports mf-prg.bas:4041,4405-4410 --------------
     # ifkg(sp)<>0andkk(sp)<>0thengosub4400 (:4041). Re-read `active` is unnecessary:

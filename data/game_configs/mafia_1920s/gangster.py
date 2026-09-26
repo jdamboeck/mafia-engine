@@ -1,4 +1,4 @@
-"""This game's roster member — ``Gangster`` (U2, amendment A4).
+"""This game's roster member — ``Gangster``.
 
 The engine's :class:`engine.state.Combatant` is the blueprint: ``name``, ``weapon``,
 the ``vitality`` slot (the one depleting resource), and an opaque ``attrs`` map.
@@ -35,7 +35,7 @@ GANGSTER_ATTR_NAMES = ("kraft", "intelligenz", "brutalitaet")
 # eq=False so this INHERITS Combatant's cross-class __eq__ (compare by blueprint
 # fields, not exact class) instead of generating a Gangster-only one — otherwise a
 # live Gangster would never equal a reloaded bare Combatant, breaking every purity
-# and replay check (U2, amendment A4).
+# and replay check.
 @dataclass(frozen=True, eq=False)
 class Gangster(Combatant):
     """The engine's ``Combatant`` filled with this game's stats.

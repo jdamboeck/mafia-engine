@@ -1,10 +1,10 @@
-# kdh (Kredit-Hai / loan shark) — location shell (U11 declarative layer).
+# kdh (Kredit-Hai / loan shark) — location shell (declarative layer).
 #
 # Ports the kdh menu from mf-prg.bas:15005 (onwgoto15010,15050,15100,15200,15300).
 # ALL FIVE playable options carry NO shell guard: every refusal in the source
 # happens INSIDE the handler body (no existing debt to borrow, bounds on repay, the
 # buy/sell/rival-scan guard chain, must-own-this-tile for capital/collect) — exactly
-# like pub's drink/tip/job (KTD-8 only applies shell-level guards where the ORIGINAL
+# like pub's drink/tip/job (the shell only carries guards where the ORIGINAL
 # refuses before even offering the option, which never happens here). Plus a
 # guardless leave.
 #

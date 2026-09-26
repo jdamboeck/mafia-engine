@@ -1,4 +1,4 @@
-"""The waf (Waffengeschaeft / weapon shop) handlers — U6, the protocol stress test.
+"""The waf (Waffengeschaeft / weapon shop) handlers.
 
 Two handlers sharing one shop, ported from ``mf-prg.bas:13005-13175`` + the weapon
 spec-sheet sub-state at ``13500-13525``:
@@ -6,7 +6,7 @@ spec-sheet sub-state at ``13500-13525``:
 - ``waf.buy`` (``13010-13091``) — stock by tile ``ln``, an RNG-gated grenade extension,
   a range-guarded weapon pick, the weapon spec-sheet SUB-STATE, a gangster pick with
   three per-gangster stat gates, a trade-in offer + yes/no confirm, and the fused
-  score/rank adjust on settle. This is the widest protocol surface in the slice.
+  score/rank adjust on settle. This is the widest protocol surface of any handler.
 - ``waf.train`` (``13100-13175``) — pick a gangster, then (at rank >= 5) a single-key
   venue choice between the range (``schiesstand``) and the camp (``trainingscamp``),
   each with its own price, afford-check, ``ln``-modified stat gains capped at 99, and a
@@ -14,21 +14,21 @@ spec-sheet sub-state at ``13500-13525``:
 
 Faithfulness notes
 ------------------
-- ALL game-balance numbers come from ``formula_params`` (KTD-10) — prices, caps, gain
+- ALL game-balance numbers come from ``formula_params`` — prices, caps, gain
   ranges, ratios, roll odds are read from config and passed into the effects, never
   hardcoded here.
 - Every relational term uses the C64 ``true = -1`` evaluation (see
-  ``docs/solutions/.../basic-relational-boolean-is-plus-one-when-porting.md``, which
-  the #47 fidelity audit reversed from the earlier, circular ``true = +1`` pin).
-- Stat gates are HANDLER branching, not shell guards (KTD-3): they test the CHOSEN
+  ``docs/solutions/.../basic-relational-boolean-is-plus-one-when-porting.md``, confirmed
+  by the #47 fidelity audit — do not revert to ``true = +1``).
+- Stat gates are HANDLER branching, not shell guards: they test the CHOSEN
   gangster mid-handler, which the option-entry guard DSL cannot express.
-- No content-specific events (KTD-6): outcomes are reconstructable from the committed
+- No content-specific events: outcomes are reconstructable from the committed
   effects + logged RNG draws.
-- KTD-7: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
+- Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
   and its OWN config helpers (``..setup``).
 
-Cancellability rule (KTD-1 feasibility)
----------------------------------------
+Cancellability rule
+-------------------
 Only whole-action aborts use ``cancellable=True`` (the driver's atomic discard). Every
 "return to an earlier menu" (afford-fail, stat-gate fail, trade-in decline) is an
 IN-HANDLER loop, because a driver-cancel unwinds the entire handler and cannot resume at
@@ -36,8 +36,8 @@ an inner menu.
 
 ``ln`` seam
 -----------
-Read from the active player's ``last_location`` field, exactly as ``slw`` does (U9 will
-formalize how the turn system populates it).
+Read from the active player's ``last_location`` field, exactly as ``slw`` does (door
+entry in ``engine.movement`` records it before the menu runs).
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ __all__ = ["waf_buy", "waf_train", "weapon_spec"]
 
 
 def _weapons():
-    """Load this config's weapon table via the config's own loader (KTD-7).
+    """Load this config's weapon table via the config's own loader.
 
     Reads the table relative to this module's config directory (mirrors how setup loads
     it) — the config is frozen per game, so a fresh read per action is harmless.
@@ -65,13 +65,13 @@ def _weapons():
 
 
 # --------------------------------------------------------------------------- #
-# Weapon spec-sheet sub-state (R7, KTD-2) — display-only LoadSubState consumer #
+# Weapon spec-sheet sub-state — display-only LoadSubState consumer            #
 # --------------------------------------------------------------------------- #
 @register_substate("weapon_spec")
 def weapon_spec(ctx, params):
     """Show a weapon's spec sheet, then return — ports ``mf-prg.bas:13500-13525``.
 
-    A display-only sub-state (KTD-2): it yields one ``ShowMessage`` (the resolved spec
+    A display-only sub-state: it yields one ``ShowMessage`` (the resolved spec
     screen) and returns ``None``. The accuracy/effect labels are BUCKETED lookups, not
     raw values: accuracy bucket = ``int(ts/2)`` (13515), effect bucket = ``int(tg/4)+1``
     (13520). ``params`` carries the resolved weapon record + its index.
@@ -92,7 +92,7 @@ def weapon_spec(ctx, params):
 
 
 # --------------------------------------------------------------------------- #
-# waf.buy (R4-R9) — mf-prg.bas:13010-13091                                     #
+# waf.buy — mf-prg.bas:13010-13091                                            #
 # --------------------------------------------------------------------------- #
 @register("waf.buy")
 def waf_buy(ctx):
@@ -167,7 +167,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
         )
         g = active.roster[y]
 
-        # 13050-13060 — three per-gangster stat gates (KTD-3). A failed gate shows its
+        # 13050-13060 — three per-gangster stat gates. A failed gate shows its
         # reason and returns to the gangster pick.
         if g.attrs["intelligenz"] < weapons[x]["req_int"]:
             yield ShowMessage("locations.waf.too_dumb")
@@ -220,7 +220,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
 
 
 # --------------------------------------------------------------------------- #
-# waf.train (R10-R13) — mf-prg.bas:13100-13175                                 #
+# waf.train — mf-prg.bas:13100-13175                                          #
 # --------------------------------------------------------------------------- #
 @register("waf.train")
 def waf_train(ctx):

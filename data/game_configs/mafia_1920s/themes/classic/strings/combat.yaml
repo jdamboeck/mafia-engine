@@ -1,10 +1,10 @@
-# combat (grid fight, U5/U7) — classic-theme strings (VERBATIM German).
+# combat (grid fight) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): engine/combat.py and the CombatScreen driver loop emit
-# short message KEYS (see engine/interactions.py:_run_combat's `message` values and
+# DATA, not code: engine/combat.py and the CombatScreen driver loop emit
+# short message KEYS (see engine/fight_loop.py:_drive_fight's `message` values and
 # CombatFight.shoot's result dict); the terminal client resolves them here. Ported
 # byte-for-byte from research-data/pass-1/game-text.yaml + mf-prg.bas:30100-30520.
-# {name}/{side}/{losses1}/{losses2} are template params the U7 renderer fills.
+# {name}/{side}/{losses1}/{losses2} are template params the renderer fills.
 combat:
   # 30125/30139: unrecognized key falls back to the GET wait -- re-prompt, no text
   # printed by the original at that exact point; the client still needs SOME line.
@@ -39,13 +39,13 @@ combat:
   # spec-sheet vocabulary -- reused here for consistency).
   panel_weapon: "waffe: {weapon}"
 
-  # A5: the depleting resource is the engine's `vitality` SLOT, rendered first via
+  # The depleting resource is the engine's `vitality` SLOT, rendered first via
   # `panel_vitality`. This game's word for it -- "energie" -- lives here as the label,
   # the same engine-slot / game-word split the engine keeps everywhere. A different
   # game names the slot "hp" or "stamina" by editing this one key.
   panel_vitality: "energie: {value}"
 
-  # U2: the panel's remaining attribute rows are THEME-declared. `panel_attrs` chooses
+  # The panel's remaining attribute rows are THEME-declared. `panel_attrs` chooses
   # which `attrs` keys appear and in what order; each is labelled by its own
   # `panel_attr_<key>` template. The renderer reads the fighter's opaque `attrs` map
   # and knows none of these names -- so this game's German stat vocabulary lives
@@ -60,11 +60,11 @@ combat:
   # Action prompt shown above the key legend.
   action_prompt: "deine aktion:"
 
-  # U7 key legend -- presentation-only (KTD-9: key bindings are presentation, not
+  # Key legend -- presentation-only (key bindings are presentation, not
   # ported source text), shown once per activation above the input line.
   key_legend: "[wasd] bewegen  [f]+[wasd] schiessen  [p] aussetzen  'surrender' aufgeben"
 
-  # #45 opt-in observation frame (--watch-ai) -- presentation-only: the original
+  # Opt-in observation frame (--watch-ai) -- presentation-only: the original
   # narrates nothing between CPU activations (mf-prg.bas:30110), so this line exists
   # only for a viewer who opted in. Shown under the board after each CPU activation.
   observe_prompt: "gegner am zug -- [enter] weiter"

@@ -1,8 +1,8 @@
-# slw (Schlupfwinkel / motel) — location shell (U6 declarative layer).
+# slw (Schlupfwinkel / motel) — location shell (declarative layer).
 #
 # Ports the slw menu from mf-prg.bas:10000-10105. Three options; the two rent
 # options share ONE procedural handler ("slw.rent") and differ only by their
-# guard (KTD-8: the shell owns guard evaluation / denial; the handler is entered
+# guard (the shell owns guard evaluation / denial; the handler is entered
 # only when the guard passes).
 #
 #   rent      — guard uk(ln)=0  (room free);              on_denied -> no_room

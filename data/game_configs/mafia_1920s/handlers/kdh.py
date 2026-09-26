@@ -1,8 +1,8 @@
-"""The kdh (Kredit-Hai / loan shark) handlers — U11, ports ``mf-prg.bas:15000-15321``.
+"""The kdh (Kredit-Hai / loan shark) handlers — ports ``mf-prg.bas:15000-15321``.
 
 Six menu options, all sharing one shell (no per-option shell guard: every refusal in
 the source happens INSIDE the handler body, exactly like ``pub.drink``/``pub.tip``/
-``pub.job`` — KTD-8 only applies shell-level guards where the ORIGINAL refuses before
+``pub.job`` — the shell only carries guards where the ORIGINAL refuses before
 even offering the option, and kdh never does that):
 
 - ``kdh.borrow`` (``15010-15030``) — take a loan. Guard: no existing debt
@@ -27,7 +27,7 @@ even offering the option, and kdh never does that):
 - ``kdh.collect`` (``15300-15321``) — collect overdue debts. Guard: own this tile.
   2/3 chance (when capital is nonzero) of an armed ambush — see
   :func:`_ambush_probability`'s docstring for the fidelity note this port pins down
-  (KTD-9: the code, not the research YAML, is 2/3). One scripted ``schuldner``
+  (the code, not the research YAML, is authoritative: 2/3). One scripted ``schuldner``
   (gewehr, 35 energy) fights the player; a win loots 500-1499$ + 2 score, a loss
   costs nothing (the source's ``ifs=2thenreturn`` — a plain, silent return).
 - ``kdh.leave`` — guardless leave (the shell's ``resolve`` consequence, no handler).
@@ -35,16 +35,16 @@ even offering the option, and kdh never does that):
 Faithfulness notes
 -------------------
 - ALL game-balance numbers (loan bounds, price rolls, ambush odds, loot range) come
-  from ``formula_params`` (KTD-10) — nothing here is a bare literal.
-- The combat backdrop is pinned to ``ks`` (KTD-9): the source's ``15312`` call site
+  from ``formula_params`` — nothing here is a bare literal.
+- The combat backdrop is pinned to ``ks``: the source's ``15312`` call site
   sets no ``kf$`` of its own, so a byte-faithful port would inherit whatever ``kf$``
   last held from an unrelated call site — a stale-backdrop accident this port does
   not replicate.
-- KTD-7: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
+- Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
   ``ctx.apply``, and this config's OWN ``..setup`` helpers.
 - ``ctx.apply`` only BUFFERS — every multi-step flow below tracks its own running
   local (``debt_amount``, ``capital``, etc.) rather than re-reading ``ctx.state``
-  mid-flow, per the U9-documented landmine.
+  mid-flow, since effects only commit after the handler returns.
 
 ``ln`` seam
 -----------
@@ -75,10 +75,10 @@ __all__ = ["kdh_borrow", "kdh_repay", "kdh_trade", "kdh_capital", "kdh_collect"]
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
 #: The debtor-ambush encounter (mf-prg.bas:15310-15321) — one schuldner (gewehr,
-#: 35 energy), fully declared in data now (content/encounters/kdh_ambush.yaml),
+#: 35 energy), fully declared in data (content/encounters/kdh_ambush.yaml),
 #: including its win consequence (loot roll + score + message). The NAME is read
 #: back off the loaded encounter for the outcome narration; nothing about the fight
-#: is assembled inline any more.
+#: is assembled inline.
 _AMBUSH_ENCOUNTER = load_encounter(_CONFIG_DIR / "content" / "encounters" / "kdh_ambush.yaml")
 
 
@@ -86,7 +86,7 @@ def _weapon_stats() -> dict:
     """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
 
     Matches ``jobs.py``'s/``upkeep.py``'s/``waf.py``'s own fresh-per-call loader
-    (KTD-7: a handler reads its OWN config's entity data, never the engine's).
+    (a handler reads its OWN config's entity data, never the engine's).
     """
     return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
 
@@ -159,7 +159,7 @@ def kdh_repay(ctx):
     # :15050-15051 — bounds 0..kr(sp); PromptInt needs max>=min even when debt is 0
     # (a guardless entry with no debt: the source still asks and the answer is
     # forced to 0, a quiet abort. This handler is never routed to at 0 debt by any
-    # in-slice caller, but the bound stays well-formed regardless).
+    # caller, but the bound stays well-formed regardless).
     x = yield PromptInt("locations.kdh.repay_prompt", min=0, max=max(debt, 0))
     if x == 0:
         return []
@@ -319,12 +319,12 @@ def kdh_collect(ctx):
     1. ``:15300`` — guard: must own THIS tile.
     2. ``:15305`` — ``int(rnd(1)*3)<>0 and kk(sp)<>0``: a 2-in-3 draw (nonzero on a
        uniform 0/1/2 pick) AND nonzero capital together gate the ambush; otherwise
-       every client paid on time (``:15306``). NOTE (KTD-9): the research YAML
+       every client paid on time (``:15306``). NOTE: the research YAML
        documents this as "1/3", which is WRONG — ``rnd(1)*3`` uniformly yields
        0, 1, or 2, and ``<>0`` (not-equal-zero) is true for 2 of those 3 outcomes,
        i.e. 2/3, not 1/3. This port follows the CODE.
     3. ``:15310-15315`` — the ambush fight: one schuldner (gewehr, 35 energy),
-       declared in ``content/encounters/kdh_ambush.yaml`` (U6a). A loss (``s=2``)
+       declared in ``content/encounters/kdh_ambush.yaml``. A loss (``s=2``)
        is a plain, silent return — the encounter's ``on_loss: []`` applies nothing.
     4. ``:15320-15321`` — a win loots 500-1499$ and awards +2 score
        (``x=2:gosub1160``) — the encounter's ``on_win`` block (money roll + score +
@@ -347,7 +347,7 @@ def kdh_collect(ctx):
         yield ShowMessage("locations.kdh.debts_paid_on_time")
         return []
 
-    # :15310-15312 — the ambush fight, built from the declared encounter (U6a).
+    # :15310-15312 — the ambush fight, built from the declared encounter.
     yield ShowMessage("locations.kdh.ambush_intro")
     enc = _AMBUSH_ENCOUNTER
     spec = enc.variants[0]  # single-enemy encounter: one variant.
@@ -361,9 +361,9 @@ def kdh_collect(ctx):
     )
     result = yield StartCombat(scenario=scenario)
 
-    # Outcome narration (KTD-1: the invoking handler's job — _run_combat yields no
-    # final screen). Shared with jobs.py/upkeep.py's own fights; per-side death tallies
-    # come off the CombatResult (U3).
+    # Outcome narration (the invoking handler's job — _run_combat yields no final
+    # screen). Shared with jobs.py/upkeep.py's own fights; per-side death tallies
+    # come off the CombatResult.
     yield from narrate_combat_outcome(
         winner=result.winner,
         player_name=active.name,

@@ -1,20 +1,19 @@
-"""The pub (Kneipe) handlers — U8 (alcohol trade + tips), U9 (recruit), U10 (job).
+"""The pub (Kneipe) handlers — alcohol trade, tips, recruit, and job.
 
 Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
 
 - ``pub.drink`` (``12010-12075``) — alcohol trade. Only pub tile ``ln=4`` serves; the
-  ``ln=5`` branch (``:12010``'s ``ifln=4orln=5goto12020``) is confirmed DEAD CODE this
-  slice (KTD-9: do not port). Tracing the source: ``ln=5`` is set ONLY by the ``bhf``
+  ``ln=5`` branch (``:12010``'s ``ifln=4orln=5goto12020``) is unreachable and
+  deliberately not ported. Tracing the source: ``ln=5`` is set ONLY by the ``bhf``
   (train station) handler's option 1 ("visit the station pub", ``mf-prg.bas:19010``:
-  ``ln=5:la=2:goto3000``) — ``bhf`` is not one of this slice's implemented locations
-  (kdh is the combat trigger; ``docs/plans/.../2026-07-18-002-...`` Key Decisions), so
-  ``ln=5`` is unreachable via any in-slice map entry. Every other pub tile (1/2/3, and
-  any future ``ln`` this slice doesn't reach) falls into the 50%-refusal-or-sell-offer
+  ``ln=5:la=2:goto3000``) — ``bhf`` is not an implemented location in this config, so
+  ``ln=5`` is unreachable via any map entry. Every other pub tile (1/2/3, and any
+  ``ln`` not otherwise reached) falls into the 50%-refusal-or-sell-offer
   branch (``:12015``).
 - ``pub.tip`` (``12200-12252``) — buy a heist rumour. Rank-gated; 2/3 chance the
   informer has nothing; the roll picks one of 5 flavour texts (tip type 1-5, stored on
-  the player); tip 4 alone has a follow-on 5000$ stake that a later upkeep slot (U8's
-  ``upkeep.py`` fill-in) resolves.
+  the player); tip 4 alone has a follow-on 5000$ stake that the arms-deal upkeep slot
+  (``upkeep.py``) resolves.
 - ``pub.recruit`` (``12100-12175``) — recruit from the 30-candidate research pool.
   Rank + housing + crew-cap guards, an offer pool capped at 3 with a nobody-available
   roll, a per-candidate draw (reroll on already-hired/already-drawn), and a settle
@@ -26,28 +25,27 @@ Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
   too respectable for menial work. A 1-in-5 "nobody has work" roll, then one of
   four job types (bouncer/croupier/doorman/killer) with a fixed duration and a
   per-type pay roll; accepting stores the job via ``JobSet`` and force-ends the
-  turn (``ms=0``, ``:12335``). The shift flow that later takes over the employed
-  player's turn is ``data/game_configs/mafia_1920s/handlers/jobs.py`` (U10, ports
+  turn (``ms=0``, ``:12335``). The shift flow that takes over the employed
+  player's NEXT turn is ``data/game_configs/mafia_1920s/handlers/jobs.py`` (ports
   ``25000-25560``), dispatched by the CALLER (the client's turn loop), not by
-  this handler or by upkeep (the U3 seam).
+  this handler or by upkeep.
 
 Faithfulness notes
 -------------------
 - ALL game-balance numbers (stock/price/capacity/tip-price ranges) come from
-  ``formula_params`` (KTD-10) — nothing here is a bare literal.
-- Relational terms use the C64 ``true = -1`` evaluation (the #47 fidelity audit
-  reversed the earlier, circularly-justified ``true = +1`` pin — see
+  ``formula_params`` — nothing here is a bare literal.
+- Relational terms use the C64 ``true = -1`` evaluation (confirmed by the #47
+  fidelity audit — do not revert to ``true = +1``; see
   ``docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md``).
-  None of this module's ported expressions contains a relational factor, so the
-  reversal changed nothing here; the note stays because a future addition to this
-  file will need the right convention.
-- KTD-7: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
+  None of this module's ported expressions contains a relational factor; the
+  note stays because a future addition to this file will need the right convention.
+- Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
   and this config's OWN ``..setup`` helpers.
-- No content-specific events (KTD-6): outcomes are reconstructable from the committed
+- No content-specific events: outcomes are reconstructable from the committed
   effects + logged RNG draws.
 
-Cancellability rule (KTD-1 feasibility)
-----------------------------------------
+Cancellability rule
+-------------------
 None of ``pub.drink``/``pub.tip``/``pub.recruit`` uses a driver-level
 ``cancellable=True`` prompt: every "decline"/"nothing to buy"/"skip this candidate"
 path in the source is a plain ``return`` (or, for recruit's per-candidate loop, a
@@ -90,7 +88,7 @@ __all__ = ["pub_drink", "pub_recruit", "pub_tip", "pub_job"]
 #: — BLOODY MARY(4)/JOSEFINE(14)/DOROTHY(27)/MA BAKER(30), 1-based in the source).
 _FEMALE_CANDIDATE_IDS = frozenset({3, 13, 26, 29})
 
-#: Crew cap: total roster length INCLUDING the boss at roster[0] (KTD-6). gz(sp)
+#: Crew cap: total roster length INCLUDING the boss at roster[0]. gz(sp)
 #: counts the boss (mf-prg.bas:300 gz(i)=1 at setup, :4651 eviction resets to 1) so
 #: "10 gangsters" means at most NINE hires -- mf-prg.bas:12105/12145.
 _CREW_CAP = 10
@@ -153,7 +151,7 @@ _JOB_OFFER_TEXT_KEYS = {
 
 
 def _vehicles():
-    """Load this config's vehicle table via the config's own loader (KTD-7).
+    """Load this config's vehicle table via the config's own loader.
 
     Mirrors ``waf.py``'s ``_weapons()`` pattern: read relative to this module's config
     directory, fresh per call (the config is frozen per game, so this is harmless).
@@ -162,12 +160,12 @@ def _vehicles():
 
 
 def _gangster_candidates():
-    """Load the 30 recruit candidates (U9). Same fresh-per-call pattern as ``_vehicles()``."""
+    """Load the 30 recruit candidates. Same fresh-per-call pattern as ``_vehicles()``."""
     return load_gangster_candidates(_CONFIG_DIR / "entities" / "gangsters.yaml")
 
 
 # --------------------------------------------------------------------------- #
-# pub.drink (R5) — mf-prg.bas:12010-12075                                      #
+# pub.drink — mf-prg.bas:12010-12075                                          #
 # --------------------------------------------------------------------------- #
 @register("pub.drink")
 def pub_drink(ctx):
@@ -245,7 +243,7 @@ def pub_drink(ctx):
 
 
 # --------------------------------------------------------------------------- #
-# pub.tip (R5) — mf-prg.bas:12200-12252                                        #
+# pub.tip — mf-prg.bas:12200-12252                                            #
 # --------------------------------------------------------------------------- #
 @register("pub.tip")
 def pub_tip(ctx):
@@ -316,21 +314,21 @@ def pub_tip(ctx):
 
 
 # --------------------------------------------------------------------------- #
-# pub.recruit (R5) — mf-prg.bas:12100-12175                                    #
+# pub.recruit — mf-prg.bas:12100-12175                                        #
 # --------------------------------------------------------------------------- #
 @register("pub.recruit")
 def pub_recruit(ctx):
     """Recruit gangsters from the 30-candidate pool — ports ``mf-prg.bas:12100-12175``.
 
     Guards, in order (the shell ALSO gates entry on rank>4 and gang_size<10 for the
-    menu-availability UX per KTD-8, but every guard is re-checked here so the handler
+    menu-availability UX (the shell owns entry guards), but every guard is re-checked here so the handler
     is correct standalone and each denial's message/order is independently provable):
 
     1. ``:12100-12102`` — rank guard ``ra(sp) > 4``.
     2. ``:12103-12104`` — housing guard: the player must hold at least one of the 5
        apartment-tenancy slots (``uk(i)=sp`` for some ``i`` in 1..5).
     3. ``:12105`` — crew cap: ``gz(sp) == 10`` denies (roster length INCLUDING the
-       boss at ``roster[0]``, KTD-6 — at most nine hires).
+       boss at ``roster[0]`` — at most nine hires).
     4. ``:12106`` — offer pool ``y`` = count of the 30 candidates not yet globally
        hired, capped at 3.
     5. ``:12107`` — roll ``x`` in ``[0, y]``; ``x == 0`` OR the current pub tile is
@@ -357,7 +355,7 @@ def pub_recruit(ctx):
         yield ShowMessage("locations.pub.recruit_no_housing")
         return []
 
-    # :12105 — crew cap (roster length INCLUDES the boss, KTD-6).
+    # :12105 — crew cap (roster length INCLUDES the boss).
     if len(active.roster) == _CREW_CAP:
         yield ShowMessage("locations.pub.recruit_gang_full")
         return []
@@ -446,7 +444,7 @@ def pub_recruit(ctx):
 
 
 # --------------------------------------------------------------------------- #
-# pub.job (R6) — mf-prg.bas:12300-12335                                        #
+# pub.job — mf-prg.bas:12300-12335                                            #
 # --------------------------------------------------------------------------- #
 @register("pub.job")
 def pub_job(ctx):
@@ -463,10 +461,10 @@ def pub_job(ctx):
        this exact order — the source's ``ON x GOTO`` dispatch order).
     4. ``:12306-12322`` — show the type's flavour text; the duration ``jd(sp)`` is a
        fixed per-type literal, the pay ``p`` a per-type 500-wide uniform roll (both
-       config data, KTD-10 — see ``_JOB_PARAMS``).
+       config data — see ``_JOB_PARAMS``).
     5. ``:12330`` — show the pay, confirm; declining returns with NO state change.
     6. ``:12335`` — accept: ``JobSet`` stores type/pay/duration, ``ms=0`` FORCE-ENDS
-       the turn (KTD-3's job-shift seam: the caller dispatches the shift flow at the
+       the turn (the job-shift seam: the caller dispatches the shift flow at the
        NEXT turn start, this handler only records the acceptance and stops movement
        dead per the source's literal ``ms=0``, not a relative deduction).
     """

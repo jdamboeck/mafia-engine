@@ -1,6 +1,6 @@
 # waf (Waffengeschaeft / weapon shop) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the engine emits KEYS and the theme resolves them.
+# DATA, not code: the engine emits KEYS and the theme resolves them.
 # Ported byte-for-byte from the research (research-data/pass-2/location-dialogue.yaml
 # + mf-prg.bas:13005-13175, 13500-13525). {name}/{price}/{amount} are template params.
 locations:
@@ -26,7 +26,7 @@ locations:
     # --- weapon spec sheet (13500-13525) ---
     # The accuracy/effect labels are BUCKETED lookups: the handler emits the 1-based
     # bucket index (accuracy_bucket = int(ts/2) in 1..3; effect_bucket = int(tg/4)+1 in
-    # 1..5) and the theme resolves it to a label from the arrays below (A2). ts$/tg$ DATA
+    # 1..5) and the theme resolves it to a label from the arrays below. ts$/tg$ DATA
     # from mf-prg.bas:50500-50505, read at :125.
     spec_sheet: "waffe: {name}  preis: {price}$  treffgenauigkeit: {accuracy_bucket}  wirkung: {effect_bucket}"
     accuracy_labels:   # ts$(1..3), read at :125 from data at :50500

@@ -1,6 +1,6 @@
 # Rank names — verbatim from the original game (mf-prg.bas:50200-50210).
 #
-# ENTITY-NAME data owned by the config (KTD-5), not engine display text.
+# ENTITY-NAME data owned by the config, not engine display text.
 #
 # In the original these are ra$(1..10); here they are stored as a 0-based list,
 # so list index i == in-game rank (i + 1). A fresh player starts at rank 1
