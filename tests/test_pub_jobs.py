@@ -281,7 +281,7 @@ def test_croupier_full_lifecycle_two_shifts_then_lump_sum():
 
 
 # --------------------------------------------------------------------------- #
-# The croupier completion score: 0 (:25560 `x=3+3*(jo=2)`, relational true=-1)  #
+# The croupier completion score: 0 (:25560 `x=3+3*(jo(sp)=2)`, relational true=-1)
 # --------------------------------------------------------------------------- #
 def test_croupier_completion_score_is_zero():
     # #47 audit: this asserted 6, from the research gloss and the since-reversed

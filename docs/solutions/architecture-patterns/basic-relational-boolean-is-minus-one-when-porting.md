@@ -72,7 +72,7 @@ are only *coherent* under `true = -1`:
    (`x=2` for won fights/heists) and negative for failures (`x=-2`, `-5`, `-10`). Only
    `true=-1` makes arming/upgrading *raise* notoriety and downgrading *lower* it.
 6. **`:115` + `:10035` — `fnm` and the affordability check.** `fnm(1)` under `true=+1` is
-   `-50`, i.e. a room that *pays the tenant* — and it makes `:10035`'s `ka < x*p` check
+   `-50`, i.e. a room that *pays the tenant* — and it makes `:10035`'s `ifka(sp)<x*p` check
    permanently false (dead code). Under `true=-1`, `fnm(1) = 150` (a premium unit) and the
    check is live. An unreachable branch is the same tell that pinned `kz`'s direction at
    `:4305`.

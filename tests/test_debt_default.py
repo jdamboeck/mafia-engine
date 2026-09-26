@@ -357,10 +357,10 @@ def test_counter_at_zero_is_a_fixed_point_so_the_fight_recurs():
 # repayment mid-grace stops the countdown and the fight                       #
 # --------------------------------------------------------------------------- #
 def test_repayment_mid_grace_stops_the_countdown_and_the_fight():
-    """``:15075`` sets ``kz=0`` WITH ``kr=0``; a zero debt must never fight.
+    """``:15075`` sets ``kz(sp)=0``, reached when ``:15065``'s ``ifkr(sp)=0`` holds.
 
-    The recurrence branch keys on the DEBT, not on the bare counter — otherwise a
-    fully repaid player (kz=0, kr=0) would be ambushed forever.
+    A zero debt must never fight: the recurrence branch keys on the DEBT, not on the bare
+    counter — otherwise a fully repaid player (kz=0, kr=0) would be ambushed forever.
     """
     st = _state(debt=Debt(amount=0, months=0), ka=6000)
     result = run_upkeep(st, input_source=_scripted(), rng=StubRng())

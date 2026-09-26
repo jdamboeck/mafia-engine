@@ -53,8 +53,8 @@ def slw_rent(ctx):
        and the ``formula_params.fnm`` config block (``fnm(1) == 150`` premium,
        ``fnm(3) == fnm(4) == 100``, else 50).
     2. Quote the rent (``rent_quote``) and ask for a month count (``:10025``).
-    3. ``:10030`` — ``x <= 0`` is a quiet abort: return immediately with NO effects
-       (atomic by construction, since nothing was applied yet).
+    3. ``:10030`` — ``x=0orx<0`` (``x <= 0``) is a quiet abort: return immediately with NO
+       effects (atomic by construction, since nothing was applied yet).
     4. ``:10035`` — affordability: if ``ka < x*p`` emit ``not_enough_money`` and
        return with no deduction.
     5. ``:10040-10045`` — success: deduct ``x*p``, set tenancy ``uk(ln)=sp``, accrue ``um(sp)+=x``, then greet.

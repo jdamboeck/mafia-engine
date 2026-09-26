@@ -64,7 +64,7 @@ def test_is_hit_miss_probability_matches_30247_across_the_whole_domain():
 def test_damage_roll_distribution_matches_30255_across_the_whole_domain():
     """Every damage value comes up with exactly the source's probability.
 
-    ``:30255`` is ``y=int(rnd(1)*tg+bt/10)+1`` with ``rnd(1)`` uniform on [0, 1), so
+    ``:30255`` is ``y=int(rnd(1)*tg(w)+bt/10)+1`` with ``rnd(1)`` uniform on [0, 1), so
     ``y=d`` iff ``rnd(1)*tg`` lies in ``[d-1-bt/10, d-bt/10)``: its probability is that
     interval's overlap with ``[0, tg)``, divided by ``tg``. Enumerating every value of
     the port's ``rng.range(10*tg)`` draw must give the same distribution, for every

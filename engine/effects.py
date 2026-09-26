@@ -384,11 +384,11 @@ class DebtChange:
     grace-counter ``months`` (``kz(sp)``) alongside it.
 
     Applied by the kdh loan-shark borrow/repay handlers. Carries both fields in one
-    effect because the source sets them
-    together at every kdh call site (borrow :15030 sets ``kr+=x`` and ``kz=6`` in the
-    same line; partial repayment :15065 decrements ``kr`` only, leaving ``months``
-    untouched — pass ``months=None`` for that case) — see :class:`~engine.state.Debt`
-    for the confirmed field semantics.
+    effect because the source sets them together at every kdh call site (borrow
+    :15030 sets ``kr(sp)=kr(sp)+x`` and ``kz(sp)=6`` in the same line; partial
+    repayment :15065 decrements ``kr`` only, leaving ``months`` untouched — pass
+    ``months=None`` for that case) — see :class:`~engine.state.Debt` for the confirmed
+    field semantics.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION

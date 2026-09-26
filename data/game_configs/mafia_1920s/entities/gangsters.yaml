@@ -22,7 +22,7 @@
 #                 BLOODY MARY (4), JOSEFINE (14), DOROTHY (27), MA BAKER (30)
 #
 # Energy is NOT a per-candidate field: every recruited gangster starts at energy
-# 5 regardless of candidate (mf-prg.bas:12165's `'05'+ge$` prepend) — the handler
+# 5 regardless of candidate (mf-prg.bas:12165's `"05"+ge$` prepend) — the handler
 # sets this when building the hired Gangster, not read from here.
 gangsters:
   - {name: "killer-jack",           weapon: 1, kraft: 50, intelligenz: 10, brutalitaet: 70, price: 3000, female: false,

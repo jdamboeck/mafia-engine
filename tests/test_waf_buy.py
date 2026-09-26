@@ -416,7 +416,7 @@ def test_trade_in_decline_returns_to_weapon_list():
 # signs below are the C64 evaluation and the only ones consistent with that.    #
 # --------------------------------------------------------------------------- #
 def test_score_first_weapon_up_by_x8():
-    # :13065 `gf = gf - x8*(gf<100)`; (gf<100) is true = -1 -> score UP by x8.
+    # :13065 `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)`; (gf<100) is true = -1 -> score UP by x8.
     # Arming a previously unarmed gangster raises notoriety.
     st = _state(ln=2, ka=1000, gf=50.0, score_mult=1.0)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0])}
