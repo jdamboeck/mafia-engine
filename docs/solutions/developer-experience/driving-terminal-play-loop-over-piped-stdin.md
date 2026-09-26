@@ -56,8 +56,10 @@ def _script(keys):
 ```
 
 **2. To reach a deep screen, don't hardcode a key sequence — walk the engine.**
-Turn-over only fires once `ms` hits 0 (25 deterministic steps at seed 42, but
-that count is map-geometry-dependent and must not be a literal in the test).
+Turn-over only fires once `ms` runs out (the original's move loop ends at
+`:2005` `ifms<=0thenreturn`; tested by `test_ms_zero_ends_turn`). At seed 42 that
+takes 25 deterministic steps, but the count is map-geometry-dependent and must not
+be a literal in the test.
 Build the walk by asking the engine which direction *steps* from the current
 state each turn, so the test survives map edits:
 

@@ -39,7 +39,9 @@ fight.equipment_stats(7)   # -> {ts: 6, tg: 15}   from the BUNDLE's table
 ```
 
 The fight fired with stock accuracy/damage while its reach came from the custom
-table. Nothing raised — it just used the wrong numbers. The test helper avoided
+table. (The stock numbers are the original's: weapon 7 is
+`:50115` `"maschinenpistole",8000,6,15,10`, i.e. price 8000, `ts` 6, `tg` 15, sound 10;
+tested by `test_weapon_index_is_the_order_121_reads_the_data`.) Nothing raised — it just used the wrong numbers. The test helper avoided
 it by threading `rules_for(table)` at the call site, but that is a **convention**,
 not an enforced invariant: one forgetful call site away from recurring.
 

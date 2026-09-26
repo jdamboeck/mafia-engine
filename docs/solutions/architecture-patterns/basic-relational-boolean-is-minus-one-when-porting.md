@@ -8,7 +8,7 @@ problem_type: porting_convention
 component: handler
 severity: high
 applies_when:
-  - "Porting any mf-prg.bas formula that multiplies a coefficient by a relational, e.g. `gf = gf - x8*(gf<100)`"
+  - "Porting any mf-prg.bas formula that multiplies a coefficient by a relational, e.g. :13065 `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)`"
   - "Deciding the SIGN of a term gated by a `(a=b)` / `(a<b)` / `(a>b)` comparison"
   - "Writing or reviewing a waf/sph/racket handler whose score/stat/price math has a `(...)` boolean factor"
   - "Tempted to use the research interpretation layer's `true = +1` reading for a ported formula"
@@ -44,55 +44,100 @@ This is easy to get wrong and silently inverts signs (a score meant to go *up* g
 the `ln`-modified training gains (`13110-13130`), the `fnm` rent function (`115`), the
 combat side anchors/colours (`30000-30015`), and the job-completion score (`25560`).
 
+Every claim below about the original quotes the line it rests on (the citation checker,
+`tests/test_citations.py`, holds each quote to its line) and names the test that proves
+it.
+
 ## Guidance
 
 **Rule: when porting a `mf-prg.bas` formula, read every relational factor `(a<b)` /
 `(a=b)` / `(a>b)` as `-1` when true and `0` when false.** Evaluate the expression
-exactly as C64 BASIC would.
+exactly as C64 BASIC would. The port tests (`tests/test_ports.py`) evaluate each quoted
+formula with a C64 evaluator that does exactly this (tested by
+`test_true_comparison_times_negative_constant_is_positive`).
 
 **Why this is settled.** Three sites in the source are *structurally* decidable: under
 `true = +1` the program would be malformed, not merely differently balanced. Three more
 are only *coherent* under `true = -1`:
 
-1. **`:30015` / `:30115` — `poke211,-20*(i=2)`.** `$D3`/211 is the KERNAL cursor-*column*
+1. **`:30015` — `poke211,-20*(i=2)`.** `$D3`/211 is the KERNAL cursor-*column*
    zero page location and cannot hold a negative value. `true=-1` → column **20** (side 2
    labelled on the right half of the 40-column screen, mirroring side 1 at column 0).
-   `true=+1` → **-20**, impossible.
+   `true=+1` → **-20**, impossible. The fight's player panel does the same with the
+   side to move: `:30115` `x=-20*(s=2):poke211,x`. Tested by
+   `test_side_label_column_is_on_screen_only_if_true_is_minus_one`.
 2. **`:30010` — `pokefr+kp(i,j),2-4*(i=2)`.** A C64 colour code is 0-15. `true=-1` → **6**
-   (blue) for side 2 vs. 2 (red) for side 1. `true=+1` → **-2**, not a colour.
+   (blue) for side 2 vs. 2 (red) for side 1. `true=+1` → **-2**, not a colour. Tested by
+   `test_side_colour_is_a_colour_code_only_if_true_is_minus_one`.
 3. **`:30108` — `s=1-(s=1)`, the side toggle.** Must map 1↔2. `true=-1`: `1-(-1)=2`, and
-   `1-0=1`. ✓  `true=+1`: `1-1=0` — a side that does not exist.
+   `1-0=1`. ✓  `true=+1`: `1-1=0` — a side that does not exist. Tested by
+   `test_side_toggle_maps_one_to_two_only_if_true_is_minus_one`; the engine's port of
+   the toggle is held to this line by `test_port_matches_basic` (entry
+   `combat side toggle`), and the side anchors of
+   `:30000` `kp(i,j)=129-18*(i=2)+p(j)` by
+   `test_side2_anchor_is_147_under_c64_true_is_minus_one`.
 4. **`:30240` — `fori=1to1-2*(w=4)`.** Supporting, not decisive. `true=-1` → 3 flash
-   frames for `w=4` (the throwing stars, `wurfsterne`) against 1 for other weapons.
-   `true=+1` gives a bound of `-1`, but a C64 `FOR` loop tests at `NEXT` and runs its body
-   once anyway, so nothing breaks; this site only fits `-1` better.
-5. **`:13073` vs. `:13065`/`:13072` — the weapon buy score.** Weapon indices ascend in
-   power and price (`DATA 50100-50115`, read as index 0-8 at `:121`: 0 `haende` 0$ up to 8 `handgranaten` 10000$), so at
-   `:13072` `x > gw` is an **upgrade**. `gf` is notoriety, positive for successes
-   (`x=2` for won fights/heists) and negative for failures (`x=-2`, `-5`, `-10`). Only
-   `true=-1` makes arming/upgrading *raise* notoriety and downgrading *lower* it.
-6. **`:115` + `:10035` — `fnm` and the affordability check.** `fnm(1)` under `true=+1` is
-   `-50`, i.e. a room that *pays the tenant* — and it makes `:10035`'s `ifka(sp)<x*p` check
-   permanently false (dead code). Under `true=-1`, `fnm(1) = 150` (a premium unit) and the
-   check is live. An unreachable branch is the same tell that pinned `kz`'s direction at
-   `:4305`.
+   frames for `w=4` (the throwing stars, `wurfsterne`, weapon 4 in the order below)
+   against 1 for other weapons. `true=+1` gives a bound of `-1`, but a C64 `FOR` loop
+   tests at `NEXT` and runs its body once anyway, so nothing breaks; this site only fits
+   `-1` better. Not load-bearing: the engine draws no shot flash, so no code rests on it.
+5. **`:13073` vs. `:13065`/`:13072` — the weapon buy score.**
+   `:121` `fori=0to8:readwa$(i),wp(i),ts(i),tg(i),ws(i):next` reads the weapons, as
+   index 0-8, from `DATA 50100-50115` (`:120` has already read the twelve location codes
+   of `:50005`): index 0 is `:50100` `"haende",0`, index 8 is
+   `:50115` `"handgranaten",10000`. Price rises strictly with the index (0, 50, 100, 500, 3000,
+   4000, 4500, 8000, 10000$); power only broadly (`messer` hits harder than `knueppel`,
+   and `wurfsterne` aims worst of all). Tested by
+   `test_weapon_index_is_the_order_121_reads_the_data` and
+   `test_weapon_prices_strictly_ascend_with_the_index`. So at
+   `:13072` `ifx>gw(sp,y)thengf(sp)=gf(sp)-x8*1*(gf(sp)<100)` a higher index is an
+   **upgrade** to a dearer weapon. `gf` is notoriety, positive for successes (`:15321` `x=2:gosub1160` for
+   the won kdh ambush, `:26015` `ifs=1thenx=2:gosub1160` for beating the police) and
+   negative for failures (`:25510` `x=-2:gosub1160` for a failed job,
+   `:26040` `x=-5:gosub1160` for a failed escape from the police,
+   `:26080` `x=-10:gosub1160` for a prison sentence). The two the slice ports are tested by
+   `test_kdh_ambush_win_declares_loot_score_and_message` (+2) and
+   `test_failed_shift_fight_clears_job_no_pay_score_minus_2` (-2). Only `true=-1` makes
+   arming/upgrading *raise* notoriety and downgrading *lower* it.
+6. **`:115` + `:10035` — the rent function and the affordability check.**
+   `:115` `deffnm(ln)=50-50*(ln=3orln=4)-100*(ln=1)` under `true=+1` gives `fnm(1) = -50`, a
+   room that *pays the tenant*, and `fnm(3) = fnm(4) = 0`: on those three tiles
+   `:10035`'s `ifka(sp)<x*p` can never fire (dead code). Under `true=-1`, `fnm(1) = 150`
+   (a premium unit) and the check is live on every tile. Tested by `test_fnm_rent_tiers`
+   and, for the live check, `test_port_matches_basic` (entry `slw rent`, which runs the
+   rent handler over every tile with too little cash). An unreachable branch is the same
+   tell that pinned `kz`'s direction at `:4305` `kz(sp)=kz(sp)+(kz(sp)>0)` (tested by
+   `test_counter_counts_down_not_up`).
 
 **Consequences for the `waf` buy score (`13065`,`13072`,`13073`), to encode directly:**
 
-- `gf = gf - x8*(gf<100)` → score **up** by `x8` (first weapon / upgrade), only while
-  `gf < 100`.
-- `gf = gf + x8*2*(gf>0)` → score **down** by `2*x8` (a downgrade), only while `gf > 0`.
+- `:13065` `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` (first weapon; `:13072` the same for an
+  upgrade) → score **up** by `x8`, only while `gf < 100`. Tested by
+  `test_score_first_weapon_up_by_x8` and
+  `test_score_upgrade_new_index_higher_than_old_is_up`.
+- `:13073` `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)` → score **down** by `2*x8` (a downgrade), only
+  while `gf > 0`. Tested by `test_score_downgrade_new_index_not_higher_is_down_by_2x8`.
 - When the `(gf<100)` / `(gf>0)` guard is false, the term is `0` — **no** score change.
+  Tested by `test_score_gate_false_no_change`.
 
-For the `ln`-modified training gains (`13126-13127`): `in = in+3-2*(ln=1)` is `+5` at
-`ln=1` (not `+1`), and `bt = bt+2-3*(ln=2)` is `+5` at `ln=2` (not `-1`). Note the
+All three are held to their lines, over the whole range of `gf` and `x8`, by
+`test_port_matches_basic` (entry `waf buy score and trade-in`).
+
+For the `ln`-modified training gains: `:13126` `in=in+3-2*(ln=1)` is `+5` at `ln=1`
+(not `+1`), and `:13127` `bt=bt+2-3*(ln=2)` is `+5` at `ln=2` (not `-1`). Note the
 `true=+1` reading made the `bt` gain *negative* — training that damages the stat.
+Tested by `test_range_ln1_intelligence_plus_five`, `test_range_ln2_brutality_plus_five`
+and `test_port_matches_basic` (entry `waf range training`).
 
-For `fnm` (`:115`): `fnm(1) = 150`, `fnm(3) = fnm(4) = 100`, else `50`.
+For `fnm` (`:115`): `fnm(1) = 150`, `fnm(3) = fnm(4) = 100`, else `50` (tested by
+`test_fnm_rent_tiers`).
 
 For the job-completion score (`:25560`, `x=3+3*(jo(sp)=2)`): every job scores `3`, and the
-croupier (`jo=2`) scores **`0`** — not `6`. The croupier is the job that already paid an
-immediate per-shift bonus (`:25125`), so it earns no completion award.
+croupier (`jo=2`) scores **`0`** — not `6`. Tested by `test_croupier_completion_score_is_zero`,
+`test_non_croupier_completion_score_is_three` and `test_completion_score_ae1`. The croupier
+is the job that already paid an immediate per-shift bonus
+(`:25125` `p=int(rnd(1)*100*x)+300`, tested by `test_croupier_success_pays_immediate_bonus_no_fight`),
+so it earns no completion award.
 
 ## The research interpretation layer
 
@@ -127,5 +172,9 @@ Structural re-confirmation, any of which fails under `true=+1`:
 `oracle.py conclude 30015 "poke211 is a column and cannot be negative"`,
 `oracle.py conclude 30010 "2-4*(i=2) must be a colour code 0-15"`,
 `oracle.py conclude 30108 "s=1-(s=1) must toggle between sides 1 and 2"`.
-The `waf` buy-score, training, `fnm`, combat-anchor and job-completion tests encode the
-corrected signs and are the regression guard.
+The same three are tests, each asserting the `true=-1` value and the malformed `true=+1`
+one: `test_side_label_column_is_on_screen_only_if_true_is_minus_one`,
+`test_side_colour_is_a_colour_code_only_if_true_is_minus_one` and
+`test_side_toggle_maps_one_to_two_only_if_true_is_minus_one`. The `waf` buy-score,
+training, `fnm`, combat-anchor and job-completion tests named above encode the corrected
+signs and are the regression guard.

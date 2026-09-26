@@ -27,7 +27,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.config_loader import load_game_config
-from engine.effects import EnergyChange, JobClear, JobSet, MoneyChange, MsChange
+from engine.effects import (
+    EnergyChange,
+    JobClear,
+    JobSet,
+    MoneyChange,
+    MsChange,
+    ScoreAndRank,
+)
 from engine.locations import HANDLERS
 from engine.rng import Rng
 from engine.state import Clock, Config, GameState, Job, Player
@@ -259,6 +266,10 @@ def test_failed_shift_fight_clears_job_no_pay_score_minus_2():
     assert result.state.players[0].ka == 1000  # unpaid
     assert result.state.players[0].jobs == Job()  # cleared
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
+    # :25510 `x=-2:gosub1160` — a failure lowers notoriety.
+    assert [e for e in result.effects if isinstance(e, ScoreAndRank)] == [
+        ScoreAndRank(amount=-2.0, rank_divisor=11.1)
+    ]
 
 
 # --------------------------------------------------------------------------- #
