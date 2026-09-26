@@ -26,7 +26,7 @@ __all__ = [
 #: `fori=1to10:readp(i):next` — read into p(1..10), used at 30000).
 STAGGER_OFFSETS: tuple[int, ...] = (122, 81, 161, 120, 42, 202, 40, 200, 1, 241)
 
-#: Side anchors from ``mf-prg.bas:30000``: ``kp(i,j) = 129-18*(i=2) + p(j)``.
+#: Side anchors from ``mf-prg.bas:30000``: ``kp(i,j)=129-18*(i=2)+p(j)``.
 #: Side 1 (i=1): ``(i=2)`` is false (0) -> anchor 129. Side 2 (i=2): ``(i=2)`` is
 #: true, which in C64 BASIC is -1 -> anchor = 129 - 18*(-1) = 147.
 #:

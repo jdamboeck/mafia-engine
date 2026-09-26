@@ -230,7 +230,7 @@ def _buy(ctx, *, ln: int, params: dict):
             yield ShowMessage("locations.kdh.shop_belongs_to", {"name": other.name})
             return
 
-    # :15110-15111 — price roll + confirm.
+    # :15110-15111 — price roll + confirm. :15110 `p=int(rnd(1)*11)*100+5000`
     price = (
         ctx.rng.range(params["kdh_buy_price_choices"]) * params["kdh_buy_price_step"]
         + params["kdh_buy_price_base"]
@@ -251,7 +251,7 @@ def _buy(ctx, *, ln: int, params: dict):
 
 
 def _sell(ctx, *, params: dict):
-    # :15150-15151 — price roll + confirm.
+    # :15150-15151 — price roll + confirm. :15150 `p=int(rnd(1)*11)*100+4500`
     price = (
         ctx.rng.range(params["kdh_sell_price_choices"]) * params["kdh_sell_price_step"]
         + params["kdh_sell_price_base"]

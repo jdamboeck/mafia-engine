@@ -186,7 +186,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
         x8 = ctx.state.config.score_mult
 
         if old == 0:
-            # 13065 — no old weapon: q=0. `gf = gf - x8*(gf<100)` with the C64
+            # 13065 — no old weapon: q=0. `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` with the C64
             # true=-1 evaluation is score UP by x8 while gf<100: arming a
             # previously unarmed gangster raises the gang's notoriety.
             q = 0
@@ -194,6 +194,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
                 ctx.apply(ScoreChange(x8))
         else:
             # 13070-13071 — trade-in offer on the OLD weapon's price, yes/no confirm.
+            # :13070 `q=int(wp(gw(sp,y))/1.5)`
             q = int(weapons[old]["price"] / params["trade_in_divisor"])
             yield ShowMessage("locations.waf.trade_in_offer", {"amount": q})
             if not (yield Confirm("locations.waf.trade_in_confirm")):
@@ -201,8 +202,8 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             # 13072/13073 — score sign by index comparison, C64 true=-1.
             # Weapon indices ascend in power/price (DATA 50100-50115), so
             # `x > old` is an UPGRADE:
-            #   13072 upgrade    `gf - x8*(gf<100)`   -> UP by x8    (while gf<100)
-            #   13073 downgrade  `gf + x8*2*(gf>0)`   -> DOWN by 2*x8 (while gf>0)
+            #   :13072 upgrade    `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` -> UP by x8 (while gf<100)
+            #   :13073 downgrade  `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)` -> DOWN by 2*x8 (while gf>0)
             if x > old:
                 if active.gf < 100:
                     ctx.apply(ScoreChange(x8))
@@ -211,6 +212,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
                     ctx.apply(ScoreChange(-2 * x8))
 
         # 13075 — settle: cash += q - new_price; assign the weapon to the gangster.
+        # :13075 `ka(sp)=ka(sp)+q-wp(x)`
         # Use the picked index y directly (roster.index(g) could resolve to the wrong
         # gangster when two share identical stats — dataclass __eq__ is by value).
         ctx.apply(MoneyChange(q - new_price))
@@ -253,7 +255,7 @@ def waf_train(ctx):
         is_camp = venue == 1
 
     if is_camp:
-        # 13150-13175 — trainingscamp.
+        # 13150-13175 — trainingscamp. :13150 `p=2500+500*ra(sp)`
         p = params["camp_base"] + params["camp_per_rank"] * active.rank
         yield ShowMessage("locations.waf.camp_cost", {"price": p})
         if not (yield Confirm("locations.waf.confirm")):
@@ -263,7 +265,9 @@ def waf_train(ctx):
             return []
         yield ShowMessage("locations.waf.camp_enter", {"name": active.roster[y].name})
         ctx.apply(MoneyChange(-p))  # 13170 ka -= p
-        # 13170-13172 — each of int/brut/kraft rises by its OWN fnr(0) = rng.hit(8,15) draw.
+        # 13170-13172 — each of int/brut/kraft rises by its OWN fnr(0) = rng.hit(8,15) draw:
+        # :13170 `in=in+fnr(0)`, :13171 `bt=bt+fnr(0)`, :13172 `kr=kr+fnr(0)`, each capped
+        # at 99; :117 `deffnr(x)=int(rnd(1)*8)+8`.
         for stat in ("intelligenz", "brutalitaet", "kraft"):
             gain = ctx.rng.hit(params["camp_gain_min"], params["camp_gain_max"])
             ctx.apply(StatChangeCapped(stat, gain, cap=cap, gangster=y))
@@ -272,7 +276,7 @@ def waf_train(ctx):
         ctx.apply(score_and_rank(2, params))
         yield ShowMessage("locations.waf.camp_done")
     else:
-        # 13110-13130 — schiesstand (range).
+        # 13110-13130 — schiesstand (range). :13110 `p=800+200*ra(sp)`
         p = params["range_base"] + params["range_per_rank"] * active.rank
         yield ShowMessage("locations.waf.range_cost", {"price": p})
         if not (yield Confirm("locations.waf.confirm")):
@@ -284,6 +288,7 @@ def waf_train(ctx):
         ctx.apply(MoneyChange(-p))  # 13125 ka -= p
         # 13125-13127 — ln-modified stat gains (C64 true=-1), each capped at 99:
         #   kr += 5 ; in += 3 - 2*(ln=1) ; bt += 2 - 3*(ln=2)
+        #   (:13125 `kr=kr+5`, :13126 `in=in+3-2*(ln=1)`, :13127 `bt=bt+2-3*(ln=2)`)
         # A true relational is -1, so the ln-matching tile ADDS to the gain:
         # in += 5 at ln=1, bt += 5 at ln=2. (The old true=+1 reading made the
         # bt gain -1 — a training session that damaged the stat.)

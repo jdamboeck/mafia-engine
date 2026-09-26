@@ -166,8 +166,9 @@ def upkeep_turn_start(ctx):
 
     # --- 4010-4025: per-gangster energy regen (boss included, gz(sp) order) -
     for g_idx, gangster in enumerate(active.roster):
-        cap = 2 + gangster.attrs["kraft"] // 4 + gangster.attrs["brutalitaet"] // 4  # :4020
-        gain = gangster.attrs["kraft"] // 10 + 1  # :4015
+        # :4020 `x=2+int(kr/4)+int(bt/4)`
+        cap = 2 + gangster.attrs["kraft"] // 4 + gangster.attrs["brutalitaet"] // 4
+        gain = gangster.attrs["kraft"] // 10 + 1  # :4015 `en=en+int(kr/10)+1`
         ctx.apply(EnergyChange(amount=gain, cap=cap, gangster=g_idx))
 
     # --- 4030: rank promotion commit + wanted-poster screen (4200-4220) ----
@@ -274,7 +275,7 @@ def upkeep_turn_start(ctx):
         if ctx.rng.range(params["kdh_income_quiet_roll"]) != 0:
             # :4405 — 2-in-3 chance the loan business earns money this month.
             capital = active.business.shop_capital
-            # :4410 — p = int(rnd(1)*kk(sp)/20 + kk(sp)/10) -> a continuous draw
+            # :4410 — `p=int(rnd(1)*kk(sp)/20+kk(sp)/10)` -> a continuous draw
             # (rnd(1) in [0,1)) scaled by a VARIABLE coefficient (capital), unlike a
             # fixed-bound roll (rng.hit). Ported as an exact discrete equivalent:
             # multiplying the whole expression by 20, `20p = int(2*capital +
@@ -303,7 +304,7 @@ def upkeep_turn_start(ctx):
             # so this branch applies no MoneyChange.
             yield ShowMessage("upkeep.arms_deal_lost")
         else:
-            # :31005 — payout p = int(rnd(1)*9500)+5500 -> 5500..14999$.
+            # :31005 — payout `p=int(rnd(1)*9500)+5500` -> 5500..14999$.
             arms_params = ctx.state.config.formula_params
             payout = ctx.rng.hit(
                 arms_params["pub_arms_deal_payout_min"],

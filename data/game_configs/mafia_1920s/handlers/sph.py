@@ -81,6 +81,7 @@ def sph(ctx):
         return []
 
     # 16026-16040 — resolve with a single rng draw.
+    # :16030 `int(rnd(1)*(1+x))=0` wins; the payout is :16030 `p=int(p*(.5+x))`.
     yield ShowMessage("locations.sph.at_the_table")
     if ctx.rng.range(1 + x) == 0:
         payout = int(stake * (payout_offset + x))  # gross incl. returned stake

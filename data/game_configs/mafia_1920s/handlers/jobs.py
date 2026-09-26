@@ -199,7 +199,7 @@ def job_shift(ctx):
         # :25100-25140 -- pick a trick, catch check, bonus or fight.
         yield ShowMessage("job.shift_croupier_intro")
         trick = yield PromptInt("job.shift_croupier_pick", min=1, max=3)
-        if ctx.rng.range(6 - trick) == 0:
+        if ctx.rng.range(6 - trick) == 0:  # :25120 `int(rnd(1)*(6-x))=0`
             # :25130 -- caught; a fight starts.
             yield ShowMessage("job.shift_croupier_caught")
             winner = yield from _fight(

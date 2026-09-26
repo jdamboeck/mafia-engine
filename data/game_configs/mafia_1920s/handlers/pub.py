@@ -194,12 +194,14 @@ def pub_drink(ctx):
 
     if ln == _ALCOHOL_TILE:
         # --- BUY path: :12020-12035 ---------------------------------------
+        # :12020 `x=int(rnd(1)*200)+100` (stock) and `p=int(rnd(1)*5)+5` (price).
         stock = ctx.rng.hit(params["pub_alcohol_stock_min"], params["pub_alcohol_stock_max"])
         price = ctx.rng.hit(
             params["pub_alcohol_buy_price_min"], params["pub_alcohol_buy_price_max"]
         )
 
-        # :12025 — cap the offer by the vehicle's free barrel capacity.
+        # :12025 — cap the offer by the vehicle's free barrel capacity,
+        # `q=tk(tm(sp))-ta(sp)`.
         vehicles = _vehicles()
         capacity = vehicles[active.vehicle]["tank"]
         free = capacity - active.contraband.alcohol_barrels
@@ -217,6 +219,7 @@ def pub_drink(ctx):
             return []
 
         # :12035 — settle + score/rank reward (x=2, gosub1160/1165).
+        # :12035 `ta(sp)=ta(sp)+y`, `ka(sp)=ka(sp)-p*y`.
         ctx.apply(BarrelChange(y))
         ctx.apply(MoneyChange(-price * y))
         ctx.apply(score_and_rank(2, params))
@@ -228,6 +231,7 @@ def pub_drink(ctx):
         return []
 
     # --- SELL path: :12050-12075 --------------------------------------------
+    # :12050 `x=int(rnd(1)*20)+10` (the dealer's price per barrel).
     price = ctx.rng.hit(params["pub_alcohol_sell_price_min"], params["pub_alcohol_sell_price_max"])
     yield ShowMessage("locations.pub.sell_offer", {"price": price})
     y = yield PromptInt(
@@ -236,7 +240,7 @@ def pub_drink(ctx):
     if y == 0:
         return []
 
-    # :12075 — settle unconditionally, no score effect.
+    # :12075 — settle unconditionally, no score effect: `ka(sp)=ka(sp)+y*x`.
     ctx.apply(MoneyChange(y * price))
     ctx.apply(BarrelChange(-y))
     return []
@@ -279,7 +283,7 @@ def pub_tip(ctx):
         yield ShowMessage("locations.pub.tip_nothing")
         return []
 
-    # :12215-12216 — price roll + confirm.
+    # :12215-12216 — price roll + confirm. :12215 `p=1000+int(rnd(1)*3)*500`
     price = params["pub_tip_price_base"] + ctx.rng.range(3) * params["pub_tip_price_step"]
     yield ShowMessage("locations.pub.tip_teaser", {"price": price})
     if not (yield Confirm("locations.pub.tip_confirm")):
@@ -291,6 +295,7 @@ def pub_tip(ctx):
         return []
 
     # :12225-12226 — charge, roll the tip id, set it, show the flavour text.
+    # :12225 `ka(sp)=ka(sp)-p` then `tp(sp)=int(rnd(1)*5)+1`.
     ctx.apply(MoneyChange(-price))
     tip_id = ctx.rng.range(5) + 1
     ctx.apply(TipSet(tip_type=tip_id))
@@ -482,7 +487,9 @@ def pub_job(ctx):
         yield ShowMessage("locations.pub.job_nobody_available")
         return []
 
-    # :12305 — roll job type 1-4 uniform, source dispatch order.
+    # :12305 — roll job type 1-4 uniform, source dispatch order: `x=int(rnd(1)*4)+1`.
+    # Pay: :12308 `p=int(rnd(1)*1000)+2000`, :12311 `p=int(rnd(1)*500)+1000`,
+    # :12316 `p=int(rnd(1)*500)+2000`, :12322 `p=int(rnd(1)*500)+2000`.
     job_type = ctx.rng.range(4) + 1
     duration_key, pay_min_key, pay_max_key = _JOB_PARAMS[job_type]
     duration = params[duration_key]

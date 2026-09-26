@@ -376,6 +376,7 @@ def fnm(ln: int, params: dict) -> int:
     (fnm(1) == 150, fnm(3) == fnm(4) == 100, else 50). The slw handler
     reuses this helper.
     """
+    # mf-prg.bas:115 `deffnm(ln)=50-50*(ln=3orln=4)-100*(ln=1)`, with C64 true = -1.
     overrides = params.get("overrides", {}) or {}
     # YAML maps int keys fine, but tolerate str keys defensively.
     if ln in overrides:
@@ -438,6 +439,7 @@ def narrate_combat_outcome(
 
 def _roll_stat(rng: Rng, roll: dict) -> int:
     """Stat/cash roll: rng.range(choices)*step + base (mf-prg.bas:350/315)."""
+    # :350 `x=int(rnd(1)*9)*5+10` (stats); :315 `ka(i)=int(rnd(1)*5)*500+5000` (cash).
     return rng.range(roll["choices"]) * roll["step"] + roll["base"]
 
 
@@ -496,7 +498,7 @@ def new_game(
         # Roll the starting gangster's stats — ALL via rng.
         kraft = _roll_stat(rng, setup["stat_roll"])
         raw_intel = _roll_stat(rng, setup["stat_roll"])
-        intelligenz = raw_intel | setup["intelligenz_or"]  # OR-30 quirk
+        intelligenz = raw_intel | setup["intelligenz_or"]  # OR-30 quirk, :311 `in=xor30`
         brutalitaet = _roll_stat(rng, setup["stat_roll"])
         cash = _roll_stat(rng, setup["cash_roll"])
 

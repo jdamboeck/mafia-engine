@@ -721,8 +721,10 @@ def _apply(state: GameState, effect: Any) -> GameState:
         idx = _target_index(state, effect.player)
         p = state.players[idx]
         # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
+        # :1160 `gf(sp)=gf(sp)+(x*x8)`, then `gf(sp)>100` / :1161 `gf(sp)<0` clamp it.
         gf = _clamp(p.gf + effect.amount * state.config.score_mult, 0.0, 100.0)
         # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
+        # :1165 `nr(sp)=int(gf(sp)/11.1)+1`.
         return _with_player(state, idx, gf=gf, nr=int(gf / effect.rank_divisor) + 1)
 
     if isinstance(effect, FlagSet):

@@ -64,7 +64,7 @@ def slw_rent(ctx):
     ln = active.last_location  # the ln seam (see module docstring)
 
     fnm_params = ctx.state.config.formula_params["fnm"]
-    p = fnm(ln, fnm_params)  # :10020 — per-tile monthly rent
+    p = fnm(ln, fnm_params)  # :10020 `p=fnm(ln)` — per-tile monthly rent
 
     # :10025 — quote the rent, then ask how many months.
     yield ShowMessage("locations.slw.rent_quote", {"price": p})
@@ -74,12 +74,12 @@ def slw_rent(ctx):
     if x <= 0:
         return []
 
-    # :10035 — affordability.
+    # :10035 — affordability, `ka(sp)<x*p`.
     if active.ka < x * p:
         yield ShowMessage("system.not_enough_money")
         return []
 
-    # :10040-10045 — success. Deduct rent,
+    # :10040-10045 — success. Deduct rent (:10040 `ka(sp)=ka(sp)-x*p`),
     # set tenancy uk(ln)=sp, accrue prepaid months um(sp)+=x, then greet.
     ctx.apply(MoneyChange(-x * p))
     ctx.apply(SetTenancy(ln))
