@@ -38,7 +38,10 @@ commit + branch conventions, and how to pick up the next unit. Then:
    per-side drivers, data-defined encounters, recording/replay, terminal debug tool),
    and the Vertical Slice Completion plan (`2026-09-25-001-…`, U1–U12 — year-end
    ending, setup prompts, per-round standings, save/`--load`, error guard,
-   `--watch-ai`, CI on 3.11/3.14; closed #45/#49/#51).
+   `--watch-ai`, CI on 3.11/3.14; closed #45/#49/#51),
+   and the Slice Polish plan (`2026-09-26-001-…`, U1–U10 — plan IDs out of code
+   comments, `TerminalSession`, client text in the theme, engine splits into
+   `fight_loop`/`combat_setup`/`combat_ai`).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).
