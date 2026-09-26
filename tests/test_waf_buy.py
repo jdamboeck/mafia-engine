@@ -24,7 +24,7 @@ from engine.interactions import (
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import run_pure
+from tests.helpers import StubRng as _StubRng, run_pure
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -37,22 +37,6 @@ _PARAMS = {
     "grenade_roll": 3,
     "grenade_rank_gate": 5,
 }
-
-
-class _StubRng:
-    """rng.range(n) returns scripted values; records the args."""
-
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        return next(self._it)
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        return next(self._it)
 
 
 def _state(*, ka=100000, ln=2, rank=1, gf=50.0, score_mult=1.0, roster=None):
