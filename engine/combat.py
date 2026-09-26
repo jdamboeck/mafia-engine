@@ -215,6 +215,12 @@ class RulesBundle:
         The hit test's role map and its formula ``(attacker, equipment, rng) -> bool``.
     ``damage_roles`` / ``damage_fn``
         The damage roll's role map and its formula ``(attacker, equipment, rng) -> int``.
+    ``hit_draws`` / ``damage_draws`` (optional)
+        What the matching formula draws, for a debug viewer to name each draw in a
+        recording without restating the formula: ``(attacker, equipment) ->
+        ((label, bound), ...)``, one ``rng.range(bound)`` per entry in draw order. A
+        bound of 0 is never drawn. The game's formula draws WITH these bounds, so the
+        two cannot disagree. The engine never calls them.
     There is deliberately **no** ``vitality`` entry: the depleting
     resource is the engine's :attr:`~engine.state.Fighter.vitality` SLOT, which the
     engine reads and writes directly. A bundle field naming which attrs key held it
@@ -229,6 +235,8 @@ class RulesBundle:
     hit_fn: Any = None
     damage_roles: Mapping[str, str] = field(default_factory=lambda: _EMPTY_ROLES)
     damage_fn: Any = None
+    hit_draws: Any = None
+    damage_draws: Any = None
 
     def required_keys(self) -> tuple[str, ...]:
         """Every ``attrs`` key this bundle will read off a combatant.

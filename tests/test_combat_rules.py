@@ -157,6 +157,27 @@ def test_damage_draw_uses_tg_only():
     assert game_rules.damage_roll(35, {"ts": 0, "tg": 10}, StubRng(35)) == 8
 
 
+@pytest.mark.parametrize(("attr", "ts", "tg"), [(37, 5, 10), (50, 0, 0), (0, 15, 3), (99, 1, 0)])
+def test_declared_draws_are_the_draws_the_formulas_make(attr, ts, tg):
+    """``hit_draws``/``damage_draws`` (what a debug viewer names draws by) list exactly
+    the bounds :func:`is_hit`/:func:`damage_roll` draw, in order; a 0 bound is not
+    drawn. The bundle carries both, so a viewer reads them off the fight's own rules."""
+    equipment = {"ts": ts, "tg": tg}
+    rng = StubRng(1, 10)
+    game_rules.is_hit(attr, equipment, rng)
+    declared = [b for _, b in game_rules.hit_draws(attr, equipment) if b > 0]
+    assert rng.calls == [("range", b) for b in declared]
+
+    rng = StubRng(0)
+    game_rules.damage_roll(attr, equipment, rng)
+    declared = [b for _, b in game_rules.damage_draws(attr, equipment) if b > 0]
+    assert rng.calls == [("range", b) for b in declared]
+
+    bundle = game_rules.build_rules()
+    assert bundle.hit_draws is game_rules.hit_draws
+    assert bundle.damage_draws is game_rules.damage_draws
+
+
 def test_bundle_declares_this_games_roles():
     """The bundle names both capability role maps — and NOT vitality (amendment A5)."""
     bundle = game_rules.build_rules()

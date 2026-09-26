@@ -273,6 +273,7 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
         weapon_names=fightlab._weapon_names(),
         prev_snapshot=prev,
         out=out,
+        rules=scenario.rules,
     )
     text = out.getvalue()
 
@@ -311,11 +312,64 @@ def test_debug_dump_for_a_shot_that_reached_no_target_says_so_not_none():
 
     out = io.StringIO()
     fightlab.render_shot_debug(
-        event, weapon_names=fightlab._weapon_names(), prev_snapshot=None, out=out
+        event,
+        weapon_names=fightlab._weapon_names(),
+        prev_snapshot=None,
+        out=out,
+        rules=scenario.rules,
     )
     text = out.getvalue()
     assert "shot reached no target" in text
     assert "-> None" not in text, "a missing draw must not print as a bogus '-> None'"
+
+
+def test_debug_dump_names_draws_from_the_rules_bundle_not_a_restated_formula():
+    """A second ruleset (here: damage draws ``range(7*tg)``, hit draws ``range(ts+1)``
+    first) must be labelled by ITS declarations: the dump shows the draw the formula
+    really made, with its real bound, because fightlab reads the bundle's
+    ``hit_draws``/``damage_draws`` instead of restating ``ts`` / ``10*tg``."""
+    import dataclasses
+
+    def hit_draws(attacker, equipment):
+        return (("ts+1", equipment["ts"] + 1), ("kraft+10", attacker + 10))
+
+    def is_hit(attacker, equipment, rng):
+        (_, a), (_, b) = hit_draws(attacker, equipment)
+        return rng.range(a) != 0 and rng.range(b) >= 10
+
+    def damage_draws(attacker, equipment):
+        return (("7*tg", 7 * equipment["tg"]),)
+
+    def damage_roll(attacker, equipment, rng):
+        ((_, bound),) = damage_draws(attacker, equipment)
+        return (rng.range(bound) + attacker) // 10 + 1
+
+    base = fightlab.load_scenario(_SCENARIO)
+    assert base.rules is not None
+    rules = dataclasses.replace(
+        base.rules,
+        hit_fn=is_hit,
+        hit_draws=hit_draws,
+        damage_fn=damage_roll,
+        damage_draws=damage_draws,
+    )
+    scenario = dataclasses.replace(base, rules=rules)
+    _result, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
+
+    event = next(e for e in recording.events if e.kind == "activation" and e.result.get("hit"))
+    ts = event.calc_inputs["equipment"]["ts"]
+    tg = event.calc_inputs["equipment"]["tg"]
+    # The action's draws, straight off the record: hit (ts+1), hit (kraft+10), damage.
+    (_, [b0], v0), _craft, (_, [b2], v2) = event.draws[event.decision_draw_count :]
+    assert (b0, b2) == (ts + 1, 7 * tg)
+
+    out = io.StringIO()
+    fightlab.render_shot_debug(
+        event, weapon_names=fightlab._weapon_names(), prev_snapshot=None, out=out, rules=rules
+    )
+    text = out.getvalue()
+    assert f"draw = rng.range(ts+1={ts + 1})          -> {v0}" in text
+    assert f"draw = rng.range(7*tg={7 * tg})    -> {v2}" in text
 
 
 # --------------------------------------------------------------------------- #

@@ -288,8 +288,7 @@ def test_a_score_change_recorded_before_the_clamp_field_loads_clamped():
     restored = persistence._effect_from_dict(
         {"_type": "ScoreChange", "amount": 3.0, "player": None}
     )
-    assert restored == ScoreChange(3.0)
-    assert restored.clamp is True
+    assert restored == ScoreChange(3.0, clamp=True)
     unclamped = ScoreChange(3.0, clamp=False)
     assert persistence._effect_from_dict(persistence._effect_to_dict(unclamped)) == unclamped
 

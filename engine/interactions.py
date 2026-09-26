@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, TypeAlias, overload
 
 from engine.actions import EngineResult, HandlerResult
 
@@ -48,6 +48,7 @@ __all__ = [
     "CombatScreen",
     "OBSERVE_PROMPT",
     "LoadSubState",
+    "Interaction",
     # Response / control
     "Ack",
     "CANCEL",
@@ -275,6 +276,13 @@ class LoadSubState:
 
     kind: Any
     params: dict = field(default_factory=dict)
+
+
+#: What a handler may yield: the interaction catalog above, as one union. The single
+#: definition — :class:`engine.types.HandlerFunc` imports it rather than restating it.
+Interaction: TypeAlias = (
+    ShowMessage | PromptInt | PromptChoice | Confirm | StartCombat | CombatScreen | LoadSubState
+)
 
 
 # --------------------------------------------------------------------------- #

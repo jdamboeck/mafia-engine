@@ -23,7 +23,9 @@ from engine.combat import RulesBundle
 __all__ = [
     "HIT_ROLES",
     "DAMAGE_ROLES",
+    "hit_draws",
     "is_hit",
+    "damage_draws",
     "damage_roll",
     "build_rules",
 ]
@@ -39,6 +41,16 @@ HIT_ROLES = {"attacker": "kraft"}
 
 #: The damage roll reads the ATTACKER's brutalitaet (loaded with kraft at ``30246``).
 DAMAGE_ROLES = {"attacker": "brutalitaet"}
+
+
+def hit_draws(attacker: Any, equipment: Any) -> tuple[tuple[str, int], ...]:
+    """What :func:`is_hit` draws, in order: ``(label, bound)`` per ``rng.range(bound)``.
+
+    The weapon factor ``range(ts)`` (not drawn when ``ts`` is 0), then the kraft factor
+    ``range(kraft + 10)``. :func:`is_hit` draws with exactly these bounds, so a debug
+    viewer naming draws from this cannot disagree with the formula.
+    """
+    return (("ts", equipment["ts"]), ("kraft+10", attacker + 10))
 
 
 def is_hit(attacker: Any, equipment: Any, rng: Any) -> bool:
@@ -70,11 +82,15 @@ def is_hit(attacker: Any, equipment: Any, rng: Any) -> bool:
     raised by integer training gains, fixed 30 for the CPU); the bound is at least 10,
     so ``rng.range`` is always called legally.
     """
-    ts = equipment["ts"]
-    kraft = attacker
+    (_, ts), (_, craft_bound) = hit_draws(attacker, equipment)
     weapon_factor = rng.range(ts) if ts > 0 else 0
-    craft_miss = rng.range(kraft + 10) < 10
+    craft_miss = rng.range(craft_bound) < 10
     return weapon_factor != 0 and not craft_miss
+
+
+def damage_draws(attacker: Any, equipment: Any) -> tuple[tuple[str, int], ...]:
+    """What :func:`damage_roll` draws: the one ``range(10 * tg)`` (none when ``tg`` is 0)."""
+    return (("10*tg", 10 * equipment["tg"]),)
 
 
 def damage_roll(attacker: Any, equipment: Any, rng: Any) -> int:
@@ -96,9 +112,9 @@ def damage_roll(attacker: Any, equipment: Any, rng: Any) -> int:
     ``rng.range(10 * tg)`` so the carry from ``bt``'s last digit survives. A weapon
     with ``tg=0`` draws nothing and deals ``bt // 10 + 1`` (``rnd(1)*0`` is 0).
     """
-    tg = equipment["tg"]
+    ((_, bound),) = damage_draws(attacker, equipment)
     brutalitaet = attacker
-    draw = rng.range(10 * tg) if tg > 0 else 0
+    draw = rng.range(bound) if bound > 0 else 0
     return (draw + brutalitaet) // 10 + 1
 
 
@@ -141,6 +157,8 @@ def build_rules() -> RulesBundle:
         hit_fn=is_hit,
         damage_roles=DAMAGE_ROLES,
         damage_fn=damage_roll,
+        hit_draws=hit_draws,
+        damage_draws=damage_draws,
     )
 
 

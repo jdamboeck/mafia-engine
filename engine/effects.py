@@ -28,7 +28,7 @@ lazily to avoid a cycle.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any
 
@@ -101,23 +101,32 @@ class MoneyChange:
 
 @dataclass(frozen=True)
 class ScoreChange:
-    """Add ``amount`` (signed) to the target player's score ``gf``, clamped to [0, 100].
+    """Add ``amount`` (signed) to the target player's score ``gf``.
 
-    The clamp is the one ``mf-prg.bas:1160`` (cap at 100) and ``:1161`` (floor at 0)
-    apply. NOTE: the score *weighting* (``x * x8``, ``Config.score_mult``) is a LATER
-    helper's concern — this raw effect just applies the delta and clamps.
+    ``clamp`` is REQUIRED (keyword-only, no default) because the two forms port
+    different BASIC and neither is the safe guess:
 
-    ``clamp=False`` adds the delta with NO bound, for the source lines that change
-    ``gf`` directly without going through ``gosub 1160`` (the weapon-buy score at
-    ``:13065``/``:13072``/``:13073``), so ``gf`` can leave [0, 100] until the next
-    ``gosub 1160`` (:class:`ScoreAndRank`) clamps it. The default keeps the clamp, so
-    saves and recordings written before the field existed replay unchanged.
+    - ``clamp=False`` adds the delta with NO bound, for the source lines that change
+      ``gf`` directly without going through ``gosub 1160`` (the weapon-buy score at
+      ``:13065``/``:13072``/``:13073``), so ``gf`` can leave [0, 100] until the next
+      ``gosub 1160`` (:class:`ScoreAndRank`) clamps it.
+    - ``clamp=True`` clamps to [0, 100], the bound ``mf-prg.bas:1160`` (cap at 100) and
+      ``:1161`` (floor at 0) apply — without the ``:1165`` rank recompute. A port of a
+      ``gosub 1160`` normally wants :class:`ScoreAndRank` instead.
+
+    NOTE: the score *weighting* (``x * x8``, ``Config.score_mult``) is the caller's
+    concern — this raw effect just applies the delta.
+
+    Saves and YAML consequences written before the field existed carry no ``clamp``
+    key; they meant the clamped form. That is handled on the LOAD paths (persistence
+    and the consequence parser) via :data:`LEGACY_FIELD_DEFAULTS`, never by a
+    constructor default.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: float
     player: int | None = None
-    clamp: bool = True
+    clamp: bool = field(kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -239,7 +248,7 @@ class ScoreAndRank:
     ``gf = clamp(gf + amount*score_mult, 0, 100)`` then ``nr = int(gf/rank_divisor)+1``,
     computed from the CLAMPED ``gf``. Fusing the two avoids the ordering hazard a
     separate score-then-rank pair would face (rank must see the post-clamp ``gf``). The
-    ``[0, 100]`` clamp is the one :class:`ScoreChange` applies by default
+    ``[0, 100]`` clamp is the one :class:`ScoreChange` applies with ``clamp=True``
     (the one bound the engine owns rather than config). ``amount`` is the raw reward
     ``x``; ``score_mult`` is ``x8``
     (``Config.score_mult``). ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded.
@@ -561,6 +570,19 @@ class GangsterMarkHired:
 
     SCHEMA_VERSION = SCHEMA_VERSION
     candidate_id: int
+
+
+#: What a field that was ADDED to an effect meant before it existed, for LOADING data
+#: written before then (saved effect logs, YAML consequences). Keyed by effect class,
+#: then field name. Only the load paths (``engine.persistence``,
+#: ``engine.consequences``) read this; a constructor never falls back to it, so new
+#: code must pass the field.
+#:
+#: ``ScoreChange.clamp``: every ``ScoreChange`` before the field existed clamped to
+#: [0, 100] (``mf-prg.bas:1160``/``:1161``).
+LEGACY_FIELD_DEFAULTS: dict[type, dict[str, Any]] = {
+    ScoreChange: {"clamp": True},
+}
 
 
 # --------------------------------------------------------------------------- #

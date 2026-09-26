@@ -122,6 +122,9 @@ def _effect_from_dict(raw: dict) -> Any:
         raise TypeError(f"cannot deserialize unknown effect type {tag!r}")
     cls = _EFFECT_TYPES[tag]
     kwargs = {k: v for k, v in raw.items() if k != "_type"}
+    # A field added after this record was written: fill in what its absence meant.
+    for name, legacy in _effects.LEGACY_FIELD_DEFAULTS.get(cls, {}).items():
+        kwargs.setdefault(name, legacy)
     for field, nested_cls in _NESTED_EFFECT_FIELDS.get(tag, {}).items():
         value = kwargs.get(field)
         if isinstance(value, dict):

@@ -244,7 +244,7 @@ def test_loss_seizure_is_the_cash_at_seizure_time_not_a_stale_read():
 #: before a single collector activates (no AI draws at all).
 #:
 #: ``brutalitaet=290`` is deliberately overpowered: ``:30255``'s damage is
-#: ``int(draw + 290/10) + 1 >= 30`` — exactly a collector's energy (``e=30``, :4355) —
+#: ``(draw + 290) // 10 + 1 >= 30`` — exactly a collector's energy (``e=30``, :4355) —
 #: so every hit downs one whatever the damage draw. These tests are about the upkeep
 #: win branch, not combat balance; the stat just makes the fight short and exact.
 _WINNING_GANG = tuple(

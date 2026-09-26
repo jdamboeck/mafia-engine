@@ -119,11 +119,11 @@ prefixes it with `(replayed)`):
   hit check:
     draw = rng.range(ts=5)          -> 4
     accuracy attr (kraft)           -> 34
-    both factors non-zero           -> HIT
+    weapon != 0, kraft draw >= 10   -> HIT
   damage roll:
-    draw = rng.range(tg=10)         -> 0
+    draw = rng.range(10*tg=100)    -> 0
     damage attr (brutalitaet)         -> 28
-    int(draw + attr/10) + 1         -> int(0 + 2.8) + 1 = 3
+    (draw + attr) // 10 + 1         -> (0 + 28) // 10 + 1 = 3
   target: side 2, fighter 1 (schuldner)  energie 35 -> 32
   result: hit, damage=3, downed=False
 ```
@@ -132,10 +132,14 @@ Reading it:
 
 - **weapon** — the firing weapon and its stats: `ts` (hit-check bound), `tg` (damage
   bound), `range` (how many cells the shot travels).
-- **hit check** — the accuracy roll: a `rng.range(ts)` draw and the attacker's accuracy
-  attribute (`kraft`). Both non-zero → HIT.
-- **damage roll** — the damage: a `rng.range(tg)` draw, the attacker's damage attribute
-  (`brutalitaet`), and the exact `int(draw + attr/10) + 1` arithmetic.
+- **hit check** — the accuracy roll (`:30247`). Two draws are made: the weapon factor
+  `rng.range(ts)` (shown) and the kraft factor `rng.range(kraft+10)`. The shot hits iff
+  the weapon factor is non-zero and the kraft draw is at least 10 (i.e.
+  `int(rnd(1)*(kraft/10+1))` is non-zero). The attacker's accuracy attribute (`kraft`)
+  is shown beside it.
+- **damage roll** — the damage (`:30255`): a `rng.range(10*tg)` draw, the attacker's
+  damage attribute (`brutalitaet`), and the exact `(draw + attr) // 10 + 1` arithmetic
+  (the port of `int(rnd(1)*tg + bt/10) + 1`).
 - **target** — who was struck (real name, not a placeholder) and its energie before → after.
 - **result** — the recorded outcome: hit/miss, damage dealt, whether the target went down.
 
@@ -144,7 +148,11 @@ A shot that reaches no fighter (fired into empty space, or into a wall) prints
 hit roll happened.
 
 Every value in this block comes straight off the recorded event; nothing here is
-recomputed by the tool.
+recomputed by the tool. Which recorded draw is which (and its label, `ts` / `10*tg`)
+comes from the fight's rules bundle: the config's `combat_rules.hit_draws` /
+`damage_draws` declare each draw the formulas make, in order, and the formulas draw with
+exactly those bounds. A config with different formulas is labelled by its own
+declarations.
 
 ---
 

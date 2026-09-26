@@ -223,10 +223,10 @@ def _action_draws(event: Any) -> list:
 def _find_draw(draws: list, bound: int, used: set[int]) -> tuple[int, int] | None:
     """Find the next unconsumed ``range(bound)`` draw; return ``(value, position)``.
 
-    The recorded draws are ``[method, [args], value]`` triples. A shot draws
-    ``range(ts)`` (weapon accuracy factor), ``range(kraft+10)`` (kraft factor), then
-    ``range(10*tg)`` (damage) — we pick each out by its bound so the dump names the exact
-    draw each formula input consumed, straight off the record (no recompute).
+    The recorded draws are ``[method, [args], value]`` triples. The bounds come from
+    the rules bundle's own draw declarations (:func:`_declared_draws`), never from a
+    formula restated here; consuming them in declared order keeps two draws with an
+    equal bound apart.
     """
     for i, rec in enumerate(draws):
         if i in used:
@@ -238,19 +238,46 @@ def _find_draw(draws: list, bound: int, used: set[int]) -> tuple[int, int] | Non
     return None
 
 
+def _first_made(
+    matched: list[tuple[str, int, tuple[int, int] | None]],
+) -> tuple[str, Any, tuple[int, int] | None]:
+    """The first ``(label, bound, found)`` whose draw was made, or ``("-", "-", None)``."""
+    return next((m for m in matched if m[2] is not None), ("-", "-", None))
+
+
+def _declared_draws(
+    declare: Any, attacker: Any, equipment: Any, draws: list, used: set[int]
+) -> list[tuple[str, int, tuple[int, int] | None]]:
+    """Match a formula's declared draws to the recorded ones: ``(label, bound, found)``.
+
+    ``declare`` is the rules bundle's ``hit_draws``/``damage_draws`` (what the game's
+    formula draws, in order, as ``(label, bound)``). ``found`` is ``(value, position)``
+    of the recorded draw, or ``None`` when that draw was not made.
+    """
+    if declare is None or not isinstance(attacker, int):
+        return []
+    return [
+        (label, bound, _find_draw(draws, bound, used))
+        for label, bound in declare(attacker, equipment)
+    ]
+
+
 def render_shot_debug(
     event: Any,
     *,
     weapon_names: list[str],
     prev_snapshot: Any,
     out: TextIO,
+    rules: Any,
     replayed: bool = False,
 ) -> None:
     """Print the concrete shot block (draws, attribute values, damage) for one ActivationEvent.
 
     EVERY number comes from ``event.calc_inputs`` / ``event.draws`` / ``event.result``
-    and the recorded snapshots — nothing is recomputed here. Under ``watch``, the
-    block is prefixed ``(replayed)``.
+    and the recorded snapshots — nothing is recomputed here. Which recorded draw is
+    which comes from ``rules`` (the fight's :class:`~engine.combat.RulesBundle`):
+    its ``hit_draws``/``damage_draws`` name each draw the game's formula makes. Under
+    ``watch``, the block is prefixed ``(replayed)``.
     """
     ci = event.calc_inputs
     result = event.result
@@ -269,15 +296,13 @@ def render_shot_debug(
 
     action_draws = _action_draws(event)
     used: set[int] = set()
-    # The hit check draws range(ts) (weapon factor) then range(kraft+10) (kraft
-    # factor); the shot block shows the weapon-factor draw as "the" hit draw.
-    hit_draw = _find_draw(action_draws, ts, used)
-    # The kraft factor draw (bound kraft+10); consumed so it is not mistaken for the
-    # damage draw when 10*tg == kraft+10.
-    craft_bound = (hit_value + 10) if isinstance(hit_value, int) else None
-    if craft_bound is not None:
-        _find_draw(action_draws, craft_bound, used)
-    dmg_draw = _find_draw(action_draws, 10 * tg, used)
+    # The hit test's draws, then the damage roll's, as the rules bundle declares them.
+    # Each capability's first draw actually MADE is shown as "the" draw; every declared
+    # draw is consumed in order so none is mistaken for another with an equal bound.
+    hit_draws = _declared_draws(rules.hit_draws, hit_value, equipment, action_draws, used)
+    dmg_draws = _declared_draws(rules.damage_draws, dmg_value, equipment, action_draws, used)
+    hit_label, hit_bound, hit_draw = _first_made(hit_draws)
+    dmg_label, dmg_bound, dmg_draw = _first_made(dmg_draws)
 
     prefix = "(replayed) " if replayed else ""
     hdr_dir = f" {_DIR_LABELS.get(direction, direction)}" if direction is not None else ""
@@ -286,15 +311,18 @@ def render_shot_debug(
         f"fighter {event.fighter_index + 1} ({actor_name}) -> shoot{hdr_dir} ===\n"
     )
     out.write(f"  weapon: {weapon_name} (ts={ts}, tg={tg}, range={equipment.get('range')})\n")
-    if hit_draw is None:
-        # No range(ts) draw means the projectile reached no target (left the grid, hit a
-        # wall, or found no fighter in line) — the hit check never ran. Say so, rather
-        # than printing a misleading "rng.range(ts) -> None" under a hit-check heading.
+    if rules.hit_draws is None:
+        out.write("  hit check:\n")
+        out.write("    (the rules bundle declares no hit draws — cannot name them)\n")
+    elif hit_draw is None:
+        # No declared hit draw was made: the projectile reached no target (left the
+        # grid, hit a wall, or found no fighter in line) — the hit check never ran. Say
+        # so, rather than printing a misleading "-> None" under a hit-check heading.
         out.write("  hit check:\n")
         out.write("    (shot reached no target — no hit check)\n")
     else:
         out.write("  hit check:\n")
-        out.write(f"    draw = rng.range(ts={ts})          -> {hit_draw[0]}\n")
+        out.write(f"    draw = rng.range({hit_label}={hit_bound})          -> {hit_draw[0]}\n")
         out.write(f"    accuracy attr ({hit_attr})           -> {hit_value}\n")
         verdict = "HIT" if result.get("hit") else "MISS"
         out.write(f"    weapon != 0, kraft draw >= 10   -> {verdict}\n")
@@ -303,7 +331,7 @@ def render_shot_debug(
         dmg_draw_value = dmg_draw[0] if dmg_draw is not None else None
         damage = result.get("damage")
         out.write("  damage roll:\n")
-        out.write(f"    draw = rng.range(10*tg={10 * tg})    -> {dmg_draw_value}\n")
+        out.write(f"    draw = rng.range({dmg_label}={dmg_bound})    -> {dmg_draw_value}\n")
         out.write(f"    damage attr ({dmg_attr})         -> {dmg_value}\n")
         if isinstance(dmg_draw_value, int) and isinstance(dmg_value, int):
             out.write(
@@ -418,7 +446,13 @@ def play(
         prev = None
         for event in recording.events:
             if event.kind == "activation" and event.decision.get("action") == "shoot":
-                render_shot_debug(event, weapon_names=weapon_names, prev_snapshot=prev, out=out)
+                render_shot_debug(
+                    event,
+                    weapon_names=weapon_names,
+                    prev_snapshot=prev,
+                    out=out,
+                    rules=scenario.rules,
+                )
             prev = getattr(event, "snapshot", prev)
     out.flush()
     return result
@@ -533,7 +567,12 @@ def watch(
         if debug and event.kind == "activation" and event.decision.get("action") == "shoot":
             prev = recording.events[index - 1].snapshot if index > 0 else None
             render_shot_debug(
-                event, weapon_names=weapon_names, prev_snapshot=prev, out=out, replayed=True
+                event,
+                weapon_names=weapon_names,
+                prev_snapshot=prev,
+                out=out,
+                rules=recording.scenario.rules,
+                replayed=True,
             )
             if report.diverged and report.at_index == index:
                 _print_divergence(report, out)

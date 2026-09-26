@@ -140,19 +140,19 @@ def test_money_change_and_purity():
 # --------------------------------------------------------------------------- #
 def test_score_change_caps_at_100():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(200.0))
+    out = apply(state, ScoreChange(200.0, clamp=True))
     assert out.players[0].gf == 100.0
 
 
 def test_score_change_floors_at_0():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(-200.0))
+    out = apply(state, ScoreChange(-200.0, clamp=True))
     assert out.players[0].gf == 0.0
 
 
 def test_score_change_normal_delta_lands_exactly():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(25.0))
+    out = apply(state, ScoreChange(25.0, clamp=True))
     assert out.players[0].gf == 75.0
 
 
@@ -162,6 +162,15 @@ def test_score_change_unclamped_leaves_0_to_100():
     state = make_state()  # gf starts at 50
     assert apply(state, ScoreChange(60.0, clamp=False)).players[0].gf == 110.0
     assert apply(state, ScoreChange(-53.5, clamp=False)).players[0].gf == -3.5
+
+
+def test_score_change_cannot_be_built_without_choosing_the_clamp():
+    """A port of a direct ``gf(sp)=...`` line that writes ``ScoreChange(x)`` must not
+    silently get the :1160/:1161 clamp no such line has: the constructor refuses it."""
+    with pytest.raises(TypeError, match="clamp"):
+        ScoreChange(1.0)  # type: ignore[call-arg]
+    with pytest.raises(TypeError, match="clamp"):
+        ScoreChange(1.0, 0)  # type: ignore[call-arg, misc]
 
 
 def test_score_and_rank_clamps_an_out_of_range_gf():

@@ -34,21 +34,7 @@ from engine.locations import Location as LocationDef  # noqa: F401
 from engine.locations import Option  # noqa: F401
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from engine.interactions import (
-        CombatScreen,
-        Confirm,
-        Ctx,
-        LoadSubState,
-        PromptChoice,
-        PromptInt,
-        ShowMessage,
-        StartCombat,
-    )
-
-    # What a handler may yield: the interaction catalog of engine.interactions.
-    Interaction = (
-        ShowMessage | PromptInt | PromptChoice | Confirm | StartCombat | CombatScreen | LoadSubState
-    )
+    from engine.interactions import Ctx, Interaction
 
 __all__ = [
     "HandlerFunc",
