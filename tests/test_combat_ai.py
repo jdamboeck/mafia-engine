@@ -34,8 +34,8 @@ from engine.combat import (
     STEP_LEFT,
     STEP_RIGHT,
     STEP_UP,
-    ai_target,
 )
+from engine.combat_ai import ai_target
 from engine.interactions import CombatScreen
 from tests.helpers import WEAPON_TABLE, StubRng, build_fight, run_fight
 from tests.helpers import combat_fighter as _f
@@ -680,7 +680,7 @@ def test_row_zero_rightward_pursuit_stalls_at_cell_zero_forever():
 
 def test_the_real_spawn_anchors_never_produce_the_row_zero_stall():
     """Guard on the claim above: both spawn anchors sit well clear of row 0."""
-    from engine.combat import SIDE1_ANCHOR, SIDE2_ANCHOR, placement_positions
+    from engine.combat_setup import SIDE1_ANCHOR, SIDE2_ANCHOR, placement_positions
 
     rows = {p // 40 for p in placement_positions(SIDE2_ANCHOR, 10)}
     rows |= {p // 40 for p in placement_positions(SIDE1_ANCHOR, 10)}

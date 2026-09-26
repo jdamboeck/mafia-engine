@@ -252,7 +252,7 @@ def _resolve_drivers(start: "StartCombat") -> "dict[int, Driver]":
     for a CPU side, a :class:`HumanDriver` for a client side. ``cpu_sides is None``
     means the default (side 2 is CPU); an explicit ``()`` means a fully hot-seat fight.
     """
-    from engine.combat import DEFAULT_CPU_SIDES
+    from engine.combat_ai import DEFAULT_CPU_SIDES
 
     if start.drivers is not None:
         return dict(start.drivers)

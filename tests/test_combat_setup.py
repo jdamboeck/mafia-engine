@@ -21,13 +21,15 @@ from engine.combat import (
     CELL_COUNT,
     GRID_COLS,
     MAX_CELL,
+    blocks_shot,
+    can_move_onto,
+)
+from engine.combat_setup import (
     SIDE1_ANCHOR,
     SIDE2_ANCHOR,
     STAGGER_OFFSETS,
-    blocks_shot,
     build_enemy_side,
     build_player_side,
-    can_move_onto,
     placement_position,
     placement_positions,
     setup_combat,

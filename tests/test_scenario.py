@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.combat import CombatFight, CombatResult, setup_combat
+from engine.combat import CombatFight, CombatResult
+from engine.combat_setup import setup_combat
 from engine.scenario import Scenario
 from engine.state import CombatState, Fighter
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
