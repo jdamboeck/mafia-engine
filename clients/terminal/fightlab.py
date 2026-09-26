@@ -1,24 +1,25 @@
-"""fightlab — a terminal tool to PLAY, WATCH, and REPLAY fights (U8, R13).
+"""fightlab — a terminal tool to PLAY, WATCH, and REPLAY fights.
 
 Three things a developer needs and the main client does not give them:
 
 * **play** a self-contained fight described by a scenario file — a COMPLETE two-sided
   fight buildable with no ``GameState`` and no roster (the "invented entities" path,
   :class:`~engine.scenario.Scenario`'s explicit construction). Human-vs-AI, seedable.
-* **watch** a recorded fight (U7's :func:`engine.recording.load`), stepping activation
+* **watch** a recorded fight (loaded via :func:`engine.recording.load`), stepping activation
   by activation — forward, back, or autoplay-to-the-end.
 * **--debug** every shot's arithmetic: the two draws with their bounds, the accuracy
   and damage attribute values, and the resulting damage — **read off the recorded
-  event, never recomputed** (R13). The tool renders and reads keys; every decision,
+  event, never recomputed**. The tool renders and reads keys; every decision,
   calculation, and state transition already happened in the engine.
 
-**Thinness (R13).** This module imports NO formula-level internal — no
+**Thinness.** This module imports NO formula-level internal — no
 ``combat_rules`` ``is_hit``/``damage_roll``, no hand-rolled equivalent. Every number it
 prints already exists on a :class:`~engine.interactions.CombatScreen` payload, an
 :class:`~engine.recording.ActivationEvent`, or a
 :class:`~engine.combat.CombatResult`. The scenario LOADER (below) uses this config's own
 ``setup``/``combat_rules`` helpers to BUILD a fight — that is fight *construction*, the
-same config-side entity resolution ``setup_combat`` does, not a second formula path.
+same config-side entity resolution :func:`engine.combat_setup.setup_combat` does, not a
+second formula path.
 
 **Layering.** ``clients/`` depends on the engine; the engine never depends on
 ``clients``. The scenario loader lives HERE (client/config-side) rather than in
@@ -69,7 +70,7 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 # from diverging, the ENEMY side is built through the SAME machinery the game uses:
 # an ``encounter:`` key names one of this config's encounter declarations
 # (content/encounters/*.yaml), and the loader delegates to ``Scenario.from_encounter``.
-# One loader, two sources cannot diverge (the plan's differential requirement).
+# One loader, so the two sources cannot diverge.
 #
 # The scenario adds a PLAYER side the encounter never declares (an encounter declares
 # only the enemy): a ``player:`` list of INVENTED fighters. Each is a plain
@@ -112,7 +113,7 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
 
     Weapon ids are resolved at LOAD (both sides go through the config's ``equipper``),
     so an unknown weapon id fails HERE, naming the id — never as a ``KeyError`` several
-    activations deep in a fight (the plan's third-seam requirement).
+    activations deep in a fight.
 
     ``seed`` overrides the file's own ``seed:`` (``--seed`` on the command line).
     """
@@ -244,10 +245,10 @@ def render_shot_debug(
     out: TextIO,
     replayed: bool = False,
 ) -> None:
-    """Print the concrete shot block (plan lines 1647-1662) for one ActivationEvent.
+    """Print the concrete shot block (draws, attribute values, damage) for one ActivationEvent.
 
     EVERY number comes from ``event.calc_inputs`` / ``event.draws`` / ``event.result``
-    and the recorded snapshots — nothing is recomputed here (R13). Under ``watch``, the
+    and the recorded snapshots — nothing is recomputed here. Under ``watch``, the
     block is prefixed ``(replayed)``.
     """
     ci = event.calc_inputs
@@ -268,7 +269,7 @@ def render_shot_debug(
     action_draws = _action_draws(event)
     used: set[int] = set()
     # The hit check draws range(ts) (weapon factor) then range(kraft//10+1) (craft
-    # factor); the plan's block shows the weapon-factor draw as "the" hit draw.
+    # factor); the shot block shows the weapon-factor draw as "the" hit draw.
     hit_draw = _find_draw(action_draws, ts, used)
     # The craft factor draw (bound kraft//10+1); consumed so it is not mistaken for the
     # damage draw when ts == kraft//10+1.
@@ -345,7 +346,7 @@ def _fighter_vitality(snapshot: Any, side: Any, index: Any) -> Any:
 
 
 def _print_divergence(report: Any, out: TextIO) -> None:
-    """Print a replay divergence (recorded vs. recomputed) side by side (R13)."""
+    """Print a replay divergence (recorded vs. recomputed) side by side."""
     out.write(f"!! REPLAY DIVERGED at activation {report.at_index}\n")
     out.write(f"   recorded  : {report.expected}\n")
     out.write(f"   recomputed: {report.got}\n")
@@ -434,7 +435,7 @@ def _render_activation(
 
     Reconstructs the ``CombatScreen.to_json()`` wire shape from the snapshot (a
     json_safe ``CombatState``) so the existing pure renderers draw it. No forward
-    replay: seeking to any index reads that index's snapshot directly (KTD-8).
+    replay: seeking to any index reads that index's snapshot directly.
     """
     event = recording.events[index]
     snapshot = event.snapshot or {}

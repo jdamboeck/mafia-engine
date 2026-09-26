@@ -215,5 +215,5 @@ RESET_ALL = "\033[0m"
 REVERSE = "\033[7m"
 DIM = "\033[2m"
 
-# Legacy aliases (keep existing tests working until T12 removes them).
+# Short alias for RESET_ALL; the client modules import it under this name.
 RESET = RESET_ALL

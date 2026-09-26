@@ -1,4 +1,4 @@
-"""ASCII art for the terminal client: title screen + wired location entry art.
+"""ASCII art for the terminal client: title screen + location entry art.
 
 Pure functions, no game logic. Each returns a list of strings (one per line).
 """
@@ -113,5 +113,5 @@ def title_screen() -> str:
 
 
 def location_art(location_key: str) -> list[str] | None:
-    """Return ASCII art for a wired location, or None."""
+    """Return a location's entry art, or None if it has none."""
     return _LOCATION_ART.get(location_key)

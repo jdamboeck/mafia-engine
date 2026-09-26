@@ -206,14 +206,14 @@ def render_map_frame(map_lines: list[str], out: TextIO) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Combat (U7) — renders a CombatScreen.to_json() payload
+# Combat — renders a CombatScreen.to_json() payload
 # ---------------------------------------------------------------------------
 
 #: 40×13 combat grid geometry (CLAUDE.md: a DIFFERENT space from the 40x25 city map).
 #: Kept local rather than imported from engine.combat: the renderer draws from the
 #: JSON payload only (engine/ imports nothing from clients/, and the reverse holds
-#: too -- U7 must not import combat LOGIC, only these two int constants that describe
-#: the wire shape it already renders positions against).
+#: too -- the client must not import combat LOGIC, only these two int constants that
+#: describe the wire shape it already renders positions against).
 COMBAT_GRID_COLS = 40
 COMBAT_GRID_ROWS = 13
 
@@ -221,7 +221,7 @@ COMBAT_GRID_ROWS = 13
 #: narrow (no East-Asian-Width "W" glyphs, mirroring the city map's own constraint).
 _FIGHTER_CHAR = {1: "1", 2: "2"}
 _DOWN_CHAR = "x"
-_ACTIVE_WALL_CODES = (160, 156)  # mirrors engine.combat.SHOT_WALL_CODES (U4/U7 note)
+_ACTIVE_WALL_CODES = (160, 156)  # mirrors engine.combat.SHOT_WALL_CODES
 
 
 def render_combat_grid(payload: dict, out: TextIO) -> None:
@@ -237,7 +237,7 @@ def render_combat_grid(payload: dict, out: TextIO) -> None:
 
     The renderer reads ONLY the JSON payload's plain dicts/lists/ints -- no
     ``engine.combat``/``engine.state`` import -- so the client never depends on
-    combat's internal representation, only its wire shape (KTD-2).
+    combat's internal representation, only its wire shape.
     """
     pal = _get_palette()
     grid = payload.get("grid") or []
@@ -283,12 +283,12 @@ def render_fighter_panel(
     weapon, then one line per attribute -- all resolved through the theme's
     ``combat.panel_*`` keys (zero hardcoded display text, CLAUDE.md).
 
-    **U2: this renderer no longer knows any game's attribute names.** It reads the
+    **This renderer knows no game's attribute names.** It reads the
     wire payload's ``vitality`` SLOT and its opaque ``attrs`` map, and asks the theme
     what to show. The depleting resource (the ``vitality`` slot) renders first, via
     ``combat.panel_vitality`` -- the theme supplies this game's word for it (here
     "energie") as the label, exactly as the engine names the slot and the game names
-    the word at every boundary (amendment A5). The remaining attributes come from
+    the word at every boundary. The remaining attributes come from
     ``combat.panel_attrs`` -- a list of ``attrs`` keys, each rendered through
     ``combat.panel_attr_<key>``, so the theme owns both the selection and the label. A
     game with ``aim``/``grit`` instead of ``kraft``/``brutalitaet`` needs no change here.
@@ -310,7 +310,7 @@ def render_fighter_panel(
     out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
 
     # The depleting resource is the engine's ``vitality`` slot; the theme labels it in
-    # this game's word (amendment A5). Rendered first, ahead of the opaque attrs.
+    # this game's word. Rendered first, ahead of the opaque attrs.
     if "vitality" in fighter and _theme_has(resolver, "panel_vitality"):
         out.write(resolver.resolve("combat.panel_vitality", {"value": fighter["vitality"]}) + "\n")
 

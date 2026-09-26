@@ -1,23 +1,31 @@
-"""Runnable entry point: ``python -m clients.terminal`` (U10 follow-up).
+"""Runnable entry point: ``python -m clients.terminal`` — the playable terminal game.
 
-Composes the U10 building blocks (:class:`TerminalInput`, the render helpers, and the
-movement primitives) into a real, playable single-turn loop over the mafia_1920s config —
-a thin harness, NOT new engine behavior. It holds no rules: movement goes through
-``engine.movement.try_move`` and location actions through ``engine.actions.run_option``,
-and it adopts the returned ``EngineResult.state`` after every action (both are pure).
+Composes the client building blocks (:class:`TerminalInput`, the render helpers, and
+the movement primitives) into a full game over the mafia_1920s config. It holds no
+rules: movement goes through ``engine.movement.try_move``, location actions through
+``engine.actions.run_option``, turn starts through ``engine.upkeep.run_upkeep``, and it
+adopts the returned ``EngineResult.state`` after every step (all are pure).
 
-    walk the map with W/A/S/D  ->  press into a door to ENTER a location
-      ->  pick a menu option (the driver drives the handler via TerminalInput)
-      ->  return to the map  ->  Q quits, or the turn ends when ms hits 0.
+A new game shows the title screen, then asks the two setup questions (end year, score
+weight; ``mf-prg.bas:170-176``) unless given on the command line. One to four players
+(``--player NAME:GANG``) take hot-seat turns:
 
-Run:  ``python -m clients.terminal``            (plays the default seed)
-      ``python -m clients.terminal --seed 7``   (any int seed)
-      ``python -m clients.terminal --load mafia-save.jsonl``  (resume a save; ``p`` on
-      the map saves, to ``--save PATH`` / the loaded file / ``mafia-save.jsonl``)
+    upkeep banner  ->  a job shift (employed player)  OR  a free turn on the map:
+      walk with W/A/S/D  ->  press into a door to ENTER one of the five locations
+      with a shell (slw/pub/sph/waf/kdh)  ->  pick a menu option (the driver runs the
+      handler via TerminalInput)  ->  back on the map; the turn ends when ms hits 0
+    ->  turn-over summary  ->  next player. After each round the standings show; when
+        the end year is reached the year-end result shows and the game ends.
 
-This is deliberately minimal: one player, one turn, the four wired locations. It exists so
-the client can be exercised live; the authoritative end-to-end proof is still the headless
-slice test (``tests/test_slice_integration.py``), which drives the same protocol.
+``p`` on the map saves (to ``--save PATH`` / the loaded file / ``mafia-save.jsonl``);
+``--load PATH`` resumes a save; ``--watch-ai`` shows the board after every CPU combat
+activation. ``q`` on the map or at a turn-over/standings prompt quits.
+
+Run:  ``python -m clients.terminal [--seed N] [--player NAME:GANG ...] [--end-year Y]
+      [--score-weight W] [--save PATH] [--watch-ai]``  or  ``--load PATH``.
+
+The headless end-to-end proof is ``tests/test_slice_integration.py``, which drives the
+same protocol without a terminal.
 """
 
 from __future__ import annotations
@@ -74,7 +82,7 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
 
-#: The map screen's save key (KTD-7) and the save target when neither ``--save`` nor
+#: The map screen's save key and the save target when neither ``--save`` nor
 #: ``--load`` names one (relative, so it lands in the working directory).
 _SAVE_KEY = "p"
 _DEFAULT_SAVE = "mafia-save.jsonl"
@@ -88,7 +96,7 @@ class LoadError(Exception):
     """A ``--load`` file could not be resumed; the message is the player-facing line.
 
     Raised by :func:`_load_session` for ANY failure while reading, replaying or
-    re-seeding a save (KTD-9): a structurally corrupt save surfaces as ``ValueError``,
+    re-seeding a save: a structurally corrupt save surfaces as ``ValueError``,
     ``KeyError`` or ``TypeError`` from deep in deserialization, so no narrow list of
     types would catch them all. :func:`main` turns it into one stderr line.
     """
@@ -118,7 +126,7 @@ def _load_reason(exc: BaseException, resolver: Resolver) -> str:
 
 
 def _load_session(path: str | Path, resolver: Resolver) -> tuple[int, GameState, Rng]:
-    """Resume a save: its seed, its state and the session RNG rebuilt mid-stream (KTD-5).
+    """Resume a save: its seed, its state and the session RNG rebuilt mid-stream.
 
     The snapshot is authoritative (the effect log is saved empty), and the session RNG
     resumes mid-stream: re-issuing every logged draw leaves it exactly where
@@ -149,7 +157,7 @@ def _read_line_visible(stdin, out) -> str:
 
 
 def _is_quit(key: str) -> bool:
-    """The single quit vocabulary shared by every screen (KTD-2).
+    """The single quit vocabulary shared by every screen.
 
     ``"q"`` is an explicit quit; ``""`` is EOF (a TTY read returning no char, or an
     exhausted piped stdin). Both the map loop and the turn-over prompt route their
@@ -240,16 +248,17 @@ def _shell_path(location_key: str) -> Path:
 def _shell_exists(location_key: str) -> bool:
     """Whether this location has a shell yet.
 
-    The map's door table runs ahead of the shells: kdh's doors (cells 221/753)
-    are already in city.yaml while its shell is still U11's work, so walking in
-    would otherwise crash on a missing file. Derived from disk rather than a
-    hardcoded list so a new shell needs no edit here to become reachable.
+    The map's door table runs ahead of the shells: city.yaml has doors for all
+    twelve menu locations, but only some have a shell under ``content/locations/``,
+    so walking into the others would otherwise crash on a missing file. Derived from
+    disk rather than a hardcoded list so a new shell needs no edit here to become
+    reachable.
     """
     return _shell_path(location_key).is_file()
 
 
 def _load_shell(location_key: str):
-    """Load a location shell by its key (``slw``/``pub``/``sph``/``waf``)."""
+    """Load a location shell by its key (e.g. ``slw``)."""
     return load_location(yaml.safe_load(_shell_path(location_key).read_text(encoding="utf-8")))
 
 
@@ -359,11 +368,11 @@ def _run_location(
     """Show a location's available options and run the one the player picks.
 
     Returns the (possibly new) state. Guard-denied options are excluded by
-    ``available_options`` (KTD-8) and never listed. ``leave`` (and an empty choice)
+    ``available_options`` and never listed. ``leave`` (and an empty choice)
     returns to the map without running anything.
 
-    ``rng`` is the ONE session RNG constructed in :func:`play` (KTD-8: slice-local
-    seeding contract, session-owned until the network transport lands) and threaded
+    ``rng`` is the ONE session RNG constructed in :func:`play` (session-owned; a
+    network transport may move that ownership to the server) and threaded
     through every handler call for this location. Any handler that draws
     (``ctx.rng.range``/``ctx.rng.hit``) needs a real :class:`Rng`, not ``None``.
     """
@@ -426,7 +435,7 @@ def _run_location(
 
 
 def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp=None):
-    """Run the active player's turn-start upkeep (KTD-3) and show its banner/promotion.
+    """Run the active player's turn-start upkeep and show its banner/promotion.
 
     Calls :func:`engine.upkeep.run_upkeep` — THE engine-level turn-start entry point —
     so the client never decides for itself whether upkeep runs; it only renders what
@@ -437,14 +446,14 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
 
     Blocks for one keypress after the banner/promotion (mirrors the turn-over prompt's
     "press any key..." pattern) so a human has time to read it; EOF is treated as an
-    ack, not a quit, since upkeep offers no cancel path (Verification Contract) — the
+    ack, not a quit, since upkeep offers no cancel path — the
     turn must proceed regardless.
 
     ``inp`` is the session's :class:`TerminalInput`, forwarded to ``run_upkeep`` so the
-    U12 debt-default collectors fight (``mf-prg.bas:4350``) can read real combat input.
+    debt-default collectors fight (``mf-prg.bas:4350``) can read real combat input.
     Every other upkeep step yields only auto-acked ``ShowMessage`` screens and never
     consults it. This does not reopen a cancel path: combat prompts are
-    non-cancellable (KTD-9), so a quit during the fight surrenders — losing it, and
+    non-cancellable, so a quit during the fight surrenders — losing it, and
     triggering the seizure — rather than escaping upkeep.
     """
     if stdin is None:
@@ -482,7 +491,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
 
 
 def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rng: Rng):
-    """Run the active player's job shift (U10, KTD-3's job-shift seam) and render it.
+    """Run the active player's job shift (the turn-start job-shift seam) and render it.
 
     Dispatched by the CALLER (:func:`play`'s turn loop), right after upkeep, in place
     of the free turn -- an employed player never reaches the map/menu this turn
@@ -492,7 +501,7 @@ def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rn
     :func:`engine.interactions.run` directly (there is no location shell/guard layer
     for a shift, unlike :func:`_run_location`), sharing the ONE session RNG and the
     real terminal ``inp`` so the shift's ``StartCombat`` fights render exactly like
-    any other in-slice fight.
+    any other fight.
     """
     render_screen_clear(out)
     render_header(resolver.resolve("client.header.job"), out)
@@ -505,7 +514,7 @@ def _run_game_end_screen(runner, header: str, state, resolver: Resolver, out, rn
 
     ``runner`` is :func:`engine.game_end.run_standings` or
     :func:`engine.game_end.run_year_end`; WHICH state it gets is the caller's
-    decision (KTD-2). The runner's input source collects every ``ShowMessage`` the
+    decision. The runner's input source collects every ``ShowMessage`` the
     config handler yields (one per row -- templates cannot iterate); each is resolved
     through the theme and rendered in order under one header, then the screen waits
     for one key like the turn-over prompt. Any other interaction raises, mirroring the
@@ -628,11 +637,11 @@ class TerminalSession:
             observe_ai=watch_ai,
         )
         if load is not None:
-            # raises LoadError (KTD-9); main() reports it
+            # raises LoadError; main() reports it
             self.seed, self.state, self.rng = _load_session(load, self.resolver)
         else:
             self.seed = seed if seed is not None else _DEFAULT_SEED
-            # the one session RNG (KTD-8) — threaded into every run_option call
+            # the one session RNG — threaded into every run_option call
             self.rng = Rng(self.seed)
         self.save_path = Path(
             save if save is not None else load if load is not None else _DEFAULT_SAVE
@@ -654,7 +663,7 @@ class TerminalSession:
             else:
                 self.start_new_game()
         except EndOfInput:
-            # R11: stdin ran out at a handler prompt. The in-flight handler never
+            # stdin ran out at a handler prompt. The in-flight handler never
             # returned, so its EngineResult -- and every effect it would have
             # committed -- is never adopted; end the session exactly like a quit.
             out.write(self.text("client.bye") + "\n")
@@ -700,7 +709,7 @@ class TerminalSession:
             players=self.players or [("alcapone", "the outfit")],
         )
 
-        # KTD-3: the engine owns the coupling — upkeep runs at EVERY turn start,
+        # The engine owns the coupling — upkeep runs at EVERY turn start,
         # including the very first (before the map loop's first render), so no path
         # through this client can reach a free turn without it. Later turns run it
         # right after advance_turn rotates (in next_turn), at the exact same seam.
@@ -709,7 +718,7 @@ class TerminalSession:
 
     def resume_loaded_game(self) -> None:
         """Enter the turns of a loaded game: no title, no setup, no upkeep."""
-        # A loaded game skips all of that (KTD-6): it was set up, and this turn's
+        # A loaded game skips all of that: it was set up, and this turn's
         # upkeep already ran, before the save.
         # A save is only ever taken on the map during a free turn -- including the rest
         # of the turn in which a job was just accepted (ms=0, job already set). So the
@@ -720,7 +729,7 @@ class TerminalSession:
     def run_turns(self, *, resuming_free_turn: bool) -> None:
         """The turn loop: a job shift or a map turn, then turn-over, until the session ends."""
         while True:
-            # U10 job-shift seam: an EMPLOYED player never reaches the map/menu this
+            # Job-shift seam: an EMPLOYED player never reaches the map/menu this
             # turn -- the shift flow replaces the free turn entirely (mirrors the
             # source's :1012 dispatch). Checked fresh every turn start, right after
             # upkeep (in start_new_game on the first turn, in next_turn on later ones).
@@ -784,9 +793,9 @@ class TerminalSession:
 
     def save(self) -> None:
         """Save the game from the map (``p``) and set the map note to the outcome."""
-        # KTD-7: a map-turn save -- the snapshot is authoritative, so
+        # A map-turn save -- the snapshot is authoritative, so
         # the effect log is empty; the RNG log lets a load resume the
-        # stream mid-way (KTD-5). Overwrites without asking.
+        # stream mid-way. Overwrites without asking.
         # A failed save (missing directory, full disk, no permission)
         # must never end the game: say so and keep playing.
         try:
@@ -826,7 +835,7 @@ class TerminalSession:
 
     def next_turn(self) -> bool:
         """Advance to the next turn (standings, ending, upkeep); ``False`` ends the session."""
-        played = self.state  # the round just finished, for the standings (KTD-2)
+        played = self.state  # the round just finished, for the standings
         # advance_turn is pure — the rotated/replenished state must be adopted.
         self.state, game_over = advance_turn(self.state, self.vehicles)
         # :1010 — on a round wrap (back to player 0) gosub4500 shows the standings
@@ -838,7 +847,7 @@ class TerminalSession:
         if game_over:
             self.ending()
             return False
-        # KTD-3: upkeep for the NEW active player, right at the turn-start seam
+        # Upkeep for the NEW active player, right at the turn-start seam
         # advance_turn just opened — before this player's free turn (or job
         # shift) is offered.
         self.state = _run_upkeep_screen(self.state, self.resolver, self.out, self.rng, inp=self.inp)
@@ -882,40 +891,20 @@ def play(
     save: str | Path | None = None,
     watch_ai: bool = False,
 ) -> tuple:
-    """Play the default config from ``seed`` over real stdin/stdout.
+    """Play the default config over real stdin/stdout; return the final ``(state, rng)``.
 
-    ``end_year`` / ``score_weight`` are the original's two setup answers (x9, x8). A
-    value left ``None`` is asked for right after the title screen -- end year first,
-    then score weight (mf-prg.bas:170-176, KTD-4); a supplied value skips its prompt.
+    ``seed`` seeds the ONE session :class:`~engine.rng.Rng` (default 42). ``players`` is
+    ``[(name, gang_name), ...]``, 1..4 hot-seat players (default: one "alcapone" /
+    "the outfit"). ``end_year`` / ``score_weight`` (x9, x8) left ``None`` are prompted
+    for after the title screen (``mf-prg.bas:170-176``); a supplied value skips its prompt.
 
-    ``players`` is ``[(name, gang_name), ...]``, 1..4 entries (default: a single
-    "alcapone" / "the outfit" player). Multiple players hot-seat through
-    ``advance_turn``'s rotation.
+    ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
+    player's map turn (no title, setup or upkeep); the new-game inputs are ignored.
+    ``p`` on the map saves to ``save``, else the loaded file, else ``mafia-save.jsonl``.
+    ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
 
-    Constructs exactly ONE session :class:`~engine.rng.Rng` from ``seed`` and threads
-    it through every ``run_option`` call for the whole session (KTD-8: a slice-local
-    seeding contract — ownership may move to the server/driver when the network
-    transport lands, per the plan's Open Questions).
-
-    After every round wrap the standings screen shows the round just played; when
-    ``advance_turn`` reports ``game_over`` the year-end result screen follows and the
-    session ends without another turn (KTD-2, ``mf-prg.bas:1010`` / ``:40100``).
-
-    ``load`` resumes a save (KTD-5/6): the snapshot becomes the state, the session RNG
-    is rebuilt from the save's seed and draw log (:meth:`Rng.replayed`), and play
-    enters the map loop of the saved active player -- no title, no setup, no upkeep
-    (that turn's upkeep ran before the save). ``seed``/``players``/``end_year``/
-    ``score_weight`` are new-game inputs and are ignored on a load (:func:`main`
-    rejects combining them). ``p`` on the map saves to ``save``, else the loaded file,
-    else ``mafia-save.jsonl`` in the working directory, overwriting it (KTD-7).
-
-    ``watch_ai`` (``--watch-ai``, #45) opts the session's :class:`TerminalInput` into the
-    engine's observation frames: the board is shown after every CPU combat activation
-    and waits for one key. Off by default, as in the original.
-
-    Returns the final ``(state, rng)`` on EVERY exit -- quit, EOF, or the ending
-    (KTD-12). ``state`` is ``None`` only if the session ends before setup finished.
-    :func:`main` ignores it; tests compare it.
+    Returns on EVERY exit -- quit, EOF, or the year-end ending. ``state`` is ``None``
+    only if the session ends before setup finished.
     """
     session = TerminalSession(
         seed=seed,
@@ -985,7 +974,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     args = parser.parse_args(argv)
     if args.load is not None:
-        # KTD-6: a save carries its own seed and setup; a new-game flag beside --load
+        # A save carries its own seed and setup; a new-game flag beside --load
         # would be silently ignored, so it is refused instead.
         clashing = [
             flag
@@ -1001,7 +990,7 @@ def main(argv: list[str] | None = None) -> None:
             parser.error(text("load_clash", flags=", ".join(clashing)))
     # Same bounds as the setup prompts: input_ranges in config.yaml, never hardcoded.
     # A broken config dir (missing, malformed YAML, failed validation) is a known
-    # failure: one line, not a traceback (KTD-9). Only config.yaml is read here;
+    # failure: one line, not a traceback. Only config.yaml is read here;
     # play() does the one full load_game_config (handlers + setup module).
     try:
         ranges = load_config(_CONFIG_DIR / "config.yaml")["input_ranges"]
@@ -1021,7 +1010,7 @@ def main(argv: list[str] | None = None) -> None:
         for spec in args.players:
             name, _, gang = spec.partition(":")
             players.append((name, gang or name))
-    # KTD-9: only KNOWN failures are caught here. A LoadError is raised before play()
+    # Only KNOWN failures are caught here. A LoadError is raised before play()
     # draws anything; KeyboardInterrupt unwinds through play()'s finally (which shows
     # the cursor again) and exits quietly. Anything else is a bug and keeps its
     # traceback.
@@ -1042,7 +1031,7 @@ def main(argv: list[str] | None = None) -> None:
 
 
 def _die(message: str) -> NoReturn:
-    """Print one readable line to stderr and exit non-zero (KTD-9)."""
+    """Print one readable line to stderr and exit non-zero."""
     print(message, file=sys.stderr)
     sys.exit(1)
 
