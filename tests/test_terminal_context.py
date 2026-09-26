@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+from clients.terminal.palette import _PEPTO_FALLBACK, ColorSupport, Colors
 from clients.terminal import (
     CURSOR_HIDE,
     CURSOR_SHOW,
@@ -20,6 +21,9 @@ def _buf() -> io.StringIO:
     return io.StringIO()
 
 
+_COLORS = Colors(dict(_PEPTO_FALLBACK), ColorSupport.TRUECOLOR)
+
+
 class TestCursorHelpers:
     def test_hide_cursor_writes_escape(self) -> None:
         buf = _buf()
@@ -33,12 +37,12 @@ class TestCursorHelpers:
 
 
 class TestScreenContext:
-    def test_switch_applies_colors(self, truecolor) -> None:
+    def test_switch_applies_colors(self) -> None:
         contexts = {
             "jail": {"bg": "blue", "fg": "light_grey"},
         }
         buf = _buf()
-        ctx = ScreenContext(contexts, buf)
+        ctx = ScreenContext(contexts, buf, _COLORS)
         ctx.switch("jail")
         val = buf.getvalue()
         # Should contain ANSI bg and fg codes.
@@ -47,14 +51,14 @@ class TestScreenContext:
 
     def test_switch_unknown_context_is_noop(self) -> None:
         buf = _buf()
-        ctx = ScreenContext({}, buf)
+        ctx = ScreenContext({}, buf, _COLORS)
         ctx.switch("nonexistent")
         assert buf.getvalue() == ""
 
     def test_reset_clears_colors(self) -> None:
         contexts = {"test": {"bg": "red", "fg": "white"}}
         buf = _buf()
-        ctx = ScreenContext(contexts, buf)
+        ctx = ScreenContext(contexts, buf, _COLORS)
         ctx.switch("test")
         buf.truncate(0)
         buf.seek(0)
@@ -65,7 +69,7 @@ class TestScreenContext:
 
     def test_name_property(self) -> None:
         buf = _buf()
-        ctx = ScreenContext({"a": {"bg": "black"}}, buf)
+        ctx = ScreenContext({"a": {"bg": "black"}}, buf, _COLORS)
         assert ctx.name is None
         ctx.switch("a")
         assert ctx.name == "a"
@@ -77,12 +81,12 @@ class TestScreenContext:
             "overworld: { bg: light_blue, fg: black }\n", encoding="utf-8"
         )
         buf = _buf()
-        ctx = ScreenContext.from_config(tmp_path, buf, theme="classic")
+        ctx = ScreenContext.from_config(tmp_path, buf, _COLORS, theme="classic")
         assert "overworld" in ctx._contexts
 
     def test_from_config_fallback_on_missing(self) -> None:
         buf = _buf()
-        ctx = ScreenContext.from_config(Path("/nonexistent"), buf)
+        ctx = ScreenContext.from_config(Path("/nonexistent"), buf, _COLORS)
         assert ctx._contexts == {}
 
 

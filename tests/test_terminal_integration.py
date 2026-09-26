@@ -18,6 +18,7 @@ from clients.terminal import CURSOR_SHOW
 from clients.terminal.ascii_art import location_art, title_art, title_screen
 from clients.terminal.palette import (
     ColorSupport,
+    Colors,
     _BASIC_8,
     _XTERM_256,
     bg,
@@ -48,6 +49,7 @@ class TestSmokeRenderPipeline:
 
     def setup_method(self):
         self.pal = load_palette(_CONFIG_DIR)
+        self.colors = Colors(self.pal, ColorSupport.TRUECOLOR)
         self.buf = io.StringIO()
 
     def test_render_screen_clear(self):
@@ -61,31 +63,31 @@ class TestSmokeRenderPipeline:
         assert "──" in out
 
     def test_render_header(self):
-        render_header("SCHLUPFWINKEL", self.buf)
+        render_header("SCHLUPFWINKEL", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "SCHLUPFWINKEL" in out
         assert "╔" in out
         assert "╗" in out
 
     def test_render_subheader(self):
-        render_subheader("Raum 1", self.buf)
+        render_subheader("Raum 1", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "Raum 1" in out
         assert "──" in out
 
     def test_render_body(self):
-        render_body("Willkommen im Schlupfwinkel.", self.buf)
+        render_body("Willkommen im Schlupfwinkel.", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "Willkommen" in out
 
     def test_render_colored(self):
-        render_colored("Achtung!", "red", self.buf)
+        render_colored("Achtung!", "red", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "Achtung!" in out
         assert "\033[" in out  # has ANSI code
 
     def test_render_menu_option(self):
-        render_menu_option(0, "Miete verlangen", self.buf)
+        render_menu_option(0, "Miete verlangen", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "0" in out
         assert "Miete verlangen" in out
@@ -97,16 +99,16 @@ class TestSmokeRenderPipeline:
 
     def test_render_status_bar(self):
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
-        render_status_bar("alcapone", 5400, 181, 19, self.buf, resolver)
+        render_status_bar("alcapone", 5400, 181, 19, self.buf, resolver, self.colors)
         out = self.buf.getvalue()
         assert "alcapone" in out
         assert "5400" in out
         assert "181" in out
         assert "19" in out
 
-    def test_render_map_frame(self, truecolor):
+    def test_render_map_frame(self):
         lines = ["ABCDE", "FGHIJ"]
-        render_map_frame(lines, self.buf)
+        render_map_frame(lines, self.buf, self.colors)
         out = self.buf.getvalue()
         assert "ABCDE" in out
         assert "FGHIJ" in out
@@ -117,13 +119,13 @@ class TestSmokeAsciiArt:
     """Verify title screen and location art return non-empty multi-line strings."""
 
     def test_title_art_lines(self):
-        lines = title_art()
+        lines = title_art(Colors(load_palette(), ColorSupport.TRUECOLOR))
         assert len(lines) > 5
         combined = "\n".join(lines)
         assert "_____" in combined or "M" in combined
 
     def test_title_screen_has_prompt(self):
-        screen = title_screen()
+        screen = title_screen(Colors(load_palette(), ColorSupport.TRUECOLOR))
         assert "Druecke ENTER" in screen
         assert len(screen.split("\n")) > 5
 

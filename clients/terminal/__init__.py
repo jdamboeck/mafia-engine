@@ -38,7 +38,7 @@ from engine.interactions import (
 )
 from engine.strings import MissingKeyError, Resolver
 
-from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
+from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG, Colors
 
 #: The game config this client plays: the default ``mafia_1920s`` config.
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
@@ -136,26 +136,27 @@ class ScreenContext:
 
     Context names map to entries in ``themes/<theme>/renderer/contexts.yaml``.
     When switching, the context writes the appropriate ANSI background/foreground
-    escape sequences to the output stream.
+    escape sequences to the output stream, in the session's ``colors``.
     """
 
     def __init__(
         self,
         contexts: dict[str, dict[str, str]],
         out: TextIO,
-        palette: dict[str, tuple[int, int, int]] | None = None,
+        colors: Colors,
     ) -> None:
         self._contexts = contexts
         self._out = out
-        self._palette = palette
+        self._colors = colors
         self._current_name: str | None = None
         self._current: dict[str, str] | None = None
 
     @classmethod
-    def from_config(cls, config_dir: Path, out: TextIO, theme: str = "classic") -> ScreenContext:
+    def from_config(
+        cls, config_dir: Path, out: TextIO, colors: Colors, theme: str = "classic"
+    ) -> ScreenContext:
         """Load contexts from ``themes/<theme>/renderer/contexts.yaml``."""
         import yaml
-        from clients.terminal.palette import load_palette
 
         ctx_path = config_dir / "themes" / theme / "renderer" / "contexts.yaml"
         try:
@@ -163,8 +164,7 @@ class ScreenContext:
             contexts = raw if isinstance(raw, dict) else {}
         except (OSError, yaml.YAMLError):
             contexts = {}
-        pal = load_palette(config_dir)
-        return cls(contexts, out, palette=pal)
+        return cls(contexts, out, colors)
 
     def switch(self, context_name: str) -> None:
         """Switch to a named context, applying its colors."""
@@ -179,16 +179,12 @@ class ScreenContext:
         """Re-apply the current context's colors to the output stream."""
         if self._current is None:
             return
-        from clients.terminal.palette import bg as bg_ansi, fg as fg_ansi, load_palette
-
-        if self._palette is None:
-            self._palette = load_palette(CONFIG_DIR)
         bg_name = self._current.get("bg")
         fg_name = self._current.get("fg")
         if bg_name:
-            self._out.write(bg_ansi(bg_name, self._palette))
+            self._out.write(self._colors.bg(bg_name))
         if fg_name:
-            self._out.write(fg_ansi(fg_name, self._palette))
+            self._out.write(self._colors.fg(fg_name))
         self._out.flush()
 
     def reset(self) -> None:
@@ -273,12 +269,14 @@ class TerminalInput:
         self,
         *,
         resolver: Resolver,
+        colors: Colors,
         stdin: TextIO | None = None,
         stdout: TextIO | None = None,
         weapon_names: list[str] | None = None,
         observe_ai: bool = False,
     ) -> None:
         self._resolver = resolver
+        self._colors = colors
         #: ``--watch-ai`` opt-in: :func:`engine.fight_loop._drive_fight` reads this
         #: attribute and, only when it is true, hands us a display-only ``prompt="observe"``
         #: CombatScreen after every CPU activation. Off by default -- the original shows
@@ -353,9 +351,11 @@ class TerminalInput:
 
         payload = screen.to_json()
         render_screen_clear(self._stdout)
-        render_combat_grid(payload, self._stdout)
-        render_combat_message(payload, self._resolver, self._stdout)
-        render_fighter_panel(payload, self._resolver, self._weapon_names, self._stdout)
+        render_combat_grid(payload, self._stdout, self._colors)
+        render_combat_message(payload, self._resolver, self._stdout, self._colors)
+        render_fighter_panel(
+            payload, self._resolver, self._weapon_names, self._stdout, self._colors
+        )
         for key in footer:
             self._stdout.write(self._resolver.resolve(key) + "\n")
         self._stdout.write("> ")
@@ -429,7 +429,7 @@ class TerminalInput:
         return line.rstrip("\n")
 
 
-def render_result(result: Any, out: TextIO, resolver: Resolver) -> None:
+def render_result(result: Any, out: TextIO, resolver: Resolver, colors: Colors) -> None:
     """Between actions, render a status bar off ``result.state``.
 
     Display-only. ``result`` is an :class:`engine.actions.EngineResult`; a ``cancelled``
@@ -439,7 +439,7 @@ def render_result(result: Any, out: TextIO, resolver: Resolver) -> None:
         return
     from clients.terminal.renderers import render_status_bar_from_state
 
-    render_status_bar_from_state(result.state, out, resolver)
+    render_status_bar_from_state(result.state, out, resolver, colors)
 
 
 def map_repl(
@@ -449,6 +449,7 @@ def map_repl(
     key_reader,
     move_for_key,
     resolver: Resolver,
+    colors: Colors,
     out: TextIO | None = None,
 ) -> Any:
     """Drive one turn on the map: read a key, move, adopt the new state, render, repeat.
@@ -457,7 +458,7 @@ def map_repl(
     graph minimal) and adopts the returned ``result.state`` (movement is pure). Loops until
     ``ms <= 0`` / a turn-over move. ``key_reader() -> str`` yields the next key; ``move_for_key``
     maps a key to a movement delta (or ``None`` to quit); ``resolver`` words the status
-    bar. Returns the final state.
+    bar and ``colors`` colours it. Returns the final state.
     """
     from engine.movement import try_move
 
@@ -469,7 +470,7 @@ def map_repl(
             return state
         result = try_move(state, city, delta)
         state = result.state  # adopt (movement is pure)
-        render_result(result, sink, resolver)
+        render_result(result, sink, resolver, colors)
         if getattr(result.payload, "turn_over", False):
             return state
 

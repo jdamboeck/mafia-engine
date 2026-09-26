@@ -79,6 +79,31 @@ def test_from_directory_without_strings_raises(tmp_path):
         Resolver.from_directory(tmp_path)
 
 
+def test_from_directory_rejects_a_file_whose_root_is_not_a_mapping(tmp_path):
+    """A strings file is a key tree; a top-level list is a broken theme, reported
+    as a ValueError naming the file (the CLI prints it as its one line)."""
+    (tmp_path / "strings").mkdir()
+    bad = tmp_path / "strings" / "x.yaml"
+    bad.write_text("- one\n- two\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"x\.yaml.*mapping"):
+        Resolver.from_directory(tmp_path)
+
+
+def test_from_directory_rejects_a_list_where_another_file_has_a_mapping(tmp_path):
+    """Two files of one theme merge key-wise; a list merged over a mapping is broken,
+    and the error names the file and the key."""
+    (tmp_path / "strings").mkdir()
+    (tmp_path / "strings" / "a.yaml").write_text("client:\n  bye: ciao\n", encoding="utf-8")
+    (tmp_path / "strings" / "b.yaml").write_text("client:\n  - bye\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=r"b\.yaml.*client"):
+        Resolver.from_directory(tmp_path)
+
+
+def test_with_override_rejects_a_list_over_a_mapping():
+    with pytest.raises(ValueError, match="client"):
+        _resolver().with_override({"client": ["bye"]})
+
+
 # --------------------------------------------------------------------------- #
 # Missing key fails loudly (a theme gap must not render blank).                 #
 # --------------------------------------------------------------------------- #

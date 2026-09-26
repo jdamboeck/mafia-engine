@@ -54,6 +54,7 @@ from clients.terminal import (  # noqa: E402
     play,
     render_message,
 )
+from clients.terminal.palette import ColorSupport, Colors, load_palette  # noqa: E402
 from tests.helpers import deadline, with_player  # noqa: E402
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -63,11 +64,16 @@ def _resolver():
     return Resolver.from_config(_CONFIG_DIR, theme="classic")
 
 
+#: The classic palette in truecolor, for tests that build a TerminalInput directly.
+_COLORS = Colors(load_palette(_CONFIG_DIR), ColorSupport.TRUECOLOR)
+
+
 def _client(stdin_lines: list[str]):
     """A TerminalInput wired to scripted stdin and a capture buffer for stdout."""
     out = io.StringIO()
     inp = TerminalInput(
         resolver=_resolver(),
+        colors=_COLORS,
         stdin=io.StringIO("\n".join(stdin_lines) + "\n"),
         stdout=out,
     )
@@ -93,7 +99,7 @@ def test_show_message_is_rendered_by_the_client_without_prompting():
             consulted.append(interaction)
             return super().__call__(interaction)
 
-    spy = _Spy(resolver=_resolver(), stdin=io.StringIO(""), stdout=out)
+    spy = _Spy(resolver=_resolver(), colors=_COLORS, stdin=io.StringIO(""), stdout=out)
 
     def handler(ctx):
         yield ShowMessage("locations.slw.no_room")
@@ -262,7 +268,9 @@ def _eof_client(stdin_text: str):
     """A TerminalInput over EXACT stdin text (``_client`` always appends a newline,
     so it can never produce real EOF on the first read)."""
     out = io.StringIO()
-    return TerminalInput(resolver=_resolver(), stdin=io.StringIO(stdin_text), stdout=out), out
+    return TerminalInput(
+        resolver=_resolver(), colors=_COLORS, stdin=io.StringIO(stdin_text), stdout=out
+    ), out
 
 
 def test_eof_at_non_cancellable_prompt_int_raises_end_of_input():
@@ -316,6 +324,7 @@ def test_map_repl_adopts_state_and_ends_on_quit():
         key_reader=lambda: next(keys),
         move_for_key=lambda k: DOWN if k == "down" else None,
         resolver=_resolver(),
+        colors=_COLORS,
         out=out,
     )
     # One real step happened and the client adopted the new pure state (po moved, ms spent).
@@ -635,8 +644,8 @@ class TestWatchAi:
         return run(handler, inp, state=None, rng=Rng(42))
 
     def test_only_an_opted_in_terminal_input_advertises_the_opt_in(self):
-        watching = TerminalInput(resolver=_resolver(), observe_ai=True)
-        plain = TerminalInput(resolver=_resolver())
+        watching = TerminalInput(resolver=_resolver(), colors=_COLORS, observe_ai=True)
+        plain = TerminalInput(resolver=_resolver(), colors=_COLORS)
         assert watching.observes_ai is True
         assert getattr(plain, "observes_ai", False) is False
 
@@ -658,6 +667,7 @@ class TestWatchAi:
         out = io.StringIO()
         inp = TerminalInput(
             resolver=_resolver(),
+            colors=_COLORS,
             stdin=io.StringIO("f\nd\n.\n" * 30),
             stdout=out,
             observe_ai=True,
@@ -678,7 +688,11 @@ class TestWatchAi:
         # and the next action prompt meets EOF -> surrender (KTD-2), side 2 wins.
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=_resolver(), stdin=io.StringIO("f\nd\n"), stdout=out, observe_ai=True
+            resolver=_resolver(),
+            colors=_COLORS,
+            stdin=io.StringIO("f\nd\n"),
+            stdout=out,
+            observe_ai=True,
         )
         result = self._fight(inp)
         assert result.payload.returned.winner == 2
@@ -819,5 +833,117 @@ class TestClientTextComesFromTheTheme:
 
         override = _resolver().with_override({"client": {"status_bar": "[{name}/{cash}]"}})
         buf = io.StringIO()
-        render_status_bar("alcapone", 5400, 181, 19, buf, resolver=override)
+        render_status_bar("alcapone", 5400, 181, 19, buf, resolver=override, colors=_COLORS)
         assert "[alcapone/5400]" in buf.getvalue() and "cash" not in buf.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# --theme: name vs path, broken themes, the theme's palette, colour detection. #
+# --------------------------------------------------------------------------- #
+class TestThemeSelection:
+    """``--theme`` resolves a bare name as a config theme and only a path-shaped value
+    (a separator, or a leading ``.`` or ``~``) as a directory (KTD-5); the chosen
+    theme's palette colours the screens; colour support is read once per session."""
+
+    _TEST_THEME = TestClientTextComesFromTheTheme._TEST_THEME
+    _NEW_GAME = ["--end-year", "1930", "--score-weight", "1"]
+    _TOP_BORDER = "╔" + "═" * 40 + "╗"
+
+    @staticmethod
+    def _main(monkeypatch, argv: list[str], lines: list[str]) -> str:
+        return TestClientTextComesFromTheTheme._main(monkeypatch, argv, lines)
+
+    @staticmethod
+    def _fails_with_one_line(argv: list[str], capsys) -> str:
+        with pytest.raises(SystemExit) as exc:
+            main(argv)
+        assert exc.value.code not in (0, None)
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started"
+        assert "Traceback" not in captured.err
+        lines = captured.err.strip().splitlines()
+        assert len(lines) == 1, captured.err
+        return lines[0]
+
+    def test_a_classic_directory_in_the_cwd_does_not_shadow_the_default_theme(
+        self, monkeypatch, tmp_path
+    ):
+        (tmp_path / "classic").mkdir()
+        monkeypatch.chdir(tmp_path)
+        default = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        assert default.endswith("bye.\n" + CURSOR_SHOW)
+        by_name = self._main(monkeypatch, ["--theme", "classic", *self._NEW_GAME], ["", "", "q"])
+        assert by_name == default
+
+    def test_a_dot_prefixed_value_is_a_path(self, monkeypatch, tmp_path):
+        """``.mytheme`` has no separator; the leading dot alone makes it a path."""
+        (tmp_path / ".mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
+        monkeypatch.chdir(tmp_path)
+        text = self._main(monkeypatch, ["--theme", ".mytheme", *self._NEW_GAME], ["", "", "q"])
+        assert text.endswith("ciao.\n" + CURSOR_SHOW)
+
+    @pytest.mark.parametrize("value", ["~", "~/mytheme"])
+    def test_a_tilde_prefixed_value_is_a_path_under_home(self, monkeypatch, tmp_path, value):
+        """``~`` alone has no separator; the leading tilde makes it a path, and it
+        expands to ``$HOME``."""
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / "mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home / "mytheme") if value == "~" else str(home))
+        text = self._main(monkeypatch, ["--theme", value, *self._NEW_GAME], ["", "", "q"])
+        assert text.endswith("ciao.\n" + CURSOR_SHOW)
+
+    def test_a_theme_file_with_a_list_root_is_one_readable_line(self, tmp_path, capsys):
+        (tmp_path / "strings").mkdir()
+        (tmp_path / "strings" / "x.yaml").write_text("- one\n- two\n", encoding="utf-8")
+        line = self._fails_with_one_line(["--theme", str(tmp_path)], capsys)
+        assert line.startswith(f"cannot load theme {tmp_path}: ")
+        assert "x.yaml" in line
+
+    def test_the_themes_palette_colours_the_screens(self, monkeypatch, truecolor):
+        """The fixture theme's palette sets ``red`` (the player on the map, the title)
+        and ``light_grey`` (the map background, headers); ``dark_grey`` (the map
+        border) is left to classic's palette."""
+        themed = self._main(
+            monkeypatch, ["--theme", str(self._TEST_THEME), *self._NEW_GAME], ["", "", "q"]
+        )
+        classic = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        red, grey_bg = "\033[38;2;1;2;3m", "\033[48;2;4;5;6m"
+        classic_red, classic_grey_bg = "\033[38;2;158;52;38m", "\033[48;2;178;178;178m"
+        border = "\033[38;2;82;82;82m"  # classic's dark_grey, kept by the theme
+        assert red in themed and grey_bg in themed and border in themed
+        assert classic_red not in themed and classic_grey_bg not in themed
+        assert classic_red in classic and classic_grey_bg in classic
+        assert red not in classic
+
+    def test_colour_support_is_read_once_per_session(self, monkeypatch, hostile_color_env):
+        """Detection happens when the session starts: a terminal does not change what
+        it can show mid-game, and frames must not switch colour modes half-way. An env
+        change during a session is ignored; the next session sees it."""
+
+        class FlipAtFirstMapKey(io.StringIO):
+            """Scripted stdin that turns truecolor on as the first map key is read."""
+
+            reads = 0
+
+            def readline(self, *args):
+                FlipAtFirstMapKey.reads += 1
+                if FlipAtFirstMapKey.reads == 3:  # 1 title, 2 upkeep, 3 first map key
+                    monkeypatch.setenv("COLORTERM", "truecolor")
+                return super().readline(*args)
+
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\nx\nx\nq\n"))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(20, "main() did not return", exc_type=AssertionError):
+            main(self._NEW_GAME)
+        first = out.getvalue()
+        assert FlipAtFirstMapKey.reads >= 5, "the script did not reach the later map frames"
+        _ansi = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+        frames = [line for line in first.split("\n") if _ansi.sub("", line) == self._TOP_BORDER]
+        assert len(frames) == 3, "expected three map frames: before and after the flip"
+        assert "\033[38;5;" in first
+        assert "\033[38;2;" not in first, "colours switched mode mid-session"
+
+        second = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        assert "\033[38;2;" in second and "\033[38;5;" not in second

@@ -12,9 +12,11 @@ from clients.terminal.palette import (
     RESET_BG,
     RESET_FG,
     ColorSupport,
+    Colors,
     bg,
     fg,
     load_palette,
+    read_palette_overrides,
     term_color_support,
 )
 
@@ -88,7 +90,8 @@ class TestAnsiGenerators:
 
 
 class TestColorSupportDetection:
-    """term_color_support() picks the mode from the env, read fresh on every call."""
+    """term_color_support() picks the mode from the env, read fresh on every call;
+    a session reads it once, into its Colors."""
 
     @pytest.mark.parametrize(
         ("colorterm", "term", "expected"),
@@ -123,9 +126,38 @@ class TestColorSupportDetection:
         monkeypatch.setenv("COLORTERM", "truecolor")
         assert term_color_support() is ColorSupport.TRUECOLOR
 
-    def test_default_support_follows_detection(self, hostile_color_env: None) -> None:
-        """Without an explicit ``support``, fg() uses the detected (256) mode."""
-        assert fg("red", {"red": (1, 2, 3)}) == "\033[38;5;124m"
+    def test_colors_detect_takes_the_support_the_env_reports(
+        self, hostile_color_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``Colors.detect`` reads the env once; the Colors it built keeps that mode."""
+        colors = Colors.detect({"red": (1, 2, 3)})
+        assert colors.support is ColorSupport.COLOR256
+        monkeypatch.setenv("COLORTERM", "truecolor")
+        assert colors.fg("red") == "\033[38;5;124m"
+        assert Colors.detect({"red": (1, 2, 3)}).fg("red") == "\033[38;2;1;2;3m"
+
+
+class TestReadPaletteOverrides:
+    """A selected theme's ``renderer/palette.yaml``: absent is fine, broken is an error."""
+
+    def _write(self, theme_dir: Path, text: str) -> None:
+        (theme_dir / "renderer").mkdir(parents=True)
+        (theme_dir / "renderer" / "palette.yaml").write_text(text, encoding="utf-8")
+
+    def test_no_file_means_no_overrides(self, tmp_path: Path) -> None:
+        assert read_palette_overrides(tmp_path) == {}
+
+    def test_reads_only_the_colours_the_theme_sets(self, tmp_path: Path) -> None:
+        self._write(tmp_path, "red: [1, 2, 3]\n")
+        assert read_palette_overrides(tmp_path) == {"red": (1, 2, 3)}
+
+    @pytest.mark.parametrize(
+        "text", ["- [1, 2, 3]\n", "red: [1, 2]\n", "red: [1, 2, 300]\n", "red: blue\n"]
+    )
+    def test_a_broken_file_raises_naming_it(self, tmp_path: Path, text: str) -> None:
+        self._write(tmp_path, text)
+        with pytest.raises(ValueError, match="palette.yaml"):
+            read_palette_overrides(tmp_path)
 
 
 class TestResetConstants:

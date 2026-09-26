@@ -8,7 +8,7 @@ from typing import Any
 from engine.strings import Resolver
 
 from clients.terminal import CONFIG_DIR
-from clients.terminal.palette import _PEPTO_FALLBACK
+from clients.terminal.palette import _PEPTO_FALLBACK, ColorSupport, Colors
 from clients.terminal.renderers import (
     render_body,
     render_colored,
@@ -23,7 +23,6 @@ from clients.terminal.renderers import (
     render_separator,
     render_status_bar,
     render_subheader,
-    set_palette,
 )
 
 
@@ -36,14 +35,12 @@ def _classic() -> Resolver:
     return Resolver.from_config(CONFIG_DIR, theme="classic")
 
 
-def _setup() -> None:
-    """Set the palette to Pepto fallback for deterministic ANSI codes."""
-    set_palette(dict(_PEPTO_FALLBACK))
+#: The Pepto fallback palette in truecolor: deterministic ANSI codes whatever the host.
+_COLORS = Colors(dict(_PEPTO_FALLBACK), ColorSupport.TRUECOLOR)
 
 
 class TestRenderScreenClear:
     def test_writes_escape_sequence(self) -> None:
-        _setup()
         buf = _out()
         render_screen_clear(buf)
         assert buf.getvalue() == "\033[2J\033[H"
@@ -51,7 +48,6 @@ class TestRenderScreenClear:
 
 class TestRenderSeparator:
     def test_writes_dim_line(self) -> None:
-        _setup()
         buf = _out()
         render_separator(buf)
         val = buf.getvalue()
@@ -61,18 +57,16 @@ class TestRenderSeparator:
 
 class TestRenderHeader:
     def test_contains_box_drawing(self) -> None:
-        _setup()
         buf = _out()
-        render_header("TEST", buf)
+        render_header("TEST", buf, _COLORS)
         val = buf.getvalue()
         assert "╔" in val
         assert "╗" in val
         assert "TEST" in val
 
     def test_contains_ansi_codes(self) -> None:
-        _setup()
         buf = _out()
-        render_header("TEST", buf)
+        render_header("TEST", buf, _COLORS)
         val = buf.getvalue()
         assert "\033[" in val  # has ANSI escapes
         assert val.endswith("\n")
@@ -80,9 +74,8 @@ class TestRenderHeader:
 
 class TestRenderSubheader:
     def test_contains_dashes(self) -> None:
-        _setup()
         buf = _out()
-        render_subheader("section", buf)
+        render_subheader("section", buf, _COLORS)
         val = buf.getvalue()
         assert "─" in val
         assert "section" in val
@@ -90,19 +83,17 @@ class TestRenderSubheader:
 
 class TestRenderBody:
     def test_writes_light_grey_text(self) -> None:
-        _setup()
         buf = _out()
-        render_body("hello", buf)
+        render_body("hello", buf, _COLORS)
         val = buf.getvalue()
         assert "hello" in val
         assert val.endswith("\n")
 
 
 class TestRenderColored:
-    def test_writes_specific_color(self, truecolor) -> None:
-        _setup()
+    def test_writes_specific_color(self) -> None:
         buf = _out()
-        render_colored("warning", "red", buf)
+        render_colored("warning", "red", buf, _COLORS)
         val = buf.getvalue()
         assert "warning" in val
         assert "\033[38;2;" in val  # truecolor fg
@@ -110,9 +101,8 @@ class TestRenderColored:
 
 class TestRenderMenuOption:
     def test_writes_index_and_label(self) -> None:
-        _setup()
         buf = _out()
-        render_menu_option(1, "mieten", buf)
+        render_menu_option(1, "mieten", buf, _COLORS)
         val = buf.getvalue()
         assert "1)" in val
         assert "mieten" in val
@@ -120,9 +110,8 @@ class TestRenderMenuOption:
 
 class TestRenderStatusBar:
     def test_contains_player_info(self) -> None:
-        _setup()
         buf = _out()
-        render_status_bar("alcapone", 5400, 181, 19, buf, _classic())
+        render_status_bar("alcapone", 5400, 181, 19, buf, _classic(), _COLORS)
         val = buf.getvalue()
         assert "alcapone" in val
         assert "5400$" in val
@@ -130,18 +119,16 @@ class TestRenderStatusBar:
         assert "19" in val
 
     def test_has_reverse_video(self) -> None:
-        _setup()
         buf = _out()
-        render_status_bar("test", 0, 0, 0, buf, _classic())
+        render_status_bar("test", 0, 0, 0, buf, _classic(), _COLORS)
         val = buf.getvalue()
         assert "\033[7m" in val  # reverse video
 
 
 class TestRenderMapFrame:
-    def test_wraps_in_blue_bg(self, truecolor) -> None:
-        _setup()
+    def test_wraps_in_blue_bg(self) -> None:
         buf = _out()
-        render_map_frame(["....@"], buf)
+        render_map_frame(["....@"], buf, _COLORS)
         val = buf.getvalue()
         assert "\033[48;2;" in val  # truecolor bg
         assert "....@" in val
@@ -239,9 +226,8 @@ class _FakeResolver:
 
 class TestRenderCombatGrid:
     def test_exactly_40_columns_13_rows(self) -> None:
-        _setup()
         buf = _out()
-        render_combat_grid(_payload(), buf)
+        render_combat_grid(_payload(), buf, _COLORS)
         lines = buf.getvalue().rstrip("\n").split("\n")
         assert len(lines) == 13
         import re
@@ -251,9 +237,8 @@ class TestRenderCombatGrid:
             assert len(ansi_re.sub("", line)) == 40
 
     def test_no_wide_characters(self) -> None:
-        _setup()
         buf = _out()
-        render_combat_grid(_payload(), buf)
+        render_combat_grid(_payload(), buf, _COLORS)
         import re
         import unicodedata
 
@@ -265,17 +250,15 @@ class TestRenderCombatGrid:
             assert unicodedata.east_asian_width(ch) != "W"
 
     def test_active_fighter_is_highlighted(self) -> None:
-        _setup()
         buf = _out()
-        render_combat_grid(_payload(), buf)
+        render_combat_grid(_payload(), buf, _COLORS)
         assert "\033[7m" in buf.getvalue()  # reverse video on the active fighter
 
     def test_downed_fighter_renders_distinct_glyph(self) -> None:
-        _setup()
         buf = _out()
         payload = _payload()
         payload["sides"][1][0]["down"] = True
-        render_combat_grid(payload, buf)
+        render_combat_grid(payload, buf, _COLORS)
         row, col = divmod(141, 40)
         lines = buf.getvalue().rstrip("\n").split("\n")
         import re
@@ -287,21 +270,20 @@ class TestRenderCombatGrid:
     def test_missing_grid_reads_as_open_ground(self) -> None:
         """An empty/short grid list must not raise -- every cell past the end reads
         as open floor (mirrors engine.combat.can_move_onto's short-grid handling)."""
-        _setup()
         buf = _out()
-        render_combat_grid(_payload(grid=[]), buf)  # must not raise
+        render_combat_grid(_payload(grid=[]), buf, _COLORS)  # must not raise
         assert buf.getvalue()
 
 
 class TestRenderFighterPanel:
     def test_shows_stats_and_weapon_name(self) -> None:
-        _setup()
         buf = _out()
         render_fighter_panel(
             _payload(),
             _FakeResolver(),
             ["haende", "messer", "knueppel", "schlagkette", "wurfsterne", "revolver"],
             buf,
+            _COLORS,
         )
         val = buf.getvalue()
         assert "hero" in val
@@ -310,27 +292,23 @@ class TestRenderFighterPanel:
         assert "30" in val  # kraft / brutalitaet
 
     def test_unknown_weapon_id_falls_back_to_the_raw_id(self) -> None:
-        _setup()
         buf = _out()
-        render_fighter_panel(_payload(), _FakeResolver(), [], buf)
+        render_fighter_panel(_payload(), _FakeResolver(), [], buf, _COLORS)
         assert "5" in buf.getvalue()
 
     def test_no_fighter_writes_nothing(self) -> None:
-        _setup()
         buf = _out()
-        render_fighter_panel(_payload(fighter=None), _FakeResolver(), [], buf)
+        render_fighter_panel(_payload(fighter=None), _FakeResolver(), [], buf, _COLORS)
         assert buf.getvalue() == ""
 
 
 class TestRenderCombatMessage:
     def test_string_message_resolves_the_matching_key(self) -> None:
-        _setup()
         buf = _out()
-        render_combat_message(_payload(message="illegal_move"), _FakeResolver(), buf)
+        render_combat_message(_payload(message="illegal_move"), _FakeResolver(), buf, _COLORS)
         assert "geht nicht" in buf.getvalue()
 
     def test_miss_dict_resolves_to_miss_key(self) -> None:
-        _setup()
         buf = _out()
         msg = {
             "hit": False,
@@ -339,40 +317,35 @@ class TestRenderCombatMessage:
             "target_index": None,
             "downed": False,
         }
-        render_combat_message(_payload(message=msg), _FakeResolver(), buf)
+        render_combat_message(_payload(message=msg), _FakeResolver(), buf, _COLORS)
         assert "verfehlt" in buf.getvalue()
 
     def test_hit_and_downed_player_side_resolves_player_down(self) -> None:
-        _setup()
         buf = _out()
         msg = {"hit": True, "damage": 20, "target_side": 1, "target_index": 0, "downed": True}
-        render_combat_message(_payload(message=msg), _FakeResolver(), buf)
+        render_combat_message(_payload(message=msg), _FakeResolver(), buf, _COLORS)
         assert "spieler 1 ist am ende" in buf.getvalue()
 
     def test_hit_and_downed_enemy_side_resolves_enemy_down(self) -> None:
-        _setup()
         buf = _out()
         msg = {"hit": True, "damage": 20, "target_side": 2, "target_index": 0, "downed": True}
-        render_combat_message(_payload(message=msg), _FakeResolver(), buf)
+        render_combat_message(_payload(message=msg), _FakeResolver(), buf, _COLORS)
         assert "gegner ist tot" in buf.getvalue()
 
     def test_hit_not_downed_resolves_plain_hit(self) -> None:
-        _setup()
         buf = _out()
         msg = {"hit": True, "damage": 2, "target_side": 2, "target_index": 0, "downed": False}
-        render_combat_message(_payload(message=msg), _FakeResolver(), buf)
+        render_combat_message(_payload(message=msg), _FakeResolver(), buf, _COLORS)
         assert "treffer!" in buf.getvalue()
 
     def test_no_message_writes_nothing(self) -> None:
-        _setup()
         buf = _out()
-        render_combat_message(_payload(message=None), _FakeResolver(), buf)
+        render_combat_message(_payload(message=None), _FakeResolver(), buf, _COLORS)
         assert buf.getvalue() == ""
 
 
 class TestRenderCombatLosses:
     def test_shows_heading_and_both_sides(self) -> None:
-        _setup()
         buf = _out()
         render_combat_losses(_payload(losses=[2, 1]), _FakeResolver(), buf)
         val = buf.getvalue()
@@ -397,12 +370,11 @@ class TestFighterPanelIsAttributeAgnostic:
     def _weapons(self):
         return ["haende", "messer", "knueppel", "schlagkette", "wurfsterne", "revolver"]
 
-    def test_panel_is_byte_identical_to_the_pre_u2_rendering(self, truecolor) -> None:
+    def test_panel_is_byte_identical_to_the_pre_u2_rendering(self) -> None:
         """The captured baseline, reproduced through the REAL theme and a real Fighter."""
         from engine.state import Fighter, json_safe
         from engine.strings import Resolver
 
-        _setup()
         buf = _out()
         fighter = Fighter(
             name="hero",
@@ -412,7 +384,9 @@ class TestFighterPanelIsAttributeAgnostic:
             position=10,
         )
         resolver = Resolver.from_config("data/game_configs/mafia_1920s")
-        render_fighter_panel({"fighter": json_safe(fighter)}, resolver, self._weapons(), buf)
+        render_fighter_panel(
+            {"fighter": json_safe(fighter)}, resolver, self._weapons(), buf, _COLORS
+        )
         assert buf.getvalue() == self.EXPECTED
 
     def test_a_game_with_different_attributes_renders_its_own(self) -> None:
@@ -443,19 +417,17 @@ class TestFighterPanelIsAttributeAgnostic:
                     node = node[seg]
                 return node.format(**(params or {}))
 
-        _setup()
         buf = _out()
         payload = {"fighter": {"name": "ranger", "weapon": 0, "attrs": {"aim": 7, "grit": 3}}}
-        render_fighter_panel(payload, _OtherThemeResolver(), ["fist"], buf)
+        render_fighter_panel(payload, _OtherThemeResolver(), ["fist"], buf, _COLORS)
         val = buf.getvalue()
         assert "aim: 7" in val
         assert "grit: 3" in val
 
     def test_an_attribute_the_theme_does_not_list_is_not_shown(self) -> None:
         """The panel is a curated view, not a dump of every attribute carried."""
-        _setup()
         buf = _out()
-        render_fighter_panel(_payload(), _FakeResolver(), self._weapons(), buf)
+        render_fighter_panel(_payload(), _FakeResolver(), self._weapons(), buf, _COLORS)
         # intelligenz rides in attrs (it survives round-trips) but the original's
         # panel never showed it, so the theme does not list it.
         assert "intelligenz" not in buf.getvalue()

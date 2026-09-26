@@ -43,10 +43,11 @@ def hostile_color_env(monkeypatch):
 
 @pytest.fixture
 def truecolor(hostile_color_env, monkeypatch):
-    """Pin color support to TRUECOLOR for renderers that don't take ``support``.
+    """Pin color support to TRUECOLOR for a session built by ``play()``/``main()``.
 
-    Renderers call ``fg()``/``bg()`` without a ``support`` argument, so the pin
-    goes through env detection: ``COLORTERM=truecolor`` on top of the hostile env,
-    so the pin (not the host) is what makes truecolor come out.
+    A session reads its color support from the env once, when it starts
+    (``Colors.detect``), so the pin goes through env detection:
+    ``COLORTERM=truecolor`` on top of the hostile env, so the pin (not the host) is
+    what makes truecolor come out.
     """
     monkeypatch.setenv("COLORTERM", "truecolor")

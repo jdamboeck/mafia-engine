@@ -63,7 +63,7 @@ from clients.terminal import (
     show_cursor,
 )
 from clients.terminal.ascii_art import location_art, title_screen
-from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, fg, load_palette
+from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, Colors, Palette, load_palette
 from clients.terminal.renderers import (
     render_body,
     render_header,
@@ -205,7 +205,6 @@ except (OSError, yaml.YAMLError):
     _LAYOUT = {}
 
 _MAP_CFG = _LAYOUT.get("map", {})
-_PAL = load_palette(_CONFIG_DIR)
 
 # Screen-code -> Unicode character (shape only; color from C64 color RAM).
 # 23 non-door, non-special codes.  Verified all East Asian Width != Wide.
@@ -276,7 +275,7 @@ def _door_location_map(city_raw: dict) -> dict[int, str]:
     return out
 
 
-def render_map(city, city_raw: dict, state, out, resolver: Resolver) -> None:
+def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Colors) -> None:
     """Draw the 40x25 city with per-cell colors from the C64 color RAM.
 
     Uses ``city.color(cell)`` for each cell's foreground color, giving the full
@@ -286,7 +285,7 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver) -> None:
     Read-only view built straight off ``City`` + the door table — no rules, no mutation.
     Cell index is row-major (``cell = row*cols + col``), matching ``try_move``'s math.
     """
-    from clients.terminal.palette import bg as bg_ansi, RESET_BG
+    from clients.terminal.palette import RESET_BG
 
     cols = city.cols
     rows = len(city.grid)
@@ -312,7 +311,7 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver) -> None:
     border_color = "dark_grey"
 
     # Light grey background for the entire map
-    bg = bg_ansi(bg_color, _PAL)
+    bg = colors.bg(bg_color)
 
     lines: list[str] = []
     for r in range(rows):
@@ -320,41 +319,41 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver) -> None:
         for c in range(cols):
             cell = r * cols + c
             if cell == po:
-                chars.append(f"{fg('red', _PAL)}{player_char}")
+                chars.append(f"{colors.fg('red')}{player_char}")
             elif cell in door_info:
                 _, dchar, dcolor = door_info[cell]
-                chars.append(f"{fg(dcolor, _PAL)}{dchar}")
+                chars.append(f"{colors.fg(dcolor)}{dchar}")
             elif cell in city.special_cells and cell in special_cfg:
                 scfg = special_cfg[cell]
-                chars.append(f"{fg(scfg.get('color', 'white'), _PAL)}{scfg['char']}")
+                chars.append(f"{colors.fg(scfg.get('color', 'white'))}{scfg['char']}")
             else:
                 # Use C64 color RAM for foreground color
                 c64_color_idx = city.color(cell)
                 color_name = C64_COLOR_NAMES[c64_color_idx]
                 code = city.code(cell)
                 char = _CODE_TO_CHAR.get(code, "\u00b7")
-                chars.append(f"{fg(color_name, _PAL)}{char}")
+                chars.append(f"{colors.fg(color_name)}{char}")
         lines.append("".join(chars) + RESET_FG)
 
     # Draw box-drawing border with light grey bg
     border_h = "═" * cols
-    out.write(f"{bg}{fg(border_color, _PAL)}╔{border_h}╗{RESET_FG}{RESET_BG}\n")
+    out.write(f"{bg}{colors.fg(border_color)}╔{border_h}╗{RESET_FG}{RESET_BG}\n")
     for line in lines:
         out.write(
-            f"{bg}{fg(border_color, _PAL)}║{RESET_FG}{line}{fg(border_color, _PAL)}║{RESET_FG}{RESET_BG}\n"
+            f"{bg}{colors.fg(border_color)}║{RESET_FG}{line}{colors.fg(border_color)}║{RESET_FG}{RESET_BG}\n"
         )
-    out.write(f"{bg}{fg(border_color, _PAL)}╚{border_h}╝{RESET_FG}{RESET_BG}\n")
+    out.write(f"{bg}{colors.fg(border_color)}╚{border_h}╝{RESET_FG}{RESET_BG}\n")
 
     # Legend
     legend_parts = [
         client_text("client.map.legend_you", {"player": player_char}, resolver=resolver)
     ]
     for loc_key, lchar, lcolor in sorted({v for v in door_info.values()}, key=lambda x: x[0]):
-        legend_parts.append(f"{fg(lcolor, _PAL)}{lchar}{RESET} {loc_key}")
+        legend_parts.append(f"{colors.fg(lcolor)}{lchar}{RESET} {loc_key}")
     out.write("   ".join(legend_parts) + "\n")
 
     # Status bar at bottom
-    render_status_bar_from_state(state, out, resolver)
+    render_status_bar_from_state(state, out, resolver, colors)
 
 
 def _run_location(
@@ -362,6 +361,7 @@ def _run_location(
     ln: int,
     state,
     resolver: Resolver,
+    colors: Colors,
     inp: TerminalInput,
     out,
     rng: Rng,
@@ -411,15 +411,15 @@ def _run_location(
         out.flush()
         _read_line_visible(stdin, out)
         render_screen_clear(out)
-    render_header(location_key, out)
-    render_body(entry_text, out)
+    render_header(location_key, out, colors)
+    render_body(entry_text, out, colors)
     out.write("\n")
     for i, opt in enumerate(options):
         try:
             label = resolver.resolve(f"locations.{location_key}.menu.{opt.id}")
         except Exception:
             label = opt.id
-        render_menu_option(i, label, out)
+        render_menu_option(i, label, out, colors)
     render_prompt(out)
     out.flush()
 
@@ -432,11 +432,13 @@ def _run_location(
         return state
 
     result = run_option(shell, chosen.id, state, ln=ln, input_source=inp, rng=rng)
-    render_result(result, out, resolver)
+    render_result(result, out, resolver, colors)
     return result.state  # adopt (run_option is pure)
 
 
-def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp=None):
+def _run_upkeep_screen(
+    state, resolver: Resolver, colors: Colors, out, rng: Rng, stdin=None, inp=None
+):
     """Run the active player's turn-start upkeep and show its banner/promotion.
 
     Calls :func:`engine.upkeep.run_upkeep` — THE engine-level turn-start entry point —
@@ -467,8 +469,8 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
     active = new_state.players[new_state.clock.active_player]
 
     render_screen_clear(out)
-    render_header(resolver.resolve("client.header.upkeep"), out)
-    render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out)
+    render_header(resolver.resolve("client.header.upkeep"), out, colors)
+    render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out, colors)
 
     promoted = next((e for e in result.effects if isinstance(e, RankCommit)), None)
     if promoted is not None:
@@ -486,6 +488,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
                 },
             ),
             out,
+            colors,
         )
 
     _write_press_any_key(resolver, out)
@@ -493,7 +496,9 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
     return new_state
 
 
-def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rng: Rng):
+def _run_job_shift_screen(
+    state, resolver: Resolver, colors: Colors, inp: TerminalInput, out, rng: Rng
+):
     """Run the active player's job shift (the turn-start job-shift seam) and render it.
 
     Dispatched by the CALLER (:func:`play`'s turn loop), right after upkeep, in place
@@ -507,12 +512,14 @@ def _run_job_shift_screen(state, resolver: Resolver, inp: TerminalInput, out, rn
     any other fight.
     """
     render_screen_clear(out)
-    render_header(resolver.resolve("client.header.job"), out)
+    render_header(resolver.resolve("client.header.job"), out, colors)
     result = run_handler(HANDLERS["job.shift"], inp, state=state, rng=rng)
     return result.state  # adopt (run is pure)
 
 
-def _run_game_end_screen(runner, header: str, state, resolver: Resolver, out, rng: Rng) -> bool:
+def _run_game_end_screen(
+    runner, header: str, state, resolver: Resolver, colors: Colors, out, rng: Rng
+) -> bool:
     """Run a display-only game-end flow (standings or year-end) and show it as ONE screen.
 
     ``runner`` is :func:`engine.game_end.run_standings` or
@@ -537,8 +544,8 @@ def _run_game_end_screen(runner, header: str, state, resolver: Resolver, out, rn
     runner(state, input_source=collect, rng=rng)
 
     render_screen_clear(out)
-    render_header(header, out)
-    render_body("\n".join(resolver.resolve(m.key, m.params) for m in messages), out)
+    render_header(header, out, colors)
+    render_body("\n".join(resolver.resolve(m.key, m.params) for m in messages), out, colors)
     _write_press_any_key(resolver, out)
     return not _is_quit(_read_key())
 
@@ -594,8 +601,10 @@ class TerminalSession:
 
     ``sys.stdin``/``sys.stdout`` are read when the session is built (the session's
     :class:`TerminalInput` keeps that ``stdin``), so a caller replacing them must do so
-    first. ``resolver`` is the theme every screen is worded in (default: the config's
-    ``classic`` theme).
+    first. ``resolver`` is the theme every screen is worded in and ``palette`` the
+    colours it is drawn in (default: the config's ``classic`` theme for both). The
+    terminal's colour support is read from the environment once, here, into
+    :attr:`colors`: a session never switches colour mode half-way.
     """
 
     def __init__(
@@ -609,6 +618,7 @@ class TerminalSession:
         save: str | Path | None,
         watch_ai: bool,
         resolver: Resolver | None = None,
+        palette: Palette | None = None,
     ) -> None:
         self.out = sys.stdout
         self.state = None
@@ -620,6 +630,9 @@ class TerminalSession:
             resolver
             if resolver is not None
             else Resolver.from_config(_CONFIG_DIR, theme=_DEFAULT_THEME)
+        )
+        self.colors = Colors.detect(
+            palette if palette is not None else load_palette(_CONFIG_DIR, _DEFAULT_THEME)
         )
         self.cfg = load_game_config(_CONFIG_DIR)
 
@@ -639,6 +652,7 @@ class TerminalSession:
         self.ranges = cfg.config["input_ranges"]
         self.inp = TerminalInput(
             resolver=self.resolver,
+            colors=self.colors,
             stdin=sys.stdin,
             stdout=self.out,
             weapon_names=self.weapon_names,
@@ -684,7 +698,7 @@ class TerminalSession:
         out, resolver = self.out, self.resolver
         # Title screen
         out.write(CLEAR)
-        out.write(title_screen())
+        out.write(title_screen(self.colors))
         out.flush()
         _read_line_visible(sys.stdin, out)
 
@@ -721,7 +735,9 @@ class TerminalSession:
         # including the very first (before the map loop's first render), so no path
         # through this client can reach a free turn without it. Later turns run it
         # right after advance_turn rotates (in next_turn), at the exact same seam.
-        self.state = _run_upkeep_screen(self.state, resolver, out, self.rng, inp=self.inp)
+        self.state = _run_upkeep_screen(
+            self.state, resolver, self.colors, out, self.rng, inp=self.inp
+        )
         self.run_turns(resuming_free_turn=False)
 
     def resume_loaded_game(self) -> None:
@@ -756,14 +772,16 @@ class TerminalSession:
 
     def job_shift(self) -> None:
         """Run the employed active player's job shift in place of the free turn."""
-        self.state = _run_job_shift_screen(self.state, self.resolver, self.inp, self.out, self.rng)
+        self.state = _run_job_shift_screen(
+            self.state, self.resolver, self.colors, self.inp, self.out, self.rng
+        )
 
     def map_turn(self) -> bool:
         """Play the free turn on the map until ``ms`` runs out; ``False`` on a quit."""
         out = self.out
         while True:
             out.write(CLEAR)
-            render_map(self.city, self.city_raw, self.state, out, self.resolver)
+            render_map(self.city, self.city_raw, self.state, out, self.resolver, self.colors)
             out.write(f"{DIM}{self.note}{RESET}\n")
             out.flush()
             key = _read_key()
@@ -796,7 +814,14 @@ class TerminalSession:
                 key_for_la = self.la_to_key.get(payload.la)
                 if key_for_la is not None:
                     self.state = _run_location(
-                        key_for_la, payload.ln, self.state, self.resolver, self.inp, out, self.rng
+                        key_for_la,
+                        payload.ln,
+                        self.state,
+                        self.resolver,
+                        self.colors,
+                        self.inp,
+                        out,
+                        self.rng,
                     )
             if getattr(payload, "turn_over", False):
                 return True
@@ -825,7 +850,7 @@ class TerminalSession:
         assert self.state is not None, "state is set by setup or load before any turn"
         p = self.state.players[self.state.clock.active_player]
         render_screen_clear(out)
-        render_header(self.text("client.header.turn_over"), out)
+        render_header(self.text("client.header.turn_over"), out, self.colors)
         render_body(
             self.text(
                 "client.turn_over.summary",
@@ -838,6 +863,7 @@ class TerminalSession:
                 },
             ),
             out,
+            self.colors,
         )
         _write_press_any_key(self.resolver, out)
         if _is_quit(_read_key()):
@@ -863,7 +889,9 @@ class TerminalSession:
         # Upkeep for the NEW active player, right at the turn-start seam
         # advance_turn just opened — before this player's free turn (or job
         # shift) is offered.
-        self.state = _run_upkeep_screen(self.state, self.resolver, self.out, self.rng, inp=self.inp)
+        self.state = _run_upkeep_screen(
+            self.state, self.resolver, self.colors, self.out, self.rng, inp=self.inp
+        )
         return True
 
     def round_end(self, played) -> bool:
@@ -873,6 +901,7 @@ class TerminalSession:
             self.text("client.header.standings"),
             played,
             self.resolver,
+            self.colors,
             self.out,
             self.rng,
         ):
@@ -889,6 +918,7 @@ class TerminalSession:
             self.text("client.header.game_over"),
             self.state,
             self.resolver,
+            self.colors,
             self.out,
             self.rng,
         )
@@ -904,6 +934,7 @@ def play(
     save: str | Path | None = None,
     watch_ai: bool = False,
     resolver: Resolver | None = None,
+    palette: Palette | None = None,
 ) -> tuple:
     """Play the default config over real stdin/stdout; return the final ``(state, rng)``.
 
@@ -916,7 +947,9 @@ def play(
     player's map turn (no title, setup or upkeep); the new-game inputs are ignored.
     ``p`` on the map saves to ``save``, else the loaded file, else ``mafia-save.jsonl``.
     ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
-    ``resolver`` is the theme the session is worded in (default: the ``classic`` theme).
+    ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
+    drawn in (default: the ``classic`` theme's); the terminal's colour support is read
+    from ``$COLORTERM``/``$TERM`` once, when the session starts.
 
     Returns on EVERY exit -- quit, EOF, or the year-end ending. ``state`` is ``None``
     only if the session ends before setup finished.
@@ -930,5 +963,6 @@ def play(
         save=save,
         watch_ai=watch_ai,
         resolver=resolver,
+        palette=palette,
     )
     return session.run()

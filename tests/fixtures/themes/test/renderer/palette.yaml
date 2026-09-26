@@ -1,0 +1,5 @@
+# The test theme's own colours: two entries, merged over classic's palette, so a
+# test can tell a colour from this theme (red, light_grey) from one it leaves to
+# classic (dark_grey, the map border).
+red:        [1, 2, 3]
+light_grey: [4, 5, 6]

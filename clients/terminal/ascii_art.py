@@ -5,9 +5,8 @@ Pure functions, no game logic. Each returns a list of strings (one per line).
 
 from __future__ import annotations
 
-from clients.terminal.palette import fg, load_palette, RESET
+from clients.terminal.palette import RESET, Colors
 
-_PAL = load_palette()
 
 _TITLE = [
     "    __  __ _   _ _____  __  __  __  ",
@@ -98,16 +97,16 @@ _LOCATION_ART: dict[str, list[str]] = {
 }
 
 
-def title_art() -> list[str]:
-    """Return the MAFIA large block-letter title screen lines."""
-    red = fg("red", _PAL)
+def title_art(colors: Colors) -> list[str]:
+    """Return the MAFIA large block-letter title screen lines, in ``colors``' red."""
+    red = colors.fg("red")
     w = RESET
     return [f"{red}{line}{w}" for line in _TITLE]
 
 
-def title_screen() -> str:
+def title_screen(colors: Colors) -> str:
     """Full title screen: art + prompt."""
-    lines = title_art()
+    lines = title_art(colors)
     lines.append("   Druecke ENTER zum Starten.")
     return "\n".join(lines)
 

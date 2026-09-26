@@ -39,6 +39,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, TerminalSession, main, play
+from clients.terminal.palette import ColorSupport, Colors, load_palette
 from engine.config_loader import load_game_config
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
@@ -47,6 +48,9 @@ from engine.upkeep import run_upkeep
 from tests.helpers import deadline, make_walk_script
 
 _CONFIG_DIR = CONFIG_DIR
+
+#: The classic palette in truecolor, for tests that build a TerminalInput directly.
+_COLORS = Colors(load_palette(CONFIG_DIR), ColorSupport.TRUECOLOR)
 #: The map's walking keys, as a player presses them (the client's W/A/S/D binding).
 MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
 _MOVE_KEYS = MOVE_KEYS
@@ -444,7 +448,7 @@ class TestPubTipThroughClient:
         # seed=1: available(0), price roll 2 -> 2000$, tip id roll -> type 1 (no stake
         # sub-flow). "j" confirms the price.
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "tip", state, ln=2, input_source=inp, rng=Rng(1))
 
@@ -495,7 +499,7 @@ class TestPubRecruitThroughClient:
         # seed=15: offer pool rolls offered=1, candidate id 0 ("killer-jack",
         # price 3000$) -- "j" accepts the single offer.
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "recruit", state, ln=1, input_source=inp, rng=Rng(15))
 
@@ -531,7 +535,7 @@ class TestPubJobThroughClient:
         # seed=1: available (nonzero roll), job type 1 (bouncer), pay=2261$.
         # "j" accepts the pay confirm.
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "job", state, ln=2, input_source=inp, rng=Rng(1))
 
@@ -609,7 +613,11 @@ class TestJobShiftThroughClient:
         # Shift 1: trick 1, seed=1 -> success (bonus 372$), months_left 2 -> 1.
         out1 = io.StringIO()
         inp1 = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("1\n"), stdout=out1, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("1\n"),
+            stdout=out1,
+            weapon_names=[],
         )
         result1 = run_handler(HANDLERS["job.shift"], inp1, state=state, rng=Rng(1))
         assert result1.state.players[0].jobs == Job(type=2, pending_pay=1200, months_left=1)
@@ -620,7 +628,11 @@ class TestJobShiftThroughClient:
         # full wage (1200$) pays out once, job cleared.
         out2 = io.StringIO()
         inp2 = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("1\n"), stdout=out2, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("1\n"),
+            stdout=out2,
+            weapon_names=[],
         )
         result2 = run_handler(HANDLERS["job.shift"], inp2, state=result1.state, rng=Rng(1))
         assert result2.state.players[0].jobs == Job()  # cleared
@@ -842,7 +854,11 @@ class TestKdhLocationThroughClient:
         state = self._state()
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("2000\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("2000\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
         assert result.status == "completed"
@@ -852,7 +868,11 @@ class TestKdhLocationThroughClient:
         # 2. Repay in full -> grace counter clears too.
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("2000\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("2000\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
         assert result.state.players[0].debt == Debt()
@@ -861,7 +881,7 @@ class TestKdhLocationThroughClient:
         # 3. Buy the shop at this tile (seed=3: price rolls 5300$; "j" confirms).
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "trade", state, ln=1, input_source=inp, rng=Rng(3))
         assert result.state.players[0].business.shop_tile == 1
@@ -871,7 +891,11 @@ class TestKdhLocationThroughClient:
         # 4. Deposit 1000$ capital.
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("1000\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("1000\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "capital", state, ln=1, input_source=inp, rng=Rng(4))
         assert result.state.players[0].business.shop_capital == 1000
@@ -882,7 +906,11 @@ class TestKdhLocationThroughClient:
         # proves the collect flow drove a real fight through the real input loop.
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("surrender\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("surrender\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "collect", state, ln=1, input_source=inp, rng=Rng(5))
         assert result.status == "completed"
@@ -1005,6 +1033,7 @@ class TestInteractiveCombatThroughTerminalInput:
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
         inp = TerminalInput(
             resolver=resolver,
+            colors=_COLORS,
             stdin=io.StringIO("\n".join(keys) + "\n"),
             stdout=out,
             weapon_names=self._weapon_names(),
@@ -1073,7 +1102,7 @@ class TestInteractiveCombatThroughTerminalInput:
             "active_fighter": 1,
         }
         buf = io.StringIO()
-        render_combat_grid(payload, buf)
+        render_combat_grid(payload, buf, _COLORS)
         import re
 
         ansi_re = re.compile(r"\033\[[0-9;]*m")
@@ -1485,6 +1514,7 @@ class TestDebtDefaultThroughClient:
         out = io.StringIO()
         inp = TerminalInput(
             resolver=Resolver.from_config(_CONFIG_DIR, theme="classic"),
+            colors=_COLORS,
             stdin=io.StringIO("\n".join(keys) + "\n"),
             stdout=out,
             weapon_names=self._weapon_names(),
@@ -1510,7 +1540,11 @@ class TestDebtDefaultThroughClient:
         state = self._state(ka=20000)
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("3000\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("3000\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
         assert result.state.players[0].debt == Debt(amount=3000, months=6)
@@ -1555,7 +1589,11 @@ class TestDebtDefaultThroughClient:
         # Repay in full -> :15075 clears kr AND kz.
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, stdin=io.StringIO("3000\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("3000\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
         assert result.state.players[0].debt == Debt()

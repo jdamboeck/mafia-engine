@@ -1,21 +1,27 @@
 """C64 Pepto palette → ANSI escape code generators.
 
-Loads the palette from the game config's ``themes/<theme>/renderer/palette.yaml``
-(theme-level data, game-specific, theme-swappable). Provides ``fg(name)`` and
-``bg(name)`` functions that return ANSI escape sequences for foreground and
-background colors.
+Loads the palette from a theme's ``renderer/palette.yaml`` (theme-level data,
+game-specific, theme-swappable): :func:`load_palette` reads a config's theme,
+:func:`read_palette_overrides` the entries a selected theme sets over classic's.
+``fg(name, palette, support)`` and ``bg(...)`` return the ANSI escape sequences.
 
-Terminal capability detection: 24-bit truecolor, 256-color, or 8-color
-fallback based on ``$COLORTERM`` / ``$TERM`` environment variables.
+Terminal capability detection (:func:`term_color_support`): 24-bit truecolor,
+256-color, or 8-color fallback based on ``$COLORTERM`` / ``$TERM``. It is read
+once per session into a :class:`Colors` -- the palette and support the renderers
+take as an argument -- never per escape sequence.
 """
 
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
 import yaml
+
+#: Colour name -> ``(r, g, b)``.
+Palette = dict[str, tuple[int, int, int]]
 
 # ---------------------------------------------------------------------------
 # Pepto-accurate C64 palette (hardcoded fallback if YAML is missing)
@@ -88,6 +94,36 @@ def load_palette(
         return dict(_PEPTO_FALLBACK)
 
 
+def read_palette_overrides(theme_dir: str | Path) -> Palette:
+    """The colours a theme directory sets in its ``renderer/palette.yaml``.
+
+    The result is merged over classic's palette, the way a theme's strings merge
+    over classic's, so a theme restates only the colours it changes. No file means
+    no overrides (a theme need not recolour anything). Unlike :func:`load_palette`,
+    a file that is there but broken -- not a mapping, or an entry that is not three
+    0-255 integers -- raises ``ValueError`` naming the file: a theme the player
+    chose must not fail silently. Raises ``OSError``/``yaml.YAMLError`` as read.
+    """
+    path = Path(theme_dir) / "renderer" / "palette.yaml"
+    if not path.is_file():
+        return {}
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path}: expected a mapping of colour names to [r, g, b]")
+    result: Palette = {}
+    for name, rgb in raw.items():
+        if not (
+            isinstance(rgb, list)
+            and len(rgb) == 3
+            and all(type(c) is int and 0 <= c <= 255 for c in rgb)
+        ):
+            raise ValueError(f"{path}: {name}: expected [r, g, b] with 0-255 integers")
+        result[str(name)] = (rgb[0], rgb[1], rgb[2])
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Terminal color capability detection
 # ---------------------------------------------------------------------------
@@ -105,9 +141,9 @@ _FALLBACK_RGB: tuple[int, int, int] = (128, 128, 128)
 def term_color_support() -> ColorSupport:
     """Detect terminal color support from ``$COLORTERM`` and ``$TERM``.
 
-    Returns the best supported mode. Defaults to TRUECOLOR if unknown.
-    Read from the environment on every call (no cache): two dict lookups are
-    cheap, and the environment is the only input.
+    Returns the best supported mode. Defaults to TRUECOLOR if unknown. Reads the
+    environment on every call and caches nothing; callers call it once (a session
+    builds its :class:`Colors` with :meth:`Colors.detect`) and pass the result on.
     """
     ct = os.environ.get("COLORTERM", "").lower()
     term = os.environ.get("TERM", "").lower()
@@ -166,12 +202,8 @@ _BASIC_8: dict[str, int] = {
 # ---------------------------------------------------------------------------
 
 
-def fg(
-    color_name: str, palette: dict[str, tuple[int, int, int]], support: ColorSupport | None = None
-) -> str:
+def fg(color_name: str, palette: Palette, support: ColorSupport) -> str:
     """Return the ANSI foreground escape sequence for *color_name*."""
-    if support is None:
-        support = term_color_support()
     r, g, b = palette.get(color_name, _PEPTO_FALLBACK.get(color_name, _FALLBACK_RGB))
     if support == ColorSupport.TRUECOLOR:
         return f"\033[38;2;{r};{g};{b}m"
@@ -183,12 +215,8 @@ def fg(
     return f"\033[{30 + code}m"
 
 
-def bg(
-    color_name: str, palette: dict[str, tuple[int, int, int]], support: ColorSupport | None = None
-) -> str:
+def bg(color_name: str, palette: Palette, support: ColorSupport) -> str:
     """Return the ANSI background escape sequence for *color_name*."""
-    if support is None:
-        support = term_color_support()
     r, g, b = palette.get(color_name, _PEPTO_FALLBACK.get(color_name, _FALLBACK_RGB))
     if support == ColorSupport.TRUECOLOR:
         return f"\033[48;2;{r};{g};{b}m"
@@ -198,6 +226,33 @@ def bg(
     # 8-color fallback
     code = _BASIC_8.get(color_name, 7)
     return f"\033[{40 + code}m"
+
+
+@dataclass(frozen=True)
+class Colors:
+    """A session's colours: the theme's palette and the terminal's colour support.
+
+    Built once per session (:meth:`detect`) and passed to every renderer, like the
+    resolver, so a frame never re-reads the environment and never switches colour
+    mode half-way. Tests control the support through ``$COLORTERM``/``$TERM``, read
+    when the session starts, or build one directly.
+    """
+
+    palette: Palette
+    support: ColorSupport
+
+    @classmethod
+    def detect(cls, palette: Palette) -> Colors:
+        """``palette`` with the colour support the environment reports now."""
+        return cls(palette, term_color_support())
+
+    def fg(self, color_name: str) -> str:
+        """The foreground escape for ``color_name``."""
+        return fg(color_name, self.palette, self.support)
+
+    def bg(self, color_name: str) -> str:
+        """The background escape for ``color_name``."""
+        return bg(color_name, self.palette, self.support)
 
 
 # ---------------------------------------------------------------------------

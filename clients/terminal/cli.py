@@ -1,7 +1,8 @@
 """The terminal client's command line: ``main()``, its flags, theme loading, the error guard.
 
-Parses the flags, checks them against the config's ``input_ranges``, words every line
-in the chosen theme (``--theme NAME|PATH``, merged over ``classic``) and hands over to
+Parses the flags, checks them against the config's ``input_ranges``, words and colours
+every screen in the chosen theme (``--theme NAME|PATH``, merged over ``classic``) and
+hands over to
 :func:`clients.terminal.session.play`. Known failures -- a broken theme or config, a
 save that cannot be loaded (``--load``), an out-of-range flag -- end in one readable
 stderr line, never a traceback.
@@ -24,6 +25,7 @@ import yaml
 from engine.config_loader import load_config
 from engine.strings import Resolver
 
+from clients.terminal.palette import Palette, load_palette, read_palette_overrides
 from clients.terminal.session import (
     _CONFIG_DIR,
     _DEFAULT_SAVE,
@@ -99,7 +101,7 @@ def main(argv: list[str] | None = None) -> None:
     # From here on every line is worded in the chosen theme. An unknown or broken
     # theme is a known failure: one line, not a traceback.
     try:
-        resolver = _load_theme(args.theme, resolver)
+        resolver, palette = _load_theme(args.theme, resolver)
     except (OSError, yaml.YAMLError, ValueError) as exc:
         _die(text("theme_error", theme=args.theme, error=exc))
     if args.load is not None:
@@ -153,6 +155,7 @@ def main(argv: list[str] | None = None) -> None:
             save=args.save,
             watch_ai=args.watch_ai,
             resolver=resolver,
+            palette=palette,
         )
     except LoadError as exc:
         _die(str(exc))
@@ -160,23 +163,33 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(130)  # 128 + SIGINT, the shell convention; no traceback, no message
 
 
-def _load_theme(value: str, classic: Resolver) -> Resolver:
-    """The resolver for ``--theme VALUE``: that theme deep-merged over ``classic``.
+def _load_theme(value: str, classic: Resolver) -> tuple[Resolver, Palette]:
+    """The strings and palette for ``--theme VALUE``, each merged over ``classic``'s.
 
-    A value containing a path separator, or naming an existing directory, is a theme
-    directory (:meth:`Resolver.from_directory`); anything else names a theme of the
-    game config (``themes/<name>``). Merging over ``classic`` lets a theme reword a
-    few keys without restating the rest. Raises ``OSError``, ``yaml.YAMLError`` or
-    ``ValueError`` when the theme cannot be loaded.
+    A path-shaped value -- one containing a path separator, or starting with ``.`` or
+    ``~`` -- is a theme directory; any other value names a theme of the game config
+    (``themes/<name>``), whatever the current directory holds, so a ``classic/``
+    folder in the working directory never shadows the default theme. The theme's
+    ``strings/`` are merged over classic's (:meth:`Resolver.from_directory`,
+    :meth:`Resolver.with_override`), and its ``renderer/palette.yaml``, if any, over
+    classic's palette, so a theme restates only what it changes. Raises ``OSError``,
+    ``yaml.YAMLError`` or ``ValueError`` when the theme cannot be loaded.
     """
-    separators = [sep for sep in (os.sep, os.altsep) if sep]
-    if any(sep in value for sep in separators) or Path(value).is_dir():
-        theme = Resolver.from_directory(value)
+    classic_palette = load_palette(_CONFIG_DIR, _DEFAULT_THEME)
+    if _is_theme_path(value):
+        theme_dir = Path(value).expanduser()
     elif value == _DEFAULT_THEME:
-        return classic
+        return classic, classic_palette
     else:
-        theme = Resolver.from_config(_CONFIG_DIR, theme=value)
-    return classic.with_override(theme.tree)
+        theme_dir = _CONFIG_DIR / "themes" / value
+    strings = classic.with_override(Resolver.from_directory(theme_dir).tree)
+    return strings, {**classic_palette, **read_palette_overrides(theme_dir)}
+
+
+def _is_theme_path(value: str) -> bool:
+    """Whether ``--theme VALUE`` is a directory path rather than a config theme name."""
+    separators = [sep for sep in (os.sep, os.altsep) if sep]
+    return any(sep in value for sep in separators) or value.startswith((".", "~"))
 
 
 def _die(message: str) -> NoReturn:

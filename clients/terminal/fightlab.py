@@ -51,6 +51,7 @@ from engine.scenario import Scenario
 from engine.strings import Resolver
 
 from clients.terminal import TerminalInput
+from clients.terminal.palette import Colors, load_palette
 from clients.terminal.session import _read_key
 from clients.terminal.renderers import (
     render_combat_grid,
@@ -386,8 +387,11 @@ def play(
 
     scenario = load_scenario(scenario_path, seed=seed)
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    colors = Colors.detect(load_palette(_CONFIG_DIR, "classic"))
     weapon_names = _weapon_names()
-    inp = TerminalInput(resolver=resolver, stdin=stdin, stdout=out, weapon_names=weapon_names)
+    inp = TerminalInput(
+        resolver=resolver, colors=colors, stdin=stdin, stdout=out, weapon_names=weapon_names
+    )
 
     drivers = {1: HumanDriver(), 2: AiDriver()}
     from engine.rng import Rng
@@ -428,6 +432,7 @@ def _render_activation(
     index: int,
     *,
     resolver: Resolver,
+    colors: Colors,
     weapon_names: list[str],
     out: TextIO,
 ) -> None:
@@ -451,8 +456,8 @@ def _render_activation(
     render_screen_clear(out)
     action = getattr(event, "decision", {}).get("action", event.kind)
     out.write(f"-- activation {index} / {len(recording.events) - 1} | {event.kind}:{action} --\n")
-    render_combat_grid(payload, out)
-    render_fighter_panel(payload, resolver, weapon_names, out)
+    render_combat_grid(payload, out, colors)
+    render_fighter_panel(payload, resolver, weapon_names, out, colors)
     out.flush()
 
 
@@ -503,6 +508,7 @@ def watch(
     # Re-attach live rules so a divergence check can re-run the real formulas.
     recording = load_recording(recording_path, rules=combat_rules.build_rules())
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    colors = Colors.detect(load_palette(_CONFIG_DIR, "classic"))
     weapon_names = _weapon_names()
 
     # The divergence verdict (over the whole recording) — checked once; a diverged
@@ -515,7 +521,14 @@ def watch(
         return
 
     def show(index: int) -> None:
-        _render_activation(recording, index, resolver=resolver, weapon_names=weapon_names, out=out)
+        _render_activation(
+            recording,
+            index,
+            resolver=resolver,
+            colors=colors,
+            weapon_names=weapon_names,
+            out=out,
+        )
         event = recording.events[index]
         if debug and event.kind == "activation" and event.decision.get("action") == "shoot":
             prev = recording.events[index - 1].snapshot if index > 0 else None

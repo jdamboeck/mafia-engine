@@ -4,7 +4,9 @@ Each function styles text by **role** (header, body, menu option, status bar,
 etc.).  Strings stay pure text; the renderer decides presentation.  No inline
 format codes — the renderer owns all ANSI styling.
 
-All functions write to an injected ``TextIO`` for testability.
+All functions write to an injected ``TextIO`` for testability. Colours come from
+the session's :class:`~clients.terminal.palette.Colors` (the theme's palette and the
+terminal's colour support, resolved once per session), passed in like the resolver.
 """
 
 from __future__ import annotations
@@ -23,9 +25,7 @@ from clients.terminal.palette import (
     RESET_BG,
     RESET_FG,
     REVERSE,
-    bg,
-    fg,
-    load_palette,
+    Colors,
 )
 from clients.terminal import CLEAR, client_text
 
@@ -55,35 +55,6 @@ def _term_width() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Palette (loaded from theme config)
-# ---------------------------------------------------------------------------
-
-# Lazy-loaded palette dict.  Call _get_palette() to access.
-_PAL: dict[str, tuple[int, int, int]] | None = None
-
-
-def _get_palette(
-    config_dir: Path | None = None, theme: str = "classic"
-) -> dict[str, tuple[int, int, int]]:
-    global _PAL
-    if _PAL is None:
-        if config_dir is not None:
-            _PAL = load_palette(config_dir, theme)
-        else:
-            # Fallback: load from the known default config path.
-            from clients.terminal import CONFIG_DIR
-
-            _PAL = load_palette(CONFIG_DIR, theme)
-    return _PAL
-
-
-def set_palette(palette: dict[str, tuple[int, int, int]]) -> None:
-    """Override the palette (for testing or runtime theme swaps)."""
-    global _PAL
-    _PAL = palette
-
-
-# ---------------------------------------------------------------------------
 # Role-based render functions
 # ---------------------------------------------------------------------------
 
@@ -99,7 +70,7 @@ def render_separator(out: TextIO) -> None:
     out.write(f"{DIM}{'─' * width}{RESET_ALL}\n")
 
 
-def render_header(text: str, out: TextIO) -> None:
+def render_header(text: str, out: TextIO, colors: Colors) -> None:
     """Full-width double-line box header with centered text.
 
     ``╔══════════════════ SCHLUPFWINKEL ══════════════════╗``
@@ -111,39 +82,34 @@ def render_header(text: str, out: TextIO) -> None:
     pad_total = max(0, inner_width - len(text) - 2)  # -2 for the spaces around text
     left_pad = pad_total // 2
     right_pad = pad_total - left_pad
-    pal = _get_palette()
-    out.write(f"{fg('light_grey', pal)}╔{'═' * left_pad}  {text}  {'═' * right_pad}╗{RESET_FG}\n")
+    out.write(f"{colors.fg('light_grey')}╔{'═' * left_pad}  {text}  {'═' * right_pad}╗{RESET_FG}\n")
 
 
-def render_subheader(text: str, out: TextIO) -> None:
+def render_subheader(text: str, out: TextIO, colors: Colors) -> None:
     """Single-line centered subheader: ``──── text ────``"""
     width = _term_width()
     pad_total = max(0, width - len(text) - 2)  # -2 for the spaces around text
     left_pad = pad_total // 2
     right_pad = pad_total - left_pad
-    pal = _get_palette()
     out.write(
-        f"{DIM}{fg('light_grey', pal)}{'─' * left_pad}  {text}  {'─' * right_pad}{RESET_ALL}\n"
+        f"{DIM}{colors.fg('light_grey')}{'─' * left_pad}  {text}  {'─' * right_pad}{RESET_ALL}\n"
     )
 
 
-def render_body(text: str, out: TextIO) -> None:
+def render_body(text: str, out: TextIO, colors: Colors) -> None:
     """Normal body text in light grey."""
-    pal = _get_palette()
-    out.write(f"{fg('light_grey', pal)}{text}{RESET_FG}\n")
+    out.write(f"{colors.fg('light_grey')}{text}{RESET_FG}\n")
 
 
-def render_colored(text: str, color_name: str, out: TextIO) -> None:
+def render_colored(text: str, color_name: str, out: TextIO, colors: Colors) -> None:
     """Text in a specific Pepto palette color."""
-    pal = _get_palette()
-    out.write(f"{fg(color_name, pal)}{text}{RESET_FG}\n")
+    out.write(f"{colors.fg(color_name)}{text}{RESET_FG}\n")
 
 
-def render_menu_option(index: int, label: str, out: TextIO) -> None:
+def render_menu_option(index: int, label: str, out: TextIO, colors: Colors) -> None:
     """Numbered menu option: blue index, light grey label."""
-    pal = _get_palette()
     out.write(
-        f"  {fg('light_blue', pal)}{index}){RESET_FG} {fg('light_grey', pal)}{label}{RESET_FG}\n"
+        f"  {colors.fg('light_blue')}{index}){RESET_FG} {colors.fg('light_grey')}{label}{RESET_FG}\n"
     )
 
 
@@ -160,6 +126,7 @@ def render_status_bar(
     ms: int,
     out: TextIO,
     resolver: Resolver,
+    colors: Colors,
 ) -> None:
     """Full-width reverse-video status bar with player name.
 
@@ -173,11 +140,12 @@ def render_status_bar(
         resolver=resolver,
     )
     padded = bar.center(width)
-    pal = _get_palette()
-    out.write(f"{REVERSE}{bg('brown', pal)}{fg('light_grey', pal)}{padded}{RESET_ALL}\n")
+    out.write(f"{REVERSE}{colors.bg('brown')}{colors.fg('light_grey')}{padded}{RESET_ALL}\n")
 
 
-def render_status_bar_from_state(state: Any, out: TextIO, resolver: Resolver) -> None:
+def render_status_bar_from_state(
+    state: Any, out: TextIO, resolver: Resolver, colors: Colors
+) -> None:
     """Convenience wrapper: extract player info from GameState and render."""
     if state is None or not state.players:
         return
@@ -193,14 +161,14 @@ def render_status_bar_from_state(state: Any, out: TextIO, resolver: Resolver) ->
         ms=p.ms,
         out=out,
         resolver=resolver,
+        colors=colors,
     )
 
 
-def render_map_frame(map_lines: list[str], out: TextIO) -> None:
+def render_map_frame(map_lines: list[str], out: TextIO, colors: Colors) -> None:
     """40×25 map wrapped in a full-width light_blue background band."""
     width = _term_width()
-    pal = _get_palette()
-    bg_code = bg("light_blue", pal)
+    bg_code = colors.bg("light_blue")
     reset_bg = RESET_BG
     for line in map_lines:
         padded = line.ljust(width)
@@ -226,7 +194,7 @@ _DOWN_CHAR = "x"
 _ACTIVE_WALL_CODES = (160, 156)  # mirrors engine.combat.SHOT_WALL_CODES
 
 
-def render_combat_grid(payload: dict, out: TextIO) -> None:
+def render_combat_grid(payload: dict, out: TextIO, colors: Colors) -> None:
     """Render one ``CombatScreen.to_json()`` payload's 40×13 grid.
 
     Draws walls from ``payload["grid"]`` (a linear 0..520 code array; missing/short
@@ -241,7 +209,6 @@ def render_combat_grid(payload: dict, out: TextIO) -> None:
     ``engine.combat``/``engine.state`` import -- so the client never depends on
     combat's internal representation, only its wire shape.
     """
-    pal = _get_palette()
     grid = payload.get("grid") or []
     sides = payload.get("sides") or [[], []]
     active_side = payload.get("active_side", 1)
@@ -265,11 +232,11 @@ def render_combat_grid(payload: dict, out: TextIO) -> None:
             cell = row * COMBAT_GRID_COLS + col
             if cell in occupied:
                 side_idx, ch, is_active = occupied[cell]
-                color = fg(side_colors.get(side_idx, "white"), pal)
+                color = colors.fg(side_colors.get(side_idx, "white"))
                 prefix = REVERSE if is_active else ""
                 chars.append(f"{prefix}{color}{ch}{RESET_ALL}")
             elif cell < len(grid) and grid[cell] in _ACTIVE_WALL_CODES:
-                chars.append(f"{fg('dark_grey', pal)}#{RESET_FG}")
+                chars.append(f"{colors.fg('dark_grey')}#{RESET_FG}")
             else:
                 chars.append(" ")
         out.write("".join(chars) + "\n")
@@ -280,6 +247,7 @@ def render_fighter_panel(
     resolver: Any,
     weapon_names: list[str],
     out: TextIO,
+    colors: Colors,
 ) -> None:
     """Render the active fighter's stat panel (``mf-prg.bas:30115-30116``): name,
     weapon, then one line per attribute -- all resolved through the theme's
@@ -302,13 +270,12 @@ def render_fighter_panel(
     key simply omits that line.
     """
     fighter = payload.get("fighter")
-    pal = _get_palette()
     if fighter is None:
         return
     name = fighter.get("name", "")
     weapon_id = fighter.get("weapon", 0)
     weapon_name = weapon_names[weapon_id] if 0 <= weapon_id < len(weapon_names) else str(weapon_id)
-    out.write(f"{fg('light_grey', pal)}{name}{RESET_FG}\n")
+    out.write(f"{colors.fg('light_grey')}{name}{RESET_FG}\n")
     out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
 
     # The depleting resource is the engine's ``vitality`` slot; the theme labels it in
@@ -358,7 +325,7 @@ def _theme_has(resolver: Any, key: str) -> bool:
     return False
 
 
-def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:
+def render_combat_message(payload: dict, resolver: Any, out: TextIO, colors: Colors) -> None:
     """Render the screen's ``message`` field, if any.
 
     ``message`` is either a bare key string (``"illegal_move"``/``"unknown_action"``)
@@ -370,7 +337,6 @@ def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:
     message = payload.get("message")
     if message is None:
         return
-    pal = _get_palette()
     if isinstance(message, str):
         text = resolver.resolve(f"combat.{message}")
     elif isinstance(message, dict):
@@ -389,7 +355,7 @@ def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:
             text = resolver.resolve("combat.hit")
     else:
         return
-    out.write(f"{fg('yellow', pal)}{text}{RESET_FG}\n")
+    out.write(f"{colors.fg('yellow')}{text}{RESET_FG}\n")
 
 
 def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:
