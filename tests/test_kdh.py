@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from engine.combat import STEP_RIGHT
 from engine.config_loader import load_game_config
 from engine.effects import (
     DebtChange,
@@ -409,8 +410,13 @@ def test_collect_loss_costs_nothing():
 
 
 def test_collect_win_loots_500_to_1499_and_scores_2():
-    """Uses the REAL engine RNG to actually resolve a fight to a win, then checks
-    the loot lands in the documented 500-1499 range and the score effect is +2."""
+    """Uses the REAL engine RNG to resolve the ambush to a player win, then checks the
+    loot lands in the documented 500-1499 range (:15320) and the score is +2 (:15321).
+
+    The shots are AIMED (``("shoot", STEP_RIGHT)``): a pass deals no damage, so a
+    pass-only script can never win. Seed 0 is pinned because it reaches the win within
+    the scripted shots; the assertions are unconditional, so a fight that stops being
+    won fails here instead of passing vacuously."""
     roster = (Gangster(name="p0", energie=100, kraft=50, brutalitaet=50, weapon=8),)
     st = _state(
         [
@@ -422,17 +428,13 @@ def test_collect_win_loots_500_to_1499_and_scores_2():
             )
         ]
     )
-    rng = Rng(7)
-    keys = ["pass"] * 60 + ["surrender"]
-    result = run_pure(HANDLERS["kdh.collect"], _scripted(*keys), state=st, rng=rng)
+    keys = [("shoot", STEP_RIGHT)] * 40 + ["surrender"]
+    result = run_pure(HANDLERS["kdh.collect"], _scripted(*keys), state=st, rng=Rng(0))
     money_changes = [e for e in result.effects if isinstance(e, MoneyChange)]
     score_changes = [e for e in result.effects if isinstance(e, ScoreAndRank)]
-    if money_changes:
-        # A win occurred within the scripted window.
-        assert 500 <= money_changes[0].amount <= 1499
-        assert score_changes == [ScoreAndRank(amount=2.0, rank_divisor=11.1)]
-    # Either way (win or the scripted surrender arrives first), the harness's own
-    # purity/replay assertions already passed via run_pure above.
+    assert len(money_changes) == 1, "seed 0 must reach the ambush win"
+    assert 500 <= money_changes[0].amount <= 1499
+    assert score_changes == [ScoreAndRank(amount=2.0, rank_divisor=11.1)]
 
 
 # --------------------------------------------------------------------------- #
