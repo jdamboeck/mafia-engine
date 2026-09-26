@@ -1,4 +1,4 @@
-"""U1 — client-loop test harness: drives the REAL ``clients.terminal.__main__.play()``
+"""U1 — client-loop test harness: drives the REAL ``clients.terminal.play()``
 input loop over piped stdin, per
 ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
 
@@ -38,14 +38,18 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import clients.terminal.__main__ as tmain
+from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, TerminalSession, main, play
 from engine.config_loader import load_game_config
+from engine.locations import load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
+from engine.rng import Rng
 from engine.upkeep import run_upkeep
 from tests.helpers import deadline, make_walk_script
 
-_CONFIG_DIR = tmain._CONFIG_DIR
-_MOVE_KEYS = tmain._MOVE_KEYS  # {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+_CONFIG_DIR = CONFIG_DIR
+#: The map's walking keys, as a player presses them (the client's W/A/S/D binding).
+MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+_MOVE_KEYS = MOVE_KEYS
 _DELTA_TO_KEY = {v: k for k, v in _MOVE_KEYS.items()}
 
 # Load the config HERE, at import (#46). Loading it registers this config's handlers
@@ -149,6 +153,12 @@ def walk_keys_across_turns(state, city, vehicles, target_cell: int) -> list[str]
     return out
 
 
+def load_shell(location_key: str):
+    """A location's shell, loaded from the config the client plays."""
+    path = _CONFIG_DIR / "content" / "locations" / f"{location_key}.yaml"
+    return load_location(yaml.safe_load(path.read_text(encoding="utf-8")))
+
+
 def load_city_raw(config_dir: Path = _CONFIG_DIR) -> dict:
     return yaml.safe_load(
         (config_dir / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
@@ -186,7 +196,7 @@ def run_play(
     monkeypatch.setattr(sys, "stdout", out)
     # KTD-4: supply both setup answers (the pre-U5 hardcoded values) so play() skips
     # the end-year / score-weight prompts and every existing key script stays valid.
-    tmain.play(seed=seed, players=players, end_year=1930, score_weight=1.0)
+    play(seed=seed, players=players, end_year=1930, score_weight=1.0)
     return out.getvalue()
 
 
@@ -428,12 +438,12 @@ class TestPubTipThroughClient:
         from engine.strings import Resolver
 
         state = self._state(rank=4, ka=100000)
-        shell = tmain._load_shell("pub")
+        shell = load_shell("pub")
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
         out = io.StringIO()
         # seed=1: available(0), price roll 2 -> 2000$, tip id roll -> type 1 (no stake
         # sub-flow). "j" confirms the price.
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "tip", state, ln=2, input_source=inp, rng=Rng(1))
@@ -479,12 +489,12 @@ class TestPubRecruitThroughClient:
         from engine.strings import Resolver
 
         state = self._state(rank=5, ka=100000, housed=True)
-        shell = tmain._load_shell("pub")
+        shell = load_shell("pub")
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
         out = io.StringIO()
         # seed=15: offer pool rolls offered=1, candidate id 0 ("killer-jack",
         # price 3000$) -- "j" accepts the single offer.
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "recruit", state, ln=1, input_source=inp, rng=Rng(15))
@@ -515,12 +525,12 @@ class TestPubJobThroughClient:
         from engine.strings import Resolver
 
         state = new_state(1)
-        shell = tmain._load_shell("pub")
+        shell = load_shell("pub")
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
         out = io.StringIO()
         # seed=1: available (nonzero roll), job type 1 (bouncer), pay=2261$.
         # "j" accepts the pay confirm.
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "job", state, ln=2, input_source=inp, rng=Rng(1))
@@ -598,7 +608,7 @@ class TestJobShiftThroughClient:
 
         # Shift 1: trick 1, seed=1 -> success (bonus 372$), months_left 2 -> 1.
         out1 = io.StringIO()
-        inp1 = tmain.TerminalInput(
+        inp1 = TerminalInput(
             resolver=resolver, stdin=io.StringIO("1\n"), stdout=out1, weapon_names=[]
         )
         result1 = run_handler(HANDLERS["job.shift"], inp1, state=state, rng=Rng(1))
@@ -609,7 +619,7 @@ class TestJobShiftThroughClient:
         # Shift 2: trick 1, seed=1 again -> success again, months_left hits 0 ->
         # full wage (1200$) pays out once, job cleared.
         out2 = io.StringIO()
-        inp2 = tmain.TerminalInput(
+        inp2 = TerminalInput(
             resolver=resolver, stdin=io.StringIO("1\n"), stdout=out2, weapon_names=[]
         )
         result2 = run_handler(HANDLERS["job.shift"], inp2, state=result1.state, rng=Rng(1))
@@ -825,13 +835,13 @@ class TestKdhLocationThroughClient:
         from engine.state import Debt
         from engine.strings import Resolver
 
-        shell = tmain._load_shell("kdh")
+        shell = load_shell("kdh")
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
 
         # 1. Borrow 2000$ (seed=1: no rng draw needed, borrow has none).
         state = self._state()
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("2000\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
@@ -841,7 +851,7 @@ class TestKdhLocationThroughClient:
 
         # 2. Repay in full -> grace counter clears too.
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("2000\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
@@ -850,7 +860,7 @@ class TestKdhLocationThroughClient:
 
         # 3. Buy the shop at this tile (seed=3: price rolls 5300$; "j" confirms).
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "trade", state, ln=1, input_source=inp, rng=Rng(3))
@@ -860,7 +870,7 @@ class TestKdhLocationThroughClient:
 
         # 4. Deposit 1000$ capital.
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("1000\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "capital", state, ln=1, input_source=inp, rng=Rng(4))
@@ -871,7 +881,7 @@ class TestKdhLocationThroughClient:
         # ambush fires). Reaching the combat screen (not the "paid on time" message)
         # proves the collect flow drove a real fight through the real input loop.
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("surrender\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "collect", state, ln=1, input_source=inp, rng=Rng(5))
@@ -993,7 +1003,7 @@ class TestInteractiveCombatThroughTerminalInput:
 
         out = io.StringIO()
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver,
             stdin=io.StringIO("\n".join(keys) + "\n"),
             stdout=out,
@@ -1347,7 +1357,7 @@ class TestTurnOverScreenRendersCorrectValues:
         upkept = run_upkeep(state, input_source=lambda i: None, rng=rng).state
         expected_state = upkept
         for key in walk:
-            delta = tmain._MOVE_KEYS.get(key)
+            delta = MOVE_KEYS.get(key)
             if delta is None:
                 continue
             result = try_move(expected_state, city, delta)
@@ -1473,7 +1483,7 @@ class TestDebtDefaultThroughClient:
         from engine.strings import Resolver
 
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=Resolver.from_config(_CONFIG_DIR, theme="classic"),
             stdin=io.StringIO("\n".join(keys) + "\n"),
             stdout=out,
@@ -1493,13 +1503,13 @@ class TestDebtDefaultThroughClient:
         from engine.state import Debt
         from engine.strings import Resolver
 
-        shell = tmain._load_shell("kdh")
+        shell = load_shell("kdh")
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
 
         # --- borrow 3000$ at kdh through the real input loop -------------------
         state = self._state(ka=20000)
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("3000\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
@@ -1537,14 +1547,14 @@ class TestDebtDefaultThroughClient:
         from engine.state import Debt
         from engine.strings import Resolver
 
-        shell = tmain._load_shell("kdh")
+        shell = load_shell("kdh")
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
 
         state = self._state(ka=20000, debt=Debt(amount=3000, months=3))
 
         # Repay in full -> :15075 clears kr AND kz.
         out = io.StringIO()
-        inp = tmain.TerminalInput(
+        inp = TerminalInput(
             resolver=resolver, stdin=io.StringIO("3000\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
@@ -1642,7 +1652,7 @@ def run_play_returning(
     monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
-        ret = tmain.play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
+        ret = play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
     return out.getvalue(), ret
 
 
@@ -1675,31 +1685,18 @@ class TestRoundStandingsAndEnding:
     def test_ae5_game_ends_after_36_rounds_with_the_winner(self, monkeypatch):
         import time
 
-        calls: list[int] = []
-        real_advance = tmain.advance_turn
-
-        def spy(state, vehicles):
-            calls.append(1)
-            return real_advance(state, vehicles)
-
-        upkeeps: list[int] = []
-        real_upkeep = tmain.run_upkeep
-
-        def upkeep_spy(state, **kw):
-            upkeeps.append(1)
-            return real_upkeep(state, **kw)
-
-        monkeypatch.setattr(tmain, "advance_turn", spy)
-        monkeypatch.setattr(tmain, "run_upkeep", upkeep_spy)
         keys = burn_turn_keys(42, end_year=1928)
         t0 = time.monotonic()
         output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, end_year=1928)
         elapsed = time.monotonic() - t0
 
-        assert len(calls) == 36, f"advance_turn called {len(calls)}x, expected 36"
+        # One turn-over screen per advance: 36 turns, and no 37th.
+        turn_overs = output.count("  turn_over  ")
+        assert turn_overs == 36, f"{turn_overs} turn-over screens, expected 36"
         # Turns started = the first turn + one per non-final advance = 1 + 35 = 36.
         # The 36th advance reports game_over, so no 37th turn (and no upkeep) starts.
-        assert len(upkeeps) == 36, f"upkeep ran {len(upkeeps)}x, expected 36"
+        upkeeps = output.count("  upkeep  ")
+        assert upkeeps == 36, f"{upkeeps} upkeep screens, expected 36"
         winner_at = output.rindex("alcapone hat gewonnen!")
         tail = output[winner_at:]
         for later in ("turn_over", "upkeep", "spielstand", "bye."):
@@ -1710,7 +1707,7 @@ class TestRoundStandingsAndEnding:
         assert "spielstand 1928-1\n" in output
         state, rng = ret
         assert state.clock.year == 1928 and state.clock.month == 0
-        assert isinstance(rng, tmain.Rng)
+        assert isinstance(rng, Rng)
         assert elapsed < 30, f"AE5 run took {elapsed:.1f}s"
 
     def test_eof_at_the_result_screen_exits_cleanly(self, monkeypatch):
@@ -1740,7 +1737,7 @@ class TestRoundStandingsAndEnding:
         output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=["q"])
         assert "bye." in output
         state, rng = ret
-        assert isinstance(state, GameState) and isinstance(rng, tmain.Rng)
+        assert isinstance(state, GameState) and isinstance(rng, Rng)
         assert state.clock.year == 1925 and state.clock.month == 0
 
     def test_play_returns_state_and_rng_on_eof_mid_handler(self, monkeypatch):
@@ -1754,7 +1751,7 @@ class TestRoundStandingsAndEnding:
         assert "dein einsatz" in output.lower(), "never reached the wager prompt"
         assert "bye." in output
         state, rng = ret
-        assert isinstance(state, GameState) and isinstance(rng, tmain.Rng)
+        assert isinstance(state, GameState) and isinstance(rng, Rng)
 
     def test_idle_upkeep_never_asks_across_the_game(self):
         """The finding :func:`burn_turn_keys` relies on: over all 36 rounds to 1928, an
@@ -1800,7 +1797,7 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
-        ret = tmain.play(**play_kwargs)
+        ret = play(**play_kwargs)
     return out.getvalue(), ret
 
 
@@ -1918,26 +1915,24 @@ class TestSaveAndLoad:
         assert rng_b.log == rng_a.log
 
     def test_load_skips_title_setup_and_upkeep(self, monkeypatch, tmp_path):
+        """AE3: a loaded game opens on the map -- no title, no setup, no upkeep banner --
+        and, quit at once, returns exactly the state that was saved."""
+        from engine.persistence import load_game
+
         save = tmp_path / "s.jsonl"
         (step, _), (cell, _) = _two_steps()
-        _run_session(monkeypatch, _new_game_lines([step, "p", "q"]), save=str(save), **self._NEW)
+        new_out, _ = _run_session(
+            monkeypatch, _new_game_lines([step, "p", "q"]), save=str(save), **self._NEW
+        )
+        assert "ist an der reihe" in new_out, "a new game's upkeep banner is the contrast"
 
-        calls = []
-        real = tmain.run_upkeep
-        monkeypatch.setattr(tmain, "run_upkeep", lambda *a, **k: calls.append(a) or real(*a, **k))
-        rendered = []
-        real_render = tmain.render_map
-
-        def spy_render(*a, **k):
-            rendered.append(list(calls))  # upkeep calls seen BEFORE this render
-            return real_render(*a, **k)
-
-        monkeypatch.setattr(tmain, "render_map", spy_render)
         out, (state, _rng) = _run_session(monkeypatch, ["q"], load=str(save))
-        assert rendered and rendered[0] == [], "upkeep ran before the first map render"
-        assert calls == []
+        first_screen = out.split(CLEAR)[1]
+        assert "║" in first_screen and "move: W/A/S/D" in first_screen, "not the map first"
+        assert "ist an der reihe" not in out, "the upkeep banner was printed"
+        assert "  upkeep  " not in out
         assert "spielende" not in out.lower() and "punktewertigkeit" not in out.lower()
-        assert "upkeep" not in out
+        assert state == load_game(save).state
         assert state.players[0].po == cell  # resumed where the save was taken
 
     def test_map_turn_save_holds_no_combat_state(self, monkeypatch, tmp_path):
@@ -1957,22 +1952,33 @@ class TestSaveAndLoad:
 
         save = tmp_path / "s.jsonl"
         (k1, k2), (c1, c2) = _two_steps()
-        seen = []
-        real_save = tmain.save_game
 
-        def spy(path, state, **kw):
-            real_save(path, state, **kw)
-            seen.append(load_game(path).state.players[0].po)
+        class _SnoopingStdin(io.StringIO):
+            """Before answering each read, look at the save file as it is on disk."""
 
-        monkeypatch.setattr(tmain, "save_game", spy)
-        out, _ = _run_session(
-            monkeypatch, _new_game_lines([k1, "p", k2, "p", "q"]), save=str(save), **self._NEW
-        )
-        assert c1 != c2 and seen == [c1, c2]
+            seen: list[int | None] = []
+
+            def readline(self, *args) -> str:
+                self.seen.append(load_game(save).state.players[0].po if save.exists() else None)
+                return super().readline(*args)
+
+        lines = _new_game_lines([k1, "p", k2, "p", "q"])
+        stdin = _SnoopingStdin("\n".join(lines) + "\n")
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", stdin)
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(60, "play() did not return", exc_type=_Deadline):
+            play(save=str(save), **self._NEW)
+
+        # One read per line: title, upkeep, k1, p, k2, p, q. The file read before k2
+        # holds the first save; the one read before q holds the second.
+        assert c1 != c2
+        assert stdin.seen[:4] == [None] * 4, "a save existed before the first p"
+        assert stdin.seen[4:] == [c1, c1, c2]
         assert list(tmp_path.iterdir()) == [save]
         assert load_game(save).state.players[0].po == c2
         # Confirmed in the map's note line, with the target path.
-        assert str(save) in out
+        assert str(save) in out.getvalue()
 
     def test_save_defaults_to_the_loaded_file(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
@@ -2017,31 +2023,47 @@ class TestLoadFlagConflicts:
     def test_load_with_a_setup_flag_is_rejected_before_any_screen(
         self, monkeypatch, capsys, tmp_path, extra
     ):
-        calls = []
-        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
+        from engine.persistence import save_game
+
+        # A loadable save, so a main() that let the clash through would resume it and
+        # draw the map -- the empty stdout below then fails the test.
+        save = tmp_path / "x.jsonl"
+        save_game(save, new_state(42), effect_log=[], rng_log=[], seed=42)
+        monkeypatch.setattr(sys, "stdin", io.StringIO("q\n"))
         with pytest.raises(SystemExit) as exc:
-            tmain.main(["--load", str(tmp_path / "x.jsonl"), *extra])
-        assert exc.value.code != 0
-        assert calls == []
+            main(["--load", str(save), *extra])
+        assert exc.value.code == 2
         captured = capsys.readouterr()
         assert captured.out == ""
         assert "unrecognized arguments" not in captured.err
         assert extra[0] in captured.err and "--load" in captured.err
 
-    def test_load_alone_reaches_play_with_no_seed(self, monkeypatch, tmp_path):
-        calls = []
-        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
-        tmain.main(["--load", "x.jsonl", "--save", "y.jsonl"])
-        (_a, kw) = calls[0]
-        assert kw["load"] == "x.jsonl" and kw["save"] == "y.jsonl"
-        assert kw.get("seed") is None
+    def test_load_alone_resumes_the_saved_game(self, monkeypatch, capsys, tmp_path):
+        """``--load`` alone resumes the save with ITS seed (no new-game seed is forced
+        on it), on the map; ``p`` then writes to ``--save``."""
+        from engine.persistence import load_game, save_game
+
+        loaded, written = tmp_path / "x.jsonl", tmp_path / "y.jsonl"
+        save_game(loaded, new_state(7), effect_log=[], rng_log=[], seed=7)
+        monkeypatch.setattr(sys, "stdin", io.StringIO("p\nq\n"))
+        main(["--load", str(loaded), "--save", str(written)])
+
+        out = capsys.readouterr().out
+        assert "move: W/A/S/D" in out.split(CLEAR)[1], "the first screen is not the map"
+        resumed = load_game(written)
+        assert resumed.seed == 7, "the save's own seed was replaced"
+        assert resumed.state == new_state(7)
+        assert load_game(loaded).state == new_state(7), "the loaded file was overwritten"
 
 
 # --------------------------------------------------------------------------- #
 # The TerminalSession phases, driven directly                                  #
 # --------------------------------------------------------------------------- #
 def _session(monkeypatch, lines: list[str], **kwargs):
-    """A :class:`tmain.TerminalSession` over EXACT stdin ``lines``; returns it and its stdout."""
+    """A :class:`TerminalSession` over EXACT stdin ``lines``; returns it and its stdout.
+
+    The fake stdin goes in first: the session keeps the ``sys.stdin`` it was built with.
+    """
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
     monkeypatch.setattr(sys, "stdout", out)
@@ -2054,7 +2076,7 @@ def _session(monkeypatch, lines: list[str], **kwargs):
         "save": None,
         "watch_ai": False,
     }
-    return tmain.TerminalSession(**{**defaults, **kwargs}), out
+    return TerminalSession(**{**defaults, **kwargs}), out
 
 
 class TestTerminalSession:
@@ -2066,22 +2088,14 @@ class TestTerminalSession:
         save = tmp_path / "s.jsonl"
         save_game(save, new_state(42), effect_log=[], rng_log=[], seed=42)
 
-        upkeep_calls = []
-        monkeypatch.setattr(tmain, "run_upkeep", lambda *a, **k: upkeep_calls.append(a))
-        rendered = []
-        real_render = tmain.render_map
-
-        def spy_render(*a, **k):
-            rendered.append(list(upkeep_calls))  # upkeep calls seen BEFORE this render
-            return real_render(*a, **k)
-
-        monkeypatch.setattr(tmain, "render_map", spy_render)
         session, out = _session(monkeypatch, ["q"], load=str(save))
         with deadline(20, "session did not end", exc_type=_Deadline):
             state, _rng = session.run()
 
-        assert rendered == [[]], "the first screen was not the map, or upkeep ran first"
-        assert upkeep_calls == []
+        screens = out.getvalue().split(CLEAR)[1:]
+        assert len(screens) == 1, "the session showed more than the map"
+        assert "║" in screens[0] and "move: W/A/S/D" in screens[0], "the screen is not the map"
+        assert "ist an der reihe" not in out.getvalue(), "the upkeep banner was printed"
         assert state == new_state(42)
         assert "bye.\n" in out.getvalue()
 

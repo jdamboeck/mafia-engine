@@ -25,7 +25,7 @@ from __future__ import annotations
 import signal
 import sys
 from pathlib import Path
-from typing import Any, TextIO
+from typing import TYPE_CHECKING, Any, TextIO
 
 from engine.interactions import (
     CANCEL,
@@ -40,9 +40,32 @@ from engine.strings import MissingKeyError, Resolver
 
 from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
 
-_DEFAULT_CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+#: The game config this client plays: the default ``mafia_1920s`` config.
+CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+
+if TYPE_CHECKING:
+    from clients.terminal.__main__ import TerminalSession, main, play
+
+#: Names re-exported from the entry-point module. They are imported on first use
+#: (``__getattr__`` below), not here: an eager import would load ``__main__`` as a
+#: plain submodule before ``python -m clients.terminal`` runs it as ``__main__``,
+#: which ``runpy`` warns about.
+_ENTRY_POINT_NAMES = ("play", "main", "TerminalSession")
+
+
+def __getattr__(name: str) -> Any:
+    if name in _ENTRY_POINT_NAMES:
+        from clients.terminal import __main__ as entry_point
+
+        return getattr(entry_point, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
+    "CONFIG_DIR",
+    "play",
+    "main",
+    "TerminalSession",
     "EndOfInput",
     "TerminalInput",
     "ScreenContext",
@@ -57,7 +80,6 @@ __all__ = [
     "hide_cursor",
     "show_cursor",
     "client_text",
-    "default_resolver",
 ]
 
 # --- ANSI (cursor/screen control — color constants live in palette.py) ------ #
@@ -178,7 +200,7 @@ class ScreenContext:
         from clients.terminal.palette import bg as bg_ansi, fg as fg_ansi, load_palette
 
         if self._palette is None:
-            self._palette = load_palette(_DEFAULT_CONFIG_DIR)
+            self._palette = load_palette(CONFIG_DIR)
         bg_name = self._current.get("bg")
         fg_name = self._current.get("fg")
         if bg_name:
@@ -227,26 +249,12 @@ def install_sigwinch_handler() -> None:
         signal.signal(signal.SIGWINCH, _sigwinch_handler)
 
 
-_DEFAULT_RESOLVER: Resolver | None = None
-
-
-def default_resolver() -> Resolver:
-    """The default config's ``classic`` theme resolver, loaded once on first use."""
-    global _DEFAULT_RESOLVER
-    if _DEFAULT_RESOLVER is None:
-        _DEFAULT_RESOLVER = Resolver.from_config(_DEFAULT_CONFIG_DIR, theme="classic")
-    return _DEFAULT_RESOLVER
-
-
-def client_text(key: str, params: dict | None = None, resolver: Any = None) -> str:
+def client_text(key: str, params: dict | None = None, *, resolver: Resolver) -> str:
     """Resolve one of the client's own ``client.*`` theme keys to display text.
 
     ``resolver`` is the session's resolver; a theme that lacks a ``client.*`` key
-    fails loudly (``MissingKeyError``) like any other theme gap. Only when no
-    resolver is given at all does the default config's ``classic`` theme supply it.
+    fails loudly (``MissingKeyError``) like any other theme gap.
     """
-    if resolver is None:
-        resolver = default_resolver()
     return resolver.resolve(key, params)
 
 
@@ -439,7 +447,7 @@ class TerminalInput:
         return line.rstrip("\n")
 
 
-def render_result(result: Any, out: TextIO, resolver: Any = None) -> None:
+def render_result(result: Any, out: TextIO, resolver: Resolver) -> None:
     """Between actions, render a status bar off ``result.state``.
 
     Display-only. ``result`` is an :class:`engine.actions.EngineResult`; a ``cancelled``
@@ -449,7 +457,7 @@ def render_result(result: Any, out: TextIO, resolver: Any = None) -> None:
         return
     from clients.terminal.renderers import render_status_bar_from_state
 
-    render_status_bar_from_state(result.state, out, resolver=resolver)
+    render_status_bar_from_state(result.state, out, resolver)
 
 
 def map_repl(
@@ -458,6 +466,7 @@ def map_repl(
     city: Any,
     key_reader,
     move_for_key,
+    resolver: Resolver,
     out: TextIO | None = None,
 ) -> Any:
     """Drive one turn on the map: read a key, move, adopt the new state, render, repeat.
@@ -465,7 +474,8 @@ def map_repl(
     Holds no rules — it calls ``try_move`` (imported lazily to keep this module's import
     graph minimal) and adopts the returned ``result.state`` (movement is pure). Loops until
     ``ms <= 0`` / a turn-over move. ``key_reader() -> str`` yields the next key; ``move_for_key``
-    maps a key to a movement delta (or ``None`` to quit). Returns the final state.
+    maps a key to a movement delta (or ``None`` to quit); ``resolver`` words the status
+    bar. Returns the final state.
     """
     from engine.movement import try_move
 
@@ -477,6 +487,6 @@ def map_repl(
             return state
         result = try_move(state, city, delta)
         state = result.state  # adopt (movement is pure)
-        render_result(result, sink)
+        render_result(result, sink, resolver)
         if getattr(result.payload, "turn_over", False):
             return state

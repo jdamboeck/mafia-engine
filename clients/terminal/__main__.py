@@ -21,8 +21,12 @@ weight; ``mf-prg.bas:170-176``) unless given on the command line. One to four pl
 ``--load PATH`` resumes a save; ``--watch-ai`` shows the board after every CPU combat
 activation. ``q`` on the map or at a turn-over/standings prompt quits.
 
+``--theme NAME|PATH`` words the session in another theme (a theme of the config, or a
+theme directory), merged over ``classic``.
+
 Run:  ``python -m clients.terminal [--seed N] [--player NAME:GANG ...] [--end-year Y]
-      [--score-weight W] [--save PATH] [--watch-ai]``  or  ``--load PATH``.
+      [--score-weight W] [--save PATH] [--watch-ai] [--theme NAME|PATH]``
+      or  ``--load PATH``.
 
 The headless end-to-end proof is ``tests/test_slice_integration.py``, which drives the
 same protocol without a terminal.
@@ -33,6 +37,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import NoReturn
@@ -55,6 +60,7 @@ from engine.upkeep import run_upkeep
 
 from clients.terminal import (
     CLEAR,
+    CONFIG_DIR,
     DIM,
     RESET,
     EndOfInput,
@@ -77,7 +83,7 @@ from clients.terminal.renderers import (
     render_status_bar_from_state,
 )
 
-_CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+_CONFIG_DIR = CONFIG_DIR
 
 #: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
 _MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
@@ -90,6 +96,10 @@ _DEFAULT_SAVE = "mafia-save.jsonl"
 #: The seed a NEW game uses when none is given. ``--seed`` defaults to ``None`` so a
 #: load can tell "not given" from "given" (a load always uses the save's own seed).
 _DEFAULT_SEED = 42
+
+#: The theme a session is worded in when ``--theme`` is not given; every other theme
+#: is merged over it.
+_DEFAULT_THEME = "classic"
 
 
 class LoadError(Exception):
@@ -276,7 +286,7 @@ def _door_location_map(city_raw: dict) -> dict[int, str]:
     return out
 
 
-def render_map(city, city_raw: dict, state, out, resolver: Resolver | None = None) -> None:
+def render_map(city, city_raw: dict, state, out, resolver: Resolver) -> None:
     """Draw the 40x25 city with per-cell colors from the C64 color RAM.
 
     Uses ``city.color(cell)`` for each cell's foreground color, giving the full
@@ -346,13 +356,15 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver | None = Non
     out.write(f"{bg}{fg(border_color, _PAL)}╚{border_h}╝{RESET_FG}{RESET_BG}\n")
 
     # Legend
-    legend_parts = [client_text("client.map.legend_you", {"player": player_char}, resolver)]
+    legend_parts = [
+        client_text("client.map.legend_you", {"player": player_char}, resolver=resolver)
+    ]
     for loc_key, lchar, lcolor in sorted({v for v in door_info.values()}, key=lambda x: x[0]):
         legend_parts.append(f"{fg(lcolor, _PAL)}{lchar}{RESET} {loc_key}")
     out.write("   ".join(legend_parts) + "\n")
 
     # Status bar at bottom
-    render_status_bar_from_state(state, out, resolver=resolver)
+    render_status_bar_from_state(state, out, resolver)
 
 
 def _run_location(
@@ -430,7 +442,7 @@ def _run_location(
         return state
 
     result = run_option(shell, chosen.id, state, ln=ln, input_source=inp, rng=rng)
-    render_result(result, out, resolver=resolver)
+    render_result(result, out, resolver)
     return result.state  # adopt (run_option is pure)
 
 
@@ -590,10 +602,10 @@ def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out,
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
 
-    Collaborators (``advance_turn``, ``run_upkeep``, ``render_map``, ``save_game``,
-    ``TerminalInput``, the ``_run_*`` screens) are looked up as module globals at call
-    time, and ``sys.stdin``/``sys.stdout`` when the session is built, so tests can
-    patch them on this module.
+    ``sys.stdin``/``sys.stdout`` are read when the session is built (the session's
+    :class:`TerminalInput` keeps that ``stdin``), so a caller replacing them must do so
+    first. ``resolver`` is the theme every screen is worded in (default: the config's
+    ``classic`` theme).
     """
 
     def __init__(
@@ -606,6 +618,7 @@ class TerminalSession:
         load: str | Path | None,
         save: str | Path | None,
         watch_ai: bool,
+        resolver: Resolver | None = None,
     ) -> None:
         self.out = sys.stdout
         self.state = None
@@ -613,7 +626,11 @@ class TerminalSession:
         self.end_year = end_year
         self.score_weight = score_weight
         self.loaded = load is not None
-        self.resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        self.resolver = (
+            resolver
+            if resolver is not None
+            else Resolver.from_config(_CONFIG_DIR, theme=_DEFAULT_THEME)
+        )
         self.cfg = load_game_config(_CONFIG_DIR)
 
         self.city_raw = yaml.safe_load(
@@ -756,7 +773,7 @@ class TerminalSession:
         out = self.out
         while True:
             out.write(CLEAR)
-            render_map(self.city, self.city_raw, self.state, out, resolver=self.resolver)
+            render_map(self.city, self.city_raw, self.state, out, self.resolver)
             out.write(f"{DIM}{self.note}{RESET}\n")
             out.flush()
             key = _read_key()
@@ -896,6 +913,7 @@ def play(
     load: str | Path | None = None,
     save: str | Path | None = None,
     watch_ai: bool = False,
+    resolver: Resolver | None = None,
 ) -> tuple:
     """Play the default config over real stdin/stdout; return the final ``(state, rng)``.
 
@@ -908,6 +926,7 @@ def play(
     player's map turn (no title, setup or upkeep); the new-game inputs are ignored.
     ``p`` on the map saves to ``save``, else the loaded file, else ``mafia-save.jsonl``.
     ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
+    ``resolver`` is the theme the session is worded in (default: the ``classic`` theme).
 
     Returns on EVERY exit -- quit, EOF, or the year-end ending. ``state`` is ``None``
     only if the session ends before setup finished.
@@ -920,6 +939,7 @@ def play(
         load=load,
         save=save,
         watch_ai=watch_ai,
+        resolver=resolver,
     )
     return session.run()
 
@@ -928,7 +948,7 @@ def main(argv: list[str] | None = None) -> None:
     # Every line main() prints comes from the theme, so it is loaded first. Without
     # it there are no words to phrase the failure in: the error's own text is shown.
     try:
-        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        resolver = Resolver.from_config(_CONFIG_DIR, theme=_DEFAULT_THEME)
     except (OSError, yaml.YAMLError, ValueError) as exc:
         _die(str(exc))
 
@@ -978,7 +998,19 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help=text("help_watch_ai"),
     )
+    parser.add_argument(
+        "--theme",
+        metavar="NAME|PATH",
+        default=_DEFAULT_THEME,
+        help=text("help_theme", theme=_DEFAULT_THEME),
+    )
     args = parser.parse_args(argv)
+    # From here on every line is worded in the chosen theme. An unknown or broken
+    # theme is a known failure: one line, not a traceback.
+    try:
+        resolver = _load_theme(args.theme, resolver)
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        _die(text("theme_error", theme=args.theme, error=exc))
     if args.load is not None:
         # A save carries its own seed and setup; a new-game flag beside --load
         # would be silently ignored, so it is refused instead.
@@ -1029,11 +1061,31 @@ def main(argv: list[str] | None = None) -> None:
             load=args.load,
             save=args.save,
             watch_ai=args.watch_ai,
+            resolver=resolver,
         )
     except LoadError as exc:
         _die(str(exc))
     except KeyboardInterrupt:
         sys.exit(130)  # 128 + SIGINT, the shell convention; no traceback, no message
+
+
+def _load_theme(value: str, classic: Resolver) -> Resolver:
+    """The resolver for ``--theme VALUE``: that theme deep-merged over ``classic``.
+
+    A value containing a path separator, or naming an existing directory, is a theme
+    directory (:meth:`Resolver.from_directory`); anything else names a theme of the
+    game config (``themes/<name>``). Merging over ``classic`` lets a theme reword a
+    few keys without restating the rest. Raises ``OSError``, ``yaml.YAMLError`` or
+    ``ValueError`` when the theme cannot be loaded.
+    """
+    separators = [sep for sep in (os.sep, os.altsep) if sep]
+    if any(sep in value for sep in separators) or Path(value).is_dir():
+        theme = Resolver.from_directory(value)
+    elif value == _DEFAULT_THEME:
+        return classic
+    else:
+        theme = Resolver.from_config(_CONFIG_DIR, theme=value)
+    return classic.with_override(theme.tree)
 
 
 def _die(message: str) -> NoReturn:

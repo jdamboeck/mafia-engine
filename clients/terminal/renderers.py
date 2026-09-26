@@ -15,6 +15,8 @@ from typing import Any, TextIO
 
 import yaml
 
+from engine.strings import Resolver
+
 from clients.terminal.palette import (
     DIM,
     RESET_ALL,
@@ -69,9 +71,9 @@ def _get_palette(
             _PAL = load_palette(config_dir, theme)
         else:
             # Fallback: load from the known default config path.
-            from clients.terminal import _DEFAULT_CONFIG_DIR
+            from clients.terminal import CONFIG_DIR
 
-            _PAL = load_palette(_DEFAULT_CONFIG_DIR, theme)
+            _PAL = load_palette(CONFIG_DIR, theme)
     return _PAL
 
 
@@ -157,7 +159,7 @@ def render_status_bar(
     pos: int,
     ms: int,
     out: TextIO,
-    resolver: Any = None,
+    resolver: Resolver,
 ) -> None:
     """Full-width reverse-video status bar with player name.
 
@@ -168,14 +170,14 @@ def render_status_bar(
     bar = client_text(
         "client.status_bar",
         {"name": player_name, "cash": cash, "pos": pos, "ms": ms},
-        resolver,
+        resolver=resolver,
     )
     padded = bar.center(width)
     pal = _get_palette()
     out.write(f"{REVERSE}{bg('brown', pal)}{fg('light_grey', pal)}{padded}{RESET_ALL}\n")
 
 
-def render_status_bar_from_state(state: Any, out: TextIO, resolver: Any = None) -> None:
+def render_status_bar_from_state(state: Any, out: TextIO, resolver: Resolver) -> None:
     """Convenience wrapper: extract player info from GameState and render."""
     if state is None or not state.players:
         return
@@ -398,7 +400,10 @@ def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:
         out.write(
             resolver.resolve(
                 "combat.losses_line",
-                {"name": client_text("client.side_name", {"index": i}, resolver), "count": count},
+                {
+                    "name": client_text("client.side_name", {"index": i}, resolver=resolver),
+                    "count": count,
+                },
             )
             + "\n"
         )

@@ -64,6 +64,21 @@ def test_runtime_override_deep_merges_over_default():
     )
 
 
+def test_from_directory_loads_a_theme_kept_outside_the_config():
+    """A theme directory anywhere on disk (here the test fixture) loads like a
+    config's own theme; it carries only the keys it rewords."""
+    theme_dir = Path(__file__).resolve().parent / "fixtures" / "themes" / "test"
+    theme = Resolver.from_directory(theme_dir)
+    assert theme.resolve("client.bye") == "ciao."
+    with pytest.raises(MissingKeyError):
+        theme.resolve("locations.slw.no_room")
+
+
+def test_from_directory_without_strings_raises(tmp_path):
+    with pytest.raises(ValueError, match="theme strings directory does not exist"):
+        Resolver.from_directory(tmp_path)
+
+
 # --------------------------------------------------------------------------- #
 # Missing key fails loudly (a theme gap must not render blank).                 #
 # --------------------------------------------------------------------------- #

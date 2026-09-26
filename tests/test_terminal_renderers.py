@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import io
 
+from engine.strings import Resolver
+
+from clients.terminal import CONFIG_DIR
 from clients.terminal.palette import _PEPTO_FALLBACK
 from clients.terminal.renderers import (
     render_body,
@@ -25,6 +28,11 @@ from clients.terminal.renderers import (
 
 def _out() -> io.StringIO:
     return io.StringIO()
+
+
+def _classic() -> Resolver:
+    """The real classic theme: the status bar's words come from it."""
+    return Resolver.from_config(CONFIG_DIR, theme="classic")
 
 
 def _setup() -> None:
@@ -113,7 +121,7 @@ class TestRenderStatusBar:
     def test_contains_player_info(self) -> None:
         _setup()
         buf = _out()
-        render_status_bar("alcapone", 5400, 181, 19, buf)
+        render_status_bar("alcapone", 5400, 181, 19, buf, _classic())
         val = buf.getvalue()
         assert "alcapone" in val
         assert "5400$" in val
@@ -123,7 +131,7 @@ class TestRenderStatusBar:
     def test_has_reverse_video(self) -> None:
         _setup()
         buf = _out()
-        render_status_bar("test", 0, 0, 0, buf)
+        render_status_bar("test", 0, 0, 0, buf, _classic())
         val = buf.getvalue()
         assert "\033[7m" in val  # reverse video
 

@@ -51,7 +51,7 @@ def _deep_merge(base: dict, override: dict) -> dict:
 class Resolver:
     """A resolved theme tree that maps ``(key, params) -> str``.
 
-    Build one with :meth:`from_config`; layer a runtime override with :meth:`with_override`.
+    Build one with :meth:`from_config` (or :meth:`from_directory`); layer a runtime override with :meth:`with_override`.
     """
 
     tree: dict
@@ -59,7 +59,14 @@ class Resolver:
     @classmethod
     def from_config(cls, config_dir: str | Path, *, theme: str = "classic") -> "Resolver":
         """Build a resolver by deep-merging every ``strings/*.yaml`` of ``theme``."""
-        strings_dir = Path(config_dir) / "themes" / theme / "strings"
+        return cls.from_directory(Path(config_dir) / "themes" / theme)
+
+    @classmethod
+    def from_directory(cls, theme_dir: str | Path) -> "Resolver":
+        """Build a resolver from one theme directory: every ``strings/*.yaml`` in it,
+        deep-merged. ``from_config`` is this over ``<config_dir>/themes/<theme>``; a
+        theme kept outside the config (a mod, a test fixture) is loaded directly."""
+        strings_dir = Path(theme_dir) / "strings"
         if not strings_dir.is_dir():
             raise ValueError(f"{strings_dir}: theme strings directory does not exist")
         merged: dict = {}
