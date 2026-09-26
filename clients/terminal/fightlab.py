@@ -43,7 +43,7 @@ from typing import Any, TextIO
 
 import yaml
 
-from engine.interactions import AiDriver, HumanDriver
+from engine.fight_loop import AiDriver, HumanDriver
 from engine.recording import load as load_recording
 from engine.recording import record_fight, replay
 from engine.scenario import Scenario

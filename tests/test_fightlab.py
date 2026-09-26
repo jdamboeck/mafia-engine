@@ -28,7 +28,7 @@ from data.game_configs.mafia_1920s.setup import (
     load_encounter,
     weapon_stats_by_id,
 )
-from engine.interactions import AiDriver
+from engine.fight_loop import AiDriver
 from engine.recording import record_fight, save
 from engine.scenario import Scenario
 

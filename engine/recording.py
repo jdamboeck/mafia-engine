@@ -346,7 +346,8 @@ def record_fight(
     same-fight/same-seed equality test).
     """
     from engine.combat import CombatResult
-    from engine.interactions import StartCombat, _build_fight, _drive_fight, _no_input_source
+    from engine.fight_loop import _build_fight, _drive_fight, _no_input_source
+    from engine.interactions import StartCombat
     from engine.rng import Rng
 
     if input_source is None:

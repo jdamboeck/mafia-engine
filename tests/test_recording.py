@@ -28,7 +28,7 @@ from data.game_configs.mafia_1920s.combat_rules import (
 )
 from engine.combat import RulesBundle
 from engine.effects import SCHEMA_VERSION
-from engine.interactions import AiDriver, PolicyDriver, simulate
+from engine.fight_loop import AiDriver, PolicyDriver, simulate
 from engine.recording import (
     _recording_from_dict,
     _recording_to_dict,
@@ -164,7 +164,8 @@ def test_replay_reproduces_every_intermediate_vitality_not_only_the_last(ambush_
 def test_recorded_draw_count_equals_the_live_fights_draw_count(ambush_recording):
     """The recorded draws total exactly the live fight's ``rng.log`` length — an
     off-by-one here is exactly what silently desynchronises a replay."""
-    from engine.interactions import StartCombat, _build_fight, _drive_fight, _no_input_source
+    from engine.fight_loop import _build_fight, _drive_fight, _no_input_source
+    from engine.interactions import StartCombat
 
     _, recording = ambush_recording
 
@@ -409,7 +410,7 @@ def test_an_observed_fight_records_the_same_transcript_and_replays_without_diver
     """Observation frames are display-only: a human-vs-AI fight whose client opted in
     (``observes_ai``) records event-for-event what the same fight records without the
     opt-in, and that recording replays with no divergence."""
-    from engine.interactions import HumanDriver
+    from engine.fight_loop import HumanDriver
 
     class Client:
         def __init__(self, observes_ai: bool) -> None:

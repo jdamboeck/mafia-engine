@@ -31,15 +31,14 @@ from engine.combat import (
     CombatResult,
     CombatView,
 )
-from engine.interactions import (
-    CANCEL,
+from engine.fight_loop import (
     AiDriver,
-    CombatScreen,
     HumanDriver,
     PolicyDriver,
     ReplayDriver,
     simulate,
 )
+from engine.interactions import CANCEL, CombatScreen
 from engine.rng import Rng
 from engine.scenario import Scenario
 from engine.state import CombatState

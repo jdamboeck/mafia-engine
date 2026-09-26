@@ -646,7 +646,7 @@ def _counting_cpu():
     The count is taken where the decision is made, independently of anything the
     input source sees — so "one frame per CPU activation" compares two separate tallies.
     """
-    from engine.interactions import PolicyDriver
+    from engine.fight_loop import PolicyDriver
 
     calls = []
 
@@ -677,7 +677,7 @@ class _HumanShootsRight:
 
 
 def _observed_fight(*, observes_ai: bool):
-    from engine.interactions import HumanDriver
+    from engine.fight_loop import HumanDriver
 
     cpu, calls = _counting_cpu()
     src = _HumanShootsRight(observes_ai=observes_ai)
@@ -709,7 +709,7 @@ def test_an_opted_in_source_sees_one_frame_per_cpu_activation_and_the_fight_is_u
 
 
 def test_a_source_that_does_not_opt_in_never_receives_an_observation_frame():
-    from engine.interactions import HumanDriver
+    from engine.fight_loop import HumanDriver
 
     cpu, calls = _counting_cpu()
 
