@@ -568,7 +568,7 @@ def watch(
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="clients.terminal.fightlab",
-        description="Play, watch, and replay fights with every variable observable (U8).",
+        description="Play, watch, and replay fights with every variable observable.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
