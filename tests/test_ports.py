@@ -391,6 +391,45 @@ def _engine_income(v: Values) -> Any:
     return run.state.players[0].ka
 
 
+# --- :4045-4046/:4605-4651 rent countdown and late rent ---------------------------------
+Q_4045 = q(4045, "um(sp)=0")
+Q_4046_DEC = q(4046, "um(sp)=um(sp)-1")
+Q_4046_DUE = q(4046, "um(sp)=0")
+Q_4046_RESET = q(4046, "um(sp)=1")
+Q_4605_P = q(4605, "p=int(rnd(1)*100)+200")
+Q_4605_CAP = q(4605, "p>ka(sp)")
+Q_4605_CAPPED = q(4605, "p=ka(sp)")
+Q_4605_EVICT = q(4605, "p=0")
+Q_4620 = q(4620, "ka(sp)=ka(sp)-p")
+Q_4651 = q(4651, "gz(sp)=1")
+
+
+def _basic_rent(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "um(1)": v["um"], "ka(1)": v["ka"], "gz(1)": 3}
+    b["rnd(1)"] = v["r"]
+    if Q_4045.holds(b):
+        return (b["ka(1)"], b["um(1)"], b["gz(1)"])
+    b["um(1)"] = Q_4046_DEC.assign(b)
+    if Q_4046_DUE.holds(b):
+        b["um(1)"] = Q_4046_RESET.assign(b)
+        # gosub4600: :4605's second `if` runs only inside the first one's `then`.
+        b["p"] = Q_4605_P.assign(b)
+        if Q_4605_CAP.holds(b):
+            b["p"] = Q_4605_CAPPED.assign(b)
+            if Q_4605_EVICT.holds(b):
+                b["gz(1)"] = Q_4651.assign(b)
+                return (b["ka(1)"], b["um(1)"], b["gz(1)"])
+        b["ka(1)"] = Q_4620.assign(b)
+    return (b["ka(1)"], b["um(1)"], b["gz(1)"])
+
+
+def _engine_rent(v: Values) -> Any:
+    player = _player(ka=v["ka"], rented_months=v["um"], roster=(_gangster(),) * 3)
+    run = _drive(HANDLERS["upkeep.turn_start"], _state(player), draws=(v["r"],))
+    p = run.state.players[0]
+    return (p.ka, p.rented_months, len(p.roster))
+
+
 # --- :31000-31010 arms-deal payout ----------------------------------------------------
 Q_31000 = q(31000, "int(rnd(1)*5)=0")
 Q_31005 = q(31005, "p=int(rnd(1)*9500)+5500")
@@ -974,6 +1013,21 @@ PORTS: list[Port] = [
         _grid(kk=_CAPITALS, r0=(0.0, 0.3, 0.5, 0.9990234375), r=R),
         _basic_income,
         _engine_income,
+    ),
+    Port(
+        "rent countdown and late rent",
+        (Q_4045, Q_4046_DEC, Q_4046_DUE, Q_4046_RESET, Q_4605_P, Q_4605_CAP, Q_4605_CAPPED)
+        + (Q_4605_EVICT, Q_4620, Q_4651),
+        "HANDLERS['upkeep.turn_start'] (rent)",
+        # ka around the 200..299 fine band, plus 0 (eviction) and a negative balance
+        # (the cap then makes p negative and the "fine" lifts ka to 0, as in BASIC).
+        _grid(
+            um=(0, 1, 2, 3, 12),
+            ka=(-50, 0, 1, 150, 199, 200, 237, 250, 299, 300, 10**6),
+            r=(0.0, 0.25, 0.37, 0.5, 0.9990234375),
+        ),
+        _basic_rent,
+        _engine_rent,
     ),
     Port(
         "arms-deal payout",

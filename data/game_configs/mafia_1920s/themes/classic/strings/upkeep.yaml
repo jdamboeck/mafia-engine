@@ -38,3 +38,12 @@ upkeep:
   # Shop-income upkeep slot (mf-prg.bas:4400-4420) — the kdh loan business.
   shop_income_quiet: "in deinem kreditinstitut herrscht flaute."
   shop_income_earned: "dein kreditgeschaeft floriert und du machst {amount}$ einnahmen."
+
+  # Rent slot (mf-prg.bas:4600-4652) — the late-rent consequence once the prepaid
+  # months (um) run out. Both screens end in :1100's "taste druecken!" pause, which
+  # the client supplies for every message. The source's line breaks are the C64's
+  # 40 columns, so each screen reads as one sentence here.
+  # :4610-4620 — the fine; {amount} is the fine p after the cap at cash.
+  rent_late: "du hast deine miete nicht puenktlich gezahlt. man hat dir moebel im wert von {amount}$ gepfaendet!"
+  # :4650-4651 — the eviction (no cash to seize); the gang walks out.
+  rent_evicted: "deine wohnung wird dir gekuendigt!\ndeine gangster suchen sich einen anderen boss..."

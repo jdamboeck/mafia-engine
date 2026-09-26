@@ -70,6 +70,7 @@ __all__ = [
     "TipSet",
     "TipClear",
     "RosterAppend",
+    "RosterTruncate",
     "GangsterMarkHired",
     # Declared-but-deferred effects
     "WantedChange",
@@ -287,7 +288,9 @@ class RentAccrue:
     """Add ``months`` to the target player's prepaid rented-months ``um``: ``um(sp)+=x``.
 
     Ports the rented-months accrual at ``mf-prg.bas:10040`` — the player prepays ``x``
-    months of rent. Adds to ``state.players[target].rented_months``.
+    months of rent. Adds to ``state.players[target].rented_months``. ``months`` is
+    signed: the turn-start countdown at ``mf-prg.bas:4046`` ``um(sp)=um(sp)-1`` is a
+    ``RentAccrue(-1)``.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -523,6 +526,24 @@ class RosterAppend:
 
     SCHEMA_VERSION = SCHEMA_VERSION
     gangster: Any
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class RosterTruncate:
+    """Cut the target player's roster down to its first ``size`` entries.
+
+    Ports the late-rent eviction ``mf-prg.bas:4651`` ``gz(sp)=1``: the gang count
+    drops to one, so only gangster 1 — ``roster[0]``, the boss — stays; everyone hired
+    after them leaves. ``len(roster)`` IS ``gz(sp)`` (see :class:`RosterAppend`), so
+    dropping the tail IS the assignment. A roster already no longer than ``size`` is
+    left as it is (``gz(sp)=1`` never adds a gangster the engine could not build).
+    The global hired-candidates set is NOT touched: the source leaves ``sg()`` set, so
+    a gangster who walked out is never offered for hire again.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    size: int
     player: int | None = None
 
 
@@ -810,6 +831,11 @@ def _apply(state: GameState, effect: Any) -> GameState:
         # — len(roster) IS gz(sp), so appending the tuple
         # IS the increment; nothing separate to bump.
         return _with_player(state, idx, roster=p.roster + (effect.gangster,))
+
+    if isinstance(effect, RosterTruncate):
+        idx = _target_index(state, effect.player)
+        # gz(sp)=1 (mf-prg.bas:4651) — the tail of the roster leaves.
+        return _with_player(state, idx, roster=state.players[idx].roster[: effect.size])
 
     if isinstance(effect, GangsterMarkHired):
         # sg(g(i))=1 (mf-prg.bas:12165) — GLOBAL, not per-player. De-dupe

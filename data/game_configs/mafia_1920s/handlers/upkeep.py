@@ -7,7 +7,8 @@ that looks this generator up and drives it at every player's turn start, before 
 free turn (or a job shift).
 
 The flow runs in this fixed order
-(``banner -> regen -> rank -> debt -> shop income -> arms deal -> job-shift/free-turn``):
+(``banner -> regen -> rank -> debt -> shop income -> rent -> arms deal ->
+job-shift/free-turn``):
 
 * **banner** (``4005-4006``) — announce the active player.
 * **per-gangster energy regen** (``4015-4025``) — ``en += int(kraft/10)+1``, capped at
@@ -16,7 +17,7 @@ The flow runs in this fixed order
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-followed by three resolution slots:
+followed by four resolution slots:
 
 * **debt check** (``4040``, ``4300-4370``) — the loan-shark grace countdown and
   its collectors fight. Ports ``:4305``'s tick, ``:4306-4309``'s warning,
@@ -26,6 +27,8 @@ followed by three resolution slots:
   nonzero capital) gosub'd to ``4400-4420``: 1-in-3 quiet month (no income, no
   effect); else a payout ``p=int(rnd(1)*kk(sp)/20+kk(sp)/10)`` — 10%-15% of the
   shop's capital.
+* **rent** (``4045-4046``, ``4600-4652``) — the prepaid-months countdown and the
+  late-rent consequence. See RENT below.
 * **arms deal** (``4060``) — the staked heist-tip resolution, ports
   ``mf-prg.bas:31000-31051``. Only fires when the active player's ``tip_target ==
   pub.ARMS_DEAL_TIP`` (4) — set by ``pub.tip``'s stake sub-flow. The tip is CLEARED
@@ -44,9 +47,35 @@ belongs to the caller (the client's turn loop, which dispatches ``job.shift`` fo
 employed player) — this generator's ``return []`` handing control back is exactly the hand-off
 point.
 
-Lines NOT ported here: ``4045-4046`` (rent countdown/eviction — a system this config
-does not implement), ``4050`` (bribe-protection aging), ``4055-4056`` (fake-papers/
+Lines NOT ported here: ``4050`` (bribe-protection aging), ``4055-4056`` (fake-papers/
 counterfeit decay) — nothing in this config triggers them.
+
+RENT — ``:4045-4046`` and ``:4600-4652``
+----------------------------------------
+``slw.rent`` accrues prepaid months into ``rented_months`` (``um(sp)``, ``:10040``
+``um(sp)=um(sp)+x``); this slot counts them down, one per turn start:
+
+* ``:4045`` ``ifum(sp)=0goto4050`` — nothing prepaid, nothing happens.
+* ``:4046`` ``um(sp)=um(sp)-1:ifum(sp)=0thenum(sp)=1:gosub4600`` — on reaching 0 the
+  counter is put straight back to 1 and the late-rent routine runs. So ``um`` never
+  leaves 1 on its own: EVERY later turn start fines again, until the tenant pays at
+  slw (``:10105`` re-enters the same rent block, ``um(sp)=um(sp)+x`` on top of the 1).
+* ``:4605`` ``p=int(rnd(1)*100)+200:ifp>ka(sp)thenp=ka(sp):ifp=0goto4650`` — a fine
+  of 200..299$. The ``:ifp=0`` sits inside the ``then`` of ``ifp>ka(sp)``, but a
+  fine that was not capped is at least 200, so this reads exactly as "cap at cash,
+  and evict only when the capped fine is 0". The fine is rolled BEFORE the cap, so an
+  eviction still consumes the draw.
+* ``:4620`` ``ka(sp)=ka(sp)-p`` — the fine is taken.
+* ``:4651`` ``gz(sp)=1`` — the eviction: the gang count drops to 1, so only the boss
+  (``roster[0]``) stays; ported as :class:`~engine.effects.RosterTruncate`. Despite the
+  "gekuendigt" text, the source clears neither ``uk(ln)`` (the tenancy; nothing in
+  ``mf-prg.bas`` ever resets it) nor ``um`` (still 1) — so neither does this port.
+* ``:4620``/``:4652`` ``goto1100`` — ``:1100`` is the "taste druecken!" pause and ends
+  in ``return``, which closes ``gosub4600``. It is NOT an early exit: turn start goes
+  on at ``:4050``, so the arms deal (``:4060``) still resolves this turn.
+
+``:4600`` ``pokera,2:pokera+1,2`` sets the screen border/background (``:110``
+``ra=53280``, the VIC border register) — presentation only, not ported.
 
 COUNTER DIRECTION — the relational-sign landmine (``:4305``)
 -------------------------------------------------------------
@@ -91,6 +120,8 @@ from engine.effects import (
     EnergyChange,
     MoneyChange,
     RankCommit,
+    RentAccrue,
+    RosterTruncate,
     TipClear,
 )
 from engine.interactions import ShowMessage, StartCombat
@@ -160,6 +191,10 @@ def upkeep_turn_start(ctx):
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
+    # ka(sp) as the source would read it right now. ctx.apply only BUFFERS, so
+    # ctx.state keeps the pre-upkeep cash; every slot below that moves money updates
+    # this local too, so a later slot (the rent cap) reads the live figure.
+    cash = active.ka
 
     # --- 4005-4006: turn banner --------------------------------------------
     yield ShowMessage("upkeep.turn_banner", {"name": active.name})
@@ -255,12 +290,12 @@ def upkeep_turn_start(ctx):
 
             if result.winner == 2:
                 # :4365-4370 — lost: `ka(sp)=0:kr(sp)=0:kz(sp)=0`. The seizure takes
-                # the cash the player holds AT THIS MOMENT. `active.ka` is still the
-                # correct figure: no effect buffered earlier in this run moves money
-                # except the shop-income/arms-deal slots, which run BELOW this one.
+                # the cash the player holds AT THIS MOMENT — the local `cash`, which
+                # no slot above this one has moved (they write energy and rank).
                 yield ShowMessage("upkeep.debt_seized")
-                ctx.apply(MoneyChange(-active.ka))
+                ctx.apply(MoneyChange(-cash))
                 ctx.apply(DebtClear())
+                cash = 0
             # :4355's `ifs=1thenreturn` — a WIN falls straight through: no seizure,
             # and crucially no debt relief either. The loan and its expired counter
             # both survive, so the collectors come back next turn and every turn
@@ -287,10 +322,39 @@ def upkeep_turn_start(ctx):
             # capital.
             income = (2 * capital + ctx.rng.range(capital)) // 20
             ctx.apply(MoneyChange(income))
+            cash += income
             yield ShowMessage("upkeep.shop_income_earned", {"amount": income})
         else:
             # :4406 — 1-in-3 quiet month.
             yield ShowMessage("upkeep.shop_income_quiet")
+
+    # --- 4045-4046/4600-4652: rent countdown and late rent (see RENT above) -----
+    # :4045 ``ifum(sp)=0goto4050``. Nothing above this slot touches um.
+    if active.rented_months != 0:
+        # :4046 ``um(sp)=um(sp)-1:ifum(sp)=0thenum(sp)=1:gosub4600`` — at 1 the
+        # decrement and the reset cancel out, so um is written only while above 1.
+        if active.rented_months > 1:
+            ctx.apply(RentAccrue(-1))
+        else:
+            rent_params = ctx.state.config.formula_params
+            # :4605 ``p=int(rnd(1)*100)+200`` — rolled before the cap, always.
+            fine = rent_params["slw_late_rent_fine_base"] + ctx.rng.range(
+                rent_params["slw_late_rent_fine_spread"]
+            )
+            if fine > cash:  # :4605 ``ifp>ka(sp)thenp=ka(sp)``
+                fine = cash
+            if fine == 0:
+                # :4605 ``ifp=0goto4650`` -> :4650-4651 — evicted: only the boss stays
+                # (``gz(sp)=1``). Tenancy and um are left as the source leaves them.
+                yield ShowMessage("upkeep.rent_evicted")
+                ctx.apply(RosterTruncate(size=1))
+            else:
+                # :4610-4620 — the furniture is seized: ``ka(sp)=ka(sp)-p``.
+                yield ShowMessage("upkeep.rent_late", {"amount": fine})
+                ctx.apply(MoneyChange(-fine))
+                cash -= fine
+        # :4620/:4652 ``goto1100`` is the press-a-key pause, whose ``return`` closes
+        # gosub4600 — turn start falls through to :4050 and on to the arms deal.
 
     # --- 4060: arms deal — ports mf-prg.bas:31000-31051 ---------------------
     # iftp(sp)=4thengosub31000 (:4060). Re-read `active` is unnecessary: nothing above

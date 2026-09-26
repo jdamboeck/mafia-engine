@@ -33,7 +33,9 @@ from engine.effects import (
     MoneyChange,
     MsChange,
     RankCommit,
+    RentAccrue,
     RosterAppend,
+    RosterTruncate,
     ScoreAndRank,
     ScoreChange,
     SetEntryContext,
@@ -527,6 +529,42 @@ def test_roster_append_purity():
     out = apply(state, RosterAppend(gangster=hire))
     assert len(state.players[0].roster) == 1  # original untouched
     assert out is not state
+
+
+# --------------------------------------------------------------------------- #
+# roster_truncate (#99) — the late-rent eviction, real application             #
+# --------------------------------------------------------------------------- #
+def _three_gangsters(state, player=0):
+    roster = state.players[player].roster + (Gangster(name="h1"), Gangster(name="h2"))
+    return _with_player(state, player, roster=roster)
+
+
+def test_roster_truncate_keeps_only_the_boss():
+    # mf-prg.bas:4651 ``gz(sp)=1`` — only gangster 1 (roster[0], the boss) remains.
+    state = _three_gangsters(make_state())
+    out = apply(state, RosterTruncate(size=1))
+    assert out.players[0].roster == (state.players[0].roster[0],)
+    assert len(state.players[0].roster) == 3  # original untouched (purity)
+
+
+def test_roster_truncate_targets_explicit_player():
+    state = _three_gangsters(make_state(), player=1)
+    out = apply(state, RosterTruncate(size=1, player=1))
+    assert len(out.players[1].roster) == 1
+    assert out.players[0].roster == state.players[0].roster
+
+
+def test_roster_truncate_never_grows_a_roster():
+    state = make_state()  # one gangster already
+    out = apply(state, RosterTruncate(size=1))
+    assert out.players[0].roster == state.players[0].roster
+
+
+def test_rent_accrue_takes_a_negative_month_for_the_countdown():
+    # mf-prg.bas:4046 ``um(sp)=um(sp)-1`` reuses the signed um(sp) accumulator.
+    state = apply(make_state(), RentAccrue(3))
+    out = apply(state, RentAccrue(-1))
+    assert out.players[0].rented_months == 2
 
 
 # --------------------------------------------------------------------------- #
