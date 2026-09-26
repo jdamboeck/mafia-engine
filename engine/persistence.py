@@ -12,7 +12,7 @@ Store shape (append-only JSONL, one JSON object per line)
   is the mid-handler locus ``{location_key, option_id, ln, responses_so_far}``.
 - **line 1..n — effect / rng records**: ``{"kind":"effect"|"rng", "version", ...}`` in commit
   order. **Semantic events are never written** — they are audit/UI records, not replay input
-  (binding replay-semantics note in docs/plans/current-action-plan.md).
+  (binding replay-semantics note in docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md).
 
 Replay = restore the snapshot, then ``commit`` the ordered effects. RNG draws are carried in
 the log so a replay does not re-roll. A **mid-handler** save is restored by replaying the

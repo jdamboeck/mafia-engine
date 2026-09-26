@@ -31,7 +31,7 @@ commit + branch conventions, and how to pick up the next unit. Then:
      `*-brainstorm-basis` doc for the next plan exists.
    - Drafts marked `artifact_readiness: superseded` **must not be executed**.
 2. **Landed, do not re-open:** the State/Event Foundation (T1–T9,
-   `docs/plans/current-action-plan.md`), the first-slice deepening plan
+   `docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md`), the first-slice deepening plan
    (`2026-07-12-001-…`, including U10 terminal client and U12 save/load), the
    armed-closure plan (`2026-07-18-002-…`), and the Combat Engine Foundation plan
    (`2026-07-20-003-…`, U1–U8 + U6a — engine made attribute-agnostic, scenarios,
