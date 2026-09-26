@@ -101,28 +101,23 @@ class ColorSupport(Enum):
 
 _FALLBACK_RGB: tuple[int, int, int] = (128, 128, 128)
 
-_COLOR_SUPPORT: ColorSupport | None = None
-
 
 def term_color_support() -> ColorSupport:
     """Detect terminal color support from ``$COLORTERM`` and ``$TERM``.
 
     Returns the best supported mode. Defaults to TRUECOLOR if unknown.
-    Cached after first call.
+    Read from the environment on every call (no cache): two dict lookups are
+    cheap, and the environment is the only input.
     """
-    global _COLOR_SUPPORT
-    if _COLOR_SUPPORT is not None:
-        return _COLOR_SUPPORT
     ct = os.environ.get("COLORTERM", "").lower()
+    term = os.environ.get("TERM", "").lower()
     if ct in ("truecolor", "24bit"):
-        _COLOR_SUPPORT = ColorSupport.TRUECOLOR
-    elif "256color" in os.environ.get("TERM", "").lower():
-        _COLOR_SUPPORT = ColorSupport.COLOR256
-    elif os.environ.get("TERM", "").lower() in ("dumb", ""):
-        _COLOR_SUPPORT = ColorSupport.COLOR8
-    else:
-        _COLOR_SUPPORT = ColorSupport.TRUECOLOR
-    return _COLOR_SUPPORT
+        return ColorSupport.TRUECOLOR
+    if "256color" in term:
+        return ColorSupport.COLOR256
+    if term in ("dumb", ""):
+        return ColorSupport.COLOR8
+    return ColorSupport.TRUECOLOR
 
 
 # Closest-xterm-256 index for each C64 color name.

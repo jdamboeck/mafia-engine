@@ -88,13 +88,7 @@ class TestAnsiGenerators:
 
 
 class TestColorSupportDetection:
-    """term_color_support() picks the mode from the env (cache cleared per test)."""
-
-    @pytest.fixture(autouse=True)
-    def _fresh_cache(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from clients.terminal import palette
-
-        monkeypatch.setattr(palette, "_COLOR_SUPPORT", None)
+    """term_color_support() picks the mode from the env, read fresh on every call."""
 
     @pytest.mark.parametrize(
         ("colorterm", "term", "expected"),
@@ -120,6 +114,14 @@ class TestColorSupportDetection:
             else:
                 monkeypatch.setenv(var, val)
         assert term_color_support() is expected
+
+    def test_detection_follows_an_env_change_in_the_same_process(
+        self, hostile_color_env: None, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing is cached: a later env change is seen by the next call."""
+        assert term_color_support() is ColorSupport.COLOR256
+        monkeypatch.setenv("COLORTERM", "truecolor")
+        assert term_color_support() is ColorSupport.TRUECOLOR
 
     def test_default_support_follows_detection(self, hostile_color_env: None) -> None:
         """Without an explicit ``support``, fg() uses the detected (256) mode."""
