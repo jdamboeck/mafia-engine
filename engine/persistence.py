@@ -54,7 +54,6 @@ from engine.state import (
     MapState,
     Player,
     Wanted,
-    freeze,
     json_safe,
 )
 
@@ -119,9 +118,9 @@ _NESTED_EFFECT_FIELDS: dict[str, dict[str, type]] = {
 def _effect_from_dict(raw: dict) -> Any:
     """Reconstruct an Effect dataclass from its type-tagged dict."""
     tag = raw.get("_type")
-    cls = _EFFECT_TYPES.get(tag) if isinstance(tag, str) else None
-    if cls is None:
+    if not isinstance(tag, str) or tag not in _EFFECT_TYPES:
         raise TypeError(f"cannot deserialize unknown effect type {tag!r}")
+    cls = _EFFECT_TYPES[tag]
     kwargs = {k: v for k, v in raw.items() if k != "_type"}
     for field, nested_cls in _NESTED_EFFECT_FIELDS.get(tag, {}).items():
         value = kwargs.get(field)
@@ -208,7 +207,8 @@ def _player_from_dict(raw: dict) -> Player:
 
 def _map_from_dict(raw: dict) -> MapState:
     return MapState(
-        grid=freeze(raw["grid"]),
+        # Rows of int codes; MapState's own __post_init__ freezes the grid (as freeze did).
+        grid=tuple(tuple(row) for row in raw["grid"]),
         tenancy=_restore_int_keys(raw["tenancy"]),
         special_cells=_restore_int_keys(raw["special_cells"]),
     )

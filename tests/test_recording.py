@@ -357,6 +357,21 @@ def test_the_dict_round_trip_alone_is_stable(ambush_recording):
     assert once == twice
 
 
+@pytest.mark.parametrize("side_count", [1, 3])
+def test_a_recording_whose_scenario_is_not_two_sided_is_rejected_on_load(
+    ambush_recording, side_count
+):
+    """A fight has exactly two sides. A (hand-edited or corrupt) recording with any other
+    count must fail at load, not load and replay "without divergence" while silently
+    ignoring the extra side (three) or crash deep inside the fight (one)."""
+    _, recording = ambush_recording
+    raw = _recording_to_dict(recording)
+    first, second = raw["scenario"]["sides"]
+    raw["scenario"]["sides"] = [first, second, second][:side_count]
+    with pytest.raises(ValueError):
+        _recording_from_dict(raw)
+
+
 # --------------------------------------------------------------------------- #
 # Two recordings of the SAME fight are byte-identical except driver_kind        #
 # --------------------------------------------------------------------------- #

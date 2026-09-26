@@ -25,10 +25,13 @@ without updating this contract.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.actions import EngineResult
 from engine.interactions import ShowMessage, run
+
+if TYPE_CHECKING:  # typing only
+    from engine.state import GameState
 
 __all__ = [
     "STANDINGS_HANDLER_KEY",
@@ -61,7 +64,9 @@ def _refuse_input(interaction: Any) -> Any:
     )
 
 
-def _run(key: str, state: Any, input_source: Any, rng: Any, handlers: dict | None):
+def _run(
+    key: str, state: GameState, input_source: Any, rng: Any, handlers: dict | None
+) -> EngineResult[GameState]:
     if handlers is None:
         from engine.locations import HANDLERS as handlers  # noqa: N811 - local alias
 
@@ -75,12 +80,12 @@ def _run(key: str, state: Any, input_source: Any, rng: Any, handlers: dict | Non
 
 
 def run_standings(
-    state: Any,
+    state: GameState,
     *,
     input_source: Any = None,
     rng: Any = None,
     handlers: dict | None = None,
-) -> EngineResult:
+) -> EngineResult[GameState]:
     """Run the config's standings generator against ``state`` and return its result.
 
     The caller passes the state from BEFORE ``advance_turn`` so the date
@@ -95,12 +100,12 @@ def run_standings(
 
 
 def run_year_end(
-    state: Any,
+    state: GameState,
     *,
     input_source: Any = None,
     rng: Any = None,
     handlers: dict | None = None,
-) -> EngineResult:
+) -> EngineResult[GameState]:
     """Run the config's year-end generator (standings, then the result) and return it.
 
     The caller passes the post-``advance_turn`` state, as ``:40100`` does.

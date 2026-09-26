@@ -383,6 +383,7 @@ def play(
     """
     stdin = stdin if stdin is not None else sys.stdin
     out = out if out is not None else sys.stdout
+    assert out is not None, "no output stream: sys.stdout is None"
 
     scenario = load_scenario(scenario_path, seed=seed)
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
@@ -492,6 +493,7 @@ def watch(
     recorded-vs-recomputed values are printed and autoplay is halted.
     """
     out = out if out is not None else sys.stdout
+    assert out is not None, "no output stream: sys.stdout is None"
     key_reader = key_reader if key_reader is not None else _read_key
     if sleeper is None:
         import time

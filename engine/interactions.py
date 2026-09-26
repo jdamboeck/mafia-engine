@@ -31,9 +31,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Generator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any, overload
 
 from engine.actions import EngineResult, HandlerResult
+
+if TYPE_CHECKING:  # typing only: keep engine.state out of this module's import graph
+    from engine.state import GameState
 
 __all__ = [
     # Interactions
@@ -371,13 +374,33 @@ class Ctx:
 # --------------------------------------------------------------------------- #
 # The driver                                                                  #
 # --------------------------------------------------------------------------- #
+@overload
 def run(
     handler: Callable[[Ctx], Generator[Any, Any, Any]],
     input_source: Callable[[Any], Any],
     *,
-    state: Any = None,
+    state: GameState,
     rng: Any = None,
-) -> EngineResult:
+) -> EngineResult[GameState]: ...
+
+
+@overload
+def run(
+    handler: Callable[[Ctx], Generator[Any, Any, Any]],
+    input_source: Callable[[Any], Any],
+    *,
+    state: None = None,
+    rng: Any = None,
+) -> EngineResult[None]: ...
+
+
+def run(
+    handler: Callable[[Ctx], Generator[Any, Any, Any]],
+    input_source: Callable[[Any], Any],
+    *,
+    state: GameState | None = None,
+    rng: Any = None,
+) -> EngineResult[GameState | None]:
     """Advance a handler generator to completion, mediating its interactions.
 
     Args:

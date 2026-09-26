@@ -167,7 +167,7 @@ class MoveResult:
     delta: int | None = None
 
 
-def try_move(state, city: City, delta: int) -> EngineResult:
+def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState]:
     """Attempt one directional move for the active player (mf-prg.bas:2000-2065).
 
     ``delta`` is one of :data:`LEFT`/:data:`RIGHT`/:data:`UP`/:data:`DOWN`. The

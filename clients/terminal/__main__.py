@@ -461,6 +461,7 @@ def _run_upkeep_screen(state, resolver: Resolver, out, rng: Rng, stdin=None, inp
 
     result = run_upkeep(state, input_source=inp, rng=rng)
     new_state = result.state  # adopt (run_upkeep is pure)
+    assert new_state is not None, "run_upkeep was given a state, so it returns one"
     active = new_state.players[new_state.clock.active_player]
 
     render_screen_clear(out)
@@ -733,6 +734,7 @@ class TerminalSession:
             # turn -- the shift flow replaces the free turn entirely (mirrors the
             # source's :1012 dispatch). Checked fresh every turn start, right after
             # upkeep (in start_new_game on the first turn, in next_turn on later ones).
+            assert self.state is not None, "state is set by setup or load before any turn"
             active = self.state.players[self.state.clock.active_player]
             if active.jobs.type and not resuming_free_turn:
                 self.job_shift()
@@ -774,6 +776,7 @@ class TerminalSession:
                 self.note = self.text("client.map.bad_key")
                 continue
 
+            assert self.state is not None, "state is set by setup or load before any turn"
             result = try_move(self.state, self.city, delta)
             self.state = result.state
             payload = result.payload
@@ -798,6 +801,7 @@ class TerminalSession:
         # stream mid-way. Overwrites without asking.
         # A failed save (missing directory, full disk, no permission)
         # must never end the game: say so and keep playing.
+        assert self.state is not None, "state is set by setup or load before any turn"
         try:
             save_game(
                 self.save_path, self.state, effect_log=[], rng_log=self.rng.log, seed=self.seed
@@ -811,6 +815,7 @@ class TerminalSession:
     def turn_over(self) -> bool:
         """Show the turn-over summary and wait for a key; ``False`` on a quit."""
         out = self.out
+        assert self.state is not None, "state is set by setup or load before any turn"
         p = self.state.players[self.state.clock.active_player]
         render_screen_clear(out)
         render_header(self.text("client.header.turn_over"), out)
@@ -835,6 +840,7 @@ class TerminalSession:
 
     def next_turn(self) -> bool:
         """Advance to the next turn (standings, ending, upkeep); ``False`` ends the session."""
+        assert self.state is not None, "state is set by setup or load before any turn"
         played = self.state  # the round just finished, for the standings
         # advance_turn is pure — the rotated/replenished state must be adopted.
         self.state, game_over = advance_turn(self.state, self.vehicles)

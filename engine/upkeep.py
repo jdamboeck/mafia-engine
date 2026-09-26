@@ -29,10 +29,13 @@ contract.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.actions import EngineResult
 from engine.interactions import ShowMessage, run
+
+if TYPE_CHECKING:  # typing only
+    from engine.state import GameState
 
 __all__ = ["UPKEEP_HANDLER_KEY", "run_upkeep"]
 
@@ -80,12 +83,12 @@ def _refuse_input(interaction: Any) -> Any:
 
 
 def run_upkeep(
-    state: Any,
+    state: GameState,
     *,
     input_source: Any = None,
     rng: Any = None,
     handlers: dict | None = None,
-) -> EngineResult:
+) -> EngineResult[GameState]:
     """Run the active player's turn-start upkeep flow and return its result.
 
     This is THE engine-level turn-start entry point: a client's turn loop calls

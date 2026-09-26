@@ -143,9 +143,10 @@ _EVENT_KINDS: dict[str, Any] = {
 
 def _event_from_dict(raw: dict) -> Event:
     """Rebuild one :class:`Event` from its :func:`json_safe` dict, dispatching on ``kind``."""
-    cls = _EVENT_KINDS.get(raw.get("kind"))
+    kind = raw.get("kind")
+    cls = _EVENT_KINDS.get(kind) if isinstance(kind, str) else None
     if cls is None:
-        raise ValueError(f"unknown recording event kind {raw.get('kind')!r}")
+        raise ValueError(f"unknown recording event kind {kind!r}")
     return cls(**raw)
 
 
@@ -235,7 +236,8 @@ class _Recorder:
         seen is initial assignment, not a handoff, so it is only recorded (no event).
         """
         for side, driver in drivers.items():
-            kind = getattr(driver, "kind", None)
+            # Every Driver declares a ``kind`` (the fight loop dispatches on it directly).
+            kind: str = driver.kind
             previous = self._current_driver.get(side)
             if previous is not None and previous != kind:
                 snapshot, version = self._snapshot()
@@ -557,7 +559,10 @@ def _scenario_from_dict(raw: Any) -> Any:
     from engine.scenario import Scenario
     from engine.state import Fighter
 
-    sides = tuple(tuple(Fighter(**f) for f in side) for side in raw["sides"])
+    # A fight has exactly two sides; unpacking rejects any other count here (ValueError)
+    # instead of letting replay silently ignore an extra side or crash on a missing one.
+    first, second = (tuple(Fighter(**f) for f in side) for side in raw["sides"])
+    sides = (first, second)
     dir_memory = {int(k): v for k, v in raw.get("dir_memory", {}).items()}
     return Scenario(
         sides=sides,

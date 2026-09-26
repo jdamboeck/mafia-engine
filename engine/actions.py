@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from engine.state import GameState
 
@@ -45,8 +45,14 @@ EngineStatus = Literal[
 ]
 
 
+#: The ``state`` an :class:`EngineResult` carries: a :class:`GameState` from every
+#: producer run against a real state, ``None`` only when :func:`engine.interactions.run`
+#: drives a handler statelessly. Covariant: the result is frozen, read-only data.
+StateT = TypeVar("StateT", bound="GameState | None", covariant=True)
+
+
 @dataclass(frozen=True)
-class EngineResult:
+class EngineResult(Generic[StateT]):
     """The outcome of running one option: new state + emitted events/effects + status.
 
     ``events`` are semantic (audit/UI) records — never applied to state. ``effects`` are
@@ -55,7 +61,7 @@ class EngineResult:
     raise instead of populating it).
     """
 
-    state: GameState
+    state: StateT
     events: list
     effects: list
     status: EngineStatus
@@ -93,7 +99,7 @@ def run_option(
     ln: int | None,
     input_source=None,
     rng=None,
-) -> EngineResult:
+) -> EngineResult[GameState]:
     """Run one location option end-to-end, producing exactly one :class:`EngineResult`.
 
     This is the single, location-aware dispatcher over the three option shapes. It owns
@@ -183,6 +189,8 @@ def run_option(
             f"option {option_id!r} on location {location.key!r} has a handler; "
             "run_option requires an input_source to drive it"
         )
+    # _parse_option guarantees exactly one of handler/consequences; consequences is None here.
+    assert option.handler is not None, f"option {option_id!r} has neither handler nor consequences"
     result = run(option.handler, input_source, state=state, rng=rng)
 
     if result.status == "cancelled":
