@@ -525,7 +525,7 @@ def _resolve(
         # Reaching here means a new yield path bypassed that dispatch.
         raise AssertionError(
             "StartCombat must be dispatched by the driver's combat loop, not resolved "
-            "as a single interaction (KTD-1)."
+            "as a single interaction."
         )
 
     if isinstance(interaction, PromptInt):
@@ -606,7 +606,7 @@ def _run_substate(
         # unwinds the whole action") that are not decided. Failing loud here beats
         # silently picking one.
         assert not isinstance(interaction, StartCombat), (
-            "StartCombat inside a sub-state is not supported this slice (KTD-1): "
+            "StartCombat inside a sub-state is not supported: "
             "yield combat from a top-level handler."
         )
         response = _resolve(interaction, input_source)

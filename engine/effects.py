@@ -728,8 +728,8 @@ def _apply(state: GameState, effect: Any) -> GameState:
     if isinstance(effect, FlagSet):
         if effect.scope != "global":
             raise NotImplementedError(
-                f"FlagSet scope {effect.scope!r} is not implemented this slice; only "
-                "'global' flags are supported (per-player bitfields come in a later unit)."
+                f"FlagSet scope {effect.scope!r} is not implemented; only "
+                "'global' flags are supported (per-player bitfields are not built)."
             )
         if not hasattr(state.flags, effect.name):
             raise ValueError(f"unknown global flag {effect.name!r} on Flags")
@@ -859,7 +859,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, (WantedChange, Jail)):
         raise NotImplementedError(
-            f"{type(effect).__name__} is declared but its application is exercised in a later unit."
+            f"{type(effect).__name__} is declared but its application is not implemented."
         )
 
     raise TypeError(f"Unknown effect type: {type(effect).__name__!r}")

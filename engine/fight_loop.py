@@ -126,7 +126,9 @@ class ReplayDriver(Driver):
     kind: str = "replay"
 
     def decide(self, view: Any) -> tuple[str, Any]:
-        raise NotImplementedError("replay drivers are U7; not functional this unit")
+        raise NotImplementedError(
+            "ReplayDriver is not functional; engine.recording.replay applies recorded decisions itself"
+        )
 
 
 def _run_combat(
