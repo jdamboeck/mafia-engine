@@ -41,12 +41,18 @@ commit + branch conventions, and how to pick up the next unit. Then:
    `--watch-ai`, CI on 3.11/3.14; closed #45/#49/#51),
    and the Slice Polish plan (`2026-09-26-001-…`, U1–U10 — plan IDs out of code
    comments, `TerminalSession`, client text in the theme, engine splits into
-   `fight_loop`/`combat_setup`/`combat_ai`).
+   `fight_loop`/`combat_setup`/`combat_ai`),
+   and the Engine Quality Gates plan (`2026-09-26-003-…`, U1–U11 + U4a/U7a — pyright
+   hard in `make check`, client tests drive `play()`/`main()` only, `--theme`, client
+   split into `session`/`cli`, BASIC evaluator + port tests + citation checker, doc
+   claims quoted and tested; fixed the `:30247` hit, `:30255` damage and `:13065`
+   unclamped-`gf` divergences; closed #85–#97).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).
 4. **Setup / green-tree gate:** `pip install -e '.[dev]'` then `make check` (→ `pytest` +
-   soft lint). Never dispatch a subagent or commit on a red tree.
+   lint + hard pyright; on an externally managed system Python run it through uv — see
+   `docs/AGENTS.md`). Never dispatch a subagent or commit on a red tree.
 
 `docs/design/` contains the authoritative spec for *how to build* the engine (architecture,
 phasing). Read it before making architectural decisions — the architectural invariants
