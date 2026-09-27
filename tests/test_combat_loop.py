@@ -514,7 +514,7 @@ def test_combat_is_not_supported_inside_a_substate():
 
     substates.SUBSTATES["__u5_combat_probe__"] = probe
     try:
-        with pytest.raises(AssertionError):
+        with pytest.raises(AssertionError, match="inside a sub-state is not supported"):
             run(handler, lambda i: ("shoot", +1))
     finally:
         del substates.SUBSTATES["__u5_combat_probe__"]
