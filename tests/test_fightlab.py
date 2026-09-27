@@ -29,7 +29,7 @@ from data.game_configs.mafia_1920s.setup import (
     weapon_stats_by_id,
 )
 from engine.fight_loop import AiDriver
-from engine.recording import record_fight, save
+from engine.recording import ReplayReport, record_fight, replay, save
 from engine.scenario import Scenario
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -149,39 +149,11 @@ def test_b_at_activation_5_renders_activation_4_matching_forward_replay(recordin
     # The last rendered index after the 'b' is activation 4.
     assert indices == [0, 1, 2, 3, 4, 5, 4]
 
-    # The board 'b' seeked to (index 4's snapshot) is exactly the forward-replay board.
-    # The recording's snapshot at index 4 IS the forward-driven board (recording ==
-    # replay-with-snapshotting-on), so vitalities at index 4 are the seek target.
-    def vitalities(snapshot):
-        return [f["vitality"] for side in snapshot["sides"] for f in side]
-
-    from engine.recording import _ReplayRng, _rebuild_fight
-    from engine.state import json_safe
-
-    rng = _ReplayRng()
-    fight = _rebuild_fight(recording.scenario, rng, rules=build_rules())
-    live_at_4 = None
-    for event in recording.events:
-        if event.kind != "activation":
-            continue
-        rng.load(event.draws, skip=event.decision_draw_count)
-        action = event.decision["action"]
-        argument = event.decision["argument"]
-        if action == "shoot":
-            fight.apply_action("shoot", argument)
-            if fight.winner() is None:
-                fight.advance_activation()
-        elif action == "move":
-            fight.apply_action("move", argument, record_dir_memory=event.driver_kind != "human")
-            fight.advance_activation()
-        elif action == "pass":
-            fight.advance_activation()
-        if event.index == 4:
-            live_at_4 = vitalities(json_safe(fight.snapshot()))
-            break
-
-    assert live_at_4 is not None
-    assert vitalities(recording.events[4].snapshot) == live_at_4
+    # The board 'b' seeked to is index 4's recorded snapshot. replay() rebuilds the fight
+    # forward from the decision log and checks the board after EVERY activation against
+    # its snapshot, so a clean replay proves each seek target (index 4 included) is
+    # exactly the forward-replay board.
+    assert replay(recording, rules=build_rules()) == ReplayReport(diverged=False)
 
 
 # --------------------------------------------------------------------------- #

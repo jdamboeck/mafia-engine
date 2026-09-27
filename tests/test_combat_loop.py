@@ -30,7 +30,6 @@ from engine.rng import Rng
 from engine.interactions import (
     CANCEL,
     CombatScreen,
-    Ctx,
     PromptInt,
     StartCombat,
     run,
@@ -502,21 +501,21 @@ def test_a_cancelled_invoking_action_discards_the_combat_effects_too():
 def test_combat_is_not_supported_inside_a_substate():
     # KTD-1: combat is only ever yielded from top-level handlers this slice — the
     # driver ASSERTS this rather than supporting it.
-    from engine.interactions import LoadSubState, _run_substate
-
-    ctx = Ctx()
-    load = LoadSubState(kind="__u5_combat_probe__", params={})
-
     from engine import substates
+    from engine.interactions import LoadSubState
 
     def probe(ctx, params):
         yield StartCombat(**_spec())
         return None
 
+    def handler(ctx):
+        yield LoadSubState(kind="__u5_combat_probe__", params={})
+        return []
+
     substates.SUBSTATES["__u5_combat_probe__"] = probe
     try:
         with pytest.raises(AssertionError):
-            _run_substate(load, lambda i: ("shoot", +1), ctx)
+            run(handler, lambda i: ("shoot", +1))
     finally:
         del substates.SUBSTATES["__u5_combat_probe__"]
 

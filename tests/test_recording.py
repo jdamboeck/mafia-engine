@@ -33,6 +33,7 @@ from engine.fight_loop import AiDriver, PolicyDriver, simulate
 from engine.recording import (
     load,
     record_fight,
+    ReplayReport,
     replay,
     save,
 )
@@ -116,45 +117,25 @@ def test_replay_reproduces_the_same_winner_and_losses(ambush_recording):
 # Replay reproduces EVERY intermediate state, not just the outcome            #
 # --------------------------------------------------------------------------- #
 def test_replay_reproduces_every_intermediate_vitality_not_only_the_last(ambush_recording):
-    """Rebuilding from the decision log yields the SAME board — every fighter's vitality
-    — at EVERY activation index, not merely the final one."""
-    from engine.recording import _rebuild_fight, _ReplayRng
-
+    """Replay checks the board after EVERY activation, not merely the final result: the
+    genuine recording replays clean, and a recording whose snapshot is off at one
+    intermediate activation diverges at exactly that index."""
     _, recording = ambush_recording
+    assert replay(recording) == ReplayReport(diverged=False)
 
-    # Drive a fresh fight through the recorded decisions, comparing the live board to the
-    # snapshot each event captured — at every index.
-    rng = _ReplayRng()
-    fight = _rebuild_fight(recording.scenario, rng)
+    activations = [e for e in recording.events if e.kind == "activation"]
+    assert len(activations) >= 3, "the shared fixture must exercise several activations"
+    middle = activations[len(activations) // 2]
+    board = json.loads(json.dumps(middle.snapshot))
+    board["sides"][0][0]["vitality"] += 1
+    tampered = replace(
+        recording,
+        events=tuple(replace(e, snapshot=board) if e is middle else e for e in recording.events),
+    )
 
-    def vitalities(state_dict):
-        return [f["vitality"] for side in state_dict["sides"] for f in side]
-
-    checked = 0
-    for event in recording.events:
-        if event.kind != "activation":
-            continue
-        rng.load(event.draws, skip=event.decision_draw_count)
-        action = event.decision["action"]
-        argument = event.decision["argument"]
-        if action == "shoot":
-            fight.apply_action("shoot", argument)
-            winner = fight.winner()
-            if winner is None:
-                fight.advance_activation()
-        elif action == "move":
-            fight.apply_action("move", argument, record_dir_memory=event.driver_kind != "human")
-            fight.advance_activation()
-        elif action == "pass":
-            fight.advance_activation()
-        from engine.state import json_safe
-
-        live = json_safe(fight.snapshot())
-        assert vitalities(live) == vitalities(event.snapshot), (
-            f"vitalities diverged at activation index {event.index}"
-        )
-        checked += 1
-    assert checked >= 3, "the shared fixture must exercise several activations"
+    report = replay(tampered)
+    assert report.diverged
+    assert report.at_index == middle.index
 
 
 # --------------------------------------------------------------------------- #
@@ -163,15 +144,11 @@ def test_replay_reproduces_every_intermediate_vitality_not_only_the_last(ambush_
 def test_recorded_draw_count_equals_the_live_fights_draw_count(ambush_recording):
     """The recorded draws total exactly the live fight's ``rng.log`` length — an
     off-by-one here is exactly what silently desynchronises a replay."""
-    from engine.fight_loop import _build_fight, _drive_fight, _no_input_source
-    from engine.interactions import StartCombat
-
     _, recording = ambush_recording
 
     # Re-run the same fight WITHOUT recording, counting the raw rng.log.
     rng = Rng(seed=42)
-    fight = _build_fight(StartCombat(scenario=_kdh_ambush_scenario()), rng=rng)
-    _drive_fight(fight, {1: AiDriver(), 2: AiDriver()}, _no_input_source)
+    simulate(_kdh_ambush_scenario(), {1: AiDriver(), 2: AiDriver()}, rng=rng)
     live_draw_count = len(rng.log)
 
     recorded_draw_count = sum(len(e.draws) for e in recording.events if e.kind == "activation")

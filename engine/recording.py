@@ -182,10 +182,12 @@ class ReplayReport:
     """The verdict of a :func:`replay`: did the live formulas reproduce the recording?
 
     ``diverged`` is True iff some activation's recomputed ``result`` (hit/damage/downed)
-    differs from the recorded one — the fidelity detector firing. ``at_index`` names that
-    activation (a valid seek target, so a viewer can jump to the board just before the change);
-    ``expected`` is the recorded result, ``got`` the freshly recomputed one. On a faithful
-    replay ``diverged`` is False and the other fields are ``None``.
+    differs from the recorded one, or its board afterwards differs from the recorded
+    ``snapshot`` — the fidelity detector firing. ``at_index`` names that activation (a
+    valid seek target, so a viewer can jump to the board just before the change);
+    ``expected`` is the recorded result (or ``{"snapshot": …}`` for a board divergence),
+    ``got`` the freshly recomputed one. On a faithful replay ``diverged`` is False and
+    the other fields are ``None``.
     """
 
     diverged: bool = False
@@ -197,6 +199,15 @@ class ReplayReport:
 # --------------------------------------------------------------------------- #
 # The recorder — observes the shared drive loop, one call per activation       #
 # --------------------------------------------------------------------------- #
+def _board(fight: Any) -> Any:
+    """The fight's board NOW, in the exact shape an event's ``snapshot`` stores.
+
+    The one snapshot form the recorder writes and :func:`replay` compares against, so
+    the two cannot disagree on shape.
+    """
+    return _json_normalize(json_safe(fight.snapshot()))
+
+
 class _Recorder:
     """Observes :func:`engine.fight_loop._drive_fight`, appending one event per step.
 
@@ -227,7 +238,7 @@ class _Recorder:
         serialized one (int dir_memory keys stringify on JSON dump — see
         :func:`_json_normalize`).
         """
-        return _json_normalize(json_safe(self._fight.snapshot())), SCHEMA_VERSION
+        return _board(self._fight), SCHEMA_VERSION
 
     def observe_drivers(self, drivers: Any) -> None:
         """Emit a :class:`HandoffEvent` for any side whose driver kind changed.
@@ -467,9 +478,13 @@ def replay(recording: "Recording", *, rules: Any = None) -> "ReplayReport":
 
     ``rules`` re-attaches live formulas when replaying a recording loaded from disk (whose
     scenario shell lost its formula functions), or injects an altered formula to prove the
-    detector. "Diverged" means the recomputed hit/damage/downed differs — NOT that draws
-    differ (impossible: they are fed back verbatim) and NOT that the winner differs (a
-    formula change may not flip the outcome; the per-activation check catches it anyway).
+    detector. "Diverged" means the recomputed hit/damage/downed differs, or the board
+    after an activation differs from its recorded snapshot (which catches a changed
+    movement or energy rule that no shot result shows) — NOT that draws differ
+    (impossible: they are fed back verbatim) and NOT that the winner differs (a formula
+    change may not flip the outcome; the per-activation check catches it anyway). The
+    board is compared at the same point the recorder took it: after the activation
+    advances, or before :meth:`finish` on the winning shot.
     """
     rng = _ReplayRng()
     fight = _rebuild_fight(recording.scenario, rng, rules=rules)
@@ -493,7 +508,10 @@ def replay(recording: "Recording", *, rules: Any = None) -> "ReplayReport":
                 )
             winner = fight.winner()
             if winner is not None:
+                board_diverged = _board_diverged(event, fight)
                 fight.finish(winner)
+                if board_diverged is not None:
+                    return board_diverged
                 continue
             fight.advance_activation()
         elif action == "move":
@@ -503,8 +521,27 @@ def replay(recording: "Recording", *, rules: Any = None) -> "ReplayReport":
             fight.advance_activation()
         elif action == "surrender":
             fight.surrender()
+            continue
+        board_diverged = _board_diverged(event, fight)
+        if board_diverged is not None:
+            return board_diverged
 
     return ReplayReport(diverged=False)
+
+
+def _board_diverged(event: Any, fight: Any) -> "ReplayReport | None":
+    """A diverged report if the live board differs from ``event``'s recorded snapshot."""
+    if event.snapshot is None:
+        return None
+    got = _board(fight)
+    if got == event.snapshot:
+        return None
+    return ReplayReport(
+        diverged=True,
+        at_index=event.index,
+        expected={"snapshot": event.snapshot},
+        got={"snapshot": got},
+    )
 
 
 def _shoot_diverged(expected: dict, got: dict) -> bool:
