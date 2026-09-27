@@ -344,6 +344,24 @@ def test_stat_gate_kraft_and_brutality():
     assert "locations.waf.too_weak" in keys
 
 
+def test_stat_gates_run_in_source_order_when_several_fall_short():
+    # schlagkette (3) requires kraft>=20 and brut>=40; this gangster fails BOTH. The
+    # source tests kraft at 13055 before brutality at 13060 and jumps back on the first
+    # failure, so the refusal is "zu wenig kraft", never "nicht brutal genug" — the
+    # order is the handler's, not the order of the weapon's `requires` map.
+    roster = (Gangster(name="g", kraft=19, brutalitaet=39),)
+    st = _state(ln=2, roster=roster, ka=100000)
+    seen = _observe(
+        HANDLERS["waf.buy"],
+        st,
+        _StubRng(),
+        {PromptInt: [3], PromptChoice: [0, CANCEL]},
+    )
+    keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
+    assert "locations.waf.too_weak" in keys
+    assert "locations.waf.not_brutal" not in keys
+
+
 def test_stat_gate_works_on_a_reloaded_bare_combatant():
     # A loaded save rebuilds roster members as the engine's bare Combatant (layer rule),
     # which has no named stat properties. The gate must read stats load-safely (attrs).

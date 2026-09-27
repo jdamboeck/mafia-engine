@@ -26,10 +26,17 @@ from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import Any
 
+from engine.effects import declare_stat_names
 from engine.state import Combatant
 
-#: The non-vitality stat names this game carries in ``attrs`` (mf-prg.bas:311-312).
+#: The non-vitality stat names this game carries in ``attrs`` (mf-prg.bas:311-312) —
+#: the config's stat declaration. ``StatChange`` validation reads it (declared to the
+#: engine below) and a weapon's ``requires`` map may name only these.
 GANGSTER_ATTR_NAMES = ("kraft", "intelligenz", "brutalitaet")
+
+# Declared on import, like the config's effects and guard variables; a reload
+# re-declares the full set, replacing the old one.
+declare_stat_names(GANGSTER_ATTR_NAMES)
 
 
 # eq=False so this INHERITS Combatant's cross-class __eq__ (compare by blueprint

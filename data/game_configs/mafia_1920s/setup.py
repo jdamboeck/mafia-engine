@@ -35,13 +35,13 @@ from engine.state import Clock, Config, GameState, Player
 
 try:
     from .effects import DebtClear, ScoreAndRank
-    from .gangster import Gangster
+    from .gangster import GANGSTER_ATTR_NAMES, Gangster
     from .state import SCHEMA
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from effects import DebtClear, ScoreAndRank
-    from gangster import Gangster
+    from gangster import GANGSTER_ATTR_NAMES, Gangster
     from state import SCHEMA
-from engine.types import validate_rank, validate_vehicle, validate_weapon
+from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
 
 __all__ = [
     "new_game",
@@ -98,18 +98,42 @@ def load_ranks(path: str | Path) -> list[str]:
 
 
 def load_weapons(path: str | Path) -> list[dict]:
-    """Load the weapon table (list of ``{name, price, ts, tg, ws, req_*}``), index == weapon index.
+    """Load the weapon table (list of ``{name, price, ts, tg, range, ws, requires}``).
 
-    Ports the DATA table (``mf-prg.bas:50100-50115``); ``req_int``/``req_kraft``/
-    ``req_brut`` are the per-weapon stat minimums derived from the buy-guard lines
-    (``13050-13060``). Each entry is validated against the engine's
-    :func:`~engine.types.validate_weapon` contract at load time. Returned 0-based
+    Ports the DATA table (``mf-prg.bas:50100-50115``). Each entry is validated against
+    the engine's :func:`~engine.types.validate_weapon` contract (the fields the engine
+    knows) and against this config's own ``requires`` contract: the per-weapon stat
+    minimums derived from the buy-guard lines (``13050-13060``), a map from a declared
+    gangster stat (:data:`GANGSTER_ATTR_NAMES`) to an int. The engine names no stat, so
+    it cannot check that map; the config does, here. Returned 0-based
     (``weapons[i]`` == in-game weapon index ``i``, 0..8).
     """
     weapons = list(_load_yaml(path)["weapons"])
     for i, w in enumerate(weapons):
         validate_weapon(w, index=i)
+        _validate_requires(w, index=i)
     return weapons
+
+
+def _validate_requires(entry: dict, index: int) -> None:
+    """Refuse a weapon whose ``requires`` is not a map of declared stat -> int."""
+    where = f"weapon[{index}]"
+    requires = entry.get("requires")
+    if not isinstance(requires, dict):
+        raise ConfigValidationError(
+            f"{where} field 'requires' must be a mapping of stat -> minimum, "
+            f"got {type(requires).__name__}"
+        )
+    for stat, minimum in requires.items():
+        if stat not in GANGSTER_ATTR_NAMES:
+            raise ConfigValidationError(
+                f"{where} requires undeclared stat {stat!r}; "
+                f"the config declares {list(GANGSTER_ATTR_NAMES)}"
+            )
+        if type(minimum) is not int:
+            raise ConfigValidationError(
+                f"{where} requirement {stat!r} must be int, got {type(minimum).__name__}"
+            )
 
 
 def load_gangster_candidates(path: str | Path) -> list[dict]:

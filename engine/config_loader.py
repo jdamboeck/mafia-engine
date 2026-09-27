@@ -30,7 +30,7 @@ from typing import Any, Callable
 import yaml
 
 from engine.conditions import GUARD_VARIABLES
-from engine.effects import EFFECTS
+from engine.effects import EFFECTS, STAT_NAMES
 from engine.locations import HANDLERS
 from engine.persistence import Registries
 from engine.state import StateSchema
@@ -114,6 +114,10 @@ class LoadedConfig:
     guard_variables:
         The engine's :data:`~engine.conditions.GUARD_VARIABLES` registry, filled by the
         config's ``@register_guard_variable`` resolvers on import.
+    stat_names:
+        The engine's :data:`~engine.effects.STAT_NAMES`: the stat names the config
+        declared with :func:`~engine.effects.declare_stat_names` on import, which
+        ``StatChange`` validation reads.
     """
 
     config_dir: Path
@@ -124,6 +128,7 @@ class LoadedConfig:
     effects: dict
     state_schema: StateSchema
     guard_variables: dict
+    stat_names: set[str]
 
     @property
     def registries(self) -> Registries:
@@ -197,8 +202,8 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
        config's ``new_game`` callable.
     3. Return a :class:`LoadedConfig` exposing the parsed config, the ``new_game``
        callable, the imported module, the populated ``HANDLERS`` and ``EFFECTS``
-       registries, the declared state schema (``state_schema.yaml``) and the guard
-       variable registry.
+       registries, the declared state schema (``state_schema.yaml``), the guard
+       variable registry and the declared stat names.
     """
     config_dir = Path(config_dir).resolve()
     if not config_dir.is_dir():
@@ -228,4 +233,5 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
         effects=EFFECTS,
         state_schema=state_schema,
         guard_variables=GUARD_VARIABLES,
+        stat_names=STAT_NAMES,
     )

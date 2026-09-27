@@ -8,7 +8,8 @@ stat-requirement metadata DERIVED from the buy-guard lines ``13050-13060``:
 - kraft       >= 20 for weapon index in {2, 3}  (``13055``: ``kr<20 and (x=2 or x=3)``)
 - brutalitaet >= 40 for weapon index 3 or > 6   (``13060``: ``bt<40 and (x=3 or x>6)``)
 
-Encoded as ``req_int`` / ``req_kraft`` / ``req_brut`` per record (0 = no requirement).
+Encoded as a per-record ``requires`` map from a declared stat name to its minimum
+(an absent stat has no requirement).
 
 Also covers ``range`` — the shot's travel distance in combat cells, likewise DERIVED
 rather than tabulated, from the attack block ``30215-30216``:
@@ -78,42 +79,66 @@ def test_field_values_match_source_table(weapons):
 
 
 def test_stat_requirement_metadata_boundaries(weapons):
-    # Covers the exact 13050-13060 gate boundaries.
+    # Covers the exact 13050-13060 gate boundaries, one ``requires`` map per weapon.
+    requires = [w["requires"] for w in weapons]
 
-    # index 6 (maschinenpistole): x>5 → requires intelligenz>=40, but index 6 is NOT
-    # >6 and not in {2,3}, so no kraft/brut requirement.
-    masch = weapons[6]
-    assert masch["req_int"] == 40
-    assert masch["req_kraft"] == 0
-    assert masch["req_brut"] == 0
+    # 6/7 (gewehr, maschinenpistole): x>5 → intelligenz>=40; not >6, not in {2,3}.
+    assert requires[6] == {"intelligenz": 40}
+    # 8 (handgranaten): x>5 → int>=40 AND x>6 → brut>=40.
+    assert requires[7] == {"intelligenz": 40}
+    assert requires[8] == {"intelligenz": 40, "brutalitaet": 40}
+    # 3 (schlagkette): x in {2,3} → kraft>=20 AND x=3 → brut>=40; x not >5 → no int.
+    assert requires[3] == {"kraft": 20, "brutalitaet": 40}
+    # 2 (knueppel): x in {2,3} → kraft>=20 only.
+    assert requires[2] == {"kraft": 20}
+    # 0, 1, 4, 5: no gate fires (5 is NOT >5) → an empty map.
+    for free in (0, 1, 4, 5):
+        assert requires[free] == {}, weapons[free]["name"]
 
-    # index 8 (handgranaten): x>5 → int>=40 AND x>6 → brut>=40.
-    grenades = weapons[8]
-    assert grenades["req_int"] == 40
-    assert grenades["req_brut"] == 40
-    assert grenades["req_kraft"] == 0
 
-    # index 3 (schlagkette): x in {2,3} → kraft>=20 AND x=3 → brut>=40; x not >5 → no int.
-    schlag = weapons[3]
-    assert schlag["req_kraft"] == 20
-    assert schlag["req_brut"] == 40
-    assert schlag["req_int"] == 0
+def _config_copy_with_requirement(tmp_path, requires: dict) -> Path:
+    """A copy of this config whose revolver (id 5) carries ``requires``."""
+    import shutil
 
-    # index 2 (knueppel): x in {2,3} → kraft>=20 only.
-    knueppel = weapons[2]
-    assert knueppel["req_kraft"] == 20
-    assert knueppel["req_int"] == 0
-    assert knueppel["req_brut"] == 0
+    cfg_dir = tmp_path / "mafia_1920s"
+    shutil.copytree(_WEAPONS_YAML.parents[1], cfg_dir, ignore=shutil.ignore_patterns("__pycache__"))
+    weapons_yaml = cfg_dir / "entities" / "weapons.yaml"
+    table = yaml.safe_load(weapons_yaml.read_text(encoding="utf-8"))
+    table["weapons"][5]["requires"] = requires
+    weapons_yaml.write_text(yaml.safe_dump(table), encoding="utf-8")
+    return cfg_dir
 
-    # index 5 (revolver): x=5 is NOT >5, NOT in {2,3}, NOT 3/>6 → no requirements.
-    revolver = weapons[5]
-    assert revolver["req_int"] == 0
-    assert revolver["req_kraft"] == 0
-    assert revolver["req_brut"] == 0
 
-    # index 0 (haende, unarmed): no requirements.
-    haende = weapons[0]
-    assert (haende["req_int"], haende["req_kraft"], haende["req_brut"]) == (0, 0, 0)
+def test_a_requirement_naming_an_undeclared_stat_is_refused_at_config_load(tmp_path):
+    # The config declares its gangster stats (gangster.GANGSTER_ATTR_NAMES); a weapon
+    # gated on any other name could never be checked, so loading the config fails —
+    # before any shop visit reads the table.
+    from engine.config_loader import load_game_config
+
+    cfg_dir = _config_copy_with_requirement(tmp_path, {"charisma": 5})
+    with pytest.raises(ConfigValidationError, match="charisma"):
+        load_game_config(cfg_dir)
+
+
+def test_a_requirement_on_a_declared_stat_loads(tmp_path):
+    # The positive twin: the same copy with a declared stat loads, so the refusal
+    # above is about the NAME, not about the edit itself.
+    from engine.config_loader import load_game_config
+
+    cfg_dir = _config_copy_with_requirement(tmp_path, {"kraft": 5})
+    loaded = load_game_config(cfg_dir)
+    assert loaded.module.load_weapons(cfg_dir / "entities" / "weapons.yaml")[5]["requires"] == {
+        "kraft": 5
+    }
+
+
+def test_a_non_integer_requirement_is_refused(tmp_path):
+    entry = dict(load_weapons(_WEAPONS_YAML)[5])
+    entry["requires"] = {"kraft": "20"}
+    bad = tmp_path / "weapons.yaml"
+    bad.write_text(yaml.safe_dump({"weapons": [entry]}), encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match="kraft"):
+        load_weapons(bad)
 
 
 #: The value the old hardcoded ``engine.combat.shot_range`` ladder produced for each

@@ -35,7 +35,7 @@ particular does NOT import from ``engine.interactions`` — the driver imports
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, fields, is_dataclass, replace
 from types import MappingProxyType
 from typing import Any, TypeVar
@@ -47,13 +47,27 @@ from engine.state import Combatant, Fighter, GameState, tuple_replace
 #: this module-level constant via its class-level ``SCHEMA_VERSION`` attribute.
 SCHEMA_VERSION = 1
 
-#: The attribute keys a :class:`StatChange` may target — the ``attrs``-backed stats.
-#: ``energie`` is NOT here: it is the ``vitality`` SLOT, changed by
-#: :class:`EnergyChange`, not an ``attrs`` key. A ``StatChange(stat="energie")`` would
-#: pass a stale validation and then ``KeyError`` on ``attrs["energie"]`` — so the
-#: validation set and the write path must agree that ``energie`` is not a StatChange
-#: target. (This list is engine-hardcoded; it is not yet config-declared.)
-_STAT_NAMES = ("kraft", "intelligenz", "brutalitaet")
+#: The ``attrs`` keys a :class:`StatChange` may target: the loaded config's declared
+#: stat names. The engine names none; the config fills this with
+#: :func:`declare_stat_names` when its package is imported, the way ``@register_effect``
+#: fills :data:`EFFECTS`, and it is returned on
+#: :class:`~engine.config_loader.LoadedConfig`. The config's depleting resource is the
+#: ``vitality`` SLOT (changed by :class:`EnergyChange`), not an ``attrs`` key, so a
+#: config does not declare it here and a ``StatChange`` naming it is refused.
+STAT_NAMES: set[str] = set()
+
+
+def declare_stat_names(names: Iterable[str]) -> None:
+    """Declare the config's stat names — the ``attrs`` keys a ``StatChange`` may target.
+
+    Replaces any earlier declaration rather than adding to it: a config reload
+    re-executes the package, which declares its full set again, so a name the new
+    declaration drops stops being valid. The set object itself stays the same, so a
+    held reference (``LoadedConfig.stat_names``) sees the new names.
+    """
+    declared = set(names)
+    STAT_NAMES.clear()
+    STAT_NAMES.update(declared)
 
 
 # --------------------------------------------------------------------------- #
@@ -278,8 +292,8 @@ class Teleport:
 class StatChange:
     """Add ``amount`` to ``roster[gangster].<stat>`` of the target player.
 
-    ``stat`` is one of :data:`_STAT_NAMES` (``"kraft"|"intelligenz"|"brutalitaet"``);
-    an unknown name raises ``ValueError`` in :func:`apply`. No cap is applied here — just
+    ``stat`` is one of the config's declared names (:data:`STAT_NAMES`); an undeclared
+    name raises ``ValueError`` in :func:`apply`. No cap is applied here — just
     the raw delta (a capped gain is :class:`StatChangeCapped`; energy is
     :class:`EnergyChange`).
     """
@@ -573,13 +587,15 @@ def _clamp(value: int | float, floor: int | float, cap: int | float) -> int | fl
 
 
 def _validate_stat(stat: str) -> None:
-    """Raise ``ValueError`` if ``stat`` is not one of :data:`_STAT_NAMES`.
+    """Raise ``ValueError`` if ``stat`` is not one of the config's declared :data:`STAT_NAMES`.
 
     Shared by :class:`StatChange` and :class:`StatChangeCapped`, which both
     validate the same field name against the same set before touching a gangster.
     """
-    if stat not in _STAT_NAMES:
-        raise ValueError(f"unknown gangster stat {stat!r}; expected one of {_STAT_NAMES}")
+    if stat not in STAT_NAMES:
+        raise ValueError(
+            f"unknown gangster stat {stat!r}; the config declares {sorted(STAT_NAMES)}"
+        )
 
 
 def _with_player(state: GameState, idx: int, **field_changes) -> GameState:

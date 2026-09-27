@@ -127,9 +127,9 @@ class WeaponInstance(Protocol):
 
     ``name/price/ts/tg/ws`` are the DATA-table fields (``mf-prg.bas:50100-50115``);
     ``range`` is the shot's travel distance in combat cells, DERIVED from the attack
-    block (``30215-30216``); ``req_int/req_kraft/req_brut`` are the per-weapon stat
-    minimums DERIVED from the buy-guard lines (``13050-13060``) that the ``waf``
-    handler enforces at arm time.
+    block (``30215-30216``). A weapon's stat minimums are not part of this contract:
+    they name the game's stats, so the config declares and validates them (its
+    ``requires`` map, read by its own weapon shop handler).
     """
 
     name: str
@@ -138,9 +138,6 @@ class WeaponInstance(Protocol):
     tg: int
     range: int
     ws: int
-    req_int: int
-    req_kraft: int
-    req_brut: int
 
 
 _WEAPON_FIELDS: dict[str, type] = {
@@ -150,9 +147,6 @@ _WEAPON_FIELDS: dict[str, type] = {
     "tg": int,
     "range": int,
     "ws": int,
-    "req_int": int,
-    "req_kraft": int,
-    "req_brut": int,
 }
 
 

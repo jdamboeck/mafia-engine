@@ -51,6 +51,15 @@ from ..setup import load_weapons, score_and_rank
 
 __all__ = ["waf_buy", "waf_train", "weapon_spec"]
 
+#: The buy gates of ``mf-prg.bas:13050-13060`` in the order the source tests them,
+#: each with its refusal line: a weapon's ``requires`` map says the minimum per stat,
+#: this says which stat is checked first when several fall short.
+_STAT_GATES = (
+    ("intelligenz", "locations.waf.too_dumb"),  # 13050
+    ("kraft", "locations.waf.too_weak"),  # 13055
+    ("brutalitaet", "locations.waf.not_brutal"),  # 13060
+)
+
 
 def _weapons():
     """Load this config's weapon table via the config's own loader.
@@ -167,16 +176,16 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
         )
         g = active.roster[y]
 
-        # 13050-13060 — three per-gangster stat gates. A failed gate shows its
-        # reason and returns to the gangster pick.
-        if g.attrs["intelligenz"] < weapons[x]["req_int"]:
-            yield ShowMessage("locations.waf.too_dumb")
-            continue
-        if g.attrs["kraft"] < weapons[x]["req_kraft"]:
-            yield ShowMessage("locations.waf.too_weak")
-            continue
-        if g.attrs["brutalitaet"] < weapons[x]["req_brut"]:
-            yield ShowMessage("locations.waf.not_brutal")
+        # 13050-13060 — three per-gangster stat gates, checked in source order against
+        # the weapon's `requires` map. The first failed gate shows its reason and
+        # returns to the gangster pick.
+        requires = weapons[x]["requires"]
+        refusal = next(
+            (key for stat, key in _STAT_GATES if g.attrs[stat] < requires.get(stat, 0)),
+            None,
+        )
+        if refusal is not None:
+            yield ShowMessage(refusal)
             continue
 
         old = g.weapon  # gw(sp,y) — the gangster's CURRENT weapon (0 = unarmed)

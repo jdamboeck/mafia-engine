@@ -40,6 +40,16 @@ def test_load_game_config_registers_handler_and_exposes_new_game():
     assert loaded.config_dir == CONFIG_DIR.resolve()
 
 
+def test_loaded_config_exposes_the_configs_declared_stat_names():
+    # StatChange validation reads these; the config declares them (the engine names none).
+    from data.game_configs.mafia_1920s.gangster import GANGSTER_ATTR_NAMES
+    from engine.effects import STAT_NAMES
+
+    loaded = load_game_config(CONFIG_DIR)
+    assert loaded.stat_names is STAT_NAMES
+    assert set(loaded.stat_names) == set(GANGSTER_ATTR_NAMES)
+
+
 def test_load_game_config_rejects_missing_dir(tmp_path):
     with pytest.raises(ValueError):
         load_game_config(tmp_path / "does_not_exist")

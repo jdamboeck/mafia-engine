@@ -301,6 +301,27 @@ def test_stat_change_rejects_energie_which_is_the_vitality_slot():
         apply(state, StatChange("energie", 5))
 
 
+def test_stat_change_validates_against_the_config_declared_names():
+    """The valid targets are whatever the config declared, not an engine list.
+
+    Re-declaring replaces the set (a config reload does exactly this), so a name the
+    new declaration drops is refused and a name it adds is accepted.
+    """
+    from engine.effects import STAT_NAMES, declare_stat_names
+
+    before = frozenset(STAT_NAMES)
+    try:
+        declare_stat_names(["kraft"])
+        state = make_state()
+        assert apply(state, StatChange("kraft", 1)).players[0].roster[0].attrs["kraft"] == 21
+        with pytest.raises(ValueError, match="brutalitaet"):
+            apply(state, StatChange("brutalitaet", 1))
+        with pytest.raises(ValueError, match="brutalitaet"):
+            apply(state, StatChangeCapped("brutalitaet", 1, cap=99))
+    finally:
+        declare_stat_names(before)
+
+
 def test_stat_change_targets_the_right_gangster_index():
     state = _with_second_gangster(make_state(), Gangster(name="g0b", brutalitaet=1))
     out = apply(state, StatChange("brutalitaet", 7, gangster=1))

@@ -15,9 +15,10 @@ Two complementary guards:
   never appears in the engine.
 * **Source grep** — the acceptance test the plan names (NEXT-STEPS §IMMEDIATE): a
   scan of ``engine/**/*.py`` finds a game-stat name only inside a docstring/comment
-  citing ``mf-prg.bas`` (a source reference), or in the two documented data sites that
-  legitimately name attrs KEYS as strings (``effects._STAT_NAMES``, the weapon
-  requirement fields on ``engine.types``) — never as a field the engine addresses.
+  citing ``mf-prg.bas`` (a source reference) — never in code. The allow-list of
+  data sites is EMPTY: the ``StatChange`` target names are the config's declaration
+  (``engine.effects.STAT_NAMES``, filled by the config) and a weapon's stat minimums
+  are the config's ``requires`` map, read by the config's own shop handler.
 
 Break either guard and this file goes red, catching a future edit that reintroduces
 a game word into the engine.
@@ -85,20 +86,27 @@ def test_combat_module_defines_no_fixed_enemy_stat_constant():
 def _code_lines_naming_a_game_stat(path: Path) -> list[tuple[int, str]]:
     """Lines in ``path`` that name a game stat OUTSIDE a docstring or comment.
 
-    Uses ``ast`` to find every string-literal (docstring) span and drops those lines,
-    then drops the ``#``-comment tail of each remaining line, then greps the code that
-    survives. A source citation (``# mf-prg.bas:30245`` or a docstring) is thus never a
-    hit; only executable code that spells a game stat is.
+    Uses ``ast`` to find every docstring span — a string literal standing alone as a
+    statement — and drops those lines, then drops the ``#``-comment tail of each
+    remaining line, then greps the code that survives. A source citation
+    (``# mf-prg.bas:30245`` or a docstring) is thus never a hit; executable code that
+    spells a game stat is, INCLUDING a string literal used as data (``"kraft"`` in a
+    tuple) and a stat inside an identifier (``req_kraft``) — the underscore is not a
+    word boundary here.
     """
     source = path.read_text()
     tree = ast.parse(source)
     docstring_lines: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
             end = node.end_lineno or node.lineno
             docstring_lines.update(range(node.lineno, end + 1))
 
-    pattern = re.compile(r"\b(" + "|".join(_GAME_STAT_FIELDS) + r")\b")
+    pattern = re.compile(r"(?<![A-Za-z])(" + "|".join(_GAME_STAT_FIELDS) + r")(?![A-Za-z])")
     hits: list[tuple[int, str]] = []
     for lineno, raw in enumerate(source.splitlines(), start=1):
         if lineno in docstring_lines:
@@ -109,17 +117,10 @@ def _code_lines_naming_a_game_stat(path: Path) -> list[tuple[int, str]]:
     return hits
 
 
-#: The two documented sites where the engine legitimately names a game stat AS A
-#: STRING KEY (data), not as a field it addresses. Both are called out in their own
-#: source comments; neither makes the engine depend on the name being present.
-#:  * ``effects._STAT_NAMES`` — the config-facing ``StatChange`` target set (attrs
-#:    keys as data; documented to move to config in Step 8).
-#:  * ``engine/types`` — the weapon-requirement fields (``req_kraft``/etc.), a
-#:    WEAPON's stat gate, not a combatant stat the engine reads off a fighter.
-_LEGITIMATE_DATA_SITES = {
-    "effects.py",
-    "types/__init__.py",
-}
+#: Files exempt from the grep. EMPTY, and meant to stay so: the engine names no game
+#: stat anywhere, not even as a string key (the last two sites — the old
+#: ``effects._STAT_NAMES`` tuple and the weapon ``req_*`` fields — moved to the config).
+_LEGITIMATE_DATA_SITES: frozenset[str] = frozenset()
 
 
 def test_engine_source_names_no_game_stat_in_code():
