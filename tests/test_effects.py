@@ -39,6 +39,7 @@ from engine.effects import (
     ScoreAndRank,
     ScoreChange,
     SetEntryContext,
+    SetTenancy,
     SetPosition,
     ShopChange,
     SpawnFighter,
@@ -48,10 +49,6 @@ from engine.effects import (
     TipClear,
     TipSet,
     WantedChange,
-    _mapping_set,
-    _with_gangster,
-    _with_gangster_attr,
-    _with_player,
     apply,
     commit,
 )
@@ -64,6 +61,7 @@ from engine.state import (
     Flags,
     GameState,
     Job,
+    MapState,
     Player,
     tuple_replace,
 )
@@ -544,8 +542,9 @@ def test_roster_append_purity():
 # roster_truncate (#99) — the late-rent eviction, real application             #
 # --------------------------------------------------------------------------- #
 def _three_gangsters(state, player=0):
-    roster = state.players[player].roster + (Gangster(name="h1"), Gangster(name="h2"))
-    return _with_player(state, player, roster=roster)
+    for name in ("h1", "h2"):
+        state = apply(state, RosterAppend(gangster=Gangster(name=name), player=player))
+    return state
 
 
 def test_roster_truncate_keeps_only_the_boss():
@@ -1033,40 +1032,42 @@ def test_tuple_replace_rejects_out_of_range_index():
             tuple_replace(items, bad, 0)
 
 
-def test_with_player_updates_only_the_target():
-    """Helper happy path: the target player changes, siblings are untouched."""
+# The nested-update helpers are engine-internal; these tests pin their guarantees
+# through the public apply() with an effect that routes through each one.
+def test_a_player_effect_updates_only_the_target():
+    """The target player changes, siblings are shared, unrelated fields are kept."""
     st = _two_player_state()
-    new = _with_player(st, 0, ka=999)
+    new = apply(st, MoneyChange(899, player=0))
 
     assert new.players[0].ka == 999
     assert new.players[1] is st.players[1]  # structural sharing of the sibling
     assert new.players[0].name == "A"  # unrelated fields preserved
 
 
-def test_with_player_is_pure():
-    """Helper purity: the input state is never mutated."""
+def test_a_player_effect_is_pure():
+    """The input state is never mutated."""
     st = _two_player_state()
-    _with_player(st, 0, ka=999)
+    apply(st, MoneyChange(899, player=0))
 
     assert st.players[0].ka == 100  # original untouched
 
 
-def test_with_player_returns_readonly_players():
+def test_a_player_effect_returns_readonly_players():
     """R2: the rebuilt players collection is a tuple, never a mutable list."""
     st = _two_player_state()
-    new = _with_player(st, 0, ka=999)
+    new = apply(st, MoneyChange(899, player=0))
 
     assert isinstance(new.players, tuple)
 
 
-def test_with_gangster_attr_updates_only_the_target_gangster():
+def test_a_stat_effect_updates_only_the_target_gangster():
     """One level deeper: the right gangster's stat changes; roster siblings are shared.
 
-    Stat writes go through ``_with_gangster_attr`` (attrs-keyed) since ``kraft`` is no
-    longer a named field on the engine's ``Combatant`` (U2, amendment A4).
+    Stats are read and written through ``attrs`` since ``kraft`` is no longer a named
+    field on the engine's ``Combatant``.
     """
     st = _two_player_state()
-    new = _with_gangster_attr(st, 0, 1, "kraft", 42)
+    new = apply(st, StatChange(stat="kraft", amount=42, gangster=1, player=0))
 
     assert new.players[0].roster[1].attrs["kraft"] == 42
     assert new.players[0].roster[0] is st.players[0].roster[0]
@@ -1074,22 +1075,22 @@ def test_with_gangster_attr_updates_only_the_target_gangster():
     assert st.players[0].roster[1].attrs["kraft"] == 0  # purity
 
 
-def test_with_gangster_updates_a_blueprint_field():
-    """``_with_gangster`` still handles blueprint fields the engine names (weapon)."""
+def test_a_weapon_effect_updates_a_blueprint_field():
+    """A blueprint field the engine names (``weapon``) is set on the right gangster."""
     st = _two_player_state()
-    new = _with_gangster(st, 0, 1, weapon=3)
+    new = apply(st, AssignWeapon(weapon=3, gangster=1, player=0))
 
     assert new.players[0].roster[1].weapon == 3
     assert new.players[0].roster[0] is st.players[0].roster[0]
     assert st.players[0].roster[1].weapon == 0  # purity
 
 
-def test_mapping_set_returns_new_readonly_mapping():
+def test_a_tenancy_effect_rebuilds_a_readonly_mapping():
     """R2: a rebuilt mapping is read-only and leaves the source mapping alone."""
-    source = MappingProxyType({1: 0})
-    updated = _mapping_set(source, 2, 1)
+    st = dataclasses.replace(_two_player_state(), map=MapState(tenancy=MappingProxyType({1: 0})))
+    new = apply(st, SetTenancy(2, player=1))
 
-    assert updated == {1: 0, 2: 1}
-    assert dict(source) == {1: 0}  # purity
+    assert new.map.tenancy == {1: 0, 2: 1}
+    assert dict(st.map.tenancy) == {1: 0}  # purity
     with pytest.raises(TypeError):
-        updated[3] = 9  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
+        new.map.tenancy[3] = 9  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
