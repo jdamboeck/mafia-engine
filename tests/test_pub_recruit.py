@@ -16,8 +16,24 @@ Ports ``mf-prg.bas:12100-12175`` verbatim. Guards, in order:
    available.
 6. ``:12108-12175`` — per-candidate loop: draw with reroll on hired/already-drawn,
    gendered intro, offer+confirm, afford check, settle (price deducted, roster
-   append at energy 5, candidate globally marked hired) — the mid-batch cap
-   re-check at ``:12145`` aborts the rest of the batch.
+   append at energy 5, candidate globally marked hired). The mid-batch cap check
+   sits at ``:12145``, AFTER the confirm (``:12136``) and the cash check (``:12140``).
+
+The ``:12145`` order, gated through ``mafia-oracle conclude 12100-12175`` (plus
+``quote 12005``/``1100``/``1110``/``1115``/``1125``):
+
+    According to mf-prg.bas:12136 (``gosub1110:ifx$="n"goto12175``), a "no" skips to
+    :12175 (``nexti:return``) and the batch goes on to the next candidate. According
+    to mf-prg.bas:12140 (``ifka(sp)<pthengosub1125:goto12175``), too little cash
+    prints :1125 ("du hast zu wenig kies!", then :1100 press-a-key) and also goes on
+    to the next candidate. Only then does mf-prg.bas:12145 (``ifgz(sp)=10goto12005``)
+    test the cap; :12005 (``onwgoto12010,12100,12200,12300``) dispatches on the
+    unchanged menu choice ``w`` back to :12100, the rank (:12100) and housing
+    (:12103-12104) guards pass again, and :12105
+    (``ifgz(sp)=10thenprint"{down}maximal 10 gangster!":goto1100``) prints the
+    gang-full message and goes to :1100 (press-a-key, return). Nothing in
+    :12108-12145 or the subroutines it calls (:1100, :1110/:1115, :1125) assigns
+    ``w``, ``ra(sp)`` or ``uk(i)``, so the re-entry always lands on :12105.
 """
 
 from __future__ import annotations
@@ -248,45 +264,93 @@ def test_multi_candidate_batch_hires_both():
 
 
 # --------------------------------------------------------------------------- #
-# Crew cap during a batch: the mid-batch re-entry quirk (:12145)               #
+# Crew cap during a batch: checked at :12145, after the confirm and cash check #
 # --------------------------------------------------------------------------- #
-def test_ninth_hire_succeeds_tenth_is_denied_mid_batch():
-    """Crew cap arithmetic: roster length 10 INCLUDES the boss (KTD-6) -- starting
-    at boss + 8 hires (roster len 9), the ninth hire fills the roster to 10 (the
-    cap), and any further candidate in the SAME batch is aborted by the :12145
-    mid-batch re-check rather than being offered."""
-    roster = tuple(Gangster(name=f"g{i}") for i in range(9))  # boss + 8 hires = 9
-    st = _state(rank=5, ka=100000, roster=roster)
-    assert len(st.players[0].roster) == 9  # one hire away from the 10-cap
-    rng = _StubRng(
-        2,  # offered = 2 (a batch of two candidates this visit)
-        0,  # candidate 1: id 0
-        1,  # candidate 2: id 1 -- drawn, but the mid-batch cap check fires first
-    )
-    result = run_pure(HANDLERS["pub.recruit"], _scripted(True, True), state=st, rng=rng)
+_INTRO = "locations.pub.recruit_intro_male"  # candidates 0, 1, 2 are all male
+_OFFER = "locations.pub.recruit_offer"
+_HIRED = "locations.pub.recruit_hired"
+_FULL = "locations.pub.recruit_gang_full"
+_BROKE = "system.not_enough_money"
+_FIRST_HIRE = [
+    MoneyChange(-3000),
+    RosterAppend(gangster=_gangster(0)),
+    GangsterMarkHired(candidate_id=0),
+]
+
+
+def _nine_man_roster() -> tuple[Gangster, ...]:
+    """Boss + 8 hires: ``gz(sp)=9``, one hire away from the :12105/:12145 cap."""
+    return tuple(Gangster(name=f"g{i}") for i in range(9))
+
+
+def test_ninth_hire_succeeds_tenth_is_offered_then_denied_mid_batch():
+    """AE3: the hire that fills the roster does not stop the batch. The next candidate
+    is still drawn (:12110), introduced (:12115-12121), offered and confirmed (:12136)
+    and cash-checked (:12140); only then does :12145 send the "yes" to the gang-full
+    message. Candidate ids 0/1/2 are distinct and unhired, so there are no rerolls."""
+    st = _state(rank=5, ka=100000, roster=_nine_man_roster())
+    rng = _StubRng(2, 0, 1)  # offered = 2; candidate ids 0 then 1
+    source = _scripted(True, True)
+    result = run_pure(HANDLERS["pub.recruit"], source, state=st, rng=rng)
     assert result.status == "completed"
-    # The ninth hire (roster 9 -> 10) succeeds...
+    assert rng.calls == [("range", 4), ("range", 30), ("range", 30)]
+    assert source.message_keys() == [_INTRO, _OFFER, _HIRED, _INTRO, _OFFER, _FULL]
+    assert result.effects == _FIRST_HIRE
     assert len(result.state.players[0].roster) == 10
     assert result.state.players[0].roster[-1] == _gangster(0)
-    # ...and the tenth candidate in this SAME batch is never even drawn: only 2
-    # range(30) draws happened (the second draw response, id 1, is unconsumed).
-    assert rng.calls == [("range", 4), ("range", 30)]
-    assert result.effects == [
-        MoneyChange(-3000),
-        RosterAppend(gangster=_gangster(0)),
-        GangsterMarkHired(candidate_id=0),
+
+
+def test_declining_at_the_cap_continues_the_batch():
+    """AE4: a "no" at :12136 goes to :12175 ``nexti`` with no message, even with the
+    roster full; the third candidate is offered and its "yes" hits :12145."""
+    st = _state(rank=5, ka=100000, roster=_nine_man_roster())
+    rng = _StubRng(3, 0, 1, 2)  # offered = 3; candidate ids 0, 1, 2
+    source = _scripted(True, False, True)
+    result = run_pure(HANDLERS["pub.recruit"], source, state=st, rng=rng)
+    assert result.status == "completed"
+    assert rng.calls == [("range", 4), ("range", 30), ("range", 30), ("range", 30)]
+    assert source.message_keys() == [
+        *(_INTRO, _OFFER, _HIRED),
+        *(_INTRO, _OFFER),  # declined silently
+        *(_INTRO, _OFFER, _FULL),
     ]
+    assert result.effects == _FIRST_HIRE
+
+
+def test_declining_the_last_candidate_at_the_cap_shows_no_gang_full():
+    """AE4's other half: a "no" never reaches :12145, so no gang-full message."""
+    st = _state(rank=5, ka=100000, roster=_nine_man_roster())
+    rng = _StubRng(2, 0, 1)
+    source = _scripted(True, False)
+    result = run_pure(HANDLERS["pub.recruit"], source, state=st, rng=rng)
+    assert result.status == "completed"
+    assert source.message_keys() == [_INTRO, _OFFER, _HIRED, _INTRO, _OFFER]
+    assert result.effects == _FIRST_HIRE
+
+
+def test_too_little_cash_at_the_cap_shows_cant_afford_not_gang_full():
+    """The cash check comes before the cap: a "yes" the player cannot pay for gets
+    :12140 ``gosub1125`` ("du hast zu wenig kies!") and ``goto12175``, never :12145."""
+    st = _state(rank=5, ka=3000 + 1999, roster=_nine_man_roster())  # cand 1 costs 2000
+    rng = _StubRng(2, 0, 1)
+    source = _scripted(True, True)
+    result = run_pure(HANDLERS["pub.recruit"], source, state=st, rng=rng)
+    assert result.status == "completed"
+    assert source.message_keys() == [_INTRO, _OFFER, _HIRED, _INTRO, _OFFER, _BROKE]
+    assert result.effects == _FIRST_HIRE
+    assert result.state.players[0].ka == 1999
 
 
 def test_crew_cap_reached_before_the_batch_even_starts_still_denies():
-    # A fresh call with roster already at 10 is caught by the :12105 shell-of-guards
-    # check before the offer pool is even rolled (see test_crew_cap_at_10... above);
-    # this proves the SAME cap value (10) drives both the entry guard and the
-    # mid-batch quirk, not two independently-tuned numbers.
+    # R7: a fresh call with roster already at 10 is caught by the :12105 entry check
+    # before the offer pool is even rolled -- the same message the :12145 -> :12005
+    # re-entry reaches mid-batch, so ONE cap value (10) drives both.
     full_roster = tuple(Gangster(name=f"g{i}") for i in range(10))
     st = _state(rank=5, ka=100000, roster=full_roster)
     rng = _StubRng()
-    result = run_pure(HANDLERS["pub.recruit"], _scripted(), state=st, rng=rng)
+    source = _scripted()
+    result = run_pure(HANDLERS["pub.recruit"], source, state=st, rng=rng)
+    assert source.message_keys() == [_FULL]
     assert result.effects == []
     assert rng.calls == []
 

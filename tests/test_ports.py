@@ -802,6 +802,83 @@ _PICK_GRID = tuple(
 )
 
 
+# --- :12136-12160 pub recruit confirm, cash check, cap and hire ------------------------
+Q_12140 = q(12140, "ka(sp)<p")
+Q_12145 = q(12145, "gz(sp)=10")
+Q_12160_KA = q(12160, "ka(sp)=ka(sp)-p")
+Q_12160_GZ = q(12160, "gz(sp)=gz(sp)+1")
+
+#: The batch offers 0-based candidates 0, 2, 1 (prices 3000, 2500, 2000): falling prices,
+#: so a player short for the second can still afford the third.
+_BATCH_IDS = (0, 2, 1)
+_BATCH_PICKS = _pick_draws(*(c + 0.5 for c in _BATCH_IDS))
+
+
+def _basic_batch(v: Values) -> Any:
+    """Each offer's outcome, then ``gz(sp)`` and ``ka(sp)`` after the batch.
+
+    :12136 a "no" goes to :12175 ``nexti``. :12140 too little cash prints :1125 and
+    goes to :12175. :12145 at the cap goes to :12005, which re-enters :12100 and ends
+    at :12105's "maximal 10 gangster!" (``goto1100``): the batch is over.
+    """
+    b: dict[str, Any] = {"sp": 1, "ka(1)": v["ka"], "gz(1)": v["gz"]}
+    outcomes: list[str] = []
+    for candidate, yes in zip(_BATCH_IDS, v["answers"]):  # :12108 `fori=1tox`
+        b["p"] = _CANDIDATES[candidate]["price"]
+        if not yes:
+            outcomes.append("declined")
+            continue
+        if Q_12140.holds(b):
+            outcomes.append("broke")
+            continue
+        if Q_12145.holds(b):
+            outcomes.append("full")
+            break
+        b["ka(1)"] = Q_12160_KA.assign(b)
+        b["gz(1)"] = Q_12160_GZ.assign(b)
+        outcomes.append("hired")
+    return (tuple(outcomes), b["gz(1)"], b["ka(1)"])
+
+
+_BATCH_OUTCOMES = {
+    "locations.pub.recruit_hired": "hired",
+    "system.not_enough_money": "broke",
+    "locations.pub.recruit_gang_full": "full",
+}
+
+
+def _engine_batch(v: Values) -> Any:
+    player = _player(
+        rank=5,
+        last_location=1,
+        ka=v["ka"],
+        roster=tuple(_gangster() for _ in range(v["gz"])),
+    )
+    state = replace(_state(player), map=MapState(tenancy={1: 0}))
+    answers = iter(v["answers"])
+    run = _drive(
+        HANDLERS["pub.recruit"],
+        state,
+        draws=(_ALL_OFFERS, *_BATCH_PICKS),
+        answer=lambda i: next(answers),
+    )
+    # An offer's outcome is the message that follows it; none means it was declined.
+    keys = [m.key for m in run.shown]
+    outcomes = [
+        _BATCH_OUTCOMES.get(keys[k + 1], "declined") if k + 1 < len(keys) else "declined"
+        for k, key in enumerate(keys)
+        if key == "locations.pub.recruit_offer"
+    ]
+    after = run.state.players[0]
+    return (tuple(outcomes), len(after.roster), after.ka)
+
+
+_BATCH_GRID = _grid(
+    gz=(1, 8, 9),
+    ka=(0, 1999, 2000, 2999, 3000, 4999, 5000, 7499, 7500, 10**6),
+    answers=tuple(itertools.product((True, False), repeat=3)),
+)
+
 # --- :16026-16040 casino --------------------------------------------------------------
 Q_16026 = q(16026, "ka(sp)=ka(sp)-p")
 Q_16030_WIN = q(16030, "int(rnd(1)*(1+x))=0")
@@ -1308,6 +1385,14 @@ PORTS: list[Port] = [
         _engine_pick,
     ),
     Port(
+        "pub recruit confirm, cash and cap",
+        (Q_12140, Q_12145, Q_12160_KA, Q_12160_GZ),
+        "HANDLERS['pub.recruit'] (offer loop)",
+        _BATCH_GRID,
+        _basic_batch,
+        _engine_batch,
+    ),
+    Port(
         "casino",
         (Q_16026, Q_16030_WIN, Q_16030_P, Q_16040),
         "HANDLERS['sph']",
@@ -1472,6 +1557,16 @@ def test_pick_grid_redraws_for_both_reasons() -> None:
     redrawn = [p for p in _PICK_GRID if _basic_pick(p)[1] > len(_basic_pick(p)[0])]
     assert any(p["hired"] == () for p in redrawn), "no repeat-only reroll"
     assert any(p["hired"] == (4,) for p in redrawn), "no hired reroll"
+
+
+def test_batch_grid_reaches_every_order() -> None:
+    """The batch grid is not vacuous: at the cap it declines, runs short of cash and
+    offers again after either, and it hits the cap mid-batch."""
+    outcomes = {_basic_batch(p)[0] for p in _BATCH_GRID}
+    assert ("hired", "declined", "full") in outcomes
+    assert ("hired", "broke", "full") in outcomes
+    assert ("hired", "full") in outcomes
+    assert ("full",) not in outcomes  # gz=10 on entry is :12105, not this loop
 
 
 def test_every_quote_belongs_to_a_port() -> None:

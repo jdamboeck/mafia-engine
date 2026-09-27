@@ -46,7 +46,11 @@ commit + branch conventions, and how to pick up the next unit. Then:
    hard in `make check`, client tests drive `play()`/`main()` only, `--theme`, client
    split into `session`/`cli`, BASIC evaluator + port tests + citation checker, doc
    claims quoted and tested; fixed the `:30247` hit, `:30255` damage and `:13065`
-   unclamped-`gf` divergences; closed #85–#97).
+   unclamped-`gf` divergences; closed #85–#97),
+   and the C64 Numbers and Recruit Cap plan (`2026-09-27-001-…`, U1–U5 — C64 `str$`
+   formatter checked against a VICE capture, theme-selected number style with classic
+   on `c64` and the `:4215` rank screen's lost minus, recruit cap checked at `:12145`;
+   closed #98/#105).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).

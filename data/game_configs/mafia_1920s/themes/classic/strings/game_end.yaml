@@ -6,11 +6,11 @@
 game_end:
   # :4500-4501 "spielstand" + int(ja) "-" 1+int((ja-x)*12) (unpadded, as mid$(str$(..),2)
   # prints it), then :4505's column header.
-  standings_header: "spielstand {year}-{month}\n\nspieler:        kapital: punkte:"
+  standings_header: "spielstand {year:mid$}-{month:mid$}\n\nspieler:        kapital: punkte:"
 
   # :4510 sp$(i);tab(15);ka(i)"$";tab(26);gf(i) — one row per player; the widths line
   # the values up under the column header above.
-  standings_row: "{name:<16}{cash:>6}$  {score:g}"
+  standings_row: "{name:<16}{cash:>6}$  {score}"
 
   # :40115-40117 — sole winner.
   winner: "{name} hat gewonnen!\ndu warst von allen der brutalste,\ngemeinste und schlaueste!"

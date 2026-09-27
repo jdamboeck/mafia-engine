@@ -151,7 +151,7 @@ def test_promotion_screen_text_keys_resolve():
     assert "the outfit" in promo
     assert "alcapone" in promo
     assert "langfinger" in promo
-    assert "52.0" in promo
+    assert "\n52 p.\n" in promo  # :4215 prints mid$(str$(gf(sp)),2): 52 shows as "52"
 
 
 def test_promotion_uses_the_configured_rank_name_table():

@@ -29,6 +29,7 @@ Harness conventions (from the solution doc):
 from __future__ import annotations
 
 import io
+import re
 import sys
 from collections import deque
 from pathlib import Path
@@ -2235,3 +2236,59 @@ class TestTerminalSession:
         assert "diesmal haben mehrere die gleichen" in output, "no tie at the year end"
         assert "hat gewonnen!" not in output
         assert session.state.players[0].gf == session.state.players[1].gf == 25.2
+
+
+# --------------------------------------------------------------------------- #
+# The classic theme prints numbers as the C64 does (#98)                       #
+# --------------------------------------------------------------------------- #
+class TestC64NumbersOnScreen:
+    """A loaded two-player game played through ``play()``: the screens a player sees
+    print numbers with the C64's ``str$``, and ``mid$(str$(..),2)`` where the source
+    uses it."""
+
+    _TWO = [("alcapone", "the outfit"), ("moran", "north side")]
+
+    def _play_one_turn(self, monkeypatch, tmp_path, state) -> str:
+        """Save ``state``, resume it with ``play(load=...)``, play the active player's
+        turn to its turn-over (and past the next player's upkeep), then quit."""
+        from engine.persistence import save_game
+
+        save = tmp_path / "c64.jsonl"
+        save_game(save, state, effect_log=[], rng_log=[], seed=42)
+        keys = burn_turn_keys(42, self._TWO, turns=1, state=state) + ["q"]
+        output, _ret = _run_session(monkeypatch, keys, load=str(save))
+        return output
+
+    # :4030 shows :4200's poster when ra(sp)<>nr(sp); :4215 prints the score as
+    # `mid$(str$(gf(sp)),2)" p."`, so a negative gf loses its minus (str$(-3.5) is
+    # "-3.5", mid$ from 2 is "3.5"), and str$ has no ".0" and no leading "0.".
+    @pytest.mark.parametrize(("gf", "shown"), [(-3.5, "3.5 p."), (22.0, "22 p."), (0.5, ".5 p.")])
+    def test_ae1_rank_screen_prints_the_score_as_mid_str(self, monkeypatch, tmp_path, gf, shown):
+        from dataclasses import replace
+
+        state = new_state(42, self._TWO)
+        moran = replace(state.players[1], gf=gf, rank=1, nr=3)
+        state = replace(state, players=(state.players[0], moran))
+
+        output = self._play_one_turn(monkeypatch, tmp_path, state)
+
+        upkeep_at = output.index("spieler moran\nist an der reihe")
+        screen = output[upkeep_at:]
+        assert f"moran.\n{shown}\n" in screen, "the rank screen did not show the score"
+        assert f"\n{gf!r} p." not in output, "the score printed as Python's str"
+
+    # :4510 `print"{down}"sp$(i);tab(15);ka(i)"$";tab(26);gf(i)` — a plain PRINT of
+    # gf(i): str$ keeps the minus and drops ".0" and the leading "0.".
+    def test_ae2_standings_row_prints_the_score_as_str(self, monkeypatch, tmp_path):
+        from dataclasses import replace
+
+        state = new_state(42, self._TWO)
+        players = (replace(state.players[0], gf=22.0), replace(state.players[1], gf=-0.9))
+        state = replace(state, players=players, clock=replace(state.clock, active_player=1))
+
+        output = self._play_one_turn(monkeypatch, tmp_path, state)
+
+        standings = output[output.index("spielstand 1925-1\n") :]
+        rows = {line.split()[0]: line for line in standings.splitlines()[:6] if "$" in line}
+        assert re.search(r"\$  22(?![.\d])", rows["alcapone"]), rows
+        assert re.search(r"\$  -\.9(?!\d)", rows["moran"]), rows
