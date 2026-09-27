@@ -17,8 +17,10 @@ mocked stdin/stdout and assert rendering + relay only — no game-rule assertion
 from __future__ import annotations
 
 import io
+import re
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -41,7 +43,18 @@ from engine.interactions import (  # noqa: E402
 )
 from engine.strings import Resolver  # noqa: E402
 from engine.movement import DOWN, load_city  # noqa: E402
-from clients.terminal import EndOfInput, TerminalInput, map_repl, render_message  # noqa: E402
+from clients.terminal import (  # noqa: E402
+    CONFIG_DIR,
+    CURSOR_HIDE,
+    CURSOR_SHOW,
+    EndOfInput,
+    TerminalInput,
+    main,
+    map_repl,
+    play,
+    render_message,
+)
+from clients.terminal.palette import ColorSupport, Colors, load_palette  # noqa: E402
 from tests.helpers import deadline, with_player  # noqa: E402
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -51,11 +64,16 @@ def _resolver():
     return Resolver.from_config(_CONFIG_DIR, theme="classic")
 
 
+#: The classic palette in truecolor, for tests that build a TerminalInput directly.
+_COLORS = Colors(load_palette(_CONFIG_DIR), ColorSupport.TRUECOLOR)
+
+
 def _client(stdin_lines: list[str]):
     """A TerminalInput wired to scripted stdin and a capture buffer for stdout."""
     out = io.StringIO()
     inp = TerminalInput(
         resolver=_resolver(),
+        colors=_COLORS,
         stdin=io.StringIO("\n".join(stdin_lines) + "\n"),
         stdout=out,
     )
@@ -81,7 +99,7 @@ def test_show_message_is_rendered_by_the_client_without_prompting():
             consulted.append(interaction)
             return super().__call__(interaction)
 
-    spy = _Spy(resolver=_resolver(), stdin=io.StringIO(""), stdout=out)
+    spy = _Spy(resolver=_resolver(), colors=_COLORS, stdin=io.StringIO(""), stdout=out)
 
     def handler(ctx):
         yield ShowMessage("locations.slw.no_room")
@@ -250,7 +268,9 @@ def _eof_client(stdin_text: str):
     """A TerminalInput over EXACT stdin text (``_client`` always appends a newline,
     so it can never produce real EOF on the first read)."""
     out = io.StringIO()
-    return TerminalInput(resolver=_resolver(), stdin=io.StringIO(stdin_text), stdout=out), out
+    return TerminalInput(
+        resolver=_resolver(), colors=_COLORS, stdin=io.StringIO(stdin_text), stdout=out
+    ), out
 
 
 def test_eof_at_non_cancellable_prompt_int_raises_end_of_input():
@@ -263,7 +283,7 @@ def test_eof_at_cancellable_prompt_raises_rather_than_cancelling():
     """EOF is not a blank line even where a blank line would cancel: it ends input."""
     inp, _out = _eof_client("")
     with pytest.raises(EndOfInput):
-        inp(PromptChoice("locations.sph.wager_prompt", options=("a", "b"), cancellable=True))
+        inp(PromptChoice("locations.sph.wager_prompt", options=["a", "b"], cancellable=True))
 
 
 def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
@@ -303,6 +323,8 @@ def test_map_repl_adopts_state_and_ends_on_quit():
         city=city,
         key_reader=lambda: next(keys),
         move_for_key=lambda k: DOWN if k == "down" else None,
+        resolver=_resolver(),
+        colors=_COLORS,
         out=out,
     )
     # One real step happened and the client adopted the new pure state (po moved, ms spent).
@@ -322,22 +344,14 @@ _SCORE_WEIGHT_PROMPT = "punktewertigkeit (0.1 - 2):"
 
 
 def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, **play_kwargs):
-    """Drive the real ``play()`` over EXACT stdin text; return (first state, stdout).
+    """Drive the real ``play()`` over EXACT stdin text; return (its state, stdout).
 
-    The first turn-start state is captured by spying on ``_run_upkeep_screen`` (the
-    module-level seam ``play()`` calls right after setup); the spy reads no input, so
-    stdin runs straight into the map loop, where EOF quits. A SIGALRM deadline turns a
-    re-prompt spin into a failure instead of a hung suite.
+    After setup the first upkeep screen and the map each read a line; the script
+    ends there, so both meet EOF (an ack, then a quit) and ``play()`` returns the
+    state of the game setup just built -- ``None`` if the session ended before setup
+    finished. A SIGALRM deadline turns a re-prompt spin into a failure instead of a
+    hung suite.
     """
-    import clients.terminal.__main__ as tmain
-
-    seen = []
-
-    def _spy(state, *a, **k):
-        seen.append(state)
-        return state
-
-    monkeypatch.setattr(tmain, "_run_upkeep_screen", _spy)
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
     monkeypatch.setattr(sys, "stdout", out)
@@ -347,8 +361,8 @@ def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, *
         f"play() did not return within {seconds}s (EOF spin?)",
         exc_type=AssertionError,
     ):
-        tmain.play(seed=42, **play_kwargs)
-    return (seen[0] if seen else None), out.getvalue()
+        state, _rng = play(seed=42, **play_kwargs)
+    return state, out.getvalue()
 
 
 class TestSetupPrompts:
@@ -407,23 +421,34 @@ class TestSetupPrompts:
 
 
 class TestSetupFlags:
-    def _main(self, monkeypatch, argv):
-        import clients.terminal.__main__ as tmain
+    @staticmethod
+    def _main(monkeypatch, tmp_path, argv, stdin_text):
+        """Run ``main()`` end to end, pressing ``p`` on the first map screen; return
+        its stdout and the state it saved."""
+        from engine.persistence import load_game
 
-        calls = []
-        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
-        tmain.main(argv)
-        return calls
+        save = tmp_path / "s.jsonl"
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(20, "main() did not return (spin?)", exc_type=AssertionError):
+            main([*argv, "--save", str(save)])
+        return out.getvalue(), load_game(save).state
 
-    def test_flags_reach_play(self, monkeypatch):
-        calls = self._main(monkeypatch, ["--end-year", "1950", "--score-weight", "1.5"])
-        assert calls[0][1]["end_year"] == 1950
-        assert calls[0][1]["score_weight"] == 1.5
+    def test_flags_reach_play(self, monkeypatch, tmp_path):
+        # title ack, upkeep ack, p, q -- no setup answers: the flags supply them.
+        text, state = self._main(
+            monkeypatch, tmp_path, ["--end-year", "1950", "--score-weight", "1.5"], "\n\np\nq\n"
+        )
+        assert _END_YEAR_PROMPT not in text and _SCORE_WEIGHT_PROMPT not in text
+        assert state.clock.end_year == 1950
+        assert state.config.score_mult == 1.5
 
-    def test_absent_flags_pass_none(self, monkeypatch):
-        calls = self._main(monkeypatch, [])
-        assert calls[0][1]["end_year"] is None
-        assert calls[0][1]["score_weight"] is None
+    def test_absent_flags_are_asked_at_setup(self, monkeypatch, tmp_path):
+        text, state = self._main(monkeypatch, tmp_path, [], "\n1940\n0.5\n\np\nq\n")
+        assert text.count(_END_YEAR_PROMPT) == 1 and text.count(_SCORE_WEIGHT_PROMPT) == 1
+        assert state.clock.end_year == 1940
+        assert state.config.score_mult == 0.5
 
     @pytest.mark.parametrize(
         "argv",
@@ -435,19 +460,16 @@ class TestSetupFlags:
         ],
     )
     def test_out_of_range_flag_is_rejected(self, monkeypatch, capsys, argv):
-        import clients.terminal.__main__ as tmain
-
-        calls = []
-        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append((a, k)))
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
         with pytest.raises(SystemExit) as exc:
-            tmain.main(argv)
-        assert exc.value.code != 0
-        assert calls == []
+            main(argv)
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
         # Rejected as out of range -- not merely as an unknown flag (which would
         # also exit non-zero and make this test pass without the feature).
-        err = capsys.readouterr().err
-        assert "unrecognized arguments" not in err
-        assert argv[0] in err
+        assert "unrecognized arguments" not in captured.err
+        assert argv[0] in captured.err
 
 
 class TestClientErrorGuard:
@@ -459,9 +481,7 @@ class TestClientErrorGuard:
         from engine.config_loader import load_game_config
         from engine.persistence import save_game
 
-        import clients.terminal.__main__ as tmain
-
-        cfg = load_game_config(tmain._CONFIG_DIR)
+        cfg = load_game_config(CONFIG_DIR)
         state = cfg.module.new_game(
             seed=42, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
         )
@@ -469,11 +489,9 @@ class TestClientErrorGuard:
         return path
 
     @staticmethod
-    def _fail(capsys, argv) -> tuple[int, str]:
-        import clients.terminal.__main__ as tmain
-
+    def _fail(capsys, argv) -> tuple[int | str | None, str]:
         with pytest.raises(SystemExit) as exc:
-            tmain.main(argv)
+            main(argv)
         return exc.value.code, capsys.readouterr().err
 
     @staticmethod
@@ -546,46 +564,51 @@ class TestClientErrorGuard:
         assert "seed" in err
 
     def test_out_of_range_end_year_names_the_range(self, capsys, monkeypatch):
-        import clients.terminal.__main__ as tmain
+        from engine.config_loader import load_game_config
 
-        monkeypatch.setattr(tmain, "play", lambda *a, **k: pytest.fail("play ran"))
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
         code, err = self._fail(capsys, ["--end-year", "1927"])
         assert code not in (0, None)
         assert "Traceback" not in err
-        bounds = tmain.load_game_config(tmain._CONFIG_DIR).config["input_ranges"]["end_year"]
+        assert capsys.readouterr().out == "", "the game started"
+        bounds = load_game_config(CONFIG_DIR).config["input_ranges"]["end_year"]
         assert f"[{bounds['min']}, {bounds['max']}]" in err
 
-    def _load_and_break_render(self, monkeypatch, tmp_path, exc):
-        """Load a VALID save (so loading must succeed) and fail deep inside play()."""
-        import clients.terminal.__main__ as tmain
+    def test_unknown_error_inside_play_keeps_its_traceback(self, monkeypatch, capsys):
+        # Standard input that breaks at the first map prompt of a new game: not a
+        # failure main() knows, so it must escape with its traceback, not one line.
+        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", ""], RuntimeError("deep bug")))
+        with pytest.raises(RuntimeError, match="deep bug") as exc:
+            main(["--end-year", "1930", "--score-weight", "1"])
+        assert any(entry.name == "readline" for entry in exc.traceback), "not stdin's error"
+        assert capsys.readouterr().err == ""
 
-        path = self._valid_save(tmp_path / "ok.jsonl")
-        monkeypatch.setattr(sys, "stdin", io.StringIO("q\n"))
-
-        def boom(*a, **k):
-            raise exc
-
-        monkeypatch.setattr(tmain, "render_map", boom)
-        return tmain, path
-
-    def test_unknown_error_inside_play_keeps_its_traceback(self, monkeypatch, tmp_path):
-        tmain, path = self._load_and_break_render(monkeypatch, tmp_path, RuntimeError("deep bug"))
-        with pytest.raises(RuntimeError, match="deep bug"):
-            tmain.main(["--load", str(path)])
-
-    def test_keyboard_interrupt_exits_quietly_with_cursor_restored(
-        self, monkeypatch, capsys, tmp_path
-    ):
-        from clients.terminal import CURSOR_HIDE, CURSOR_SHOW
-
-        tmain, path = self._load_and_break_render(monkeypatch, tmp_path, KeyboardInterrupt())
+    def test_keyboard_interrupt_exits_quietly_with_cursor_restored(self, monkeypatch, capsys):
+        # Ctrl-C at the first map prompt of a new game (title and upkeep acked).
+        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", ""], KeyboardInterrupt()))
         with pytest.raises(SystemExit) as exc:
-            tmain.main(["--load", str(path)])
-        assert exc.value.code not in (0, None)
+            main(["--end-year", "1930", "--score-weight", "1"])
+        assert exc.value.code == 130
         captured = capsys.readouterr()
-        assert "Traceback" not in captured.err
+        assert captured.err == ""
+        assert "move: W/A/S/D" in captured.out, "the interrupt did not come at the map"
         assert CURSOR_HIDE in captured.out
-        assert captured.out.rstrip().endswith(CURSOR_SHOW)
+        assert captured.out.endswith(CURSOR_SHOW)
+
+
+class _FailingStdin(io.StringIO):
+    """Standard input that answers ``lines``, then raises ``exc`` on the next read:
+    Ctrl-C at a prompt (``KeyboardInterrupt``) or a stream that breaks."""
+
+    def __init__(self, lines: list[str], exc: BaseException) -> None:
+        super().__init__("".join(f"{line}\n" for line in lines))
+        self._exc = exc
+
+    def readline(self, *args) -> str:
+        line = super().readline(*args)
+        if line == "":
+            raise self._exc
+        return line
 
 
 # --------------------------------------------------------------------------- #
@@ -621,8 +644,8 @@ class TestWatchAi:
         return run(handler, inp, state=None, rng=Rng(42))
 
     def test_only_an_opted_in_terminal_input_advertises_the_opt_in(self):
-        watching = TerminalInput(resolver=_resolver(), observe_ai=True)
-        plain = TerminalInput(resolver=_resolver())
+        watching = TerminalInput(resolver=_resolver(), colors=_COLORS, observe_ai=True)
+        plain = TerminalInput(resolver=_resolver(), colors=_COLORS)
         assert watching.observes_ai is True
         assert getattr(plain, "observes_ai", False) is False
 
@@ -644,6 +667,7 @@ class TestWatchAi:
         out = io.StringIO()
         inp = TerminalInput(
             resolver=_resolver(),
+            colors=_COLORS,
             stdin=io.StringIO("f\nd\n.\n" * 30),
             stdout=out,
             observe_ai=True,
@@ -664,36 +688,262 @@ class TestWatchAi:
         # and the next action prompt meets EOF -> surrender (KTD-2), side 2 wins.
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=_resolver(), stdin=io.StringIO("f\nd\n"), stdout=out, observe_ai=True
+            resolver=_resolver(),
+            colors=_COLORS,
+            stdin=io.StringIO("f\nd\n"),
+            stdout=out,
+            observe_ai=True,
         )
         result = self._fight(inp)
         assert result.payload.returned.winner == 2
         assert out.getvalue().count(_resolver().resolve("combat.observe_prompt")) == 1
 
-    def test_watch_ai_flag_reaches_play_and_defaults_off(self, monkeypatch):
-        import clients.terminal.__main__ as tmain
+    @staticmethod
+    def _shift_fight_output(monkeypatch, argv: list[str]) -> str:
+        """``main(argv)`` over a seed-5 game whose second turn is a bouncer shift fight
+        (as in ``TestJobShiftThroughClient``): walk to the pub, take the job, end the
+        turn, then pass six times in the fight until input runs out (a surrender)."""
+        from engine.movement import load_city
+        from tests.test_client_loop import (
+            find_door_cell,
+            load_city_raw,
+            new_state,
+            walk_keys_to_cell,
+        )
 
-        calls = []
-        monkeypatch.setattr(tmain, "play", lambda *a, **k: calls.append(k))
-        tmain.main(["--watch-ai"])
-        tmain.main([])
-        assert calls[0]["watch_ai"] is True
-        assert calls[1]["watch_ai"] is False
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
+        keys = ["", ""] + walk + ["", "2", "j", "w", "x", "x", "x"] + ["p"] * 6
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(keys) + "\n"))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(20, "main() did not return (spin?)", exc_type=AssertionError):
+            main([*argv, "--seed", "5", "--end-year", "1930", "--score-weight", "1"])
+        return out.getvalue()
 
-    def test_play_hands_the_opt_in_to_the_sessions_terminal_input(self, monkeypatch):
-        import clients.terminal.__main__ as tmain
+    def test_watch_ai_shows_the_board_after_each_cpu_move_in_a_real_fight(self, monkeypatch):
+        text = self._shift_fight_output(monkeypatch, ["--watch-ai"])
+        assert _resolver().resolve("combat.key_legend") in text, "the fight never started"
+        assert text.count(_resolver().resolve("combat.observe_prompt")) >= 1
 
-        seen = []
+    def test_without_watch_ai_no_observation_frame_is_shown(self, monkeypatch):
+        text = self._shift_fight_output(monkeypatch, [])
+        assert _resolver().resolve("combat.key_legend") in text, "the fight never started"
+        assert _resolver().resolve("combat.observe_prompt") not in text
 
-        class _Stop(Exception):
-            pass
 
-        def spy(**kwargs):
-            seen.append(kwargs.get("observe_ai"))
-            raise _Stop
+# --------------------------------------------------------------------------- #
+# Client text lives in the theme (client.yaml), not in the client's code.     #
+# --------------------------------------------------------------------------- #
+class TestClientTextComesFromTheTheme:
+    _CLIENT_YAML = _CONFIG_DIR / "themes" / "classic" / "strings" / "client.yaml"
 
-        monkeypatch.setattr(tmain, "TerminalInput", spy)
-        for flag in (True, False):
-            with pytest.raises(_Stop):
-                tmain.play(seed=1, end_year=1950, score_weight=1.0, watch_ai=flag)
-        assert seen == [True, False]
+    @staticmethod
+    def _leaf_keys(tree: dict, prefix: str) -> list[str]:
+        keys = []
+        for name, value in tree.items():
+            key = f"{prefix}.{name}"
+            keys.extend(
+                TestClientTextComesFromTheTheme._leaf_keys(value, key)
+                if isinstance(value, dict)
+                else [key]
+            )
+        return keys
+
+    #: A theme directory outside the config: it rewords ``bye``, the map hint, the
+    #: turn-over summary and the load error, and leaves every other key to classic.
+    _TEST_THEME = Path(__file__).resolve().parent / "fixtures" / "themes" / "test"
+
+    @staticmethod
+    def _main(monkeypatch, argv: list[str], lines: list[str]) -> str:
+        """``main(argv)`` over EXACT stdin ``lines``; return its stdout."""
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(20, "main() did not return", exc_type=AssertionError):
+            main(argv)
+        return out.getvalue()
+
+    def test_every_client_key_resolves(self):
+        import string
+
+        resolver = _resolver()
+        keys = self._leaf_keys(_yaml_load(self._CLIENT_YAML)["client"], "client")
+        assert "client.bye" in keys and "client.turn_over.summary" in keys
+        for key in keys:
+            template: Any = resolver.tree
+            for segment in key.split("."):
+                template = template[segment]
+            params = {f: "x" for _, f, _, _ in string.Formatter().parse(template) if f}
+            assert resolver.resolve(key, params).strip(), key
+
+    def test_a_theme_path_changes_what_a_quit_prints(self, monkeypatch):
+        argv = ["--theme", str(self._TEST_THEME), "--end-year", "1930", "--score-weight", "1"]
+        text = self._main(monkeypatch, argv, ["", "", "q"])
+        assert "ciao." in text and "bye." not in text
+        assert "walk on." in text and "move: W/A/S/D" not in text
+        # Keys the theme leaves alone still come from classic.
+        assert "press any key..." in text
+
+    def test_a_theme_path_changes_the_turn_over_labels(self, monkeypatch):
+        from tests.test_client_loop import burn_turn_keys
+
+        # Walk the first turn to its turn-over screen and quit there.
+        walk = burn_turn_keys(42, turns=1)[:-3]
+        argv = ["--theme", str(self._TEST_THEME), "--seed", "42", "--end-year", "1930"]
+        text = self._main(monkeypatch, [*argv, "--score-weight", "1"], ["", "", *walk, "q"])
+        turn_over = text[text.index("  turn_over  ") :]
+        assert re.search(r"geld: \d+\$ \| feld \d+ \| schritte 0 \| rang 1", turn_over)
+        assert "cash:" not in turn_over and "movement:" not in turn_over
+        assert turn_over.endswith("ciao.\n" + CURSOR_SHOW)
+
+    def test_a_theme_path_changes_the_load_error_line(self, monkeypatch, capsys):
+        with pytest.raises(SystemExit):
+            main(["--theme", str(self._TEST_THEME), "--load", "/nonexistent.jsonl"])
+        err = capsys.readouterr().err
+        assert err.strip() == "kaputt /nonexistent.jsonl -- weg"
+
+    def test_an_unknown_theme_is_one_readable_line(self, monkeypatch, capsys):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        with pytest.raises(SystemExit) as exc:
+            main(["--theme", "nosuch"])
+        assert exc.value.code not in (0, None)
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started"
+        lines = captured.err.strip().splitlines()
+        assert len(lines) == 1, captured.err
+        assert lines[0].startswith("cannot load theme nosuch: ")
+        assert "Traceback" not in captured.err
+
+    def test_the_default_theme_is_classic(self, monkeypatch):
+        by_name = self._main(
+            monkeypatch,
+            ["--theme", "classic", "--end-year", "1930", "--score-weight", "1"],
+            ["", "", "q"],
+        )
+        default = self._main(
+            monkeypatch, ["--end-year", "1930", "--score-weight", "1"], ["", "", "q"]
+        )
+        assert by_name == default
+        assert "bye." in default
+
+    def test_the_status_bar_reads_the_session_resolver(self):
+        from clients.terminal.renderers import render_status_bar
+
+        override = _resolver().with_override({"client": {"status_bar": "[{name}/{cash}]"}})
+        buf = io.StringIO()
+        render_status_bar("alcapone", 5400, 181, 19, buf, resolver=override, colors=_COLORS)
+        assert "[alcapone/5400]" in buf.getvalue() and "cash" not in buf.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# --theme: name vs path, broken themes, the theme's palette, colour detection. #
+# --------------------------------------------------------------------------- #
+class TestThemeSelection:
+    """``--theme`` resolves a bare name as a config theme and only a path-shaped value
+    (a separator, or a leading ``.`` or ``~``) as a directory (KTD-5); the chosen
+    theme's palette colours the screens; colour support is read once per session."""
+
+    _TEST_THEME = TestClientTextComesFromTheTheme._TEST_THEME
+    _NEW_GAME = ["--end-year", "1930", "--score-weight", "1"]
+    _TOP_BORDER = "╔" + "═" * 40 + "╗"
+
+    @staticmethod
+    def _main(monkeypatch, argv: list[str], lines: list[str]) -> str:
+        return TestClientTextComesFromTheTheme._main(monkeypatch, argv, lines)
+
+    @staticmethod
+    def _fails_with_one_line(argv: list[str], capsys) -> str:
+        with pytest.raises(SystemExit) as exc:
+            main(argv)
+        assert exc.value.code not in (0, None)
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started"
+        assert "Traceback" not in captured.err
+        lines = captured.err.strip().splitlines()
+        assert len(lines) == 1, captured.err
+        return lines[0]
+
+    def test_a_classic_directory_in_the_cwd_does_not_shadow_the_default_theme(
+        self, monkeypatch, tmp_path
+    ):
+        (tmp_path / "classic").mkdir()
+        monkeypatch.chdir(tmp_path)
+        default = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        assert default.endswith("bye.\n" + CURSOR_SHOW)
+        by_name = self._main(monkeypatch, ["--theme", "classic", *self._NEW_GAME], ["", "", "q"])
+        assert by_name == default
+
+    def test_a_dot_prefixed_value_is_a_path(self, monkeypatch, tmp_path):
+        """``.mytheme`` has no separator; the leading dot alone makes it a path."""
+        (tmp_path / ".mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
+        monkeypatch.chdir(tmp_path)
+        text = self._main(monkeypatch, ["--theme", ".mytheme", *self._NEW_GAME], ["", "", "q"])
+        assert text.endswith("ciao.\n" + CURSOR_SHOW)
+
+    @pytest.mark.parametrize("value", ["~", "~/mytheme"])
+    def test_a_tilde_prefixed_value_is_a_path_under_home(self, monkeypatch, tmp_path, value):
+        """``~`` alone has no separator; the leading tilde makes it a path, and it
+        expands to ``$HOME``."""
+        home = tmp_path / "home"
+        home.mkdir()
+        (home / "mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
+        monkeypatch.setenv("HOME", str(home / "mytheme") if value == "~" else str(home))
+        text = self._main(monkeypatch, ["--theme", value, *self._NEW_GAME], ["", "", "q"])
+        assert text.endswith("ciao.\n" + CURSOR_SHOW)
+
+    def test_a_theme_file_with_a_list_root_is_one_readable_line(self, tmp_path, capsys):
+        (tmp_path / "strings").mkdir()
+        (tmp_path / "strings" / "x.yaml").write_text("- one\n- two\n", encoding="utf-8")
+        line = self._fails_with_one_line(["--theme", str(tmp_path)], capsys)
+        assert line.startswith(f"cannot load theme {tmp_path}: ")
+        assert "x.yaml" in line
+
+    def test_the_themes_palette_colours_the_screens(self, monkeypatch, truecolor):
+        """The fixture theme's palette sets ``red`` (the player on the map, the title)
+        and ``light_grey`` (the map background, headers); ``dark_grey`` (the map
+        border) is left to classic's palette."""
+        themed = self._main(
+            monkeypatch, ["--theme", str(self._TEST_THEME), *self._NEW_GAME], ["", "", "q"]
+        )
+        classic = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        red, grey_bg = "\033[38;2;1;2;3m", "\033[48;2;4;5;6m"
+        classic_red, classic_grey_bg = "\033[38;2;158;52;38m", "\033[48;2;178;178;178m"
+        border = "\033[38;2;82;82;82m"  # classic's dark_grey, kept by the theme
+        assert red in themed and grey_bg in themed and border in themed
+        assert classic_red not in themed and classic_grey_bg not in themed
+        assert classic_red in classic and classic_grey_bg in classic
+        assert red not in classic
+
+    def test_colour_support_is_read_once_per_session(self, monkeypatch, hostile_color_env):
+        """Detection happens when the session starts: a terminal does not change what
+        it can show mid-game, and frames must not switch colour modes half-way. An env
+        change during a session is ignored; the next session sees it."""
+
+        class FlipAtFirstMapKey(io.StringIO):
+            """Scripted stdin that turns truecolor on as the first map key is read."""
+
+            reads = 0
+
+            def readline(self, *args):
+                FlipAtFirstMapKey.reads += 1
+                if FlipAtFirstMapKey.reads == 3:  # 1 title, 2 upkeep, 3 first map key
+                    monkeypatch.setenv("COLORTERM", "truecolor")
+                return super().readline(*args)
+
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\nx\nx\nq\n"))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(20, "main() did not return", exc_type=AssertionError):
+            main(self._NEW_GAME)
+        first = out.getvalue()
+        assert FlipAtFirstMapKey.reads >= 5, "the script did not reach the later map frames"
+        _ansi = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+        frames = [line for line in first.split("\n") if _ansi.sub("", line) == self._TOP_BORDER]
+        assert len(frames) == 3, "expected three map frames: before and after the flip"
+        assert "\033[38;5;" in first
+        assert "\033[38;2;" not in first, "colours switched mode mid-session"
+
+        second = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        assert "\033[38;2;" in second and "\033[38;5;" not in second

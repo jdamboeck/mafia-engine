@@ -1,0 +1,13 @@
+# A test theme for ``--theme PATH``: it rewords a few of the client's own keys and
+# leaves every other key to the classic theme it is merged over. Its
+# renderer/palette.yaml recolours two colours the same way.
+client:
+  bye: "ciao."
+  map:
+    hint: "walk on."
+  turn_over:
+    summary: "geld: {cash}$ | feld {position} | schritte {movement} | rang {rank} | knast {jail_months}"
+  load:
+    error: "kaputt {path} -- {reason}"
+    reason:
+      not_found: "weg"

@@ -268,7 +268,7 @@ def test_showmessage_return_value_is_discarded_even_when_it_is_cancel():
 
 def test_ctx_exposes_state_and_rng():
     seen = {}
-    sentinel_state = object()
+    sentinel_state = GameState()  # a distinct instance: the check below is identity
     sentinel_rng = object()
 
     def handler(ctx):

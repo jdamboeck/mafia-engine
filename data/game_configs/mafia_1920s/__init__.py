@@ -28,7 +28,7 @@ __all__ = [
     "load_ranks",
     "load_vehicles",
     "load_weapons",
-    # U2: this game's name for the engine's Combatant blueprint, plus its rules bundle.
+    # This game's name for the engine's Combatant blueprint, plus its rules bundle.
     "Gangster",
     "build_rules",
     "equipper",

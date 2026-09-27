@@ -1,4 +1,4 @@
-# sph (Spielhoelle / casino) — location shell (U5 declarative layer).
+# sph (Spielhoelle / casino) — location shell (declarative layer).
 #
 # Ports the sph menu from mf-prg.bas:16000-16040 (entry at 16000, the 3-game
 # submenu at 16010 lives INSIDE the sph handler as a PromptChoice). The shell is

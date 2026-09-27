@@ -1,4 +1,4 @@
-"""The waf (Waffengeschaeft / weapon shop) handlers — U6, the protocol stress test.
+"""The waf (Waffengeschaeft / weapon shop) handlers.
 
 Two handlers sharing one shop, ported from ``mf-prg.bas:13005-13175`` + the weapon
 spec-sheet sub-state at ``13500-13525``:
@@ -6,7 +6,7 @@ spec-sheet sub-state at ``13500-13525``:
 - ``waf.buy`` (``13010-13091``) — stock by tile ``ln``, an RNG-gated grenade extension,
   a range-guarded weapon pick, the weapon spec-sheet SUB-STATE, a gangster pick with
   three per-gangster stat gates, a trade-in offer + yes/no confirm, and the fused
-  score/rank adjust on settle. This is the widest protocol surface in the slice.
+  score/rank adjust on settle. This is the widest protocol surface of any handler.
 - ``waf.train`` (``13100-13175``) — pick a gangster, then (at rank >= 5) a single-key
   venue choice between the range (``schiesstand``) and the camp (``trainingscamp``),
   each with its own price, afford-check, ``ln``-modified stat gains capped at 99, and a
@@ -14,21 +14,21 @@ spec-sheet sub-state at ``13500-13525``:
 
 Faithfulness notes
 ------------------
-- ALL game-balance numbers come from ``formula_params`` (KTD-10) — prices, caps, gain
+- ALL game-balance numbers come from ``formula_params`` — prices, caps, gain
   ranges, ratios, roll odds are read from config and passed into the effects, never
   hardcoded here.
 - Every relational term uses the C64 ``true = -1`` evaluation (see
-  ``docs/solutions/.../basic-relational-boolean-is-plus-one-when-porting.md``, which
-  the #47 fidelity audit reversed from the earlier, circular ``true = +1`` pin).
-- Stat gates are HANDLER branching, not shell guards (KTD-3): they test the CHOSEN
+  ``docs/solutions/.../basic-relational-boolean-is-minus-one-when-porting.md``, confirmed
+  by the #47 fidelity audit — do not revert to ``true = +1``).
+- Stat gates are HANDLER branching, not shell guards: they test the CHOSEN
   gangster mid-handler, which the option-entry guard DSL cannot express.
-- No content-specific events (KTD-6): outcomes are reconstructable from the committed
+- No content-specific events: outcomes are reconstructable from the committed
   effects + logged RNG draws.
-- KTD-7: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
+- Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
   and its OWN config helpers (``..setup``).
 
-Cancellability rule (KTD-1 feasibility)
----------------------------------------
+Cancellability rule
+-------------------
 Only whole-action aborts use ``cancellable=True`` (the driver's atomic discard). Every
 "return to an earlier menu" (afford-fail, stat-gate fail, trade-in decline) is an
 IN-HANDLER loop, because a driver-cancel unwinds the entire handler and cannot resume at
@@ -36,8 +36,8 @@ an inner menu.
 
 ``ln`` seam
 -----------
-Read from the active player's ``last_location`` field, exactly as ``slw`` does (U9 will
-formalize how the turn system populates it).
+Read from the active player's ``last_location`` field, exactly as ``slw`` does (door
+entry in ``engine.movement`` records it before the menu runs).
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ __all__ = ["waf_buy", "waf_train", "weapon_spec"]
 
 
 def _weapons():
-    """Load this config's weapon table via the config's own loader (KTD-7).
+    """Load this config's weapon table via the config's own loader.
 
     Reads the table relative to this module's config directory (mirrors how setup loads
     it) — the config is frozen per game, so a fresh read per action is harmless.
@@ -65,13 +65,13 @@ def _weapons():
 
 
 # --------------------------------------------------------------------------- #
-# Weapon spec-sheet sub-state (R7, KTD-2) — display-only LoadSubState consumer #
+# Weapon spec-sheet sub-state — display-only LoadSubState consumer            #
 # --------------------------------------------------------------------------- #
 @register_substate("weapon_spec")
 def weapon_spec(ctx, params):
     """Show a weapon's spec sheet, then return — ports ``mf-prg.bas:13500-13525``.
 
-    A display-only sub-state (KTD-2): it yields one ``ShowMessage`` (the resolved spec
+    A display-only sub-state: it yields one ``ShowMessage`` (the resolved spec
     screen) and returns ``None``. The accuracy/effect labels are BUCKETED lookups, not
     raw values: accuracy bucket = ``int(ts/2)`` (13515), effect bucket = ``int(tg/4)+1``
     (13520). ``params`` carries the resolved weapon record + its index.
@@ -92,7 +92,7 @@ def weapon_spec(ctx, params):
 
 
 # --------------------------------------------------------------------------- #
-# waf.buy (R4-R9) — mf-prg.bas:13010-13091                                     #
+# waf.buy — mf-prg.bas:13010-13091                                            #
 # --------------------------------------------------------------------------- #
 @register("waf.buy")
 def waf_buy(ctx):
@@ -167,7 +167,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
         )
         g = active.roster[y]
 
-        # 13050-13060 — three per-gangster stat gates (KTD-3). A failed gate shows its
+        # 13050-13060 — three per-gangster stat gates. A failed gate shows its
         # reason and returns to the gangster pick.
         if g.attrs["intelligenz"] < weapons[x]["req_int"]:
             yield ShowMessage("locations.waf.too_dumb")
@@ -181,19 +181,22 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
 
         old = g.weapon  # gw(sp,y) — the gangster's CURRENT weapon (0 = unarmed)
         # x8 == the score weight (Config.score_mult); the buy-score modifies gf DIRECTLY
-        # by ±x8 (13065/13072/13073) and does NOT recompute rank (no gosub 1160), so it
-        # is a plain ScoreChange (the intrinsic [0,100] clamp is enough), not ScoreAndRank.
+        # by ±x8 (13065/13072/13073) and does NOT go through gosub 1160, so it neither
+        # recomputes rank nor clamps: an unclamped ScoreChange, not ScoreAndRank. Only the
+        # gf<100 / gf>0 guards bound it, so gf=99,x8=2 upgrading reaches 101 and stays
+        # there until the next gosub 1160 (ScoreAndRank) clamps it.
         x8 = ctx.state.config.score_mult
 
         if old == 0:
-            # 13065 — no old weapon: q=0. `gf = gf - x8*(gf<100)` with the C64
+            # 13065 — no old weapon: q=0. `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` with the C64
             # true=-1 evaluation is score UP by x8 while gf<100: arming a
             # previously unarmed gangster raises the gang's notoriety.
             q = 0
             if active.gf < 100:
-                ctx.apply(ScoreChange(x8))
+                ctx.apply(ScoreChange(x8, clamp=False))
         else:
             # 13070-13071 — trade-in offer on the OLD weapon's price, yes/no confirm.
+            # :13070 `q=int(wp(gw(sp,y))/1.5)`
             q = int(weapons[old]["price"] / params["trade_in_divisor"])
             yield ShowMessage("locations.waf.trade_in_offer", {"amount": q})
             if not (yield Confirm("locations.waf.trade_in_confirm")):
@@ -201,16 +204,17 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             # 13072/13073 — score sign by index comparison, C64 true=-1.
             # Weapon indices ascend in power/price (DATA 50100-50115), so
             # `x > old` is an UPGRADE:
-            #   13072 upgrade    `gf - x8*(gf<100)`   -> UP by x8    (while gf<100)
-            #   13073 downgrade  `gf + x8*2*(gf>0)`   -> DOWN by 2*x8 (while gf>0)
+            #   :13072 upgrade    `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` -> UP by x8 (while gf<100)
+            #   :13073 downgrade  `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)` -> DOWN by 2*x8 (while gf>0)
             if x > old:
                 if active.gf < 100:
-                    ctx.apply(ScoreChange(x8))
+                    ctx.apply(ScoreChange(x8, clamp=False))
             else:
                 if active.gf > 0:
-                    ctx.apply(ScoreChange(-2 * x8))
+                    ctx.apply(ScoreChange(-2 * x8, clamp=False))
 
         # 13075 — settle: cash += q - new_price; assign the weapon to the gangster.
+        # :13075 `ka(sp)=ka(sp)+q-wp(x)`
         # Use the picked index y directly (roster.index(g) could resolve to the wrong
         # gangster when two share identical stats — dataclass __eq__ is by value).
         ctx.apply(MoneyChange(q - new_price))
@@ -220,7 +224,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
 
 
 # --------------------------------------------------------------------------- #
-# waf.train (R10-R13) — mf-prg.bas:13100-13175                                 #
+# waf.train — mf-prg.bas:13100-13175                                          #
 # --------------------------------------------------------------------------- #
 @register("waf.train")
 def waf_train(ctx):
@@ -253,7 +257,7 @@ def waf_train(ctx):
         is_camp = venue == 1
 
     if is_camp:
-        # 13150-13175 — trainingscamp.
+        # 13150-13175 — trainingscamp. :13150 `p=2500+500*ra(sp)`
         p = params["camp_base"] + params["camp_per_rank"] * active.rank
         yield ShowMessage("locations.waf.camp_cost", {"price": p})
         if not (yield Confirm("locations.waf.confirm")):
@@ -263,7 +267,9 @@ def waf_train(ctx):
             return []
         yield ShowMessage("locations.waf.camp_enter", {"name": active.roster[y].name})
         ctx.apply(MoneyChange(-p))  # 13170 ka -= p
-        # 13170-13172 — each of int/brut/kraft rises by its OWN fnr(0) = rng.hit(8,15) draw.
+        # 13170-13172 — each of int/brut/kraft rises by its OWN fnr(0) = rng.hit(8,15) draw:
+        # :13170 `in=in+fnr(0)`, :13171 `bt=bt+fnr(0)`, :13172 `kr=kr+fnr(0)`, each capped
+        # at 99; :117 `deffnr(x)=int(rnd(1)*8)+8`.
         for stat in ("intelligenz", "brutalitaet", "kraft"):
             gain = ctx.rng.hit(params["camp_gain_min"], params["camp_gain_max"])
             ctx.apply(StatChangeCapped(stat, gain, cap=cap, gangster=y))
@@ -272,7 +278,7 @@ def waf_train(ctx):
         ctx.apply(score_and_rank(2, params))
         yield ShowMessage("locations.waf.camp_done")
     else:
-        # 13110-13130 — schiesstand (range).
+        # 13110-13130 — schiesstand (range). :13110 `p=800+200*ra(sp)`
         p = params["range_base"] + params["range_per_rank"] * active.rank
         yield ShowMessage("locations.waf.range_cost", {"price": p})
         if not (yield Confirm("locations.waf.confirm")):
@@ -284,6 +290,7 @@ def waf_train(ctx):
         ctx.apply(MoneyChange(-p))  # 13125 ka -= p
         # 13125-13127 — ln-modified stat gains (C64 true=-1), each capped at 99:
         #   kr += 5 ; in += 3 - 2*(ln=1) ; bt += 2 - 3*(ln=2)
+        #   (:13125 `kr=kr+5`, :13126 `in=in+3-2*(ln=1)`, :13127 `bt=bt+2-3*(ln=2)`)
         # A true relational is -1, so the ln-matching tile ADDS to the gain:
         # in += 5 at ln=1, bt += 5 at ln=2. (The old true=+1 reading made the
         # bt gain -1 — a training session that damaged the stat.)

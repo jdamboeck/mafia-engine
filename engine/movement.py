@@ -1,4 +1,4 @@
-"""The turn loop + city-map movement economy — ENGINE mechanism (U9).
+"""The turn loop + city-map movement economy — ENGINE mechanism.
 
 This is generic engine machinery, not game-specific content (docs/design/config-and-content-contract.md: "Game
 FSM + turn loop + movement economy" is engine-provided). It ports the original's
@@ -13,14 +13,15 @@ turn/movement layer from the decompiled BASIC:
   door-table cell (``ms -= 5``, ``po`` unchanged — entering is the action, not a
   move), or is rejected as a WALL. ``ms <= 0`` ends the turn (``mf-prg.bas:2005``).
 * **Police interrupt** — ``mf-prg.bas:2041``: the ``rank > 3`` gate (never fires
-  at rank 1). Only the *gate* is implemented here; the roadblock body is a later
-  unit.
+  at rank 1). Only the *gate* is implemented; the roadblock body is not built.
+* **Event cells** — the la=13/14 map-triggered cells (cash transport, mayor hit) are
+  detected and skipped; their flows are not built.
 
 **The ``ln`` seam (formalized here).** When a move enters a location with resolved
 ``(la, ln)``, a :class:`~engine.effects.SetEntryContext` effect sets the active
 player's ``last_location = ln`` (and ``last_la = la``) **before** that location's
-handler runs. This is the seam U7's slw handler reads (it keys ``fnm(ln)`` off
-``last_location``); U7 set it by hand, and door entry is what sets it for real.
+handler runs. Location handlers read it (e.g. slw keys ``fnm(ln)`` off
+``last_location``); door entry is what sets it.
 
 ``engine/`` imports nothing from ``server``/``clients``/transport, and this module
 holds no display text. City data (the grid + door table) is CONFIG data, passed in
@@ -30,6 +31,7 @@ never statically imports anything under ``data/``.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -53,6 +55,7 @@ __all__ = [
     "load_city",
     "try_move",
     "advance_turn",
+    "start_free_turn",
     "police_interrupt_would_fire",
 ]
 
@@ -109,7 +112,7 @@ class City:
         return self.doors.get(cell)
 
     def is_special(self, cell: int) -> bool:
-        """Whether ``cell`` is an la=13/14 event cell (out of scope this unit)."""
+        """Whether ``cell`` is an la=13/14 event cell (detected; the flows are not built)."""
         return cell in self.special_cells
 
 
@@ -146,7 +149,7 @@ class MoveResult:
         ``la``/``ln`` carry the resolved location + tile;
       * ``"wall"``     — the target was a wall (no change);
       * ``"oob"``      — the target was out of bounds (no change);
-      * ``"special"``  — the target was an la=13/14 event cell (skipped this unit);
+      * ``"special"``  — the target was an la=13/14 event cell (detected and skipped);
       * ``"turn_over"``— the turn was already over (``ms <= 0``); no move happened.
 
     ``turn_over`` is ``True`` once the active player's ``ms <= 0`` after the move
@@ -166,7 +169,7 @@ class MoveResult:
     delta: int | None = None
 
 
-def try_move(state, city: City, delta: int) -> EngineResult:
+def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState]:
     """Attempt one directional move for the active player (mf-prg.bas:2000-2065).
 
     ``delta`` is one of :data:`LEFT`/:data:`RIGHT`/:data:`UP`/:data:`DOWN`. The
@@ -193,7 +196,7 @@ def try_move(state, city: City, delta: int) -> EngineResult:
        location: commits ``SetEntryContext(la, ln)`` (the ``ln`` seam) +
        ``MsChange(-5)``, emits :class:`~engine.events.EnterLocation`; ``po`` stays put
        (``kind="enter"``, ``la``/``ln`` set), ``status="completed"``.
-    5. Special cell (la=13/14): detected and skipped this unit — no events, no
+    5. Special cell (la=13/14): detected and skipped (the flows are not built) — no events, no
        effects, ``status="not_implemented"``, ``kind="special"``.
     6. Otherwise a WALL (:2050): reject the move. Emits
        :class:`~engine.events.MoveBlocked` (reason ``"wall"``), no effects,
@@ -297,7 +300,7 @@ def try_move(state, city: City, delta: int) -> EngineResult:
             payload=payload,
         )
 
-    # la=13/14 event cells — OUT OF SCOPE this unit: detect and skip (no-op).
+    # la=13/14 event cells — detected and skipped (no-op); their flows are not built.
     if city.is_special(target):
         payload = MoveResult(
             kind="special",
@@ -338,23 +341,24 @@ def try_move(state, city: City, delta: int) -> EngineResult:
     )
 
 
-#: Months per year — the wrap divisor for the fractional-year clock (KTD-4;
-#: mf-prg.bas:1010's ``ja = ja + 1/12`` accumulates twelfths of a year per round).
+#: Months per year — the wrap divisor for the year/month clock (the engine stores
+#: integer ``year``/``month`` in place of mf-prg.bas:1010's fractional ``ja = ja + 1/12``,
+#: which accumulates twelfths of a year per round).
 MONTHS_PER_YEAR = 12
 
 
 def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, bool]:
-    """End the active player's turn and rotate to the next (mf-prg.bas:1010-1013).
+    """End the active player's turn and rotate to the next (mf-prg.bas:1010-1012).
 
-    Ports the turn-loop head:
+    Ports the turn-loop head (``:1013``'s score truncation is :func:`start_free_turn`,
+    since it runs only after upkeep and only for a player without a job):
 
     * ``sp = sp + 1``; when it passes the player count it **wraps to player 0**
       (0-based here; the original is 1-based). On wrap, a full round has elapsed,
-      so the calendar advances ONE MONTH (``ja = ja + 1/12``, KTD-4): ``month``
+      so the calendar advances ONE MONTH (``ja = ja + 1/12``): ``month``
       increments, and ``year`` increments only when ``month`` wraps past 11 (i.e.
       once every 12 full rounds) — matching ``int(ja)`` incrementing once per 12
-      additions of ``1/12``. This replaces the prior one-round-equals-one-year
-      simplification.
+      additions of ``1/12``.
     * ``ms = tr(tm(sp))`` (:1012) — the NEW active player's movement points are
       replenished from its vehicle's ``tr`` in the config's ``vehicles`` table.
 
@@ -363,8 +367,8 @@ def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, boo
 
     Returns:
         ``(new_state, game_over)`` where ``game_over`` is ``True`` if the game has
-        reached ``end_year`` (a simple game-over hook; full win handling is a later
-        unit) — the caller may end the game, but this never crashes.
+        reached ``end_year``. This only reports it; the client ends the game on it
+        (running the year-end flow, :mod:`engine.game_end`).
     """
     clock = state.clock
     year = clock.year
@@ -389,17 +393,56 @@ def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, boo
         players=tuple_replace(state.players, next_player, new_active),
     )
 
-    # Simple game-over hook (full win handling is out of scope this unit).
+    # Game-over hook: report reaching end_year; the client ends the game on it.
     return new_state, int(year) >= clock.end_year
+
+
+#: Decimal places ``gf * 100`` is rounded to before :func:`start_free_turn` floors it.
+#: A representation guard, not a rule: IEEE doubles store most whole-cent scores a hair
+#: off (``0.29 * 100`` is ``28.999999999999996``), and a plain floor would take a cent
+#: off such a score every turn. Rounding to 1e-6 of a cent (5e-9 in ``gf``) absorbs
+#: that drift -- at ``gf <= 100`` it is thousands of times the double's own error --
+#: while staying at or below the C64's float resolution there (a 32-bit mantissa is
+#: about 7e-9 at ``gf`` = 25), so no difference the original could hold is erased.
+_SCORE_SNAP_DECIMALS = 6
+
+
+def start_free_turn(state: GameState) -> GameState:
+    """Truncate the active player's score to two decimals (mf-prg.bas:1013).
+
+    ``:1013`` ``gf(sp)=int(gf(sp)*100)/100`` runs once per turn start, and only on
+    the path to a free turn:
+
+    * after upkeep (``:1011`` ``gosub4000``), so the upkeep screens show the score
+      before truncation;
+    * after ``:1012``'s job dispatch (``ifjo(sp)thengosub25000:goto1010``), so an
+      employed player's turn never reaches it;
+    * after ``:1010``'s year-end jump (``goto40100``), so the final scoring sees each
+      score as it stood when that player's last turn ended.
+
+    The caller (the client's turn loop) calls this where the free turn begins. BASIC
+    ``int`` is floor, so a negative score goes toward -inf (-0.125 becomes -0.13).
+    ``gf * 100`` is rounded to :data:`_SCORE_SNAP_DECIMALS` places first, so every
+    whole-cent score is a fixed point and a second call changes nothing.
+
+    Sets ``gf`` by ``replace`` rather than an effect, as :func:`advance_turn` sets
+    ``ms``: both are the engine's own turn machinery, not a handler. Pure: returns a
+    NEW state.
+    """
+    sp = state.clock.active_player
+    active = state.players[sp]
+    cents = math.floor(round(active.gf * 100, _SCORE_SNAP_DECIMALS))
+    truncated = replace(active, gf=cents / 100)
+    return replace(state, players=tuple_replace(state.players, sp, truncated))
 
 
 def police_interrupt_would_fire(state, ms: int, rng: Any) -> bool:
     """Whether the roadblock police interrupt would fire (mf-prg.bas:2041).
 
     The source gate is ``if ms%20==0 and rnd(5)==0 and ra(sp)>3 then <roadblock>``.
-    This returns whether ALL three conditions hold; the roadblock BODY is a later
-    unit (only the gate is implemented). The ``rank > 3`` term is why a rank-1
-    player is NEVER interrupted — the headline safety property for this slice.
+    This returns whether ALL three conditions hold; the roadblock BODY is not built
+    (only the gate is implemented). The ``rank > 3`` term is why a rank-1
+    player is NEVER interrupted.
 
     ``rng`` supplies ``range(5)`` (``rnd(5)``); ``range(5) == 0`` is the roll hit.
     """

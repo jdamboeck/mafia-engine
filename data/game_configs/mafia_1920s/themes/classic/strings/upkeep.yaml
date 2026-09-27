@@ -1,6 +1,6 @@
 # upkeep (turn-start flow) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the engine emits KEYS (e.g. "upkeep.turn_banner") and the
+# DATA, not code: the engine emits KEYS (e.g. "upkeep.turn_banner") and the
 # theme resolves them to these strings. Ported byte-for-byte from the research
 # (research-data/pass-1/game-text.yaml lines ~4005-4006, ~4200-4220 +
 # mf-prg.bas:4000-4090). {name}/{gang_name}/{score}/{rank_name} are template params.
@@ -14,7 +14,7 @@ upkeep:
   # renders that presentation, this key only carries the verbatim text content.
   rank_promotion: "{gang_name}\n{name}.\n{score} p.\n{rank_name}"
 
-  # Debt-default upkeep slot (U12, mf-prg.bas:4300-4370) — the loan-shark grace
+  # Debt-default upkeep slot (mf-prg.bas:4300-4370) — the loan-shark grace
   # countdown and its collectors fight.
   #
   # The grace warning (:4306,4308-4309) is one screen printed as three lines:
@@ -31,10 +31,19 @@ upkeep:
   # :4365 — printed ONLY on a loss, immediately before :4370 zeroes cash + debt.
   debt_seized: "die kerle nehmen dein ganzes geld mit und verschwinden..."
 
-  # Arms-deal upkeep slot (U8, mf-prg.bas:31000-31051) — resolves a tip-4 stake.
+  # Arms-deal upkeep slot (mf-prg.bas:31000-31051) — resolves a tip-4 stake.
   arms_deal_lost: "die waffenhaendler, denen du 5000 $ anvertraut hast, wurden geschnappt!"
   arms_deal_won: "dein kapital hat im waffenhandel gearbeitet. du erhaelts {amount}$ zurueck!"
 
-  # Shop-income upkeep slot (U11, mf-prg.bas:4400-4420) — the kdh loan business.
+  # Shop-income upkeep slot (mf-prg.bas:4400-4420) — the kdh loan business.
   shop_income_quiet: "in deinem kreditinstitut herrscht flaute."
   shop_income_earned: "dein kreditgeschaeft floriert und du machst {amount}$ einnahmen."
+
+  # Rent slot (mf-prg.bas:4600-4652) — the late-rent consequence once the prepaid
+  # months (um) run out. Both screens end in :1100's "taste druecken!" pause, which
+  # the client supplies for every message. The source's line breaks are the C64's
+  # 40 columns, so each screen reads as one sentence here.
+  # :4610-4620 — the fine; {amount} is the fine p after the cap at cash.
+  rent_late: "du hast deine miete nicht puenktlich gezahlt. man hat dir moebel im wert von {amount}$ gepfaendet!"
+  # :4650-4651 — the eviction (no cash to seize); the gang walks out.
+  rent_evicted: "deine wohnung wird dir gekuendigt!\ndeine gangster suchen sich einen anderen boss..."

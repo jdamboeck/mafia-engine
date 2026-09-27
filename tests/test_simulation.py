@@ -4,9 +4,9 @@ This unit split combat's *decision* from its *execution*: a driver
 (:meth:`~engine.combat.CombatFight.ai_decide`, a policy callable) CHOOSES an
 ``(action, argument)`` off a read-only :class:`~engine.combat.CombatView`, and the
 loop's single apply-block EXECUTES it. Every fight — human, AI, policy, hot-seat —
-runs through the SAME shared activation loop (:func:`engine.interactions._drive_fight`),
-whether a client is in it (:func:`engine.interactions._run_combat`) or not
-(:func:`engine.interactions.simulate`).
+runs through the SAME shared activation loop (:func:`engine.fight_loop._drive_fight`),
+whether a client is in it (:func:`engine.fight_loop._run_combat`) or not
+(:func:`engine.fight_loop.simulate`).
 
 The tests here cover the plan's four fight shapes plus the split's own invariants:
 no double-execution, ``ai_decide`` purity, and the read-only view surface.
@@ -31,15 +31,14 @@ from engine.combat import (
     CombatResult,
     CombatView,
 )
-from engine.interactions import (
-    CANCEL,
+from engine.fight_loop import (
     AiDriver,
-    CombatScreen,
     HumanDriver,
     PolicyDriver,
     ReplayDriver,
     simulate,
 )
+from engine.interactions import CANCEL, CombatScreen
 from engine.rng import Rng
 from engine.scenario import Scenario
 from engine.state import CombatState
@@ -319,8 +318,8 @@ def test_no_double_execution_an_ai_shot_applies_damage_exactly_once():
     then a single ``apply_action`` — fires once.
     """
     # near-adjacent target (dx=1) so the 30415 coin flip is skipped: a shot that draws
-    # only the two hit factors (both non-zero -> hit) and no damage draw (tg 12, draw 0).
-    fight = _ai_fight(rng=StubRng(1, 1, 0), target_col=11)
+    # only the two hit factors (weapon 1, kraft 10 -> hit) and a damage draw of 0.
+    fight = _ai_fight(rng=StubRng(1, 10, 0), target_col=11)
     before = fight.sides[0][0].vitality
 
     # The SPLIT path: choose (no mutation), then apply once.
@@ -330,11 +329,11 @@ def test_no_double_execution_an_ai_shot_applies_damage_exactly_once():
 
     one_hit_damage = before - fight.sides[0][0].vitality
     assert one_hit_damage > 0
-    # weapon 6: tg=12, damage draw 0, brutalitaet 30 -> int(0 + 30/10) + 1 = 4.
+    # weapon 6: tg=12, damage draw 0, brutalitaet 30 -> (0 + 30) // 10 + 1 = 4.
     assert one_hit_damage == 4, "a single AI shot must apply exactly ONE hit's damage"
 
     # And prove the buggy shape WOULD have doubled it, so the assertion above is load-bearing.
-    buggy = _ai_fight(rng=StubRng(1, 1, 0, 1, 1, 0), target_col=11)
+    buggy = _ai_fight(rng=StubRng(1, 10, 0, 1, 10, 0), target_col=11)
     before_b = buggy.sides[0][0].vitality
     outcome = buggy.ai_take_turn()  # executes the shot ONCE inside the wrapper
     if outcome["action"] == "shoot":
@@ -370,12 +369,12 @@ def test_no_double_execution_through_the_real_drive_loop():
         scenario=_scenario(sides=sides, dir_memory={0: -1}),
         input_source=input_source,
         cpu_sides=(2,),
-        rng=StubRng(1, 1, 0),
+        rng=StubRng(1, 10, 0),
     )
 
     assert len(seen_vitality) >= 2, "the CPU turn did not return control to side 1"
     assert seen_vitality[0] == 20, "the target is untouched before the CPU acts"
-    # weapon 6: tg=12, damage draw 0, brutalitaet 30 -> int(0 + 30/10) + 1 = 4. One shot.
+    # weapon 6: tg=12, damage draw 0, brutalitaet 30 -> (0 + 30) // 10 + 1 = 4. One shot.
     assert seen_vitality[1] == 16, "one AI shot through the loop must drop vitality by 4, not 8"
 
 
@@ -432,7 +431,7 @@ def test_ai_decide_plus_dispatch_matches_ai_take_turn(target_col, expect_action)
     # A NeverMove-style rng: the 30415 flip (range(2)) answers 1 (never forces a move);
     # the hit factors + damage follow. Same script for both paths -> identical outcome.
     def script():
-        return StubRng(1, 1, 1, 0)  # flip=1, hit 1,1, damage 0 (only drawn if needed)
+        return StubRng(1, 1, 10, 0)  # flip=1, hit 1,10, damage 0 (only drawn if needed)
 
     via_wrapper = _ai_fight(rng=script(), target_col=target_col)
     wrapped = via_wrapper.ai_take_turn()

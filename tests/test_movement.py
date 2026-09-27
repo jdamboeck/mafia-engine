@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from dataclasses import replace
@@ -39,6 +40,7 @@ from engine.movement import (
     DOWN,
     advance_turn,
     load_city,
+    start_free_turn,
     try_move,
 )
 from engine.state import Clock, Config, GameState, MapState, Player
@@ -329,6 +331,53 @@ def test_twelve_full_rounds_advance_the_year_exactly_once():
     st, over = advance_turn(st, _VEHICLES)
     assert st.clock.year == year0 + 1
     assert st.clock.month == 0
+
+
+# --------------------------------------------------------------------------- #
+# :1013 score truncation: `gf(sp)=int(gf(sp)*100)/100` at the head of a free   #
+# turn, for the NEW active player only.                                       #
+# --------------------------------------------------------------------------- #
+def _with_scores(scores, *, active):
+    st = _state(players=len(scores), active=active)
+    players = tuple(replace(p, gf=gf) for p, gf in zip(st.players, scores))
+    return replace(st, players=players)
+
+
+@pytest.mark.parametrize(
+    ("gf", "expected"),
+    [
+        (25.199999, 25.19),  # a real sub-cent part is cut, not rounded
+        (51.2, 51.2),
+        (-3.5, -3.5),
+        (-0.125, -0.13),  # C64 int() is floor: a negative score goes toward -inf
+        (0.29, 0.29),  # IEEE 0.29*100 is 28.999999999999996: still a fixed point
+        (0.57, 0.57),
+        (1.13, 1.13),
+        (1.2 * 21, 25.2),  # 25.199999999999992: float drift below the cent
+        (8.4 * 3, 25.2),  # 25.200000000000003: float drift above the cent
+        (0.0, 0.0),
+        (100.0, 100.0),
+    ],
+)
+def test_start_free_turn_truncates_the_active_players_score(gf, expected):
+    st = _with_scores((0.125, gf), active=1)
+    new = start_free_turn(st)
+    assert new.players[1].gf == expected
+    assert new.players[0].gf == 0.125, "only the active player's score is truncated"
+    assert st.players[1].gf == gf, "the input state is untouched (pure)"
+
+
+def test_truncation_keeps_every_two_decimal_score_and_is_idempotent():
+    """Every whole-cent score is a fixed point, and truncating twice equals once."""
+    moved = [
+        k / 100
+        for k in range(-10000, 10001)
+        if start_free_turn(_with_scores((k / 100,), active=0)).players[0].gf != k / 100
+    ]
+    assert moved == [], f"{len(moved)} whole-cent scores changed, e.g. {moved[:5]}"
+    for gf in (25.199999, 1.2 * 21, 0.1 * 3, -0.125, 33.337, 0.7 * 36, 99.99999999):
+        once = start_free_turn(_with_scores((gf,), active=0))
+        assert start_free_turn(once) == once, gf
 
 
 # --------------------------------------------------------------------------- #

@@ -1,4 +1,4 @@
-"""Strict conversion of YAML **consequence dicts** into typed effects (T6).
+"""Strict conversion of YAML **consequence dicts** into typed effects.
 
 A game config's declarative shell may express an option's outcome as a flat list of
 pure-data ``consequences`` — raw dicts loaded from YAML (see an option's
@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import MISSING, fields
 
 from engine.effects import (
+    LEGACY_FIELD_DEFAULTS,
     AssignWeapon,
     MoneyChange,
     MsChange,
@@ -65,7 +66,7 @@ def _field_sets(effect_cls: type) -> tuple[set[str], set[str]]:
     required: set[str] = set()
     optional: set[str] = set()
     for f in fields(effect_cls):
-        if f.default is MISSING and f.default_factory is MISSING:  # type: ignore[misc]
+        if f.default is MISSING and f.default_factory is MISSING:
             required.add(f.name)
         else:
             optional.add(f.name)
@@ -78,7 +79,9 @@ def effect_from_dict(raw: dict) -> object:
     The ``type`` key selects the effect class (see :data:`EFFECT_TYPES`); the remaining
     keys become constructor keyword arguments. Strict: raises ``ValueError`` for an unknown
     or missing ``type``, a missing required field, or an unknown extra field. Absent
-    optional fields fall back to the dataclass default. Never mutates ``raw`` and never
+    optional fields fall back to the dataclass default; a field added to an effect after
+    its type became declarable falls back to its pre-field meaning
+    (:data:`~engine.effects.LEGACY_FIELD_DEFAULTS`). Never mutates ``raw`` and never
     touches game state.
     """
     if "type" not in raw:
@@ -97,6 +100,11 @@ def effect_from_dict(raw: dict) -> object:
     required, optional = _field_sets(effect_cls)
     allowed = required | optional
     given = {k: v for k, v in raw.items() if k != "type"}
+    # A field added after this consequence type was first declarable: an entry that
+    # omits it keeps the meaning it had before the field existed (see
+    # ``engine.effects.LEGACY_FIELD_DEFAULTS``).
+    for name, legacy in LEGACY_FIELD_DEFAULTS.get(effect_cls, {}).items():
+        given.setdefault(name, legacy)
     given_keys = set(given)
 
     unknown = given_keys - allowed

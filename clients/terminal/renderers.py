@@ -4,7 +4,9 @@ Each function styles text by **role** (header, body, menu option, status bar,
 etc.).  Strings stay pure text; the renderer decides presentation.  No inline
 format codes — the renderer owns all ANSI styling.
 
-All functions write to an injected ``TextIO`` for testability.
+All functions write to an injected ``TextIO`` for testability. Colours come from
+the session's :class:`~clients.terminal.palette.Colors` (the theme's palette and the
+terminal's colour support, resolved once per session), passed in like the resolver.
 """
 
 from __future__ import annotations
@@ -15,17 +17,17 @@ from typing import Any, TextIO
 
 import yaml
 
+from engine.strings import Resolver
+
 from clients.terminal.palette import (
     DIM,
     RESET_ALL,
     RESET_BG,
     RESET_FG,
     REVERSE,
-    bg,
-    fg,
-    load_palette,
+    Colors,
 )
-from clients.terminal import CLEAR
+from clients.terminal import CLEAR, client_text
 
 # ---------------------------------------------------------------------------
 # Layout config (terminal-specific, loaded once at import time)
@@ -53,35 +55,6 @@ def _term_width() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Palette (loaded from theme config)
-# ---------------------------------------------------------------------------
-
-# Lazy-loaded palette dict.  Call _get_palette() to access.
-_PAL: dict[str, tuple[int, int, int]] | None = None
-
-
-def _get_palette(
-    config_dir: Path | None = None, theme: str = "classic"
-) -> dict[str, tuple[int, int, int]]:
-    global _PAL
-    if _PAL is None:
-        if config_dir is not None:
-            _PAL = load_palette(config_dir, theme)
-        else:
-            # Fallback: load from the known default config path.
-            from clients.terminal import _DEFAULT_CONFIG_DIR
-
-            _PAL = load_palette(_DEFAULT_CONFIG_DIR, theme)
-    return _PAL
-
-
-def set_palette(palette: dict[str, tuple[int, int, int]]) -> None:
-    """Override the palette (for testing or runtime theme swaps)."""
-    global _PAL
-    _PAL = palette
-
-
-# ---------------------------------------------------------------------------
 # Role-based render functions
 # ---------------------------------------------------------------------------
 
@@ -97,7 +70,7 @@ def render_separator(out: TextIO) -> None:
     out.write(f"{DIM}{'─' * width}{RESET_ALL}\n")
 
 
-def render_header(text: str, out: TextIO) -> None:
+def render_header(text: str, out: TextIO, colors: Colors) -> None:
     """Full-width double-line box header with centered text.
 
     ``╔══════════════════ SCHLUPFWINKEL ══════════════════╗``
@@ -109,39 +82,34 @@ def render_header(text: str, out: TextIO) -> None:
     pad_total = max(0, inner_width - len(text) - 2)  # -2 for the spaces around text
     left_pad = pad_total // 2
     right_pad = pad_total - left_pad
-    pal = _get_palette()
-    out.write(f"{fg('light_grey', pal)}╔{'═' * left_pad}  {text}  {'═' * right_pad}╗{RESET_FG}\n")
+    out.write(f"{colors.fg('light_grey')}╔{'═' * left_pad}  {text}  {'═' * right_pad}╗{RESET_FG}\n")
 
 
-def render_subheader(text: str, out: TextIO) -> None:
+def render_subheader(text: str, out: TextIO, colors: Colors) -> None:
     """Single-line centered subheader: ``──── text ────``"""
     width = _term_width()
     pad_total = max(0, width - len(text) - 2)  # -2 for the spaces around text
     left_pad = pad_total // 2
     right_pad = pad_total - left_pad
-    pal = _get_palette()
     out.write(
-        f"{DIM}{fg('light_grey', pal)}{'─' * left_pad}  {text}  {'─' * right_pad}{RESET_ALL}\n"
+        f"{DIM}{colors.fg('light_grey')}{'─' * left_pad}  {text}  {'─' * right_pad}{RESET_ALL}\n"
     )
 
 
-def render_body(text: str, out: TextIO) -> None:
+def render_body(text: str, out: TextIO, colors: Colors) -> None:
     """Normal body text in light grey."""
-    pal = _get_palette()
-    out.write(f"{fg('light_grey', pal)}{text}{RESET_FG}\n")
+    out.write(f"{colors.fg('light_grey')}{text}{RESET_FG}\n")
 
 
-def render_colored(text: str, color_name: str, out: TextIO) -> None:
+def render_colored(text: str, color_name: str, out: TextIO, colors: Colors) -> None:
     """Text in a specific Pepto palette color."""
-    pal = _get_palette()
-    out.write(f"{fg(color_name, pal)}{text}{RESET_FG}\n")
+    out.write(f"{colors.fg(color_name)}{text}{RESET_FG}\n")
 
 
-def render_menu_option(index: int, label: str, out: TextIO) -> None:
+def render_menu_option(index: int, label: str, out: TextIO, colors: Colors) -> None:
     """Numbered menu option: blue index, light grey label."""
-    pal = _get_palette()
     out.write(
-        f"  {fg('light_blue', pal)}{index}){RESET_FG} {fg('light_grey', pal)}{label}{RESET_FG}\n"
+        f"  {colors.fg('light_blue')}{index}){RESET_FG} {colors.fg('light_grey')}{label}{RESET_FG}\n"
     )
 
 
@@ -157,37 +125,50 @@ def render_status_bar(
     pos: int,
     ms: int,
     out: TextIO,
+    resolver: Resolver,
+    colors: Colors,
 ) -> None:
     """Full-width reverse-video status bar with player name.
 
-    Format: `` alcapone │ cash 5400$ │ pos 181 │ ms 19 ``
+    The bar's text is the theme's ``client.status_bar`` template, e.g.
+    `` alcapone │ cash 5400$ │ pos 181 │ ms 19 ``.
     """
     width = _term_width()
-    bar = f" {player_name} │ cash {cash}$ │ pos {pos} │ ms {ms} "
+    bar = client_text(
+        "client.status_bar",
+        {"name": player_name, "cash": cash, "pos": pos, "ms": ms},
+        resolver=resolver,
+    )
     padded = bar.center(width)
-    pal = _get_palette()
-    out.write(f"{REVERSE}{bg('brown', pal)}{fg('light_grey', pal)}{padded}{RESET_ALL}\n")
+    out.write(f"{REVERSE}{colors.bg('brown')}{colors.fg('light_grey')}{padded}{RESET_ALL}\n")
 
 
-def render_status_bar_from_state(state: Any, out: TextIO) -> None:
+def render_status_bar_from_state(
+    state: Any, out: TextIO, resolver: Resolver, colors: Colors
+) -> None:
     """Convenience wrapper: extract player info from GameState and render."""
     if state is None or not state.players:
         return
     p = state.players[state.clock.active_player]
+    if hasattr(p, "name"):
+        name = p.name
+    else:
+        name = client_text("client.unnamed_player", resolver=resolver)
     render_status_bar(
-        player_name=getattr(p, "name", "player"),
+        player_name=name,
         cash=p.ka,
         pos=p.po,
         ms=p.ms,
         out=out,
+        resolver=resolver,
+        colors=colors,
     )
 
 
-def render_map_frame(map_lines: list[str], out: TextIO) -> None:
+def render_map_frame(map_lines: list[str], out: TextIO, colors: Colors) -> None:
     """40×25 map wrapped in a full-width light_blue background band."""
     width = _term_width()
-    pal = _get_palette()
-    bg_code = bg("light_blue", pal)
+    bg_code = colors.bg("light_blue")
     reset_bg = RESET_BG
     for line in map_lines:
         padded = line.ljust(width)
@@ -195,14 +176,14 @@ def render_map_frame(map_lines: list[str], out: TextIO) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Combat (U7) — renders a CombatScreen.to_json() payload
+# Combat — renders a CombatScreen.to_json() payload
 # ---------------------------------------------------------------------------
 
 #: 40×13 combat grid geometry (CLAUDE.md: a DIFFERENT space from the 40x25 city map).
 #: Kept local rather than imported from engine.combat: the renderer draws from the
 #: JSON payload only (engine/ imports nothing from clients/, and the reverse holds
-#: too -- U7 must not import combat LOGIC, only these two int constants that describe
-#: the wire shape it already renders positions against).
+#: too -- the client must not import combat LOGIC, only these two int constants that
+#: describe the wire shape it already renders positions against).
 COMBAT_GRID_COLS = 40
 COMBAT_GRID_ROWS = 13
 
@@ -210,10 +191,10 @@ COMBAT_GRID_ROWS = 13
 #: narrow (no East-Asian-Width "W" glyphs, mirroring the city map's own constraint).
 _FIGHTER_CHAR = {1: "1", 2: "2"}
 _DOWN_CHAR = "x"
-_ACTIVE_WALL_CODES = (160, 156)  # mirrors engine.combat.SHOT_WALL_CODES (U4/U7 note)
+_ACTIVE_WALL_CODES = (160, 156)  # mirrors engine.combat.SHOT_WALL_CODES
 
 
-def render_combat_grid(payload: dict, out: TextIO) -> None:
+def render_combat_grid(payload: dict, out: TextIO, colors: Colors) -> None:
     """Render one ``CombatScreen.to_json()`` payload's 40×13 grid.
 
     Draws walls from ``payload["grid"]`` (a linear 0..520 code array; missing/short
@@ -226,9 +207,8 @@ def render_combat_grid(payload: dict, out: TextIO) -> None:
 
     The renderer reads ONLY the JSON payload's plain dicts/lists/ints -- no
     ``engine.combat``/``engine.state`` import -- so the client never depends on
-    combat's internal representation, only its wire shape (KTD-2).
+    combat's internal representation, only its wire shape.
     """
-    pal = _get_palette()
     grid = payload.get("grid") or []
     sides = payload.get("sides") or [[], []]
     active_side = payload.get("active_side", 1)
@@ -252,11 +232,11 @@ def render_combat_grid(payload: dict, out: TextIO) -> None:
             cell = row * COMBAT_GRID_COLS + col
             if cell in occupied:
                 side_idx, ch, is_active = occupied[cell]
-                color = fg(side_colors.get(side_idx, "white"), pal)
+                color = colors.fg(side_colors.get(side_idx, "white"))
                 prefix = REVERSE if is_active else ""
                 chars.append(f"{prefix}{color}{ch}{RESET_ALL}")
             elif cell < len(grid) and grid[cell] in _ACTIVE_WALL_CODES:
-                chars.append(f"{fg('dark_grey', pal)}#{RESET_FG}")
+                chars.append(f"{colors.fg('dark_grey')}#{RESET_FG}")
             else:
                 chars.append(" ")
         out.write("".join(chars) + "\n")
@@ -267,17 +247,18 @@ def render_fighter_panel(
     resolver: Any,
     weapon_names: list[str],
     out: TextIO,
+    colors: Colors,
 ) -> None:
     """Render the active fighter's stat panel (``mf-prg.bas:30115-30116``): name,
     weapon, then one line per attribute -- all resolved through the theme's
     ``combat.panel_*`` keys (zero hardcoded display text, CLAUDE.md).
 
-    **U2: this renderer no longer knows any game's attribute names.** It reads the
+    **This renderer knows no game's attribute names.** It reads the
     wire payload's ``vitality`` SLOT and its opaque ``attrs`` map, and asks the theme
     what to show. The depleting resource (the ``vitality`` slot) renders first, via
     ``combat.panel_vitality`` -- the theme supplies this game's word for it (here
     "energie") as the label, exactly as the engine names the slot and the game names
-    the word at every boundary (amendment A5). The remaining attributes come from
+    the word at every boundary. The remaining attributes come from
     ``combat.panel_attrs`` -- a list of ``attrs`` keys, each rendered through
     ``combat.panel_attr_<key>``, so the theme owns both the selection and the label. A
     game with ``aim``/``grit`` instead of ``kraft``/``brutalitaet`` needs no change here.
@@ -289,17 +270,16 @@ def render_fighter_panel(
     key simply omits that line.
     """
     fighter = payload.get("fighter")
-    pal = _get_palette()
     if fighter is None:
         return
     name = fighter.get("name", "")
     weapon_id = fighter.get("weapon", 0)
     weapon_name = weapon_names[weapon_id] if 0 <= weapon_id < len(weapon_names) else str(weapon_id)
-    out.write(f"{fg('light_grey', pal)}{name}{RESET_FG}\n")
+    out.write(f"{colors.fg('light_grey')}{name}{RESET_FG}\n")
     out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
 
     # The depleting resource is the engine's ``vitality`` slot; the theme labels it in
-    # this game's word (amendment A5). Rendered first, ahead of the opaque attrs.
+    # this game's word. Rendered first, ahead of the opaque attrs.
     if "vitality" in fighter and _theme_has(resolver, "panel_vitality"):
         out.write(resolver.resolve("combat.panel_vitality", {"value": fighter["vitality"]}) + "\n")
 
@@ -345,7 +325,7 @@ def _theme_has(resolver: Any, key: str) -> bool:
     return False
 
 
-def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:
+def render_combat_message(payload: dict, resolver: Any, out: TextIO, colors: Colors) -> None:
     """Render the screen's ``message`` field, if any.
 
     ``message`` is either a bare key string (``"illegal_move"``/``"unknown_action"``)
@@ -357,7 +337,6 @@ def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:
     message = payload.get("message")
     if message is None:
         return
-    pal = _get_palette()
     if isinstance(message, str):
         text = resolver.resolve(f"combat.{message}")
     elif isinstance(message, dict):
@@ -376,7 +355,7 @@ def render_combat_message(payload: dict, resolver: Any, out: TextIO) -> None:
             text = resolver.resolve("combat.hit")
     else:
         return
-    out.write(f"{fg('yellow', pal)}{text}{RESET_FG}\n")
+    out.write(f"{colors.fg('yellow')}{text}{RESET_FG}\n")
 
 
 def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:
@@ -385,5 +364,12 @@ def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:
     out.write(resolver.resolve("combat.losses_heading") + "\n")
     for i, count in enumerate(losses, start=1):
         out.write(
-            resolver.resolve("combat.losses_line", {"name": f"side {i}", "count": count}) + "\n"
+            resolver.resolve(
+                "combat.losses_line",
+                {
+                    "name": client_text("client.side_name", {"index": i}, resolver=resolver),
+                    "count": count,
+                },
+            )
+            + "\n"
         )

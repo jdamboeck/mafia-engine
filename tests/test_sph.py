@@ -22,7 +22,7 @@ from engine.interactions import PromptChoice, PromptInt
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import run_pure, scripted as _scripted
+from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -32,20 +32,8 @@ load_game_config(_CONFIG_DIR)
 _FORMULA_PARAMS = {"casino_payout_offset": 0.5}
 
 
-class _StubRng:
-    """A minimal rng exposing range(); returns a scripted value per call."""
-
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(n)
-        return next(self._it)
-
-
 def _state(*, ka=5000, active=0, players=1):
-    plist = [Player(ka=ka, roster=[Gangster()]) for _ in range(players)]
+    plist = tuple(Player(ka=ka, roster=(Gangster(),)) for _ in range(players))
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
@@ -116,7 +104,7 @@ def test_forced_win_roulette_pays_net_plus_250():
     assert result.status == "completed"
     assert result.effects == [MoneyChange(+250)]
     assert result.state.players[0].ka == 5250
-    assert rng.calls == [4]  # rng.range(1+x) == range(4)
+    assert rng.calls == [("range", 4)]  # rng.range(1+x) == range(4)
 
 
 def test_forced_loss_costs_stake():
@@ -127,7 +115,7 @@ def test_forced_loss_costs_stake():
     assert result.status == "completed"
     assert result.effects == [MoneyChange(-100)]
     assert result.state.players[0].ka == 4900
-    assert rng.calls == [2]  # rng.range(1+1)
+    assert rng.calls == [("range", 2)]  # rng.range(1+1)
 
 
 def test_each_game_index_maps_to_right_x():
@@ -136,7 +124,7 @@ def test_each_game_index_maps_to_right_x():
         st = _state(ka=5000)
         rng = _StubRng(1)  # loss (keeps math simple; we only assert the range arg)
         run_pure(HANDLERS["sph"], _scripted(choice, 100), state=st, rng=rng)
-        assert rng.calls == [expected_n]
+        assert rng.calls == [("range", expected_n)]
 
 
 def test_forced_win_blackjack_payout():

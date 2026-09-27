@@ -2,17 +2,17 @@
 
 This is the *declarative shell layer*: it parses a location's menu structure
 (pure data) and resolves each option's handler id against a registry. It owns
-menu structure and guard evaluation/denial — it does **not** run handlers (the
-driver does that, a later unit). Handlers themselves (the procedural
-generator coroutines) are registered by a game config; U7 registers slw's.
+menu structure and guard evaluation/denial — it does **not** run handlers
+(:func:`engine.actions.run_option` does, via the driver). Handlers themselves (the
+procedural generator coroutines) are registered by a game config.
 
-**KTD-8 (validation ownership).** The shell owns guard evaluation and denial:
+**Validation ownership.** The shell owns guard evaluation and denial:
 a denied option is never entered and commits no effects — the caller emits the
 option's ``on_denied`` key instead. :func:`available_options` returns exactly the
 options whose guard passes; a denied option's denial key is read from
 ``Option.on_denied``.
 
-**KTD-5 (no display text).** This module emits *keys* (``on_denied``), never
+**No display text.** This module emits *keys* (``on_denied``), never
 text. Themes resolve keys to strings elsewhere.
 
 An option carries an ``id`` and **exactly one** of:
@@ -155,7 +155,7 @@ def load_location(raw: dict) -> Location:
 
 
 def available_options(location: Location, state, ln: int | None = None) -> list[Option]:
-    """Return the options whose guard passes for ``(state, ln)`` — KTD-8.
+    """Return the options whose guard passes for ``(state, ln)``.
 
     Denied options are excluded (never entered, commit no effects); the caller
     reads a denied option's :attr:`Option.on_denied` key to emit its message.

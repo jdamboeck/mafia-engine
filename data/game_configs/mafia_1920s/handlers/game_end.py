@@ -1,8 +1,8 @@
-"""Standings and year-end generators — ports ``mf-prg.bas:4500-4515`` and ``:40100-40166`` (U6).
+"""Standings and year-end generators — ports ``mf-prg.bas:4500-4515`` and ``:40100-40166``.
 
 Registered under :data:`engine.game_end.STANDINGS_HANDLER_KEY` and
 :data:`engine.game_end.YEAR_END_HANDLER_KEY` in the SAME
-:data:`engine.locations.HANDLERS` registry location handlers use (KTD-1); the engine
+:data:`engine.locations.HANDLERS` registry location handlers use; the engine
 runners :func:`engine.game_end.run_standings` / :func:`engine.game_end.run_year_end`
 look these up and drive them. The RANKING RULE lives here, in game code — the engine
 knows nothing about scores or winners.

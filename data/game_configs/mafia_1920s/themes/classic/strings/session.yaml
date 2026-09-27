@@ -2,7 +2,7 @@
 #
 # NOT from the source: the 1986 original has no save feature, so this text is the
 # port's own (German, lower-case, to sit with the verbatim strings). The terminal
-# client shows it in the map screen's note line after `p` saves (U8, KTD-7), or
+# client shows it in the map screen's note line after `p` saves, or
 # the failure reason when the save could not be written (the game goes on).
 session:
   saved: "spielstand gespeichert: {path}"

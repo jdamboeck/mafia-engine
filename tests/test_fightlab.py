@@ -28,8 +28,8 @@ from data.game_configs.mafia_1920s.setup import (
     load_encounter,
     weapon_stats_by_id,
 )
-from engine.interactions import AiDriver
-from engine.recording import record_fight, save
+from engine.fight_loop import AiDriver
+from engine.recording import ReplayReport, record_fight, replay, save
 from engine.scenario import Scenario
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -79,6 +79,7 @@ def test_scenario_file_enemy_side_equals_from_encounter():
 
     # The enemy side (side 2) must match exactly — same schuldner, gewehr, 35 energy,
     # 30/30 attrs, same position/equipment.
+    assert from_file.sides is not None and from_encounter.sides is not None
     assert from_file.sides[1] == from_encounter.sides[1]
     # And the player side is the invented fighter the file declares.
     assert [f.name for f in from_file.sides[0]] == ["hero"]
@@ -148,39 +149,11 @@ def test_b_at_activation_5_renders_activation_4_matching_forward_replay(recordin
     # The last rendered index after the 'b' is activation 4.
     assert indices == [0, 1, 2, 3, 4, 5, 4]
 
-    # The board 'b' seeked to (index 4's snapshot) is exactly the forward-replay board.
-    # The recording's snapshot at index 4 IS the forward-driven board (recording ==
-    # replay-with-snapshotting-on), so vitalities at index 4 are the seek target.
-    def vitalities(snapshot):
-        return [f["vitality"] for side in snapshot["sides"] for f in side]
-
-    from engine.recording import _ReplayRng, _rebuild_fight
-    from engine.state import json_safe
-
-    rng = _ReplayRng()
-    fight = _rebuild_fight(recording.scenario, rng, rules=build_rules())
-    live_at_4 = None
-    for event in recording.events:
-        if event.kind != "activation":
-            continue
-        rng.load(event.draws, skip=event.decision_draw_count)
-        action = event.decision["action"]
-        argument = event.decision["argument"]
-        if action == "shoot":
-            fight.apply_action("shoot", argument)
-            if fight.winner() is None:
-                fight.advance_activation()
-        elif action == "move":
-            fight.apply_action("move", argument, record_dir_memory=event.driver_kind != "human")
-            fight.advance_activation()
-        elif action == "pass":
-            fight.advance_activation()
-        if event.index == 4:
-            live_at_4 = vitalities(json_safe(fight.snapshot()))
-            break
-
-    assert live_at_4 is not None
-    assert vitalities(recording.events[4].snapshot) == live_at_4
+    # The board 'b' seeked to is index 4's recorded snapshot. replay() rebuilds the fight
+    # forward from the decision log and checks the board after EVERY activation against
+    # its snapshot, so a clean replay proves each seek target (index 4 included) is
+    # exactly the forward-replay board.
+    assert replay(recording, rules=build_rules()) == ReplayReport(diverged=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -254,8 +227,8 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
     the values come off the recorded event, never a recompute.
 
     The pinned shot is side 1's hero's first HIT (activation 18): hit draw
-    ``rng.range(ts=5) -> 4``, kraft 34, damage draw ``rng.range(tg=10) -> 0``,
-    brutalitaet 28, damage = int(0 + 2.8) + 1 = 3, schuldner energie 35 -> 32."""
+    ``rng.range(ts=5) -> 4``, kraft 34, damage draw ``rng.range(10*tg=100) -> 0``,
+    brutalitaet 28, damage = (0 + 28) // 10 + 1 = 3, schuldner energie 35 -> 32."""
     scenario = fightlab.load_scenario(_SCENARIO)
     _result, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
 
@@ -272,6 +245,7 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
         weapon_names=fightlab._weapon_names(),
         prev_snapshot=prev,
         out=out,
+        rules=scenario.rules,
     )
     text = out.getvalue()
 
@@ -282,9 +256,9 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
     assert "accuracy attr (kraft)           -> 34" in text
     assert "HIT" in text
     # The damage roll: the draw with its BOUND, the damage attr value, the arithmetic.
-    assert "draw = rng.range(tg=10)         -> 0" in text
+    assert "draw = rng.range(10*tg=100)    -> 0" in text
     assert "damage attr (brutalitaet)         -> 28" in text
-    assert "int(0 + 2.8) + 1 = 3" in text
+    assert "(0 + 28) // 10 + 1 = 3" in text
     # The target line: real name (NOT "side {i}"), energie before -> after.
     assert "schuldner" in text
     assert "energie 35 -> 32" in text
@@ -310,11 +284,64 @@ def test_debug_dump_for_a_shot_that_reached_no_target_says_so_not_none():
 
     out = io.StringIO()
     fightlab.render_shot_debug(
-        event, weapon_names=fightlab._weapon_names(), prev_snapshot=None, out=out
+        event,
+        weapon_names=fightlab._weapon_names(),
+        prev_snapshot=None,
+        out=out,
+        rules=scenario.rules,
     )
     text = out.getvalue()
     assert "shot reached no target" in text
     assert "-> None" not in text, "a missing draw must not print as a bogus '-> None'"
+
+
+def test_debug_dump_names_draws_from_the_rules_bundle_not_a_restated_formula():
+    """A second ruleset (here: damage draws ``range(7*tg)``, hit draws ``range(ts+1)``
+    first) must be labelled by ITS declarations: the dump shows the draw the formula
+    really made, with its real bound, because fightlab reads the bundle's
+    ``hit_draws``/``damage_draws`` instead of restating ``ts`` / ``10*tg``."""
+    import dataclasses
+
+    def hit_draws(attacker, equipment):
+        return (("ts+1", equipment["ts"] + 1), ("kraft+10", attacker + 10))
+
+    def is_hit(attacker, equipment, rng):
+        (_, a), (_, b) = hit_draws(attacker, equipment)
+        return rng.range(a) != 0 and rng.range(b) >= 10
+
+    def damage_draws(attacker, equipment):
+        return (("7*tg", 7 * equipment["tg"]),)
+
+    def damage_roll(attacker, equipment, rng):
+        ((_, bound),) = damage_draws(attacker, equipment)
+        return (rng.range(bound) + attacker) // 10 + 1
+
+    base = fightlab.load_scenario(_SCENARIO)
+    assert base.rules is not None
+    rules = dataclasses.replace(
+        base.rules,
+        hit_fn=is_hit,
+        hit_draws=hit_draws,
+        damage_fn=damage_roll,
+        damage_draws=damage_draws,
+    )
+    scenario = dataclasses.replace(base, rules=rules)
+    _result, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
+
+    event = next(e for e in recording.events if e.kind == "activation" and e.result.get("hit"))
+    ts = event.calc_inputs["equipment"]["ts"]
+    tg = event.calc_inputs["equipment"]["tg"]
+    # The action's draws, straight off the record: hit (ts+1), hit (kraft+10), damage.
+    (_, [b0], v0), _craft, (_, [b2], v2) = event.draws[event.decision_draw_count :]
+    assert (b0, b2) == (ts + 1, 7 * tg)
+
+    out = io.StringIO()
+    fightlab.render_shot_debug(
+        event, weapon_names=fightlab._weapon_names(), prev_snapshot=None, out=out, rules=rules
+    )
+    text = out.getvalue()
+    assert f"draw = rng.range(ts+1={ts + 1})          -> {v0}" in text
+    assert f"draw = rng.range(7*tg={7 * tg})    -> {v2}" in text
 
 
 # --------------------------------------------------------------------------- #

@@ -1,15 +1,15 @@
-"""Typed, serializable **Effects** + a pure ``apply`` (docs/design/engine-architecture.md; KTD-3, KTD-6).
+"""Typed, serializable **Effects** + a pure ``apply`` (docs/design/engine-architecture.md).
 
 An **Effect** is the only way a handler mutates game state: a handler never touches
 ``GameState`` directly — it calls ``ctx.apply(effect)``, which *buffers* the effect
-(see ``engine.interactions``). The U4 driver commits the buffer atomically; U5 makes
-that commit actually change state by folding :func:`apply` over the buffered effects.
+(see ``engine.interactions``). The driver commits the buffer atomically via
+:func:`commit`, which folds :func:`apply` over the buffered effects.
 
 Effects are **pure data**: frozen dataclasses with no behavior. Application logic lives
 in the standalone :func:`apply` function, never on the effect. This separation is what
 lets an effect double as a **serializable replay event** — a log of committed effects,
 each carrying a :data:`SCHEMA_VERSION`, replays a game deterministically, and old logs
-stay readable as fields evolve (KTD-6).
+stay readable as fields evolve.
 
 :func:`apply` is **pure**: the state graph is frozen (``engine.state``), so it
 functionally rebuilds a new state rather than mutating one. The input ``GameState`` is
@@ -28,23 +28,23 @@ lazily to avoid a cycle.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import Any
 
 from engine.state import Combatant, GameState, Job, tuple_replace
 
-#: Schema version stamped on every effect (KTD-6). Bump when an effect's fields change
+#: Schema version stamped on every effect. Bump when an effect's fields change
 #: in a way that a replay of an OLD log would need to know about; each effect references
 #: this module-level constant via its class-level ``SCHEMA_VERSION`` attribute.
 SCHEMA_VERSION = 1
 
 #: The attribute keys a :class:`StatChange` may target — the ``attrs``-backed stats.
-#: ``energie`` is NOT here (U2, amendment A4): it is the ``vitality`` SLOT, changed by
+#: ``energie`` is NOT here: it is the ``vitality`` SLOT, changed by
 #: :class:`EnergyChange`, not an ``attrs`` key. A ``StatChange(stat="energie")`` would
 #: pass a stale validation and then ``KeyError`` on ``attrs["energie"]`` — so the
 #: validation set and the write path must agree that ``energie`` is not a StatChange
-#: target. (Step 8 will make this list config-declared rather than engine-hardcoded.)
+#: target. (This list is engine-hardcoded; it is not yet config-declared.)
 _STAT_NAMES = ("kraft", "intelligenz", "brutalitaet")
 
 __all__ = [
@@ -70,6 +70,7 @@ __all__ = [
     "TipSet",
     "TipClear",
     "RosterAppend",
+    "RosterTruncate",
     "GangsterMarkHired",
     # Declared-but-deferred effects
     "WantedChange",
@@ -100,16 +101,32 @@ class MoneyChange:
 
 @dataclass(frozen=True)
 class ScoreChange:
-    """Add ``amount`` (signed) to the target player's score ``gf``, clamped to [0, 100].
+    """Add ``amount`` (signed) to the target player's score ``gf``.
 
-    The clamp is intrinsic to ``gf`` in the original: ``mf-prg.bas:1160`` caps at 100 and
-    ``:1161`` floors at 0. NOTE: the score *weighting* (``x * x8``, ``Config.score_mult``)
-    is a LATER helper's concern — this raw effect just applies the delta and clamps.
+    ``clamp`` is REQUIRED (keyword-only, no default) because the two forms port
+    different BASIC and neither is the safe guess:
+
+    - ``clamp=False`` adds the delta with NO bound, for the source lines that change
+      ``gf`` directly without going through ``gosub 1160`` (the weapon-buy score at
+      ``:13065``/``:13072``/``:13073``), so ``gf`` can leave [0, 100] until the next
+      ``gosub 1160`` (:class:`ScoreAndRank`) clamps it.
+    - ``clamp=True`` clamps to [0, 100], the bound ``mf-prg.bas:1160`` (cap at 100) and
+      ``:1161`` (floor at 0) apply — without the ``:1165`` rank recompute. A port of a
+      ``gosub 1160`` normally wants :class:`ScoreAndRank` instead.
+
+    NOTE: the score *weighting* (``x * x8``, ``Config.score_mult``) is the caller's
+    concern — this raw effect just applies the delta.
+
+    Saves and YAML consequences written before the field existed carry no ``clamp``
+    key; they meant the clamped form. That is handled on the LOAD paths (persistence
+    and the consequence parser) via :data:`LEGACY_FIELD_DEFAULTS`, never by a
+    constructor default.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: float
     player: int | None = None
+    clamp: bool = field(kw_only=True)
 
 
 @dataclass(frozen=True)
@@ -175,9 +192,10 @@ class Teleport:
 class StatChange:
     """Add ``amount`` to ``roster[gangster].<stat>`` of the target player.
 
-    ``stat`` is one of ``"energie"|"kraft"|"intelligenz"|"brutalitaet"``; an unknown
-    name raises ``ValueError`` in :func:`apply`. No cap is applied here (energy caps and
-    the like belong to a later combat unit) — just the raw delta.
+    ``stat`` is one of :data:`_STAT_NAMES` (``"kraft"|"intelligenz"|"brutalitaet"``);
+    an unknown name raises ``ValueError`` in :func:`apply`. No cap is applied here — just
+    the raw delta (a capped gain is :class:`StatChangeCapped`; energy is
+    :class:`EnergyChange`).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -193,9 +211,9 @@ class StatChangeCapped:
 
     A :class:`StatChange` variant for stat gains that must respect a ceiling. ``cap``
     is a REQUIRED field the handler passes from config (``formula_params.stat_cap`` —
-    the 99 stat ceiling is config-owned game data, KTD-10, NOT hardcoded in the engine).
+    the 99 stat ceiling is config-owned game data, NOT hardcoded in the engine).
     ``floor`` defaults to 0. ``stat`` is validated like :class:`StatChange` (unknown name
-    raises ``ValueError``). Subsumes the original's ``gosub 1365`` repack (KTD-4) — the
+    raises ``ValueError``). Subsumes the original's ``gosub 1365`` repack — the
     engine stores unpacked stat fields, so applying the effect IS the write-back.
     """
 
@@ -212,8 +230,8 @@ class StatChangeCapped:
 class AssignWeapon:
     """Set ``roster[gangster].weapon`` of the target player to ``weapon``.
 
-    The R9 purchase-persist primitive (``mf-prg.bas:13075``): no existing effect mutates
-    ``Gangster.weapon`` (``StatChange`` only accepts the four stat names), so a weapon
+    The weapon-purchase persist primitive (``mf-prg.bas:13075``): no other effect mutates
+    ``Gangster.weapon`` (``StatChange`` only accepts stat names), so a weapon
     buy cannot complete without this. ``weapon`` is a weapon index (0..8).
     """
 
@@ -228,10 +246,11 @@ class ScoreAndRank:
     """Award score and recompute rank in one effect — the port of ``gosub 1160/1165``.
 
     ``gf = clamp(gf + amount*score_mult, 0, 100)`` then ``nr = int(gf/rank_divisor)+1``,
-    computed from the CLAMPED ``gf`` (KTD-5). Fusing the two avoids the ordering hazard a
+    computed from the CLAMPED ``gf``. Fusing the two avoids the ordering hazard a
     separate score-then-rank pair would face (rank must see the post-clamp ``gf``). The
-    ``[0, 100]`` clamp is the intrinsic ``gf`` domain, reused from :class:`ScoreChange`
-    (KTD-10 exception). ``amount`` is the raw reward ``x``; ``score_mult`` is ``x8``
+    ``[0, 100]`` clamp is the one :class:`ScoreChange` applies with ``clamp=True``
+    (the one bound the engine owns rather than config). ``amount`` is the raw reward
+    ``x``; ``score_mult`` is ``x8``
     (``Config.score_mult``). ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded.
     Targets ``Player.nr`` (per ``:1165``).
     """
@@ -246,10 +265,10 @@ class ScoreAndRank:
 class FlagSet:
     """Set a flag ``name`` to ``value``.
 
-    Only ``scope="global"`` is implemented this slice: it sets ``state.flags.<name>``,
+    Only ``scope="global"`` is implemented: it sets ``state.flags.<name>``,
     validating that ``name`` is an existing ``Flags`` field (``ValueError`` otherwise).
     Any non-``"global"`` scope raises ``NotImplementedError`` — per-player flag bitfields
-    are exercised in a later unit.
+    are not built.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -278,7 +297,9 @@ class RentAccrue:
     """Add ``months`` to the target player's prepaid rented-months ``um``: ``um(sp)+=x``.
 
     Ports the rented-months accrual at ``mf-prg.bas:10040`` — the player prepays ``x``
-    months of rent. Adds to ``state.players[target].rented_months``.
+    months of rent. Adds to ``state.players[target].rented_months``. ``months`` is
+    signed: the turn-start countdown at ``mf-prg.bas:4046`` ``um(sp)=um(sp)-1`` is a
+    ``RentAccrue(-1)``.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -288,16 +309,16 @@ class RentAccrue:
 
 @dataclass(frozen=True)
 class EnergyChange:
-    """Add ``amount`` to ``roster[gangster].energie``, then clamp to ``[0, cap]`` (U3).
+    """Add ``amount`` to ``roster[gangster]``'s ``vitality`` (energie), clamped to ``[0, cap]``.
 
     Ports the turn-start energy regen (``mf-prg.bas:4015``: ``en=en+int(kr/10)+1``) and
     its cap (``:4020``: ``x=2+int(kr/4)+int(bt/4):ifen>xthenen=x``). ``cap`` is a REQUIRED
     field the caller computes from the gangster's OWN kraft/brutalitaet before building
     the effect (the formula reads the gangster's stats, not a config constant, so there is
     nothing for the engine to look up here — mirrors :class:`StatChangeCapped`'s
-    config-supplied-cap shape, KTD-10). Floors at 0 (energy cannot go negative from a
-    regen tick; combat's down-to-0 case is a later unit's separate concern). Was
-    declared-but-stubbed since U2 (KTD-7); this is its real application.
+    config-supplied-cap shape). Floors at 0 (energy cannot go negative from a regen
+    tick). A fight's energy loss also persists through this effect, buffered by
+    :func:`engine.fight_loop._run_combat` with ``cap`` set so the clamp is a no-op.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -309,7 +330,7 @@ class EnergyChange:
 
 @dataclass(frozen=True)
 class RankCommit:
-    """Set the target player's committed rank ``rank`` (``ra(sp)``) to ``nr`` (U3).
+    """Set the target player's committed rank ``rank`` (``ra(sp)``) to ``nr``.
 
     Ports the rank-promotion commit (``mf-prg.bas:4030``:
     ``ifra(sp)<>nr(sp)thenra(sp)=nr(sp):gosub4200``) — the SECOND half of the two-step
@@ -329,11 +350,11 @@ class RankCommit:
 
 # --------------------------------------------------------------------------- #
 # Declared-but-deferred effects — the type exists & is serializable, but      #
-# ``apply`` raises NotImplementedError (exercised in a later unit).           #
+# ``apply`` raises NotImplementedError (no application is built).             #
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class WantedChange:
-    """Adjust a player's wanted level. Deferred — application in a later unit."""
+    """Adjust a player's wanted level. Deferred — ``apply`` raises ``NotImplementedError``."""
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: int
@@ -342,7 +363,7 @@ class WantedChange:
 
 @dataclass(frozen=True)
 class Jail:
-    """Jail a player for ``months``. Deferred — application in a later unit."""
+    """Jail a player for ``months``. Deferred — ``apply`` raises ``NotImplementedError``."""
 
     SCHEMA_VERSION = SCHEMA_VERSION
     months: int
@@ -351,10 +372,10 @@ class Jail:
 
 @dataclass(frozen=True)
 class SpawnFighter:
-    """Append one fighter to ``state.combat.sides[side - 1]`` (U4, real application).
+    """Append one fighter to ``state.combat.sides[side - 1]``.
 
     ``fighter`` is a fully-built :class:`~engine.state.Fighter` — the caller (combat
-    setup, ``engine.combat.setup_combat``) computes its placement/stats before
+    setup, ``engine.combat_setup.setup_combat``) computes its placement/stats before
     building this effect, mirroring :class:`RosterAppend`'s "engine builds the value,
     the effect only appends it" shape. ``side`` is 1 or 2 (matching the source's
     ``kp(1,*)``/``kp(2,*)`` — side 1 is always the acting player, side 2 the enemy
@@ -374,12 +395,12 @@ class DebtChange:
     """Add ``amount`` (signed) to the target player's debt ``kr(sp)``, and set the
     grace-counter ``months`` (``kz(sp)``) alongside it.
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U11 (kdh
-    borrow/repay). Carries both fields in one effect because the source sets them
-    together at every kdh call site (borrow :15030 sets ``kr+=x`` and ``kz=6`` in the
-    same line; partial repayment :15065 decrements ``kr`` only, leaving ``months``
-    untouched — pass ``months=None`` for that case) — see :class:`~engine.state.Debt`
-    for the confirmed field semantics.
+    Applied by the kdh loan-shark borrow/repay handlers. Carries both fields in one
+    effect because the source sets them together at every kdh call site (borrow
+    :15030 sets ``kr(sp)=kr(sp)+x`` and ``kz(sp)=6`` in the same line; partial
+    repayment :15065 decrements ``kr`` only, leaving ``months`` untouched — pass
+    ``months=None`` for that case) — see :class:`~engine.state.Debt` for the confirmed
+    field semantics.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -392,11 +413,10 @@ class DebtChange:
 class DebtClear:
     """Zero the target player's debt AND its grace counter in one step.
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U11. Ports the
-    full-repayment reset (``mf-prg.bas:15075``, ``kz(sp)=0`` once ``kr(sp)`` reaches
-    0 — kdh's repay handler applies this ALONGSIDE the final ``DebtChange`` that zeros
-    ``kr``) and is also the vocabulary the loan-default penalty (``:4370``,
-    ``kr(sp)=0:kz(sp)=0``) will reuse when U12 lands. A dedicated clear (rather than a
+    Ports the full-repayment reset (``mf-prg.bas:15075``, ``kz(sp)=0`` once ``kr(sp)``
+    reaches 0 — kdh's repay handler applies this ALONGSIDE the final ``DebtChange`` that
+    zeros ``kr``) and is also the vocabulary of the loan-default penalty (``:4370``,
+    ``kr(sp)=0:kz(sp)=0``). A dedicated clear (rather than a
     ``DebtChange`` computed to exactly cancel the balance) keeps both loan-shark exit
     paths self-documenting in the replay log.
     """
@@ -409,8 +429,8 @@ class DebtClear:
 class ShopChange:
     """Set the target player's owned shop ``tile`` and/or its ``capital`` delta.
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U11 (kdh
-    buy/sell/capital-adjust/income). Targets :class:`~engine.state.Business` —
+    Applied by the kdh buy/sell/capital-adjust handlers. Targets
+    :class:`~engine.state.Business` —
     ``tile`` sets ``shop_tile`` (``None`` leaves it unchanged; the sentinel 0 means
     "no shop", per the field's own docstring; passing 0 explicitly clears ownership
     on a sale), ``capital_delta`` adds to ``shop_capital`` (``None`` = no change).
@@ -426,8 +446,8 @@ class ShopChange:
 class BarrelChange:
     """Add ``amount`` (signed) to the target player's alcohol barrel stock ``ta(sp)``.
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U8 (the pub
-    alcohol trade). Targets :class:`~engine.state.Contraband.alcohol_barrels`
+    Applied by the pub alcohol trade. Targets
+    :class:`~engine.state.Contraband.alcohol_barrels`
     (mf-prg.bas:12035 buy, :12075 sell).
     """
 
@@ -440,9 +460,10 @@ class BarrelChange:
 class TipSet:
     """Set the target player's rolled heist tip type ``tp(sp)``.
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U8 (the pub tip
-    flow). Targets :class:`~engine.state.Player.tip_target` (mf-prg.bas:12225-12226:
-    the tip roll ``tp(sp)=1-5`` dispatching to one of five heist-rumour texts).
+    Applied by the pub tip flow. Targets :class:`~engine.state.Player.tip_target`
+    (mf-prg.bas:12225-12226:
+    the tip roll ``tp(sp)=int(rnd(1)*5)+1`` (1-5) dispatching to one of five heist-rumour
+    texts).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -454,9 +475,8 @@ class TipSet:
 class TipClear:
     """Clear the target player's rolled heist tip (``tp(sp)=0``).
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U8. The
-    counterpart to :class:`TipSet` — a used or expired tip resets ``tip_target`` to 0
-    (no tip held). U8 applies this from both ``pub.tip``'s tip-4 decline/broke paths
+    The counterpart to :class:`TipSet` — a used or expired tip resets ``tip_target`` to
+    0 (no tip held). Applied from both ``pub.tip``'s tip-4 decline/broke paths
     and ``upkeep.py``'s arms-deal slot (the ``tp(sp)=0`` at ``mf-prg.bas:31000``,
     applied FIRST so a stake resolves exactly once — see ``handlers/upkeep.py``).
     """
@@ -469,8 +489,7 @@ class TipClear:
 class JobSet:
     """Set the target player's accepted job: ``type``/``pending_pay``/``months_left``.
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U10 (the pub
-    job-accept flow). Ports ``mf-prg.bas:12335``: ``jo(sp)=x:jl(sp)=p`` (plus the
+    Applied by the pub job-accept flow. Ports ``mf-prg.bas:12335``: ``jo(sp)=x:jl(sp)=p`` (plus the
     per-job-type ``jd(sp)`` duration set earlier at :12308/:12311/:12316/:12322) —
     one effect since the source sets them as a unit when a job is accepted. Targets
     :class:`~engine.state.Job`.
@@ -487,8 +506,7 @@ class JobSet:
 class JobClear:
     """Clear the target player's job (``jo(sp)=0``).
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U10. Ports the
-    job-quit sites (mf-prg.bas:25560 completion, :25510 failed-shift-fight abort,
+    Ports the job-quit sites (mf-prg.bas:25560 completion, :25510 failed-shift-fight abort,
     :26080 jail commit forces ``jo(sp)=0``) — all zero the job the same way, so one
     effect covers every call site.
     """
@@ -501,15 +519,14 @@ class JobClear:
 class RosterAppend:
     """Append a new :class:`~engine.state.Gangster` to the target player's roster.
 
-    Declared as groundwork in U2 (KTD-7); real application landed in U9 (the pub
-    recruit flow). The ONLY roster-growing effect (:class:`StatChange`/
+    Applied by the pub recruit flow. The ONLY roster-growing effect (:class:`StatChange`/
     :class:`AssignWeapon`/etc. all require an existing index) — recruiting a hire
-    adds a new entry, always AFTER the boss at ``roster[0]`` (KTD-6; see
+    adds a new entry, always AFTER the boss at ``roster[0]`` (see
     :class:`~engine.state.Player`'s docstring). ``gangster`` is a fully-built
     :class:`~engine.state.Gangster` (the handler rolls its stats from the candidate
     table before applying this effect) — names are directional data, not
     engine-invented. Ports ``mf-prg.bas:12160-12165``: ``gz(sp)=gz(sp)+1`` (roster
-    grows by one; ``len(roster)`` IS ``gz(sp)`` per KTD-6, so nothing separate is
+    grows by one; ``len(roster)`` IS ``gz(sp)``, so nothing separate is
     incremented), ``gn$(sp,gz(sp))=gn$``/``gw(sp,gz(sp))=gw``/``ge$(sp,gz(sp))=
     '05'+ge$`` (name/weapon/stats, energy fixed at 5). The price deduction
     (``ka(sp)=ka(sp)-p``, :12160) is the CALLER's separate :class:`MoneyChange`,
@@ -523,12 +540,28 @@ class RosterAppend:
 
 
 @dataclass(frozen=True)
+class RosterTruncate:
+    """Cut the target player's roster down to its first ``size`` entries.
+
+    Ports the late-rent eviction ``mf-prg.bas:4651`` ``gz(sp)=1``: the gang count
+    drops to one, so only gangster 1 — ``roster[0]``, the boss — stays; everyone hired
+    after them leaves. ``len(roster)`` IS ``gz(sp)`` (see :class:`RosterAppend`), so
+    dropping the tail IS the assignment. A roster already no longer than ``size`` is
+    left as it is (``gz(sp)=1`` never adds a gangster the engine could not build).
+    The global hired-candidates set is NOT touched: the source leaves ``sg()`` set, so
+    a gangster who walked out is never offered for hire again.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    size: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
 class GangsterMarkHired:
     """Add ``candidate_id`` to the GLOBAL (not per-player) hired-candidates set.
 
-    New this unit (U9), real application from the start — no groundwork phase
-    (unlike most other U9 effects) since ``Flags.hired_gangsters`` did not exist
-    before this unit. Ports ``sg(g(i))=1`` (``mf-prg.bas:12165``): once ANY player
+    Ports ``sg(g(i))=1`` (``mf-prg.bas:12165``): once ANY player
     hires candidate ``candidate_id`` (0-based; the source's ``g(i)`` is 1-based),
     every player's future recruit roll skips them (:12110's ``ifsg(g(i))goto12110``
     reroll-on-hired guard). Idempotent by construction: appending an already-present
@@ -538,6 +571,19 @@ class GangsterMarkHired:
 
     SCHEMA_VERSION = SCHEMA_VERSION
     candidate_id: int
+
+
+#: What a field that was ADDED to an effect meant before it existed, for LOADING data
+#: written before then (saved effect logs, YAML consequences). Keyed by effect class,
+#: then field name. Only the load paths (``engine.persistence``,
+#: ``engine.consequences``) read this; a constructor never falls back to it, so new
+#: code must pass the field.
+#:
+#: ``ScoreChange.clamp``: every ``ScoreChange`` before the field existed clamped to
+#: [0, 100] (``mf-prg.bas:1160``/``:1161``).
+LEGACY_FIELD_DEFAULTS: dict[type, dict[str, Any]] = {
+    ScoreChange: {"clamp": True},
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -580,14 +626,14 @@ def _validate_stat(stat: str) -> None:
 
 
 def _with_player(state: GameState, idx: int, **field_changes) -> GameState:
-    """Return a new ``GameState`` with ``state.players[idx]`` field-updated (KTD-3).
+    """Return a new ``GameState`` with ``state.players[idx]`` field-updated.
 
     The single nested-update primitive every player-scoped effect branch funnels
     through: rebuild the ``Player`` via :func:`dataclasses.replace`, swap it into a
     rebuilt read-only ``players`` collection, and rebuild the ``GameState`` around it.
     Written once and tested once so ~15 effect branches never hand-roll the rebuild.
 
-    Engine-internal vocabulary — NOT part of the handler API (CLAUDE.md § 5.2a).
+    Engine-internal vocabulary — NOT part of the handler API (CLAUDE.md, "Handler API").
     """
     new_player = replace(state.players[idx], **field_changes)
     return replace(state, players=tuple_replace(state.players, idx, new_player))
@@ -627,7 +673,7 @@ def _with_gangster(state: GameState, idx: int, g_idx: int, **field_changes) -> G
 def _with_gangster_attr(state: GameState, idx: int, g_idx: int, name: str, value: int) -> GameState:
     """Return a new ``GameState`` with roster member ``g_idx``'s ``attrs[name]`` set.
 
-    The stat-name-free write path (U2, amendment A4): ``name`` is data, never a field
+    The stat-name-free write path: ``name`` is data, never a field
     the engine spells. :meth:`~engine.state.Combatant.with_attr` keeps a config
     ``Gangster``'s named field in sync; a loaded bare ``Combatant`` carries the value
     in ``attrs`` alone.
@@ -640,7 +686,7 @@ def _with_gangster_attr(state: GameState, idx: int, g_idx: int, name: str, value
 def _mapping_set(mapping, key, value) -> MappingProxyType:
     """Return a new read-only mapping equal to ``mapping`` with ``key`` set to ``value``.
 
-    Keeps the R2 read-only invariant across effect rebuilds: the result is a
+    Keeps the read-only-collections invariant across effect rebuilds: the result is a
     :class:`~types.MappingProxyType`, never a plain mutable ``dict``.
     """
     updated = dict(mapping)
@@ -657,18 +703,12 @@ def _apply(state: GameState, effect: Any) -> GameState:
     ``player`` else the active player); an out-of-range index surfaces as ``IndexError``.
 
     Every branch rebuilds through the :func:`_with_player` / :func:`_with_gangster` /
-    :func:`_mapping_set` helpers rather than writing state — the state graph is frozen
-    (R1/R3), so the functional rebuild is the only expressible write path.
+    :func:`_mapping_set` helpers rather than writing state — the state graph is
+    frozen, so the functional rebuild is the only expressible write path.
 
     Deferred effects (:class:`WantedChange`, :class:`Jail`) raise
-    ``NotImplementedError`` — they are exercised in a later unit but exist now so
-    logs stay type-complete and serializable.
-    (:class:`BarrelChange`, :class:`TipSet`, :class:`TipClear` gained real application
-    in U8 — the pub alcohol trade and tip flow. :class:`RosterAppend` gained real
-    application in U9 — the pub recruit flow. :class:`JobSet`/:class:`JobClear`
-    gained real application in U10 — the pub job-accept and shift flows.
-    :class:`DebtChange`/:class:`DebtClear`/:class:`ShopChange` gained real
-    application in U11 — the kdh loan-shark handlers.)
+    ``NotImplementedError`` — they have no application yet but exist so logs stay
+    type-complete and serializable.
     """
     if isinstance(effect, MoneyChange):
         idx = _target_index(state, effect.player)
@@ -676,8 +716,10 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, ScoreChange):
         idx = _target_index(state, effect.player)
-        # Clamp intrinsic to gf: cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
-        gf = _clamp(state.players[idx].gf + effect.amount, 0.0, 100.0)
+        gf = state.players[idx].gf + effect.amount
+        if effect.clamp:
+            # cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
+            gf = _clamp(gf, 0.0, 100.0)
         return _with_player(state, idx, gf=gf)
 
     if isinstance(effect, MsChange):
@@ -707,7 +749,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
         idx = _target_index(state, effect.player)
         g = _gangster_at(state, idx, effect.gangster)
         # Read and write the stat through attrs, never a named field: the engine spells
-        # no stat name (U2, amendment A4). with_attr keeps a config Gangster's named
+        # no stat name. with_attr keeps a config Gangster's named
         # field in sync; a loaded bare Combatant carries it in attrs only.
         raised = g.attrs[effect.stat] + effect.amount
         return _with_gangster_attr(state, idx, effect.gangster, effect.stat, raised)
@@ -717,7 +759,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
         idx = _target_index(state, effect.player)
         g = _gangster_at(state, idx, effect.gangster)
         raised = g.attrs[effect.stat] + effect.amount
-        # cap/floor are config-supplied (KTD-10) — the engine hardcodes no 99.
+        # cap/floor are config-supplied — the engine hardcodes no 99.
         # int(): _clamp is generic over int|float; a stat is always an int here.
         capped = int(_clamp(raised, effect.floor, effect.cap))
         return _with_gangster_attr(state, idx, effect.gangster, effect.stat, capped)
@@ -732,15 +774,17 @@ def _apply(state: GameState, effect: Any) -> GameState:
         idx = _target_index(state, effect.player)
         p = state.players[idx]
         # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
+        # :1160 `gf(sp)=gf(sp)+(x*x8)`, then `gf(sp)>100` / :1161 `gf(sp)<0` clamp it.
         gf = _clamp(p.gf + effect.amount * state.config.score_mult, 0.0, 100.0)
         # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
+        # :1165 `nr(sp)=int(gf(sp)/11.1)+1`.
         return _with_player(state, idx, gf=gf, nr=int(gf / effect.rank_divisor) + 1)
 
     if isinstance(effect, FlagSet):
         if effect.scope != "global":
             raise NotImplementedError(
-                f"FlagSet scope {effect.scope!r} is not implemented this slice; only "
-                "'global' flags are supported (per-player bitfields come in a later unit)."
+                f"FlagSet scope {effect.scope!r} is not implemented; only "
+                "'global' flags are supported (per-player bitfields are not built)."
             )
         if not hasattr(state.flags, effect.name):
             raise ValueError(f"unknown global flag {effect.name!r} on Flags")
@@ -763,8 +807,8 @@ def _apply(state: GameState, effect: Any) -> GameState:
         g = _gangster_at(state, idx, effect.gangster)
         # en=en+int(kr/10)+1 (mf-prg.bas:4015), capped at [0, cap] (:4020's ifen>xthenen=x
         # is an upper clamp only in the source; a floor of 0 is the engine's own sane
-        # bound — energie has no documented negative-regen path this unit).
-        # The depleting resource is the engine's ``vitality`` SLOT (U2, amendment A4) —
+        # bound — energie has no documented negative-regen path).
+        # The depleting resource is the engine's ``vitality`` SLOT —
         # a named blueprint field, not an attr. The engine spells the role, never this
         # game's "energie".
         raised = int(_clamp(g.vitality + effect.amount, 0, effect.cap))
@@ -786,7 +830,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
     if isinstance(effect, BarrelChange):
         idx = _target_index(state, effect.player)
         p = state.players[idx]
-        # ta(sp) += amount (mf-prg.bas:12035 buy, :12075 sell) — U8 real application.
+        # ta(sp) += amount (mf-prg.bas:12035 buy, :12075 sell).
         new_contraband = replace(
             p.contraband, alcohol_barrels=p.contraband.alcohol_barrels + effect.amount
         )
@@ -794,22 +838,27 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, TipSet):
         idx = _target_index(state, effect.player)
-        # tp(sp) = tip_type (mf-prg.bas:12225-12226) — U8 real application.
+        # tp(sp) = tip_type (mf-prg.bas:12225-12226).
         return _with_player(state, idx, tip_target=effect.tip_type)
 
     if isinstance(effect, TipClear):
         idx = _target_index(state, effect.player)
         # tp(sp) = 0 (mf-prg.bas:31000 arms-deal resolve; also the tip4 decline/broke
-        # paths in pub.tip) — U8 real application.
+        # paths in pub.tip).
         return _with_player(state, idx, tip_target=0)
 
     if isinstance(effect, RosterAppend):
         idx = _target_index(state, effect.player)
         p = state.players[idx]
         # gz(sp)=gz(sp)+1 : gn$/gw/ge$ stored at the new slot (mf-prg.bas:12160-12165)
-        # — U9 real application. len(roster) IS gz(sp) (KTD-6), so appending the tuple
+        # — len(roster) IS gz(sp), so appending the tuple
         # IS the increment; nothing separate to bump.
         return _with_player(state, idx, roster=p.roster + (effect.gangster,))
+
+    if isinstance(effect, RosterTruncate):
+        idx = _target_index(state, effect.player)
+        # gz(sp)=1 (mf-prg.bas:4651) — the tail of the roster leaves.
+        return _with_player(state, idx, roster=state.players[idx].roster[: effect.size])
 
     if isinstance(effect, GangsterMarkHired):
         # sg(g(i))=1 (mf-prg.bas:12165) — GLOBAL, not per-player. De-dupe
@@ -822,8 +871,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
     if isinstance(effect, JobSet):
         idx = _target_index(state, effect.player)
         # jo(sp)=type : jl(sp)=pending_pay : jd(sp)=months_left (mf-prg.bas:12335, plus
-        # the per-type jd(sp) set earlier at :12308/:12311/:12316/:12322) — U10 real
-        # application.
+        # the per-type jd(sp) set earlier at :12308/:12311/:12316/:12322).
         new_job = Job(
             type=effect.type,
             pending_pay=effect.pending_pay,
@@ -834,15 +882,15 @@ def _apply(state: GameState, effect: Any) -> GameState:
     if isinstance(effect, JobClear):
         idx = _target_index(state, effect.player)
         # jo(sp)=0 (mf-prg.bas:25560 completion, :25510 failed shift fight, :26080
-        # jail commit) — U10 real application. A full reset (not just type=0) so a
+        # jail commit). A full reset (not just type=0) so a
         # cleared job never leaks a stale pending_pay/months_left into a future read.
         return _with_player(state, idx, jobs=Job())
 
     if isinstance(effect, DebtChange):
         idx = _target_index(state, effect.player)
         p = state.players[idx]
-        # kr(sp) += amount (mf-prg.bas:15030 borrow, :15065 repay) — U11 real
-        # application. months is None on a partial repay (kz(sp) untouched); borrow
+        # kr(sp) += amount (mf-prg.bas:15030 borrow, :15065 repay). months is None on
+        # a partial repay (kz(sp) untouched); borrow
         # and full-repay callers pass an explicit value alongside this effect (full
         # repay's kz=0 reset is DebtClear, applied as a SEPARATE effect by the caller).
         new_debt = replace(p.debt, amount=p.debt.amount + effect.amount)
@@ -852,7 +900,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, DebtClear):
         idx = _target_index(state, effect.player)
-        # kr(sp)=0:kz(sp)=0 (mf-prg.bas:15075 full repayment) — U11 real application.
+        # kr(sp)=0:kz(sp)=0 (mf-prg.bas:15075 full repayment).
         return _with_player(state, idx, debt=replace(state.players[idx].debt, amount=0, months=0))
 
     if isinstance(effect, ShopChange):
@@ -860,10 +908,10 @@ def _apply(state: GameState, effect: Any) -> GameState:
         p = state.players[idx]
         new_business = p.business
         if effect.tile is not None:
-            # kg(sp)=ln (buy, mf-prg.bas:15120) or kg(sp)=0 (sell, :15155) — U11.
+            # kg(sp)=ln (buy, mf-prg.bas:15120) or kg(sp)=0 (sell, :15155).
             new_business = replace(new_business, shop_tile=effect.tile)
         if effect.capital_delta is not None:
-            # kk(sp) += capital_delta (fund/income, mf-prg.bas:15220, :4410) — U11.
+            # kk(sp) += capital_delta (fund/income, mf-prg.bas:15220, :4410).
             new_business = replace(
                 new_business, shop_capital=new_business.shop_capital + effect.capital_delta
             )
@@ -871,7 +919,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
 
     if isinstance(effect, (WantedChange, Jail)):
         raise NotImplementedError(
-            f"{type(effect).__name__} is declared but its application is exercised in a later unit."
+            f"{type(effect).__name__} is declared but its application is not implemented."
         )
 
     raise TypeError(f"Unknown effect type: {type(effect).__name__!r}")
@@ -880,7 +928,7 @@ def _apply(state: GameState, effect: Any) -> GameState:
 def apply(state: GameState, effect: Any) -> GameState:
     """Return a NEW :class:`GameState` with ``effect`` applied; never mutate ``state``.
 
-    Purity is structural: the state graph is frozen (R1), so :func:`_apply` can only
+    Purity is structural: the state graph is frozen, so :func:`_apply` can only
     build a new state — there is no in-place write to defend against. This makes the
     driver's atomic commit/discard hold at the state level: a discarded buffer leaves
     the caller's state untouched by construction.
@@ -908,7 +956,7 @@ class CommitResult:
 def commit(state: GameState, effects: list) -> CommitResult:
     """Fold ``effects`` in order over ``state``, returning the resulting state.
 
-    Purity is structural: the graph is frozen (R1), so each :func:`_apply` step builds a
+    Purity is structural: the graph is frozen, so each :func:`_apply` step builds a
     new state and the caller's ``state`` is never mutated. Returns a :class:`CommitResult`
     bundling the new state and the committed effects in order. An empty ``effects`` list
     returns the input state unchanged, since the graph is frozen. Any effect that would

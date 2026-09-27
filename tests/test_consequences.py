@@ -38,7 +38,16 @@ def test_money_change_converts():
 
 
 def test_score_change_converts():
-    assert effect_from_dict({"type": "score_change", "amount": 3}) == ScoreChange(amount=3)
+    assert effect_from_dict({"type": "score_change", "amount": 3, "clamp": False}) == (
+        ScoreChange(amount=3, clamp=False)
+    )
+
+
+def test_score_change_without_clamp_keeps_its_pre_field_clamped_meaning():
+    """A ``score_change`` consequence authored before ``clamp`` existed has no such key;
+    it meant the [0, 100]-clamped delta (:1160/:1161), and still does."""
+    restored = effect_from_dict({"type": "score_change", "amount": 3})
+    assert restored == ScoreChange(amount=3, clamp=True)
 
 
 def test_stat_change_capped_converts():
@@ -91,7 +100,9 @@ def test_optional_player_present():
 
 
 def test_optional_player_absent_uses_default():
-    assert effect_from_dict({"type": "money_change", "amount": 10}).player is None
+    effect = effect_from_dict({"type": "money_change", "amount": 10})
+    assert isinstance(effect, MoneyChange)
+    assert effect.player is None
 
 
 # --------------------------------------------------------------------------- #
@@ -145,7 +156,7 @@ def test_effects_from_dicts_preserves_order():
     assert effects_from_dicts(raws) == [
         MsChange(amount=1),
         MoneyChange(amount=2),
-        ScoreChange(amount=3),
+        ScoreChange(amount=3, clamp=True),
     ]
 
 

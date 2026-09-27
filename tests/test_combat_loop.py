@@ -30,7 +30,6 @@ from engine.rng import Rng
 from engine.interactions import (
     CANCEL,
     CombatScreen,
-    Ctx,
     PromptInt,
     StartCombat,
     run,
@@ -236,7 +235,7 @@ def test_victory_detected_the_moment_the_last_opponent_drops_mid_round():
     fight = _fight(
         side1=[_f(name="a", weapon=5, position=100, brutalitaet=0), _f(name="b", position=200)],
         side2=[_f(name="x", weapon=0, energie=1, position=101)],
-        rng=_StubRng(1, 1, 0),  # hit factors non-zero, damage draw 0 -> 1 damage
+        rng=_StubRng(1, 10, 0),  # both hit factors pass, damage draw 0 -> 1 damage
     )
     outcome = fight.shoot(+1)
     assert outcome["hit"] is True
@@ -303,7 +302,7 @@ def test_shot_flies_over_a_friendly_fighter():
     fight = _fight(
         side1=[_f(name="a", weapon=5, position=100, brutalitaet=0), _f(name="ally", position=101)],
         side2=[_f(name="x", weapon=0, energie=20, position=102)],
-        rng=_StubRng(1, 1, 0),
+        rng=_StubRng(1, 10, 0),
     )
     outcome = fight.shoot(+1)
     assert outcome["hit"] is True
@@ -324,7 +323,7 @@ def test_melee_range_two_reaches_a_target_two_cells_away():
     fight = _fight(
         side1=[_f(weapon=0, position=100, brutalitaet=0)],
         side2=[_f(weapon=0, energie=20, position=102)],
-        rng=_StubRng(1, 1, 0),
+        rng=_StubRng(1, 10, 0),
     )
     assert fight.shoot(+1)["hit"] is True
 
@@ -333,7 +332,7 @@ def test_a_miss_leaves_the_target_untouched():
     fight = _fight(
         side1=[_f(weapon=5, position=100)],
         side2=[_f(weapon=0, energie=20, position=101)],
-        rng=_StubRng(0, 1),  # weapon factor zero -> miss
+        rng=_StubRng(0, 10),  # weapon factor zero -> miss
     )
     assert fight.shoot(+1)["hit"] is False
     assert fight.sides[1][0].vitality == 20
@@ -343,7 +342,7 @@ def test_energy_clamps_at_zero_and_marks_the_fighter_down():
     fight = _fight(
         side1=[_f(weapon=8, position=100, brutalitaet=90)],
         side2=[_f(weapon=0, energie=2, position=101)],
-        rng=_StubRng(1, 1, 17),  # big damage roll
+        rng=_StubRng(1, 10, 170),  # big damage roll
     )
     fight.shoot(+1)
     target = fight.sides[1][0]
@@ -354,16 +353,17 @@ def test_energy_clamps_at_zero_and_marks_the_fighter_down():
 
 def test_attacker_stats_drive_both_rolls_not_the_targets():
     # 30246 loads a=ks(s), b=f — the ATTACKER — for kr and bt (KTD-9: code over prose).
-    rng = _StubRng(1, 1, 0)
+    rng = _StubRng(1, 10, 0)
     fight = _fight(
         side1=[_f(weapon=5, position=100, kraft=37, brutalitaet=35)],
         side2=[_f(weapon=0, energie=20, position=101, kraft=99, brutalitaet=99)],
         rng=rng,
     )
     fight.shoot(+1)
-    # hit draws use the ATTACKER's kraft 37 -> int(37/10)+1 = 4, and damage
-    # uses the attacker's tg (revolver 10) + attacker brutalitaet 35.
-    assert rng.calls == [("range", 5), ("range", 4), ("range", 10)]
+    # hit draws use the ATTACKER's kraft 37 -> range(37+10) (:30247's kr/10+1, scaled
+    # by 10), and damage uses the attacker's tg (revolver 10 -> range(10*10)) + the
+    # attacker's brutalitaet 35.
+    assert rng.calls == [("range", 5), ("range", 47), ("range", 100)]
 
 
 # --------------------------------------------------------------------------- #
@@ -411,7 +411,7 @@ def _spec(**kw):
 def test_startcombat_no_longer_raises_and_resolves_with_a_winner():
     # shoot right -> hit -> thug (1 energy) drops -> side 1 wins. Driven through the
     # shared run_fight helper (U6, R14).
-    result = run_fight(**_spec(), answers=[("shoot", +1)], rng=_StubRng(1, 1, 0))
+    result = run_fight(**_spec(), answers=[("shoot", +1)], rng=_StubRng(1, 10, 0))
     assert result.winner == 1
 
 
@@ -428,7 +428,7 @@ def test_combat_screen_is_yielded_each_activation_and_is_json_serializable():
             return ("shoot", +1)
         raise AssertionError(f"unexpected interaction {interaction!r}")
 
-    run(handler, src, state=None, rng=_StubRng(1, 1, 0))
+    run(handler, src, state=None, rng=_StubRng(1, 10, 0))
     assert seen, "no CombatScreen was yielded"
     screen = seen[0]
     payload = screen.to_json()
@@ -459,7 +459,7 @@ def test_illegal_move_re_prompts_without_ending_the_activation():
             return ("move", +1)  # cell 101 is occupied -> rejected
         return ("shoot", +1)
 
-    run(handler, src, state=None, rng=_StubRng(1, 1, 0))
+    run(handler, src, state=None, rng=_StubRng(1, 10, 0))
     assert len(calls) == 2, "an illegal move must re-prompt the same activation"
 
 
@@ -476,7 +476,7 @@ def test_combat_effects_commit_with_the_invoking_handlers_effects():
         ctx.apply(MoneyChange(amount=100 if result.winner == 1 else -100))
         return result.winner
 
-    result = run(handler, _scripted_combat([("shoot", +1)]), state=None, rng=_StubRng(1, 1, 0))
+    result = run(handler, _scripted_combat([("shoot", +1)]), state=None, rng=_StubRng(1, 10, 0))
     assert [e.amount for e in result.effects] == [10, 100]
 
 
@@ -493,7 +493,7 @@ def test_a_cancelled_invoking_action_discards_the_combat_effects_too():
             return ("shoot", +1)
         return CANCEL
 
-    result = run(handler, src, state=None, rng=_StubRng(1, 1, 0))
+    result = run(handler, src, state=None, rng=_StubRng(1, 10, 0))
     assert result.status == "cancelled"
     assert result.effects == []
 
@@ -501,21 +501,21 @@ def test_a_cancelled_invoking_action_discards_the_combat_effects_too():
 def test_combat_is_not_supported_inside_a_substate():
     # KTD-1: combat is only ever yielded from top-level handlers this slice — the
     # driver ASSERTS this rather than supporting it.
-    from engine.interactions import LoadSubState, _run_substate
-
-    ctx = Ctx()
-    load = LoadSubState(kind="__u5_combat_probe__", params={})
-
     from engine import substates
+    from engine.interactions import LoadSubState
 
     def probe(ctx, params):
         yield StartCombat(**_spec())
         return None
 
+    def handler(ctx):
+        yield LoadSubState(kind="__u5_combat_probe__", params={})
+        return []
+
     substates.SUBSTATES["__u5_combat_probe__"] = probe
     try:
-        with pytest.raises(AssertionError):
-            _run_substate(load, lambda i: ("shoot", +1), ctx)
+        with pytest.raises(AssertionError, match="inside a sub-state is not supported"):
+            run(handler, lambda i: ("shoot", +1))
     finally:
         del substates.SUBSTATES["__u5_combat_probe__"]
 
@@ -556,19 +556,20 @@ def test_scripted_seeded_fight_has_a_deterministic_transcript():
         transcript.append((interaction.active_side, interaction.active_fighter, interaction.prompt))
         return next(script)
 
-    # Each shot: two hit-factor draws (both non-zero) + one damage draw (0 -> 1 damage).
-    rng = _StubRng(1, 1, 0, 1, 1, 0)
+    # Each shot: two hit-factor draws (weapon non-zero, kraft >= 10) + one damage draw
+    # (0 -> 1 damage).
+    rng = _StubRng(1, 10, 0, 1, 10, 0)
     result = run_fight(**_spec(sides=sides), input_source=src, rng=rng)
 
     assert transcript == [(1, 1, "action"), (1, 2, "action")]
     assert result.winner == 1
     assert rng.calls == [
         ("range", 5),
-        ("range", 4),
-        ("range", 10),
+        ("range", 40),
+        ("range", 100),
         ("range", 5),
-        ("range", 4),
-        ("range", 10),
+        ("range", 40),
+        ("range", 100),
     ]
 
 
@@ -597,7 +598,7 @@ def test_losses_are_visible_on_the_screen_that_follows_a_knockout():
         # First activation drops enemy x; then surrender to end the fight.
         return ("shoot", +1) if len(screens) == 1 else ("surrender", None)
 
-    run_fight(**_spec(sides=sides, cpu_sides=()), input_source=src, rng=_StubRng(1, 1, 0))
+    run_fight(**_spec(sides=sides, cpu_sides=()), input_source=src, rng=_StubRng(1, 10, 0))
     assert screens[0]["losses"] == [0, 0]
     assert screens[1]["losses"] == [0, 1]
     # The downed fighter is still present in the payload, flagged rather than removed.
@@ -646,7 +647,7 @@ def _counting_cpu():
     The count is taken where the decision is made, independently of anything the
     input source sees — so "one frame per CPU activation" compares two separate tallies.
     """
-    from engine.interactions import PolicyDriver
+    from engine.fight_loop import PolicyDriver
 
     calls = []
 
@@ -677,7 +678,7 @@ class _HumanShootsRight:
 
 
 def _observed_fight(*, observes_ai: bool):
-    from engine.interactions import HumanDriver
+    from engine.fight_loop import HumanDriver
 
     cpu, calls = _counting_cpu()
     src = _HumanShootsRight(observes_ai=observes_ai)
@@ -709,7 +710,7 @@ def test_an_opted_in_source_sees_one_frame_per_cpu_activation_and_the_fight_is_u
 
 
 def test_a_source_that_does_not_opt_in_never_receives_an_observation_frame():
-    from engine.interactions import HumanDriver
+    from engine.fight_loop import HumanDriver
 
     cpu, calls = _counting_cpu()
 

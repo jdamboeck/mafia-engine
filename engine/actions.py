@@ -1,4 +1,4 @@
-"""The action/result spine: typed outcomes of running one option (T1).
+"""The action/result spine: typed outcomes of running one option.
 
 Running an option (``run_option``) produces exactly one :class:`EngineResult`. It bundles
 the four things a caller needs after an action: the resulting :class:`GameState`, the
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from engine.state import GameState
 
@@ -45,8 +45,14 @@ EngineStatus = Literal[
 ]
 
 
+#: The ``state`` an :class:`EngineResult` carries: a :class:`GameState` from every
+#: producer run against a real state, ``None`` only when :func:`engine.interactions.run`
+#: drives a handler statelessly. Covariant: the result is frozen, read-only data.
+StateT = TypeVar("StateT", bound="GameState | None", covariant=True)
+
+
 @dataclass(frozen=True)
-class EngineResult:
+class EngineResult(Generic[StateT]):
     """The outcome of running one option: new state + emitted events/effects + status.
 
     ``events`` are semantic (audit/UI) records — never applied to state. ``effects`` are
@@ -55,7 +61,7 @@ class EngineResult:
     raise instead of populating it).
     """
 
-    state: GameState
+    state: StateT
     events: list
     effects: list
     status: EngineStatus
@@ -93,7 +99,7 @@ def run_option(
     ln: int | None,
     input_source=None,
     rng=None,
-) -> EngineResult:
+) -> EngineResult[GameState]:
     """Run one location option end-to-end, producing exactly one :class:`EngineResult`.
 
     This is the single, location-aware dispatcher over the three option shapes. It owns
@@ -107,7 +113,7 @@ def run_option(
        not a recoverable runtime outcome).
     2. **Guard fails** -> a ``"blocked"`` result: an :class:`~engine.events.OptionDenied`
        event and a :class:`DeniedResult` payload, ZERO effects, and the UNCHANGED input
-       ``state`` object (denial is a normal outcome; the handler is never entered — KTD-8).
+       ``state`` object (denial is a normal outcome; the handler is never entered).
     3. **Consequence option** -> the raw dicts are converted (strictly, via
        :func:`engine.consequences.effects_from_dicts`) and committed
        (:func:`engine.effects.commit`); returns ``"completed"`` with the committed effects,
@@ -183,6 +189,8 @@ def run_option(
             f"option {option_id!r} on location {location.key!r} has a handler; "
             "run_option requires an input_source to drive it"
         )
+    # _parse_option guarantees exactly one of handler/consequences; consequences is None here.
+    assert option.handler is not None, f"option {option_id!r} has neither handler nor consequences"
     result = run(option.handler, input_source, state=state, rng=rng)
 
     if result.status == "cancelled":
@@ -190,7 +198,6 @@ def run_option(
     else:
         # Clean completion. slw.rent's rejection paths (x<=0, insufficient cash) return
         # with status="completed" and NO machine-readable rejection marker, so there is
-        # no unambiguous signal to emit LocationActionRejected — treat as completed
-        # (see the T7 report note).
+        # no unambiguous signal to emit LocationActionRejected — treat as completed.
         lifecycle = LocationActionCompleted(location_key=location.key, option_id=option_id)
     return dataclasses.replace(result, events=[*result.events, lifecycle])

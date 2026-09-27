@@ -1,31 +1,32 @@
-"""fightlab — a terminal tool to PLAY, WATCH, and REPLAY fights (U8, R13).
+"""fightlab — a terminal tool to PLAY, WATCH, and REPLAY fights.
 
 Three things a developer needs and the main client does not give them:
 
 * **play** a self-contained fight described by a scenario file — a COMPLETE two-sided
   fight buildable with no ``GameState`` and no roster (the "invented entities" path,
   :class:`~engine.scenario.Scenario`'s explicit construction). Human-vs-AI, seedable.
-* **watch** a recorded fight (U7's :func:`engine.recording.load`), stepping activation
+* **watch** a recorded fight (loaded via :func:`engine.recording.load`), stepping activation
   by activation — forward, back, or autoplay-to-the-end.
 * **--debug** every shot's arithmetic: the two draws with their bounds, the accuracy
   and damage attribute values, and the resulting damage — **read off the recorded
-  event, never recomputed** (R13). The tool renders and reads keys; every decision,
+  event, never recomputed**. The tool renders and reads keys; every decision,
   calculation, and state transition already happened in the engine.
 
-**Thinness (R13).** This module imports NO formula-level internal — no
+**Thinness.** This module imports NO formula-level internal — no
 ``combat_rules`` ``is_hit``/``damage_roll``, no hand-rolled equivalent. Every number it
 prints already exists on a :class:`~engine.interactions.CombatScreen` payload, an
 :class:`~engine.recording.ActivationEvent`, or a
 :class:`~engine.combat.CombatResult`. The scenario LOADER (below) uses this config's own
 ``setup``/``combat_rules`` helpers to BUILD a fight — that is fight *construction*, the
-same config-side entity resolution ``setup_combat`` does, not a second formula path.
+same config-side entity resolution :func:`engine.combat_setup.setup_combat` does, not a
+second formula path.
 
 **Layering.** ``clients/`` depends on the engine; the engine never depends on
 ``clients``. The scenario loader lives HERE (client/config-side) rather than in
 ``engine/`` because reading this game's file format, resolving its weapon ids, and
 building its ``Gangster`` roster is config knowledge the engine does not hold.
 
-Invocation (mirrors ``clients/terminal/__main__.py``'s argparse)::
+Invocation (mirrors ``clients/terminal/cli.py``'s argparse)::
 
     python -m clients.terminal.fightlab play  --scenario PATH [--seed N] [--debug]
     python -m clients.terminal.fightlab watch --recording PATH      [--debug]
@@ -43,14 +44,15 @@ from typing import Any, TextIO
 
 import yaml
 
-from engine.interactions import AiDriver, HumanDriver
+from engine.fight_loop import AiDriver, HumanDriver
 from engine.recording import load as load_recording
 from engine.recording import record_fight, replay
 from engine.scenario import Scenario
 from engine.strings import Resolver
 
 from clients.terminal import TerminalInput
-from clients.terminal.__main__ import _read_key
+from clients.terminal.palette import Colors, load_palette
+from clients.terminal.session import _read_key
 from clients.terminal.renderers import (
     render_combat_grid,
     render_fighter_panel,
@@ -69,7 +71,7 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 # from diverging, the ENEMY side is built through the SAME machinery the game uses:
 # an ``encounter:`` key names one of this config's encounter declarations
 # (content/encounters/*.yaml), and the loader delegates to ``Scenario.from_encounter``.
-# One loader, two sources cannot diverge (the plan's differential requirement).
+# One loader, so the two sources cannot diverge.
 #
 # The scenario adds a PLAYER side the encounter never declares (an encounter declares
 # only the enemy): a ``player:`` list of INVENTED fighters. Each is a plain
@@ -86,19 +88,14 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 
 
 def _config_helpers():
-    """Import this config's OWN build helpers (setup + combat_rules), package or bare.
+    """Import this config's OWN build helpers (setup + combat_rules + Gangster).
 
-    The mafia_1920s config is importable both as a package (``data.game_configs.…``)
-    and, in some tool contexts, bare with its directory on ``sys.path``. Mirror the
-    dual import ``setup.py`` itself uses so the loader works either way.
+    fightlab runs as ``python -m clients.terminal.fightlab`` from the repo root, so
+    the config is always importable as the package ``data.game_configs.mafia_1920s``.
     """
-    try:
-        from data.game_configs.mafia_1920s import combat_rules, setup
-        from data.game_configs.mafia_1920s.gangster import Gangster
-    except ImportError:  # loaded bare (config dir on sys.path)
-        import combat_rules  # type: ignore
-        import setup  # type: ignore
-        from gangster import Gangster  # type: ignore
+    from data.game_configs.mafia_1920s import combat_rules, setup
+    from data.game_configs.mafia_1920s.gangster import Gangster
+
     return setup, combat_rules, Gangster
 
 
@@ -112,7 +109,7 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
 
     Weapon ids are resolved at LOAD (both sides go through the config's ``equipper``),
     so an unknown weapon id fails HERE, naming the id — never as a ``KeyError`` several
-    activations deep in a fight (the plan's third-seam requirement).
+    activations deep in a fight.
 
     ``seed`` overrides the file's own ``seed:`` (``--seed`` on the command line).
     """
@@ -221,10 +218,10 @@ def _action_draws(event: Any) -> list:
 def _find_draw(draws: list, bound: int, used: set[int]) -> tuple[int, int] | None:
     """Find the next unconsumed ``range(bound)`` draw; return ``(value, position)``.
 
-    The recorded draws are ``[method, [args], value]`` triples. A shot draws
-    ``range(ts)`` (weapon accuracy factor), ``range(kraft//10+1)`` (craft factor), then
-    ``range(tg)`` (damage) — we pick each out by its bound so the dump names the exact
-    draw each formula input consumed, straight off the record (no recompute).
+    The recorded draws are ``[method, [args], value]`` triples. The bounds come from
+    the rules bundle's own draw declarations (:func:`_declared_draws`), never from a
+    formula restated here; consuming them in declared order keeps two draws with an
+    equal bound apart.
     """
     for i, rec in enumerate(draws):
         if i in used:
@@ -236,19 +233,46 @@ def _find_draw(draws: list, bound: int, used: set[int]) -> tuple[int, int] | Non
     return None
 
 
+def _first_made(
+    matched: list[tuple[str, int, tuple[int, int] | None]],
+) -> tuple[str, Any, tuple[int, int] | None]:
+    """The first ``(label, bound, found)`` whose draw was made, or ``("-", "-", None)``."""
+    return next((m for m in matched if m[2] is not None), ("-", "-", None))
+
+
+def _declared_draws(
+    declare: Any, attacker: Any, equipment: Any, draws: list, used: set[int]
+) -> list[tuple[str, int, tuple[int, int] | None]]:
+    """Match a formula's declared draws to the recorded ones: ``(label, bound, found)``.
+
+    ``declare`` is the rules bundle's ``hit_draws``/``damage_draws`` (what the game's
+    formula draws, in order, as ``(label, bound)``). ``found`` is ``(value, position)``
+    of the recorded draw, or ``None`` when that draw was not made.
+    """
+    if declare is None or not isinstance(attacker, int):
+        return []
+    return [
+        (label, bound, _find_draw(draws, bound, used))
+        for label, bound in declare(attacker, equipment)
+    ]
+
+
 def render_shot_debug(
     event: Any,
     *,
     weapon_names: list[str],
     prev_snapshot: Any,
     out: TextIO,
+    rules: Any,
     replayed: bool = False,
 ) -> None:
-    """Print the concrete shot block (plan lines 1647-1662) for one ActivationEvent.
+    """Print the concrete shot block (draws, attribute values, damage) for one ActivationEvent.
 
     EVERY number comes from ``event.calc_inputs`` / ``event.draws`` / ``event.result``
-    and the recorded snapshots — nothing is recomputed here (R13). Under ``watch``, the
-    block is prefixed ``(replayed)``.
+    and the recorded snapshots — nothing is recomputed here. Which recorded draw is
+    which comes from ``rules`` (the fight's :class:`~engine.combat.RulesBundle`):
+    its ``hit_draws``/``damage_draws`` name each draw the game's formula makes. Under
+    ``watch``, the block is prefixed ``(replayed)``.
     """
     ci = event.calc_inputs
     result = event.result
@@ -267,15 +291,13 @@ def render_shot_debug(
 
     action_draws = _action_draws(event)
     used: set[int] = set()
-    # The hit check draws range(ts) (weapon factor) then range(kraft//10+1) (craft
-    # factor); the plan's block shows the weapon-factor draw as "the" hit draw.
-    hit_draw = _find_draw(action_draws, ts, used)
-    # The craft factor draw (bound kraft//10+1); consumed so it is not mistaken for the
-    # damage draw when ts == kraft//10+1.
-    craft_bound = (hit_value // 10 + 1) if isinstance(hit_value, int) else None
-    if craft_bound is not None:
-        _find_draw(action_draws, craft_bound, used)
-    dmg_draw = _find_draw(action_draws, tg, used)
+    # The hit test's draws, then the damage roll's, as the rules bundle declares them.
+    # Each capability's first draw actually MADE is shown as "the" draw; every declared
+    # draw is consumed in order so none is mistaken for another with an equal bound.
+    hit_draws = _declared_draws(rules.hit_draws, hit_value, equipment, action_draws, used)
+    dmg_draws = _declared_draws(rules.damage_draws, dmg_value, equipment, action_draws, used)
+    hit_label, hit_bound, hit_draw = _first_made(hit_draws)
+    dmg_label, dmg_bound, dmg_draw = _first_made(dmg_draws)
 
     prefix = "(replayed) " if replayed else ""
     hdr_dir = f" {_DIR_LABELS.get(direction, direction)}" if direction is not None else ""
@@ -284,33 +306,35 @@ def render_shot_debug(
         f"fighter {event.fighter_index + 1} ({actor_name}) -> shoot{hdr_dir} ===\n"
     )
     out.write(f"  weapon: {weapon_name} (ts={ts}, tg={tg}, range={equipment.get('range')})\n")
-    if hit_draw is None:
-        # No range(ts) draw means the projectile reached no target (left the grid, hit a
-        # wall, or found no fighter in line) — the hit check never ran. Say so, rather
-        # than printing a misleading "rng.range(ts) -> None" under a hit-check heading.
+    if rules.hit_draws is None:
+        out.write("  hit check:\n")
+        out.write("    (the rules bundle declares no hit draws — cannot name them)\n")
+    elif hit_draw is None:
+        # No declared hit draw was made: the projectile reached no target (left the
+        # grid, hit a wall, or found no fighter in line) — the hit check never ran. Say
+        # so, rather than printing a misleading "-> None" under a hit-check heading.
         out.write("  hit check:\n")
         out.write("    (shot reached no target — no hit check)\n")
     else:
         out.write("  hit check:\n")
-        out.write(f"    draw = rng.range(ts={ts})          -> {hit_draw[0]}\n")
+        out.write(f"    draw = rng.range({hit_label}={hit_bound})          -> {hit_draw[0]}\n")
         out.write(f"    accuracy attr ({hit_attr})           -> {hit_value}\n")
         verdict = "HIT" if result.get("hit") else "MISS"
-        out.write(f"    both factors non-zero           -> {verdict}\n")
+        out.write(f"    weapon != 0, kraft draw >= 10   -> {verdict}\n")
 
     if result.get("hit"):
         dmg_draw_value = dmg_draw[0] if dmg_draw is not None else None
         damage = result.get("damage")
         out.write("  damage roll:\n")
-        out.write(f"    draw = rng.range(tg={tg})         -> {dmg_draw_value}\n")
+        out.write(f"    draw = rng.range({dmg_label}={dmg_bound})    -> {dmg_draw_value}\n")
         out.write(f"    damage attr ({dmg_attr})         -> {dmg_value}\n")
         if isinstance(dmg_draw_value, int) and isinstance(dmg_value, int):
-            frac = dmg_value / 10
             out.write(
-                f"    int(draw + attr/10) + 1         -> "
-                f"int({dmg_draw_value} + {frac}) + 1 = {damage}\n"
+                f"    (draw + attr) // 10 + 1         -> "
+                f"({dmg_draw_value} + {dmg_value}) // 10 + 1 = {damage}\n"
             )
         else:
-            out.write(f"    int(draw + attr/10) + 1         -> {damage}\n")
+            out.write(f"    (draw + attr) // 10 + 1         -> {damage}\n")
 
         tgt_side = result.get("target_side")
         tgt_index = result.get("target_index")
@@ -345,7 +369,7 @@ def _fighter_vitality(snapshot: Any, side: Any, index: Any) -> Any:
 
 
 def _print_divergence(report: Any, out: TextIO) -> None:
-    """Print a replay divergence (recorded vs. recomputed) side by side (R13)."""
+    """Print a replay divergence (recorded vs. recomputed) side by side."""
     out.write(f"!! REPLAY DIVERGED at activation {report.at_index}\n")
     out.write(f"   recorded  : {report.expected}\n")
     out.write(f"   recomputed: {report.got}\n")
@@ -382,11 +406,15 @@ def play(
     """
     stdin = stdin if stdin is not None else sys.stdin
     out = out if out is not None else sys.stdout
+    assert out is not None, "no output stream: sys.stdout is None"
 
     scenario = load_scenario(scenario_path, seed=seed)
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    colors = Colors.detect(load_palette(_CONFIG_DIR, "classic"))
     weapon_names = _weapon_names()
-    inp = TerminalInput(resolver=resolver, stdin=stdin, stdout=out, weapon_names=weapon_names)
+    inp = TerminalInput(
+        resolver=resolver, colors=colors, stdin=stdin, stdout=out, weapon_names=weapon_names
+    )
 
     drivers = {1: HumanDriver(), 2: AiDriver()}
     from engine.rng import Rng
@@ -413,7 +441,13 @@ def play(
         prev = None
         for event in recording.events:
             if event.kind == "activation" and event.decision.get("action") == "shoot":
-                render_shot_debug(event, weapon_names=weapon_names, prev_snapshot=prev, out=out)
+                render_shot_debug(
+                    event,
+                    weapon_names=weapon_names,
+                    prev_snapshot=prev,
+                    out=out,
+                    rules=scenario.rules,
+                )
             prev = getattr(event, "snapshot", prev)
     out.flush()
     return result
@@ -427,6 +461,7 @@ def _render_activation(
     index: int,
     *,
     resolver: Resolver,
+    colors: Colors,
     weapon_names: list[str],
     out: TextIO,
 ) -> None:
@@ -434,7 +469,7 @@ def _render_activation(
 
     Reconstructs the ``CombatScreen.to_json()`` wire shape from the snapshot (a
     json_safe ``CombatState``) so the existing pure renderers draw it. No forward
-    replay: seeking to any index reads that index's snapshot directly (KTD-8).
+    replay: seeking to any index reads that index's snapshot directly.
     """
     event = recording.events[index]
     snapshot = event.snapshot or {}
@@ -450,8 +485,8 @@ def _render_activation(
     render_screen_clear(out)
     action = getattr(event, "decision", {}).get("action", event.kind)
     out.write(f"-- activation {index} / {len(recording.events) - 1} | {event.kind}:{action} --\n")
-    render_combat_grid(payload, out)
-    render_fighter_panel(payload, resolver, weapon_names, out)
+    render_combat_grid(payload, out, colors)
+    render_fighter_panel(payload, resolver, weapon_names, out, colors)
     out.flush()
 
 
@@ -491,6 +526,7 @@ def watch(
     recorded-vs-recomputed values are printed and autoplay is halted.
     """
     out = out if out is not None else sys.stdout
+    assert out is not None, "no output stream: sys.stdout is None"
     key_reader = key_reader if key_reader is not None else _read_key
     if sleeper is None:
         import time
@@ -501,6 +537,7 @@ def watch(
     # Re-attach live rules so a divergence check can re-run the real formulas.
     recording = load_recording(recording_path, rules=combat_rules.build_rules())
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    colors = Colors.detect(load_palette(_CONFIG_DIR, "classic"))
     weapon_names = _weapon_names()
 
     # The divergence verdict (over the whole recording) — checked once; a diverged
@@ -513,12 +550,24 @@ def watch(
         return
 
     def show(index: int) -> None:
-        _render_activation(recording, index, resolver=resolver, weapon_names=weapon_names, out=out)
+        _render_activation(
+            recording,
+            index,
+            resolver=resolver,
+            colors=colors,
+            weapon_names=weapon_names,
+            out=out,
+        )
         event = recording.events[index]
         if debug and event.kind == "activation" and event.decision.get("action") == "shoot":
             prev = recording.events[index - 1].snapshot if index > 0 else None
             render_shot_debug(
-                event, weapon_names=weapon_names, prev_snapshot=prev, out=out, replayed=True
+                event,
+                weapon_names=weapon_names,
+                prev_snapshot=prev,
+                out=out,
+                rules=recording.scenario.rules,
+                replayed=True,
             )
             if report.diverged and report.at_index == index:
                 _print_divergence(report, out)
@@ -562,12 +611,12 @@ def watch(
 
 
 # --------------------------------------------------------------------------- #
-# argparse entry point (mirrors clients/terminal/__main__.py:main)            #
+# argparse entry point (mirrors clients/terminal/cli.py:main)                 #
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="clients.terminal.fightlab",
-        description="Play, watch, and replay fights with every variable observable (U8).",
+        description="Play, watch, and replay fights with every variable observable.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 

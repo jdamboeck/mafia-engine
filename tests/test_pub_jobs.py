@@ -27,7 +27,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.config_loader import load_game_config
-from engine.effects import EnergyChange, JobClear, JobSet, MoneyChange, MsChange
+from engine.effects import (
+    EnergyChange,
+    JobClear,
+    JobSet,
+    MoneyChange,
+    MsChange,
+    ScoreAndRank,
+)
 from engine.locations import HANDLERS
 from engine.rng import Rng
 from engine.state import Clock, Config, GameState, Job, Player
@@ -259,6 +266,10 @@ def test_failed_shift_fight_clears_job_no_pay_score_minus_2():
     assert result.state.players[0].ka == 1000  # unpaid
     assert result.state.players[0].jobs == Job()  # cleared
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
+    # :25510 `x=-2:gosub1160` — a failure lowers notoriety.
+    assert [e for e in result.effects if isinstance(e, ScoreAndRank)] == [
+        ScoreAndRank(amount=-2.0, rank_divisor=11.1)
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -281,7 +292,7 @@ def test_croupier_full_lifecycle_two_shifts_then_lump_sum():
 
 
 # --------------------------------------------------------------------------- #
-# The croupier completion score: 0 (:25560 `x=3+3*(jo=2)`, relational true=-1)  #
+# The croupier completion score: 0 (:25560 `x=3+3*(jo(sp)=2)`, relational true=-1)
 # --------------------------------------------------------------------------- #
 def test_croupier_completion_score_is_zero():
     # #47 audit: this asserted 6, from the research gloss and the since-reversed

@@ -1,4 +1,4 @@
-"""The turn-start upkeep runner — ENGINE mechanism, config-driven body (U3, KTD-3).
+"""The turn-start upkeep runner — ENGINE mechanism, config-driven body.
 
 Per-turn upkeep (``mf-prg.bas:4000-4090``) runs through the SAME generator/interaction/
 effect protocol as a location handler — it is not special-cased machinery, just another
@@ -16,8 +16,8 @@ drives it via :func:`engine.interactions.run`, and returns the resulting
 :class:`~engine.actions.EngineResult` unchanged for the caller to adopt
 (``state = result.state``, mirroring every other pure driver call in this codebase).
 
-Upkeep issues no cancellable prompts (per the plan's Verification Contract: "upkeep
-interactions offer no cancel path"). Its only non-combat interactions are
+Upkeep issues no cancellable prompts ("upkeep interactions offer no cancel path").
+Its only non-combat interactions are
 ``ShowMessage`` (the turn banner, the promotion screen), which the driver delivers to
 the input source for rendering but always acks itself — so :func:`run_upkeep`'s default
 ``input_source`` swallows those and raises on anything that actually asks a question,
@@ -29,29 +29,33 @@ contract.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.actions import EngineResult
 from engine.interactions import ShowMessage, run
+
+if TYPE_CHECKING:  # typing only
+    from engine.state import GameState
 
 __all__ = ["UPKEEP_HANDLER_KEY", "run_upkeep"]
 
 #: The registry key the game config's upkeep generator is registered under, in the
 #: SAME :data:`engine.locations.HANDLERS` registry a location option's ``handler``
-#: string resolves against (KTD-3: one generator/interaction/effect protocol, one
-#: registry — upkeep is not a location, but it is still just another handler id).
+#: string resolves against (one generator/interaction/effect protocol, one registry
+#: for location handlers and upkeep — upkeep is not a location, but it is still just
+#: another handler id).
 UPKEEP_HANDLER_KEY = "upkeep.turn_start"
 
 
 def _refuse_input(interaction: Any) -> Any:
     """The FALLBACK ``input_source`` for upkeep: discard narration, refuse questions.
 
-    What this defends is the plan's no-cancel-path contract: upkeep must never ASK the
+    What this defends is upkeep's no-cancel-path contract: upkeep must never ASK the
     player anything, because a question is a place a player could refuse or cancel and
     thereby escape their turn-start obligations. A default source that fabricated an
     answer would hide such a prompt; this one raises so it surfaces at the call site.
 
-    Since #43 the driver DELIVERS ``ShowMessage`` to the input source (delivery and
+    The driver DELIVERS ``ShowMessage`` to the input source (delivery and
     response are separate concerns — narration is unrenderable otherwise), and upkeep
     legitimately narrates: the turn banner, the promotion screen. Those are display
     only — they ask nothing, so they cannot be a cancel path, and this fallback simply
@@ -61,11 +65,11 @@ def _refuse_input(interaction: Any) -> Any:
     Everything that actually asks a question — ``PromptInt``/``PromptChoice``/
     ``Confirm`` — still raises here, which is the contract this function exists for.
 
-    U12 added the one legitimate exception: the debt-default collectors fight
+    The one legitimate exception: the debt-default collectors fight
     (``mf-prg.bas:4350``) is a ``StartCombat`` sub-protocol, and combat activations DO
     require real per-activation input. A caller whose player may be in default must
     therefore pass a real ``input_source``. That does not reopen a cancel path —
-    combat prompts are non-cancellable by KTD-9 (the client's quit vocabulary maps to
+    combat prompts are non-cancellable (the client's quit vocabulary maps to
     surrender, which LOSES the fight rather than discarding the flow), so upkeep still
     cannot be escaped, only lost.
     """
@@ -79,16 +83,16 @@ def _refuse_input(interaction: Any) -> Any:
 
 
 def run_upkeep(
-    state: Any,
+    state: GameState,
     *,
     input_source: Any = None,
     rng: Any = None,
     handlers: dict | None = None,
-) -> EngineResult:
+) -> EngineResult[GameState]:
     """Run the active player's turn-start upkeep flow and return its result.
 
-    This is THE engine-level turn-start entry point (KTD-3): a client's turn loop calls
-    this before presenting the free turn (or a future job shift, U10), rather than
+    This is THE engine-level turn-start entry point: a client's turn loop calls
+    this before presenting the free turn (or a job shift), rather than
     deciding for itself whether upkeep runs — the coupling lives here, not in the
     client.
 
@@ -98,7 +102,7 @@ def run_upkeep(
     like any other handler via :func:`engine.interactions.run`. Effects commit
     atomically on clean completion (the same commit-or-discard contract every handler
     gets); upkeep offers no cancel path, so ``result.status`` is always
-    ``"completed"`` in practice, never ``"cancelled"`` — including through the U12
+    ``"completed"`` in practice, never ``"cancelled"`` — including through the debt
     collectors fight, whose surrender loses the fight without discarding the flow.
 
     Args:
@@ -107,7 +111,7 @@ def run_upkeep(
             exactly as a location handler would).
         input_source: The client's response callback, forwarded to the driver.
             Defaults to :func:`_refuse_input`, which raises if consulted — correct for
-            every upkeep step EXCEPT the U12 collectors fight, which needs real combat
+            every upkeep step EXCEPT the debt collectors fight, which needs real combat
             input. Callers that can reach a debt default (the terminal client's turn
             loop) must pass a real one.
         rng: The session RNG (threaded through so an upkeep slot — debt, shop income,

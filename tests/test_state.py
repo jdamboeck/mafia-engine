@@ -61,23 +61,9 @@ def test_debt_kraft_name_collision_separation():
     """The kr(sp)->debt rename removes collision with gangster stat kraft."""
     p = Player(roster=(Gangster(kraft=42),), debt=Debt(amount=500))
     assert p.debt.amount == 500
-    assert p.roster[0].kraft == 42
+    assert p.roster[0].attrs["kraft"] == 42
     # independently addressable — no aliasing between the two
-    assert p.debt.amount != p.roster[0].kraft
-
-
-def test_coordinate_space_independence():
-    """City map (40×25) and combat grid (40×13) are different spaces.
-
-    Populated independently: a city grid never leaks into the combat grid. (Empty
-    defaults are the interned ``()``, so identity cannot carry this — assert on
-    separately-addressable content instead.)
-    """
-    m = MapState(grid=((1, 2), (3, 4)))
-    c = CombatState(grid=((9,),))
-    assert m.grid == ((1, 2), (3, 4))
-    assert c.grid == ((9,),)
-    assert m.grid != c.grid
+    assert p.debt.amount != p.roster[0].attrs["kraft"]
 
 
 def test_nested_default_isolation():
@@ -119,7 +105,7 @@ def test_flags_hired_gangsters_defaults_empty_and_coerces_to_tuple():
     every other collection-typed state field.
     """
     assert Flags().hired_gangsters == ()
-    coerced = Flags(hired_gangsters=[2, 5, 29])
+    coerced = Flags(hired_gangsters=[2, 5, 29])  # pyright: ignore[reportArgumentType]  # a list on purpose: the coercion is the subject
     assert coerced.hired_gangsters == (2, 5, 29)
     assert isinstance(coerced.hired_gangsters, tuple)
 
@@ -148,7 +134,7 @@ def test_clock_default_has_month_zero():
 
 def test_clock_month_is_frozen():
     with pytest.raises(FrozenInstanceError):
-        Clock().month = 5
+        Clock().month = 5  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 def test_business_shop_tile_replaces_shop_owner_bool():

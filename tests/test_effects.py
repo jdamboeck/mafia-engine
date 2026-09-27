@@ -33,9 +33,13 @@ from engine.effects import (
     MoneyChange,
     MsChange,
     RankCommit,
+    RentAccrue,
     RosterAppend,
+    RosterTruncate,
+    ScoreAndRank,
     ScoreChange,
     SetEntryContext,
+    SetTenancy,
     SetPosition,
     ShopChange,
     SpawnFighter,
@@ -45,10 +49,6 @@ from engine.effects import (
     TipClear,
     TipSet,
     WantedChange,
-    _mapping_set,
-    _with_gangster,
-    _with_gangster_attr,
-    _with_player,
     apply,
     commit,
 )
@@ -61,6 +61,7 @@ from engine.state import (
     Flags,
     GameState,
     Job,
+    MapState,
     Player,
     tuple_replace,
 )
@@ -116,7 +117,7 @@ def test_effects_are_frozen_and_versioned():
     assert e.SCHEMA_VERSION == 1
     assert SCHEMA_VERSION == 1
     with pytest.raises(dataclasses.FrozenInstanceError):
-        e.amount = 1  # type: ignore[misc]
+        e.amount = 1  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 # --------------------------------------------------------------------------- #
@@ -137,20 +138,45 @@ def test_money_change_and_purity():
 # --------------------------------------------------------------------------- #
 def test_score_change_caps_at_100():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(200.0))
+    out = apply(state, ScoreChange(200.0, clamp=True))
     assert out.players[0].gf == 100.0
 
 
 def test_score_change_floors_at_0():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(-200.0))
+    out = apply(state, ScoreChange(-200.0, clamp=True))
     assert out.players[0].gf == 0.0
 
 
 def test_score_change_normal_delta_lands_exactly():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(25.0))
+    out = apply(state, ScoreChange(25.0, clamp=True))
     assert out.players[0].gf == 75.0
+
+
+def test_score_change_unclamped_leaves_0_to_100():
+    """``clamp=False`` is the weapon-buy score (``:13065``/``:13072``/``:13073``),
+    which changes gf with no bound: only ``gosub 1160-1161`` clamps."""
+    state = make_state()  # gf starts at 50
+    assert apply(state, ScoreChange(60.0, clamp=False)).players[0].gf == 110.0
+    assert apply(state, ScoreChange(-53.5, clamp=False)).players[0].gf == -3.5
+
+
+def test_score_change_cannot_be_built_without_choosing_the_clamp():
+    """A port of a direct ``gf(sp)=...`` line that writes ``ScoreChange(x)`` must not
+    silently get the :1160/:1161 clamp no such line has: the constructor refuses it."""
+    with pytest.raises(TypeError, match="clamp"):
+        ScoreChange(1.0)  # pyright: ignore[reportCallIssue]  # the missing clamp is the test: it must raise
+    with pytest.raises(TypeError, match="clamp"):
+        ScoreChange(1.0, 0)  # pyright: ignore[reportCallIssue]  # a positional clamp is the test: it must raise
+
+
+def test_score_and_rank_clamps_an_out_of_range_gf():
+    """A gf left above 100 by an unclamped change is clamped at the next ``:1160``."""
+    state = apply(make_state(), ScoreChange(51.0, clamp=False))  # gf 101
+    out = apply(state, ScoreAndRank(amount=0.0, rank_divisor=11.1))
+    assert out.players[0].gf == 100.0
+    assert out.players[0].nr == 10
 
 
 # --------------------------------------------------------------------------- #
@@ -253,7 +279,7 @@ def test_movement_effects_work_through_commit():
 def test_stat_change_adjusts_named_stat():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChange("kraft", 5))
-    assert out.players[0].roster[0].kraft == 25
+    assert out.players[0].roster[0].attrs["kraft"] == 25
 
 
 def test_stat_change_unknown_stat_raises_value_error():
@@ -276,8 +302,8 @@ def test_stat_change_rejects_energie_which_is_the_vitality_slot():
 def test_stat_change_targets_the_right_gangster_index():
     state = _with_second_gangster(make_state(), Gangster(name="g0b", brutalitaet=1))
     out = apply(state, StatChange("brutalitaet", 7, gangster=1))
-    assert out.players[0].roster[1].brutalitaet == 8
-    assert out.players[0].roster[0].brutalitaet == 10  # index 0 untouched
+    assert out.players[0].roster[1].attrs["brutalitaet"] == 8
+    assert out.players[0].roster[0].attrs["brutalitaet"] == 10  # index 0 untouched
 
 
 # --------------------------------------------------------------------------- #
@@ -286,26 +312,26 @@ def test_stat_change_targets_the_right_gangster_index():
 def test_stat_change_capped_clamps_at_cap():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", 90, cap=99))
-    assert out.players[0].roster[0].kraft == 99  # 20+90=110 -> clamped to 99
+    assert out.players[0].roster[0].attrs["kraft"] == 99  # 20+90=110 -> clamped to 99
 
 
 def test_stat_change_capped_normal_raise_unclamped():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", 5, cap=99))
-    assert out.players[0].roster[0].kraft == 25  # under cap -> unclamped
+    assert out.players[0].roster[0].attrs["kraft"] == 25  # under cap -> unclamped
 
 
 def test_stat_change_capped_floors_at_zero_by_default():
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", -50, cap=99))
-    assert out.players[0].roster[0].kraft == 0  # 20-50=-30 -> floored at 0
+    assert out.players[0].roster[0].attrs["kraft"] == 0  # 20-50=-30 -> floored at 0
 
 
 def test_stat_change_capped_cap_is_a_parameter_not_hardcoded():
     # Config-boundary (KTD-10): pass cap=50 -> clamps at 50, proving no hardcoded 99.
     state = make_state()  # g0 kraft starts at 20
     out = apply(state, StatChangeCapped("kraft", 90, cap=50))
-    assert out.players[0].roster[0].kraft == 50
+    assert out.players[0].roster[0].attrs["kraft"] == 50
 
 
 def test_stat_change_capped_unknown_stat_raises_value_error():
@@ -326,19 +352,19 @@ def test_stat_change_capped_bad_gangster_index_raises_indexerror():
 def test_energy_change_applies_unclamped_under_cap():
     state = make_state()  # g0 energie starts at 5
     out = apply(state, EnergyChange(amount=3, cap=99))
-    assert out.players[0].roster[0].energie == 8
+    assert out.players[0].roster[0].vitality == 8
 
 
 def test_energy_change_clamps_at_cap():
     state = make_state()  # g0 energie starts at 5
     out = apply(state, EnergyChange(amount=50, cap=10))
-    assert out.players[0].roster[0].energie == 10
+    assert out.players[0].roster[0].vitality == 10
 
 
 def test_energy_change_floors_at_zero():
     state = make_state()  # g0 energie starts at 5
     out = apply(state, EnergyChange(amount=-50, cap=99))
-    assert out.players[0].roster[0].energie == 0
+    assert out.players[0].roster[0].vitality == 0
 
 
 def test_energy_change_bad_gangster_index_raises_indexerror():
@@ -350,7 +376,7 @@ def test_energy_change_bad_gangster_index_raises_indexerror():
 def test_energy_change_purity():
     state = make_state()
     out = apply(state, EnergyChange(amount=3, cap=99))
-    assert state.players[0].roster[0].energie == 5  # original untouched
+    assert state.players[0].roster[0].vitality == 5  # original untouched
     assert out is not state
 
 
@@ -510,6 +536,43 @@ def test_roster_append_purity():
     out = apply(state, RosterAppend(gangster=hire))
     assert len(state.players[0].roster) == 1  # original untouched
     assert out is not state
+
+
+# --------------------------------------------------------------------------- #
+# roster_truncate (#99) — the late-rent eviction, real application             #
+# --------------------------------------------------------------------------- #
+def _three_gangsters(state, player=0):
+    for name in ("h1", "h2"):
+        state = apply(state, RosterAppend(gangster=Gangster(name=name), player=player))
+    return state
+
+
+def test_roster_truncate_keeps_only_the_boss():
+    # mf-prg.bas:4651 ``gz(sp)=1`` — only gangster 1 (roster[0], the boss) remains.
+    state = _three_gangsters(make_state())
+    out = apply(state, RosterTruncate(size=1))
+    assert out.players[0].roster == (state.players[0].roster[0],)
+    assert len(state.players[0].roster) == 3  # original untouched (purity)
+
+
+def test_roster_truncate_targets_explicit_player():
+    state = _three_gangsters(make_state(), player=1)
+    out = apply(state, RosterTruncate(size=1, player=1))
+    assert len(out.players[1].roster) == 1
+    assert out.players[0].roster == state.players[0].roster
+
+
+def test_roster_truncate_never_grows_a_roster():
+    state = make_state()  # one gangster already
+    out = apply(state, RosterTruncate(size=1))
+    assert out.players[0].roster == state.players[0].roster
+
+
+def test_rent_accrue_takes_a_negative_month_for_the_countdown():
+    # mf-prg.bas:4046 ``um(sp)=um(sp)-1`` reuses the signed um(sp) accumulator.
+    state = apply(make_state(), RentAccrue(3))
+    out = apply(state, RentAccrue(-1))
+    assert out.players[0].rented_months == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -969,40 +1032,42 @@ def test_tuple_replace_rejects_out_of_range_index():
             tuple_replace(items, bad, 0)
 
 
-def test_with_player_updates_only_the_target():
-    """Helper happy path: the target player changes, siblings are untouched."""
+# The nested-update helpers are engine-internal; these tests pin their guarantees
+# through the public apply() with an effect that routes through each one.
+def test_a_player_effect_updates_only_the_target():
+    """The target player changes, siblings are shared, unrelated fields are kept."""
     st = _two_player_state()
-    new = _with_player(st, 0, ka=999)
+    new = apply(st, MoneyChange(899, player=0))
 
     assert new.players[0].ka == 999
     assert new.players[1] is st.players[1]  # structural sharing of the sibling
     assert new.players[0].name == "A"  # unrelated fields preserved
 
 
-def test_with_player_is_pure():
-    """Helper purity: the input state is never mutated."""
+def test_a_player_effect_is_pure():
+    """The input state is never mutated."""
     st = _two_player_state()
-    _with_player(st, 0, ka=999)
+    apply(st, MoneyChange(899, player=0))
 
     assert st.players[0].ka == 100  # original untouched
 
 
-def test_with_player_returns_readonly_players():
+def test_a_player_effect_returns_readonly_players():
     """R2: the rebuilt players collection is a tuple, never a mutable list."""
     st = _two_player_state()
-    new = _with_player(st, 0, ka=999)
+    new = apply(st, MoneyChange(899, player=0))
 
     assert isinstance(new.players, tuple)
 
 
-def test_with_gangster_attr_updates_only_the_target_gangster():
+def test_a_stat_effect_updates_only_the_target_gangster():
     """One level deeper: the right gangster's stat changes; roster siblings are shared.
 
-    Stat writes go through ``_with_gangster_attr`` (attrs-keyed) since ``kraft`` is no
-    longer a named field on the engine's ``Combatant`` (U2, amendment A4).
+    Stats are read and written through ``attrs`` since ``kraft`` is no longer a named
+    field on the engine's ``Combatant``.
     """
     st = _two_player_state()
-    new = _with_gangster_attr(st, 0, 1, "kraft", 42)
+    new = apply(st, StatChange(stat="kraft", amount=42, gangster=1, player=0))
 
     assert new.players[0].roster[1].attrs["kraft"] == 42
     assert new.players[0].roster[0] is st.players[0].roster[0]
@@ -1010,22 +1075,22 @@ def test_with_gangster_attr_updates_only_the_target_gangster():
     assert st.players[0].roster[1].attrs["kraft"] == 0  # purity
 
 
-def test_with_gangster_updates_a_blueprint_field():
-    """``_with_gangster`` still handles blueprint fields the engine names (weapon)."""
+def test_a_weapon_effect_updates_a_blueprint_field():
+    """A blueprint field the engine names (``weapon``) is set on the right gangster."""
     st = _two_player_state()
-    new = _with_gangster(st, 0, 1, weapon=3)
+    new = apply(st, AssignWeapon(weapon=3, gangster=1, player=0))
 
     assert new.players[0].roster[1].weapon == 3
     assert new.players[0].roster[0] is st.players[0].roster[0]
     assert st.players[0].roster[1].weapon == 0  # purity
 
 
-def test_mapping_set_returns_new_readonly_mapping():
+def test_a_tenancy_effect_rebuilds_a_readonly_mapping():
     """R2: a rebuilt mapping is read-only and leaves the source mapping alone."""
-    source = MappingProxyType({1: 0})
-    updated = _mapping_set(source, 2, 1)
+    st = dataclasses.replace(_two_player_state(), map=MapState(tenancy=MappingProxyType({1: 0})))
+    new = apply(st, SetTenancy(2, player=1))
 
-    assert updated == {1: 0, 2: 1}
-    assert dict(source) == {1: 0}  # purity
+    assert new.map.tenancy == {1: 0, 2: 1}
+    assert dict(st.map.tenancy) == {1: 0}  # purity
     with pytest.raises(TypeError):
-        updated[3] = 9  # type: ignore[index]
+        new.map.tenancy[3] = 9  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise

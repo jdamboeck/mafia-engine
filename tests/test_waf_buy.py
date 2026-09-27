@@ -24,7 +24,7 @@ from engine.interactions import (
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import run_pure
+from tests.helpers import StubRng as _StubRng, run_pure
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -37,22 +37,6 @@ _PARAMS = {
     "grenade_roll": 3,
     "grenade_rank_gate": 5,
 }
-
-
-class _StubRng:
-    """rng.range(n) returns scripted values; records the args."""
-
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def range(self, n):
-        self.calls.append(("range", n))
-        return next(self._it)
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        return next(self._it)
 
 
 def _state(*, ka=100000, ln=2, rank=1, gf=50.0, score_mult=1.0, roster=None):
@@ -130,10 +114,8 @@ def _by_type_source(answers):
     registered sub-state), so callers only script PromptInt/PromptChoice/Confirm.
     """
     iters = {k: iter(v) for k, v in answers.items()}
-    seen: list = []
 
     def source(interaction):
-        seen.append(interaction)
         if isinstance(interaction, ShowMessage):
             # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
             # and the driver acks regardless of what we return here.
@@ -143,9 +125,6 @@ def _by_type_source(answers):
                 return next(it)
         raise AssertionError(f"unscripted interaction {interaction!r}")
 
-    source.seen = seen
-    source.messages = lambda: [i for i in seen if isinstance(i, ShowMessage)]
-    source.message_keys = lambda: [i.key for i in seen if isinstance(i, ShowMessage)]
     return source
 
 
@@ -437,12 +416,12 @@ def test_trade_in_decline_returns_to_weapon_list():
 # signs below are the C64 evaluation and the only ones consistent with that.    #
 # --------------------------------------------------------------------------- #
 def test_score_first_weapon_up_by_x8():
-    # :13065 `gf = gf - x8*(gf<100)`; (gf<100) is true = -1 -> score UP by x8.
+    # :13065 `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)`; (gf<100) is true = -1 -> score UP by x8.
     # Arming a previously unarmed gangster raises notoriety.
     st = _state(ln=2, ka=1000, gf=50.0, score_mult=1.0)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(1.0) in result.effects
+    assert ScoreChange(1.0, clamp=False) in result.effects
 
 
 def test_score_upgrade_new_index_higher_than_old_is_up():
@@ -452,7 +431,7 @@ def test_score_upgrade_new_index_higher_than_old_is_up():
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([5]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(1.0) in result.effects
+    assert ScoreChange(1.0, clamp=False) in result.effects
 
 
 def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
@@ -462,7 +441,7 @@ def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(-2.0) in result.effects
+    assert ScoreChange(-2.0, clamp=False) in result.effects
 
 
 def test_score_gate_false_no_change():

@@ -1,6 +1,6 @@
 # Weapon table — verbatim from the original game (mf-prg.bas:50100-50115).
 #
-# Each entry is ENTITY-NAME/stat data owned by the game config (KTD-5), not
+# Each entry is ENTITY-NAME/stat data owned by the game config, not
 # engine display text: the German names are the weapon identities in the 1920s
 # Mafia world.
 #

@@ -1,4 +1,4 @@
-"""New-game setup routine + entity loaders for the ``mafia_1920s`` config (U8).
+"""New-game setup routine + entity loaders for the ``mafia_1920s`` config.
 
 Ports the BASIC new-game setup (``mf-prg.bas:220,300-315,350``): it rolls each
 player's starting gangster stats and cash, seats them at the start position on
@@ -109,7 +109,7 @@ def load_weapons(path: str | Path) -> list[dict]:
 
 
 def load_gangster_candidates(path: str | Path) -> list[dict]:
-    """Load the 30 recruitable-gangster candidates (U9, ``../research/.../gan-extraction.yaml``).
+    """Load the 30 recruitable-gangster candidates (``../research/.../gan-extraction.yaml``).
 
     Each entry is ``{name, weapon, kraft, intelligenz, brutalitaet, price,
     description, female}``, list index 0-based == the original's 1-based candidate
@@ -122,12 +122,12 @@ def load_gangster_candidates(path: str | Path) -> list[dict]:
 
 
 def load_combat_backdrop(path: str | Path) -> tuple[int, ...]:
-    """Load a combat backdrop's linear wall/scenery code array (U4).
+    """Load a combat backdrop's linear wall/scenery code array.
 
     ``path`` points at one of ``content/combat/{ks,kp,km}.yaml`` — the pre-decoded
     (``tools/decode_combat_backdrops.py``) 521-entry ``cells`` array covering the
     combat grid's kept 0..520 bound (``engine.combat.CELL_COUNT``). Returned as a
-    plain tuple of ints, ready to pass straight to ``engine.combat.setup_combat``'s
+    plain tuple of ints, ready to pass straight to ``engine.combat_setup.setup_combat``'s
     ``grid`` parameter — engine combat code owns interpreting the codes (walls vs.
     empty vs. scenery), this loader only supplies the raw array.
     """
@@ -151,15 +151,12 @@ def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int, int]]:
     return {i: (w["ts"], w["tg"], w["range"]) for i, w in enumerate(weapons)}
 
 
-# --- encounter declarations (U6a) ------------------------------------------
+# --- encounter declarations -------------------------------------------------
 #
 # An encounter file declares ONE fight as pure data: the enemy party's setup
 # (count/weapon/vitality/name), the backdrop, and — optionally — a DECLARABLE
-# consequence (``on_win``/``on_loss``). The setup half is a regrouping of data
-# that already lived in ``config.yaml`` (kdh_ambush_*/kdh_collectors_*) or as
-# Python literals in the handlers (the three job opponents). ``Scenario.from_
-# encounter`` reads the parsed :class:`EnemySpec` and produces the same fight the
-# handler used to assemble inline.
+# consequence (``on_win``/``on_loss``). ``Scenario.from_encounter`` reads the
+# parsed :class:`EnemySpec` and builds the fight from it.
 #
 # Validation posture mirrors the guard DSL (engine/conditions.py) and the
 # entity loaders above: an unknown outcome key, an unknown/missing grid, or an
@@ -198,7 +195,7 @@ class EnemySpec:
 
 @dataclass(frozen=True)
 class Encounter:
-    """A parsed encounter declaration (U6a).
+    """A parsed encounter declaration.
 
     ``variants`` always holds at least one :class:`EnemySpec` — a single-enemy
     encounter is a one-variant list, the bouncer is a three-variant list. The
@@ -243,7 +240,7 @@ def _validate_outcome_steps(steps, *, key: str, block: str) -> tuple[dict, ...] 
 
 
 def load_encounter(path: str | Path, *, config_dir: str | Path | None = None) -> Encounter:
-    """Load and VALIDATE one encounter declaration into an :class:`Encounter` (U6a).
+    """Load and VALIDATE one encounter declaration into an :class:`Encounter`.
 
     ``config_dir`` locates the sibling ``content/combat/{grid}.yaml`` backdrops and
     ``entities/weapons.yaml`` (defaults to ``path``'s ``…/content/encounters`` parent's
@@ -318,11 +315,11 @@ _CLEAR_EFFECTS = {"debt": DebtClear}
 
 
 def apply_outcome(ctx, encounter: Encounter, result):
-    """Apply an encounter's DECLARED consequence for a finished fight (U6a).
+    """Apply an encounter's DECLARED consequence for a finished fight.
 
     A generator (``yield from apply_outcome(ctx, encounter, result)``) that walks the
     ``on_win``/``on_loss`` block selected by ``result.winner`` (side 1 == the acting
-    player, side 2 == the enemy — the ``engine.interactions._run_combat`` convention)
+    player, side 2 == the enemy — the ``engine.fight_loop._run_combat`` convention)
     and applies each step of the restrained consequence vocabulary:
 
     * ``money: int`` — a flat :class:`~engine.effects.MoneyChange`.
@@ -375,10 +372,11 @@ def fnm(ln: int, params: dict) -> int:
 
     ``params`` is the ``formula_params.fnm`` block from ``config.yaml``:
     a ``base`` plus a per-``ln`` ``overrides`` map. Returns ``overrides[ln]`` if
-    present, else ``base``. This reproduces the original's three-way result,
-    including the ln=1 negative-rent quirk (fnm(1) == -50). The slw handler
+    present, else ``base``. This reproduces the original's three-way result
+    (fnm(1) == 150, fnm(3) == fnm(4) == 100, else 50). The slw handler
     reuses this helper.
     """
+    # mf-prg.bas:115 `deffnm(ln)=50-50*(ln=3orln=4)-100*(ln=1)`, with C64 true = -1.
     overrides = params.get("overrides", {}) or {}
     # YAML maps int keys fine, but tolerate str keys defensively.
     if ln in overrides:
@@ -395,11 +393,10 @@ def score_and_rank(x: float, params: dict) -> ScoreAndRank:
     """Build the :class:`ScoreAndRank` effect for reward ``x`` — ports ``gosub 1160/1165``.
 
     ``params`` is the config's ``formula_params`` block; the ``rank_divisor`` (11.1) is
-    read from it and passed into the effect (KTD-10 — the engine hardcodes no game
-    number). ``x`` is the raw reward (1 for range training, 2 for camp, or a buy-score
+    read from it and passed into the effect (the engine hardcodes no game number). ``x`` is the raw reward (1 for range training, 2 for camp, or a buy-score
     delta); the effect weights it by ``Config.score_mult`` (``x8``) at apply time.
     Every score-awarding waf path routes through this helper so rank never drifts from
-    the original (KTD-5).
+    the original.
     """
     return ScoreAndRank(amount=x, rank_divisor=params["rank_divisor"])
 
@@ -411,24 +408,24 @@ def narrate_combat_outcome(
     *, winner: int, player_name: str, enemy_name: str, player_losses: int, enemy_losses: int
 ):
     """Yield the post-fight outcome screen shared by ``jobs.py``, ``kdh.py``, and
-    ``upkeep.py`` (KTD-1: narrating the outcome is the invoking handler's job —
+    ``upkeep.py`` (narrating the outcome is the invoking handler's job —
     ``_run_combat`` itself yields no final screen).
 
     ``winner`` is the side returned by ``StartCombat`` (1 == the acting player's
-    roster, 2 == the scripted enemy, per ``engine.interactions._run_combat``).
+    roster, 2 == the scripted enemy, per ``engine.fight_loop._run_combat``).
 
     The original prints this screen at ``:30500-30515`` UNCONDITIONALLY, for every
     fight, win or lose — ``:30106``'s ``goto30500`` is the single exit from the
     combat engine, and ``:5010``'s ``goto30000`` is the single entry every caller
     uses. There is no caller-specific and no win-conditional branch, so the losses
-    block always prints (U3 removed the ``with_losses=False`` deviation, #50).
+    block always prints.
 
     ``player_losses``/``enemy_losses`` are the REAL per-side death tallies the fight
     computed (``v(1)``/``v(2)``, zeroed at ``:30100``, incremented at ``:30310`` per
-    death), handed back on the :class:`~engine.combat.CombatResult`. They replace the
-    old ``0 if side == winner else 1`` shortcut, which was only correct for a
-    one-fighter-per-side fight and would print a confidently wrong count for the
-    multi-enemy debt-collectors fight (``gz(0)=5``, ``:4355``).
+    death), handed back on the :class:`~engine.combat.CombatResult`. Deriving them from the
+    winner alone (``0 if side == winner else 1``) is only correct for a
+    one-fighter-per-side fight and would miscount the multi-enemy debt-collectors
+    fight (``gz(0)=5``, ``:4355``).
     """
     winner_name = player_name if winner == 1 else enemy_name
     yield ShowMessage("combat.winner_banner", {"name": winner_name})
@@ -442,6 +439,7 @@ def narrate_combat_outcome(
 
 def _roll_stat(rng: Rng, roll: dict) -> int:
     """Stat/cash roll: rng.range(choices)*step + base (mf-prg.bas:350/315)."""
+    # :350 `x=int(rnd(1)*9)*5+10` (stats); :315 `ka(i)=int(rnd(1)*5)*500+5000` (cash).
     return rng.range(roll["choices"]) * roll["step"] + roll["base"]
 
 
@@ -470,7 +468,7 @@ def new_game(
         Which ``config.yaml`` to assemble from.
 
     The setup inputs (year/weight/name/gang/count) are taken as parameters, not
-    prompted — interactive prompting is the driver/client's job later.
+    prompted — interactive prompting is the driver/client's job.
     """
     cfg = load_config(config_path)
     cfg_dir = Path(config_path).resolve().parent
@@ -500,7 +498,7 @@ def new_game(
         # Roll the starting gangster's stats — ALL via rng.
         kraft = _roll_stat(rng, setup["stat_roll"])
         raw_intel = _roll_stat(rng, setup["stat_roll"])
-        intelligenz = raw_intel | setup["intelligenz_or"]  # OR-30 quirk
+        intelligenz = raw_intel | setup["intelligenz_or"]  # OR-30 quirk, :311 `in=xor30`
         brutalitaet = _roll_stat(rng, setup["stat_roll"])
         cash = _roll_stat(rng, setup["cash_roll"])
 
@@ -535,7 +533,7 @@ def new_game(
     )
     config = Config(
         score_mult=score_weight,
-        # Passed as plain YAML dicts: Config deep-freezes them on construction (R2/KTD-2).
+        # Passed as plain YAML dicts: Config deep-freezes them on construction.
         formula_params=cfg["formula_params"],
         action_costs=cfg.get("action_costs", {}),
     )

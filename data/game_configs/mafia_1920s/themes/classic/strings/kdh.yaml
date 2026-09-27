@@ -1,6 +1,6 @@
 # kdh (Kredit-Hai / loan shark) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.kdh.borrow_prompt")
+# DATA, not code: the engine emits KEYS (e.g. "locations.kdh.borrow_prompt")
 # and the theme resolves them to these strings. Ported from the research
 # (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:15000-15321) — verbatim.
 locations:

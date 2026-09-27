@@ -1,6 +1,6 @@
 # Standings + year-end result — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the handlers in handlers/game_end.py emit these KEYS with
+# DATA, not code: the handlers in handlers/game_end.py emit these KEYS with
 # structured params; one message per list row, since templates cannot iterate.
 # Ported from mf-prg.bas:4500-4510 and :40115-40160.
 game_end:

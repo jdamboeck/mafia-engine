@@ -34,10 +34,22 @@ They do not agree, and only one is authoritative.
 ## Guidance
 
 **Key the door lookup on the cell index / `(la, ln)` pair taken from the `lc`
-table.** That is what the original actually consults at runtime: movement gates
-on grid code `156` and the `lc` routine matches a target cell against the door
-table. Adjacency is not consulted — a location is entered by stepping *onto*
-its door cell.
+table.** That is what the original actually consults at runtime:
+
+- A move targets one cell, `:2030` `p=br+po(sp)+x`, and only a street cell
+  (grid code `156`) is walked onto: `:2035` `ifpeek(p)<>156goto2045`, else
+  `:2040` `po(sp)=po(sp)+x:ms=ms-1`. Tested by `test_step_onto_street_costs_one_ms`
+  and `test_blocked_cell_does_not_move_or_spend`.
+- Any other target cell (after the two map-event cells,
+  `:2045` `ifpo(sp)+x=569thenla=13` and `:2046` `ifpo(sp)+x=861thenla=14`) goes to
+  the `lc` routine, which matches that cell against the door table: `:2050` `syslc,p:la=peek(ua+1):ln=peek(ua+2):ifla=0goto2005`.
+  Tested by `test_enter_slw_via_door_target` and
+  `test_door_lookup_is_cell_keyed_across_multiple_locations`.
+
+Adjacency is not consulted — a location is entered by a move whose *target* is
+its door cell. The player never stands on the door: `po` changes only on the
+`156` path, so it stays where it was (also asserted by
+`test_enter_slw_via_door_target`).
 
 **Do not cross-assert against the `karte_code` column** in the sibling
 `../research/` checkout (outside this repo — a doc-claims validator will flag
@@ -51,7 +63,7 @@ exist.
 The research checkout is authoritative for *game knowledge* — rules,
 probabilities, formulas — but its derived columns are an interpretation layer.
 This is the same trap that produced the inverted relational-sign convention
-(see `basic-relational-boolean-is-plus-one-when-porting.md`): a value the
+(see `basic-relational-boolean-is-minus-one-when-porting.md`): a value the
 research layer *computed* was mistaken for a value it *observed*.
 
 When the decompiled source and a research column disagree, the source wins

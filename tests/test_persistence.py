@@ -16,6 +16,7 @@ handler re-suspends at the identical prompt.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -184,6 +185,7 @@ def test_mid_slw_rent_save_resume_matches_uninterrupted(tmp_path: Path):
 
     # --- uninterrupted reference run --------------------------------------- #
     ref_handler = _opt(slw, "rent").handler
+    assert ref_handler is not None
     ref = run(ref_handler, _Recorder(2), state=state, rng=None)
     assert ref.status == "completed"
 
@@ -254,8 +256,8 @@ def test_unknown_version_is_rejected(tmp_path: Path):
 def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path):
     """A SpawnFighter in the effect log must replay as a ``Fighter``, not a raw dict.
 
-    ``_effect_to_dict`` uses ``dataclasses.asdict``, which recursively flattens the
-    nested ``Fighter`` into a plain dict; reconstruction has to rebuild it. Without
+    The save file holds effects as plain JSON, so the nested ``Fighter`` is written
+    as a plain dict; reconstruction has to rebuild it. Without
     that, replaying any save taken mid-fight yields ``CombatState.sides`` full of
     dicts, and the first ``.name``/``.position`` read raises ``AttributeError`` —
     far from the save/load code that caused it.
@@ -277,6 +279,30 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     assert restored.fighter.position == 100
     assert restored.fighter.vitality == 30
     assert restored.side == 1
+
+
+def test_a_score_change_recorded_before_the_clamp_field_loads_clamped(tmp_path: Path):
+    """A ScoreChange logged before ``clamp`` existed has no such key; it must load, and
+    replay with the clamp it was recorded under. One written now carries its clamp."""
+    from engine.effects import ScoreChange
+
+    save_path = tmp_path / "game.jsonl"
+    unclamped = ScoreChange(3.0, clamp=False)
+    persistence.save_game(save_path, _fresh_state(), effect_log=[unclamped], rng_log=[], seed=SEED)
+    header, effect_line = save_path.read_text(encoding="utf-8").splitlines()
+    record = json.loads(effect_line)
+    assert record["effect"] == {
+        "_type": "ScoreChange",
+        "amount": 3.0,
+        "player": None,
+        "clamp": False,
+    }
+    assert persistence.load_game(save_path).effect_log == [unclamped]
+
+    # The same record as an older save wrote it: no ``clamp`` key.
+    del record["effect"]["clamp"]
+    save_path.write_text(f"{header}\n{json.dumps(record)}\n", encoding="utf-8")
+    assert persistence.load_game(save_path).effect_log == [ScoreChange(3.0, clamp=True)]
 
 
 def test_session_save_resumes_the_rng_stream(tmp_path):

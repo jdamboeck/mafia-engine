@@ -13,7 +13,7 @@ from engine.interactions import Ack, Confirm, Ctx, PromptChoice, ShowMessage
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import run_pure
+from tests.helpers import StubRng as _StubRng, run_pure
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -28,20 +28,6 @@ _PARAMS = {
     "camp_gain_min": 8,
     "camp_gain_max": 15,
 }
-
-
-class _StubRng:
-    def __init__(self, *values):
-        self._it = iter(values)
-        self.calls = []
-
-    def hit(self, a, b):
-        self.calls.append(("hit", a, b))
-        return next(self._it)
-
-    def range(self, n):  # pragma: no cover - train uses hit only
-        self.calls.append(("range", n))
-        return next(self._it)
 
 
 def _state(*, ka=100000, ln=3, rank=1, score_mult=1.0, roster=None):
@@ -65,10 +51,8 @@ def _state(*, ka=100000, ln=3, rank=1, score_mult=1.0, roster=None):
 
 def _source(answers):
     iters = {k: iter(v) for k, v in answers.items()}
-    seen: list = []
 
     def source(interaction):
-        seen.append(interaction)
         if isinstance(interaction, ShowMessage):
             # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
             # and the driver acks regardless of what we return here.
@@ -78,9 +62,6 @@ def _source(answers):
                 return next(it)
         raise AssertionError(f"unscripted interaction {interaction!r}")
 
-    source.seen = seen
-    source.messages = lambda: [i for i in seen if isinstance(i, ShowMessage)]
-    source.message_keys = lambda: [i.key for i in seen if isinstance(i, ShowMessage)]
     return source
 
 

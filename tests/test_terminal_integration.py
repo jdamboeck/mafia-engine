@@ -6,14 +6,19 @@ Verifies the full rendering pipeline: palette → renderers → ASCII art → no
 from __future__ import annotations
 
 import io
+import re
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from clients.terminal import CURSOR_SHOW
 from clients.terminal.ascii_art import location_art, title_art, title_screen
 from clients.terminal.palette import (
     ColorSupport,
+    Colors,
     _BASIC_8,
     _XTERM_256,
     bg,
@@ -33,7 +38,8 @@ from clients.terminal.renderers import (
     render_status_bar,
     render_subheader,
 )
-from tests.helpers import make_walk_script, with_player
+from engine.strings import Resolver
+
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -43,6 +49,7 @@ class TestSmokeRenderPipeline:
 
     def setup_method(self):
         self.pal = load_palette(_CONFIG_DIR)
+        self.colors = Colors(self.pal, ColorSupport.TRUECOLOR)
         self.buf = io.StringIO()
 
     def test_render_screen_clear(self):
@@ -56,31 +63,31 @@ class TestSmokeRenderPipeline:
         assert "──" in out
 
     def test_render_header(self):
-        render_header("SCHLUPFWINKEL", self.buf)
+        render_header("SCHLUPFWINKEL", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "SCHLUPFWINKEL" in out
         assert "╔" in out
         assert "╗" in out
 
     def test_render_subheader(self):
-        render_subheader("Raum 1", self.buf)
+        render_subheader("Raum 1", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "Raum 1" in out
         assert "──" in out
 
     def test_render_body(self):
-        render_body("Willkommen im Schlupfwinkel.", self.buf)
+        render_body("Willkommen im Schlupfwinkel.", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "Willkommen" in out
 
     def test_render_colored(self):
-        render_colored("Achtung!", "red", self.buf)
+        render_colored("Achtung!", "red", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "Achtung!" in out
         assert "\033[" in out  # has ANSI code
 
     def test_render_menu_option(self):
-        render_menu_option(0, "Miete verlangen", self.buf)
+        render_menu_option(0, "Miete verlangen", self.buf, self.colors)
         out = self.buf.getvalue()
         assert "0" in out
         assert "Miete verlangen" in out
@@ -91,16 +98,17 @@ class TestSmokeRenderPipeline:
         assert ">" in out
 
     def test_render_status_bar(self):
-        render_status_bar("alcapone", 5400, 181, 19, self.buf)
+        resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+        render_status_bar("alcapone", 5400, 181, 19, self.buf, resolver, self.colors)
         out = self.buf.getvalue()
         assert "alcapone" in out
         assert "5400" in out
         assert "181" in out
         assert "19" in out
 
-    def test_render_map_frame(self, truecolor):
+    def test_render_map_frame(self):
         lines = ["ABCDE", "FGHIJ"]
-        render_map_frame(lines, self.buf)
+        render_map_frame(lines, self.buf, self.colors)
         out = self.buf.getvalue()
         assert "ABCDE" in out
         assert "FGHIJ" in out
@@ -111,13 +119,13 @@ class TestSmokeAsciiArt:
     """Verify title screen and location art return non-empty multi-line strings."""
 
     def test_title_art_lines(self):
-        lines = title_art()
+        lines = title_art(Colors(load_palette(), ColorSupport.TRUECOLOR))
         assert len(lines) > 5
         combined = "\n".join(lines)
         assert "_____" in combined or "M" in combined
 
     def test_title_screen_has_prompt(self):
-        screen = title_screen()
+        screen = title_screen(Colors(load_palette(), ColorSupport.TRUECOLOR))
         assert "Druecke ENTER" in screen
         assert len(screen.split("\n")) > 5
 
@@ -144,15 +152,34 @@ class TestSmokeAsciiArt:
     def test_location_art_unknown(self):
         assert location_art("nonexistent") is None
 
-    def test_location_art_wired_in_run_location(self):
-        """_run_location imports and calls location_art on entry."""
-        import inspect
+    def test_entering_a_location_shows_its_art_and_waits_for_a_key(self, monkeypatch):
+        """Walking into sph shows its art splash, which eats one key before the menu:
+        the menu's "0" (play) and the game's "0" (poker) reach the wager prompt only
+        when a splash ack comes first."""
+        from engine.movement import load_city
+        from tests.test_client_loop import (
+            find_door_cell,
+            load_city_raw,
+            new_state,
+            run_play,
+            walk_keys_to_cell,
+        )
 
-        from clients.terminal.__main__ import _run_location
+        city_raw = load_city_raw()
+        walk = walk_keys_to_cell(
+            new_state(42), load_city(city_raw), find_door_cell(city_raw, "sph")
+        )
+        art = location_art("sph")
+        assert art is not None
+        art_line = next(line for line in art if line.strip())
 
-        src = inspect.getsource(_run_location)
-        assert "location_art" in src
-        assert "_read_line_visible(stdin, out)" in src  # the splash waits for a key
+        acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "0", "0"])
+        unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["0", "0"])
+
+        assert art_line in acked and "ENTER druecken..." in acked
+        assert acked.index(art_line) < acked.index("ENTER druecken...")
+        assert "dein einsatz" in acked.lower(), "the acked script never reached the wager"
+        assert "dein einsatz" not in unacked.lower(), "the splash did not wait for a key"
 
 
 class TestSmokeColorSupport:
@@ -196,29 +223,22 @@ class TestSmokeColorSupport:
 class TestMapDisplayWidth:
     """Every map line must have exactly 42 visible columns (no wide-char protrusion)."""
 
-    def _render_map(self) -> str:
-        import yaml as _yaml
+    #: Any CSI escape: colors, and the screen clear / cursor controls before the map.
+    _ANSI = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
 
-        from clients.terminal.__main__ import _CONFIG_DIR, render_map
-        from engine.config_loader import load_game_config
-        from engine.movement import load_city
+    def _render_map(self, monkeypatch) -> str:
+        """The first map screen of a real ``play()``, from its top border on."""
+        from tests.test_client_loop import run_play
 
-        city_raw = _yaml.safe_load(
-            (_CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
-        )
-        city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        state = cfg.module.new_game(seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")])
-        state = with_player(state, 0, po=141)
-        buf = io.StringIO()
-        render_map(city, city_raw, state, buf)
-        return buf.getvalue()
+        output = run_play(monkeypatch, seed=42, stdin_keys=["q"])
+        lines = output.split("\n")
+        top = "╔" + "═" * 40 + "╗"
+        start = next(i for i, line in enumerate(lines) if self._ANSI.sub("", line) == top)
+        return "\n".join(lines[start:])
 
-    def test_all_lines_exact_width(self):
-        import re
-
-        output = self._render_map()
-        ansi_re = re.compile(r"\033\[[0-9;]*m|\033\[[?][0-9;]*[hl]")
+    def test_all_lines_exact_width(self, monkeypatch):
+        output = self._render_map(monkeypatch)
+        ansi_re = self._ANSI
         lines = output.split("\n")
         # Lines 0 (top border) through 26 (bottom border) = 27 lines
         # Lines 27+ are legend/status — skip those
@@ -226,12 +246,11 @@ class TestMapDisplayWidth:
             clean = ansi_re.sub("", line)
             assert len(clean) == 42, f"Line {i}: visible width {len(clean)} != 42  ({clean!r})"
 
-    def test_no_wide_chars_in_map(self):
-        import re
+    def test_no_wide_chars_in_map(self, monkeypatch):
         import unicodedata
 
-        output = self._render_map()
-        ansi_re = re.compile(r"\033\[[0-9;]*m|\033\[[?][0-9;]*[hl]")
+        output = self._render_map(monkeypatch)
+        ansi_re = self._ANSI
         lines = output.split("\n")
         for i, line in enumerate(lines[:27]):
             clean = ansi_re.sub("", line)
@@ -239,138 +258,120 @@ class TestMapDisplayWidth:
                 if unicodedata.east_asian_width(ch) == "W":
                     assert False, f"Line {i}: wide char {ch!r} U+{ord(ch):04X}"
 
-
-class TestScreenCodeMapping:
-    """The _CODE_TO_CHAR table covers all non-door, non-special screen codes."""
-
-    def test_table_has_23_entries(self):
-        from clients.terminal.__main__ import _CODE_TO_CHAR
-
-        assert len(_CODE_TO_CHAR) == 23
-
-    def test_all_table_values_narrow(self):
-        import unicodedata
-
-        from clients.terminal.__main__ import _CODE_TO_CHAR
-
-        for code, char in _CODE_TO_CHAR.items():
-            eaw = unicodedata.east_asian_width(char)
-            assert eaw != "W", f"Code {code}: char {char!r} U+{ord(char):04X} is wide (EAW={eaw})"
+    def test_every_cell_has_a_glyph_of_its_own(self, monkeypatch):
+        """Every screen code on the city map has a glyph: none falls back to the
+        placeholder dot drawn for a code the client does not know."""
+        lines = self._render_map(monkeypatch).split("\n")
+        rows = [self._ANSI.sub("", line)[1:-1] for line in lines[1:26]]
+        assert all(len(row) == 40 for row in rows)
+        unknown = [(r, c) for r, row in enumerate(rows) for c, ch in enumerate(row) if ch == "·"]
+        assert unknown == [], f"cells drawn with the fallback glyph: {unknown}"
 
 
 class TestQuitVocabulary:
-    """The shared quit predicate is the one vocabulary both screens use (KTD-2)."""
+    """On the map, ``q`` and the end of input quit; any other key does not (KTD-2).
+    The turn-over screen shares the vocabulary (:class:`TestTurnOverQuit`)."""
 
-    def test_q_is_quit(self):
-        from clients.terminal.__main__ import _is_quit
+    @staticmethod
+    def _first_step():
+        """A key that steps from the start and the cell it steps to."""
+        from engine.movement import load_city, try_move
+        from tests.test_client_loop import MOVE_KEYS, load_city_raw, new_state
 
-        assert _is_quit("q") is True
+        city = load_city(load_city_raw())
+        for key, delta in MOVE_KEYS.items():
+            result = try_move(new_state(42), city, delta)
+            if getattr(result.payload, "kind", None) == "step":
+                return key, result.state.players[0].po
+        raise AssertionError("no stepping direction available from the start")
 
-    def test_eof_is_quit(self):
-        from clients.terminal.__main__ import _is_quit
+    def test_q_is_quit(self, monkeypatch):
+        from tests.test_client_loop import new_state, run_play_returning
 
-        assert _is_quit("") is True
+        step, _cell = self._first_step()
+        output, (state, _rng) = run_play_returning(monkeypatch, seed=42, stdin_keys=["q", step])
+        assert output.endswith("bye.\n" + CURSOR_SHOW)
+        assert state.players[0].po == new_state(42).players[0].po, "a key after q was played"
 
-    def test_other_keys_are_not_quit(self):
-        from clients.terminal.__main__ import _is_quit
+    def test_eof_is_quit(self, monkeypatch):
+        from tests.test_client_loop import new_state, run_play_returning
 
-        for key in (" ", "x", "w", "a", "s", "d"):
-            assert _is_quit(key) is False, key
+        output, (state, _rng) = run_play_returning(monkeypatch, seed=42, stdin_keys=[])
+        assert output.endswith("bye.\n" + CURSOR_SHOW)
+        assert state.players[0].po == new_state(42).players[0].po
+        assert "(use W/A/S/D, P or Q)" not in output
+
+    @pytest.mark.parametrize("key", ["x", "e", "1"])
+    def test_other_keys_are_not_quit(self, monkeypatch, key):
+        from tests.test_client_loop import run_play_returning
+
+        step, cell = self._first_step()
+        output, (state, _rng) = run_play_returning(
+            monkeypatch, seed=42, stdin_keys=[key, step, "q"]
+        )
+        assert "(use W/A/S/D, P or Q)" in output, f"{key!r} was not refused as a bad key"
+        assert output.count("bye.") == 1
+        assert state.players[0].po == cell, f"the session ended at {key!r}"
 
 
 class TestTurnOverQuit:
     """At the turn-over prompt, q/EOF exits cleanly; any other key advances the turn.
 
-    ``play()`` is monolithic and only reaches turn-over after the active player's
-    movement points are walked to 0, so these tests drive the real loop over a
-    scripted (piped) stdin. The walk itself is layout-independent: at each turn we
-    feed a movement key that always steps on the current map, then the turn-over
-    key under test. ``advance_turn`` is monkeypatched to a counter so the tests
-    observe the advance-vs-return decision without running a second real turn.
+    ``play()`` only reaches turn-over after the active player's movement points are
+    walked to 0, so these tests drive the real loop over a scripted (piped) stdin.
+    The walk is asked of the engine (at each step, a movement key that steps on the
+    current map), then the turn-over key under test. Whether the turn advanced is
+    read off what ``play()`` shows and returns: the clock, and the round's standings
+    screen that only an advance opens.
     """
 
-    def _first_stepping_key(self, state, city):
-        """Return a movement key that produces a step from ``state`` (not wall/oob).
-
-        Keeps the walk resilient to map geometry — we don't hardcode a direction
-        sequence, we ask the engine which direction steps right now.
-        """
-        from clients.terminal.__main__ import _MOVE_KEYS
-        from engine.movement import try_move
-
-        for key, delta in _MOVE_KEYS.items():
-            payload = try_move(state, city, delta).payload
-            if getattr(payload, "kind", None) == "step":
-                return key
-        raise AssertionError("no stepping direction available from this state")
-
     def _walk_to_turn_over(self):
-        """Build the movement-key sequence that walks the start player to turn-over.
-
-        Returns the list of movement keys (one per step); the caller appends the
-        turn-over response key under test. Uses only stepping moves so no move is
-        consumed entering a location mid-walk.
-        """
-        import clients.terminal.__main__ as tmain
-        import yaml
-        from engine.config_loader import load_game_config
+        """The movement keys that walk the start player to turn-over (stepping moves
+        only, so no move is spent entering a location mid-walk)."""
         from engine.movement import load_city, try_move
+        from tests.test_client_loop import MOVE_KEYS, load_city_raw, new_state
 
-        cfg = load_game_config(tmain._CONFIG_DIR)
-        city_raw = yaml.safe_load(
-            (tmain._CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
-        )
-        city = load_city(city_raw)
-        state = cfg.module.new_game(
-            seed=42,
-            end_year=1930,
-            score_weight=1.0,
-            players=[("alcapone", "the outfit")],
-        )
+        city = load_city(load_city_raw())
+        state = new_state(42)
         keys = []
         for _ in range(200):
-            key = self._first_stepping_key(state, city)
-            from clients.terminal.__main__ import _MOVE_KEYS
-
-            result = try_move(state, city, _MOVE_KEYS[key])
+            for key, delta in MOVE_KEYS.items():
+                result = try_move(state, city, delta)
+                if getattr(result.payload, "kind", None) == "step":
+                    break
+            else:
+                raise AssertionError("no stepping direction available from this state")
             state = result.state
             keys.append(key)
             if getattr(result.payload, "turn_over", False):
                 return keys
         raise AssertionError("did not reach turn_over within 200 steps")
 
-    def _run(self, monkeypatch, turn_over_key):
-        """Drive play() through one turn-over, return the advance_turn call count."""
-        import clients.terminal.__main__ as tmain
+    def _run(self, monkeypatch, turn_over_keys):
+        """Drive play() to the turn-over screen, answer it; return (stdout, state)."""
+        from tests.test_client_loop import run_play_returning
 
-        keys = self._walk_to_turn_over() + [turn_over_key]
-        calls = []
-        monkeypatch.setattr(
-            tmain, "advance_turn", lambda st, *a, **k: (calls.append(a), (st, False))[1]
-        )
-        monkeypatch.setattr(sys, "stdin", make_walk_script(keys))
-        monkeypatch.setattr(sys, "stdout", io.StringIO())
-        tmain.play(seed=42, end_year=1930, score_weight=1.0)  # KTD-4: skip setup prompts
-        return len(calls)
+        keys = self._walk_to_turn_over() + turn_over_keys
+        output, (state, _rng) = run_play_returning(monkeypatch, seed=42, stdin_keys=keys)
+        assert "turn_over" in output, "the walk never reached the turn-over screen"
+        return output, state
 
     def test_q_at_turn_over_exits_without_advancing(self, monkeypatch):
-        assert self._run(monkeypatch, "q") == 0
+        output, state = self._run(monkeypatch, ["q"])
+        assert (state.clock.year, state.clock.month) == (1925, 0)
+        assert "spielstand" not in output
+        assert output.endswith("bye.\n" + CURSOR_SHOW)
 
     def test_eof_at_turn_over_exits_without_advancing(self, monkeypatch):
-        # No turn-over key supplied: stdin exhausts, _read_key() -> "" / "q" (quit).
-        import clients.terminal.__main__ as tmain
-
-        keys = self._walk_to_turn_over()
-        calls = []
-        monkeypatch.setattr(
-            tmain, "advance_turn", lambda st, *a, **k: (calls.append(a), (st, False))[1]
-        )
-        monkeypatch.setattr(sys, "stdin", make_walk_script(keys))
-        monkeypatch.setattr(sys, "stdout", io.StringIO())
-        tmain.play(seed=42, end_year=1930, score_weight=1.0)  # KTD-4: skip setup prompts
-        assert calls == []
+        # No turn-over key supplied: stdin exhausts, which quits like q.
+        output, state = self._run(monkeypatch, [])
+        assert (state.clock.year, state.clock.month) == (1925, 0)
+        assert "spielstand" not in output
+        assert output.endswith("bye.\n" + CURSOR_SHOW)
 
     def test_other_key_at_turn_over_advances(self, monkeypatch):
-        # A non-quit key advances exactly one turn (the next turn's map read then
-        # hits EOF and quits).
-        assert self._run(monkeypatch, "x") == 1
+        # A non-quit key advances exactly one turn: a single player wraps the round,
+        # so the standings of the month just played show, and their read hits EOF.
+        output, state = self._run(monkeypatch, ["x"])
+        assert (state.clock.year, state.clock.month) == (1925, 1)
+        assert output.index("turn_over") < output.index("spielstand 1925-1\n")

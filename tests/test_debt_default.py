@@ -8,7 +8,7 @@ THE COUNTER DIRECTION (the U2-flagged relational-sign landmine)
 --------------------------------------------------------------
 ``:4305`` is ``kz(sp)=kz(sp)+(kz(sp)>0)``. Under this project's pinned porting
 convention (``docs/solutions/architecture-patterns/
-basic-relational-boolean-is-plus-one-when-porting.md``, ``true=+1``) that would count
+basic-relational-boolean-is-minus-one-when-porting.md``, ``true=+1``) that would count
 **UP** from 6 forever — a grace period that never expires and a headline flow that
 never fires. Under strict C64 semantics (``true=-1``) it counts **DOWN**.
 
@@ -66,7 +66,7 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
     roster = (
         roster
         if roster is not None
-        else [Gangster(name="alcapone", energie=40, kraft=30, brutalitaet=30)]
+        else (Gangster(name="alcapone", energie=40, kraft=30, brutalitaet=30),)
     )
     player = Player(
         name="alcapone",
@@ -76,7 +76,7 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
         roster=roster,
     )
     return GameState(
-        players=[player],
+        players=(player,),
         clock=Clock(active_player=0, player_count=1),
         config=Config(formula_params=_PARAMS),
     )
@@ -244,7 +244,7 @@ def test_loss_seizure_is_the_cash_at_seizure_time_not_a_stale_read():
 #: before a single collector activates (no AI draws at all).
 #:
 #: ``brutalitaet=290`` is deliberately overpowered: ``:30255``'s damage is
-#: ``int(draw + 290/10) + 1 >= 30`` — exactly a collector's energy (``e=30``, :4355) —
+#: ``(draw + 290) // 10 + 1 >= 30`` — exactly a collector's energy (``e=30``, :4355) —
 #: so every hit downs one whatever the damage draw. These tests are about the upkeep
 #: win branch, not combat balance; the stat just makes the fight short and exact.
 _WINNING_GANG = tuple(
@@ -252,9 +252,10 @@ _WINNING_GANG = tuple(
     for name in ("alcapone", "luigi", "mario", "vito", "tony")
 )
 
-#: Per shot: ``:30247``'s two miss factors (``ts`` then kraft — both nonzero = a hit),
-#: then ``:30255``'s damage draw (0: the brutalitaet term alone downs the collector).
-_ONE_SHOT_KILL = (1, 1, 0)
+#: Per shot: ``:30247``'s two miss factors (``ts`` nonzero, and the kraft draw of
+#: ``range(kr+10)`` at 10 or above = a hit), then ``:30255``'s damage draw (0: the
+#: brutalitaet term alone downs the collector).
+_ONE_SHOT_KILL = (1, 10, 0)
 
 
 def _win_the_collectors_fight(st):
@@ -356,10 +357,10 @@ def test_counter_at_zero_is_a_fixed_point_so_the_fight_recurs():
 # repayment mid-grace stops the countdown and the fight                       #
 # --------------------------------------------------------------------------- #
 def test_repayment_mid_grace_stops_the_countdown_and_the_fight():
-    """``:15075`` sets ``kz=0`` WITH ``kr=0``; a zero debt must never fight.
+    """``:15075`` sets ``kz(sp)=0``, reached when ``:15065``'s ``ifkr(sp)=0`` holds.
 
-    The recurrence branch keys on the DEBT, not on the bare counter — otherwise a
-    fully repaid player (kz=0, kr=0) would be ambushed forever.
+    A zero debt must never fight: the recurrence branch keys on the DEBT, not on the bare
+    counter — otherwise a fully repaid player (kz=0, kr=0) would be ambushed forever.
     """
     st = _state(debt=Debt(amount=0, months=0), ka=6000)
     result = run_upkeep(st, input_source=_scripted(), rng=StubRng())

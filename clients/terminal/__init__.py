@@ -1,4 +1,4 @@
-"""U10 — the terminal client: a thin renderer over the frozen protocol (docs/design §7).
+"""The terminal client: a thin renderer over the frozen protocol (docs/design §7).
 
 NO game logic, NO local simulation state. The client is two callables plus a map REPL,
 all consuming the shared headless resolver (:mod:`engine.strings`):
@@ -14,8 +14,10 @@ all consuming the shared headless resolver (:mod:`engine.strings`):
 * :func:`map_repl` — read a key, call ``try_move``/``run_option``, adopt ``result.state``,
   render, loop until turn end. Enforces nothing the engine already enforces.
 
-Screen handling uses raw ANSI (no ``rich``/``curses`` dependency — see
-docs/plans/u10-terminal-client-notes.md). The package imports from ``engine/`` only.
+Screen handling uses raw ANSI escapes: stdlib-only, and stdout stays plain text that
+tests can assert on (``rich`` would pollute captured output; ``curses`` fights the
+``input_source`` model and cannot run under piped stdin). The package imports from
+``engine/`` only.
 """
 
 from __future__ import annotations
@@ -36,11 +38,16 @@ from engine.interactions import (
 )
 from engine.strings import MissingKeyError, Resolver
 
-from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG
+from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG, Colors
 
-_DEFAULT_CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+#: The game config this client plays: the default ``mafia_1920s`` config.
+CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 
 __all__ = [
+    "CONFIG_DIR",
+    "play",
+    "main",
+    "TerminalSession",
     "EndOfInput",
     "TerminalInput",
     "ScreenContext",
@@ -54,6 +61,7 @@ __all__ = [
     "CURSOR_SHOW",
     "hide_cursor",
     "show_cursor",
+    "client_text",
 ]
 
 # --- ANSI (cursor/screen control — color constants live in palette.py) ------ #
@@ -67,20 +75,20 @@ _CANCEL_TOKENS = {"", "q", "quit", "cancel"}
 _YES_TOKENS = {"y", "yes", "j", "ja", "1", "true"}
 
 # ---------------------------------------------------------------------------
-# Combat key mapping (U7, KTD-9) -- "key bindings are presentation, formulas are
-# not". The original's raw C64 GET keys are `:`/`;`/`@`/`/` (move/aim left, right,
-# up, down; mf-prg.bas:30130-30133 for movement, 30206-30209 for the aim step),
+# Combat key mapping -- "key bindings are presentation, formulas are not". The
+# original's raw C64 GET keys are `:`/`;`/`@`/`/` (move/aim left, right, up, down;
+# mf-prg.bas:30130-30133 for movement, 30206-30209 for the aim step),
 # RETURN to enter the aim-then-fire sub-loop (30134), SPACE to pass (30135), and
 # `q` to surrender (30136). Those raw glyphs are awkward on a real keyboard and
 # `q` for "surrender" collides with this client's OWN pre-existing "quit" key
-# (_is_quit in __main__.py) at every OTHER screen -- so this client maps to
-# client-appropriate keys instead of the original's literal GET characters, per
-# KTD-9's explicit license to do so. WASD mirrors the map-walk keys already bound
-# in __main__.py (_MOVE_KEYS) so the player's fingers do not have to relearn
+# (_is_quit in session.py) at every OTHER screen -- so this client maps to
+# client-appropriate keys instead of the original's literal GET characters (a
+# client may rebind keys; it may not change what an action does). WASD mirrors the
+# map-walk keys already bound in session.py (_MOVE_KEYS) so the player's fingers do not have to relearn
 # directions between the map and the grid; F is "fire" (enter the aim step); P
 # passes (SPACE is what the source binds, but a literal space is easy to lose in
 # a piped-stdin test script, so this client spells it as a letter key instead --
-# presentation, not formula, per KTD-9); SURRENDER is spelled out (not bound to a
+# presentation, not formula); SURRENDER is spelled out (not bound to a
 # single letter) so it cannot be hit by accident the way a bare `q` could.
 #: The combat grid is 40 columns wide (CLAUDE.md: "the combat grid is 40x13" -- a
 #: fact of the wire protocol's coordinate space, not simulation logic, so it is
@@ -128,26 +136,27 @@ class ScreenContext:
 
     Context names map to entries in ``themes/<theme>/renderer/contexts.yaml``.
     When switching, the context writes the appropriate ANSI background/foreground
-    escape sequences to the output stream.
+    escape sequences to the output stream, in the session's ``colors``.
     """
 
     def __init__(
         self,
         contexts: dict[str, dict[str, str]],
         out: TextIO,
-        palette: dict[str, tuple[int, int, int]] | None = None,
+        colors: Colors,
     ) -> None:
         self._contexts = contexts
         self._out = out
-        self._palette = palette
+        self._colors = colors
         self._current_name: str | None = None
         self._current: dict[str, str] | None = None
 
     @classmethod
-    def from_config(cls, config_dir: Path, out: TextIO, theme: str = "classic") -> ScreenContext:
+    def from_config(
+        cls, config_dir: Path, out: TextIO, colors: Colors, theme: str = "classic"
+    ) -> ScreenContext:
         """Load contexts from ``themes/<theme>/renderer/contexts.yaml``."""
         import yaml
-        from clients.terminal.palette import load_palette
 
         ctx_path = config_dir / "themes" / theme / "renderer" / "contexts.yaml"
         try:
@@ -155,8 +164,7 @@ class ScreenContext:
             contexts = raw if isinstance(raw, dict) else {}
         except (OSError, yaml.YAMLError):
             contexts = {}
-        pal = load_palette(config_dir)
-        return cls(contexts, out, palette=pal)
+        return cls(contexts, out, colors)
 
     def switch(self, context_name: str) -> None:
         """Switch to a named context, applying its colors."""
@@ -171,16 +179,12 @@ class ScreenContext:
         """Re-apply the current context's colors to the output stream."""
         if self._current is None:
             return
-        from clients.terminal.palette import bg as bg_ansi, fg as fg_ansi, load_palette
-
-        if self._palette is None:
-            self._palette = load_palette(_DEFAULT_CONFIG_DIR)
         bg_name = self._current.get("bg")
         fg_name = self._current.get("fg")
         if bg_name:
-            self._out.write(bg_ansi(bg_name, self._palette))
+            self._out.write(self._colors.bg(bg_name))
         if fg_name:
-            self._out.write(fg_ansi(fg_name, self._palette))
+            self._out.write(self._colors.fg(fg_name))
         self._out.flush()
 
     def reset(self) -> None:
@@ -223,12 +227,21 @@ def install_sigwinch_handler() -> None:
         signal.signal(signal.SIGWINCH, _sigwinch_handler)
 
 
+def client_text(key: str, params: dict | None = None, *, resolver: Resolver) -> str:
+    """Resolve one of the client's own ``client.*`` theme keys to display text.
+
+    ``resolver`` is the session's resolver; a theme that lacks a ``client.*`` key
+    fails loudly (``MissingKeyError``) like any other theme gap.
+    """
+    return resolver.resolve(key, params)
+
+
 class EndOfInput(Exception):
-    """stdin is exhausted (real EOF, not a blank line) at a non-combat prompt (R11).
+    """stdin is exhausted (real EOF, not a blank line) at a non-combat prompt.
 
     Raised by :class:`TerminalInput` out through the driver and the handler, so the
     in-flight handler never resolves and its result -- hence its effects -- is never
-    adopted. :func:`clients.terminal.__main__.play` catches it and ends the session
+    adopted. :func:`clients.terminal.session.play` catches it and ends the session
     exactly like a quit. Lives in the clients layer: the engine never sees it as
     anything but an exception escaping its ``input_source``.
     """
@@ -247,30 +260,32 @@ class TerminalInput:
     returns the typed response — an ``int``-bearing string for :class:`PromptInt`/
     :class:`PromptChoice` (the driver coerces it), a ``bool`` for :class:`Confirm`, or the
     :data:`CANCEL` sentinel at a cancellable prompt. A non-numeric entry is relayed
-    verbatim; the DRIVER decides it is invalid and re-prompts (validation ownership is the
-    driver's — KTD-8). ``ShowMessage`` is rendered here for completeness but the driver
-    auto-acks it without ever consulting this callable.
+    verbatim; the DRIVER decides it is invalid and re-prompts (validation has a single
+    owner, and it is the driver). ``ShowMessage`` is rendered here for completeness but
+    the driver auto-acks it without ever consulting this callable.
     """
 
     def __init__(
         self,
         *,
         resolver: Resolver,
+        colors: Colors,
         stdin: TextIO | None = None,
         stdout: TextIO | None = None,
         weapon_names: list[str] | None = None,
         observe_ai: bool = False,
     ) -> None:
         self._resolver = resolver
-        #: #45 opt-in (``--watch-ai``): the engine's ``_drive_fight`` reads this attribute
-        #: and, only when it is true, hands us a display-only ``prompt="observe"``
+        self._colors = colors
+        #: ``--watch-ai`` opt-in: :func:`engine.fight_loop._drive_fight` reads this
+        #: attribute and, only when it is true, hands us a display-only ``prompt="observe"``
         #: CombatScreen after every CPU activation. Off by default -- the original shows
         #: nothing between CPU moves (mf-prg.bas:30110).
         self.observes_ai = observe_ai
         self._stdin = stdin if stdin is not None else sys.stdin
         self._stdout = stdout if stdout is not None else sys.stdout
-        #: Weapon id -> name, for the combat fighter panel (U7). Optional: a caller
-        #: that never yields CombatScreen (every pre-U7 location) need not supply it.
+        #: Weapon id -> name, for the combat fighter panel. Optional: a caller whose
+        #: handlers never yield CombatScreen need not supply it.
         self._weapon_names = weapon_names or []
 
     def __call__(self, interaction: Any) -> Any:
@@ -280,7 +295,7 @@ class TerminalInput:
             return None
 
         if isinstance(interaction, CombatScreen) and interaction.prompt == OBSERVE_PROMPT:
-            # #45: a display-only frame after a CPU activation. Draw the board, wait for
+            # A display-only frame after a CPU activation. Draw the board, wait for
             # one key, and return nothing -- the driver ignores the response, so no key
             # can ever act in the fight. EOF here is NOT a surrender and NOT an
             # EndOfInput: the frame just continues (readline() returns "" at once, so it
@@ -291,11 +306,11 @@ class TerminalInput:
             return None
 
         if isinstance(interaction, CombatScreen):
-            # U7: this callable owns the WHOLE combat turn -- render the grid, the
+            # This callable owns the WHOLE combat turn -- render the grid, the
             # active fighter's panel, and any message from the last activation, THEN
-            # read one key and apply the KTD-9 mapping. EOF -> CANCEL, which
-            # _parse_combat_response (engine/interactions.py) maps to a surrender --
-            # combat prompts are non-cancellable (KTD-2), so CANCEL here is never a
+            # read one key and apply the combat key mapping. EOF -> CANCEL, which
+            # _parse_combat_response (engine/fight_loop.py) maps to a surrender --
+            # combat prompts are non-cancellable, so CANCEL here is never a
             # "discard the action" signal, only "give up".
             self._render_combat_screen(interaction)
             return self._read_combat_action()
@@ -324,7 +339,7 @@ class TerminalInput:
 
         Renders straight from ``screen.to_json()`` (the JSON-serializable payload,
         never the engine's ``CombatState``/``Fighter`` objects) so this client
-        depends only on the wire shape (KTD-2), matching the pattern the rest of
+        depends only on the wire shape, matching the pattern the rest of
         this class already follows for ``ShowMessage``.
         """
         from clients.terminal.renderers import (
@@ -336,9 +351,11 @@ class TerminalInput:
 
         payload = screen.to_json()
         render_screen_clear(self._stdout)
-        render_combat_grid(payload, self._stdout)
-        render_combat_message(payload, self._resolver, self._stdout)
-        render_fighter_panel(payload, self._resolver, self._weapon_names, self._stdout)
+        render_combat_grid(payload, self._stdout, self._colors)
+        render_combat_message(payload, self._resolver, self._stdout, self._colors)
+        render_fighter_panel(
+            payload, self._resolver, self._weapon_names, self._stdout, self._colors
+        )
         for key in footer:
             self._stdout.write(self._resolver.resolve(key) + "\n")
         self._stdout.write("> ")
@@ -347,11 +364,12 @@ class TerminalInput:
     def _read_combat_action(self) -> Any:
         """Read one combat key and return the ``(action, argument)`` response.
 
-        KTD-9 key mapping (client-appropriate, NOT the original's raw GET chars):
+        Key mapping (client-appropriate, NOT the original's raw GET chars):
         WASD move one cell; ``f`` then WASD aims and fires; ``p`` passes; the literal
-        word ``surrender`` ends the fight. EOF returns :data:`CANCEL` (-> surrender,
-        per KTD-2). An unrecognized line is relayed as an unknown-action string, which
-        the driver's ``_parse_combat_response`` normalizes to a re-prompt.
+        word ``surrender`` ends the fight. EOF returns :data:`CANCEL` (-> surrender:
+        combat prompts are non-cancellable). An unrecognized line is relayed as an
+        unknown-action string, which the driver's ``_parse_combat_response`` normalizes
+        to a re-prompt.
 
         EOF is detected directly off ``readline()``'s own return ("" with nothing
         consumed means the stream is exhausted) rather than through ``_read_line``,
@@ -411,7 +429,7 @@ class TerminalInput:
         return line.rstrip("\n")
 
 
-def render_result(result: Any, out: TextIO) -> None:
+def render_result(result: Any, out: TextIO, resolver: Resolver, colors: Colors) -> None:
     """Between actions, render a status bar off ``result.state``.
 
     Display-only. ``result`` is an :class:`engine.actions.EngineResult`; a ``cancelled``
@@ -421,7 +439,7 @@ def render_result(result: Any, out: TextIO) -> None:
         return
     from clients.terminal.renderers import render_status_bar_from_state
 
-    render_status_bar_from_state(result.state, out)
+    render_status_bar_from_state(result.state, out, resolver, colors)
 
 
 def map_repl(
@@ -430,6 +448,8 @@ def map_repl(
     city: Any,
     key_reader,
     move_for_key,
+    resolver: Resolver,
+    colors: Colors,
     out: TextIO | None = None,
 ) -> Any:
     """Drive one turn on the map: read a key, move, adopt the new state, render, repeat.
@@ -437,7 +457,8 @@ def map_repl(
     Holds no rules — it calls ``try_move`` (imported lazily to keep this module's import
     graph minimal) and adopts the returned ``result.state`` (movement is pure). Loops until
     ``ms <= 0`` / a turn-over move. ``key_reader() -> str`` yields the next key; ``move_for_key``
-    maps a key to a movement delta (or ``None`` to quit). Returns the final state.
+    maps a key to a movement delta (or ``None`` to quit); ``resolver`` words the status
+    bar and ``colors`` colours it. Returns the final state.
     """
     from engine.movement import try_move
 
@@ -449,6 +470,14 @@ def map_repl(
             return state
         result = try_move(state, city, delta)
         state = result.state  # adopt (movement is pure)
-        render_result(result, sink)
+        render_result(result, sink, resolver, colors)
         if getattr(result.payload, "turn_over", False):
             return state
+
+
+# The session and the command line are re-exported last: both modules import the
+# building blocks above from this package, so those must exist before they load.
+# Neither is ``__main__``, so ``python -m clients.terminal`` stays free of runpy's
+# "found in sys.modules" warning.
+from clients.terminal.session import TerminalSession, play  # noqa: E402
+from clients.terminal.cli import main  # noqa: E402

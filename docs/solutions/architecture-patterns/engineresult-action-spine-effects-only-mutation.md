@@ -29,7 +29,7 @@ related_components:
 
 ## Context
 
-The State/Event Foundation refactor (plan `docs/plans/current-action-plan.md`, tasks
+The State/Event Foundation refactor (plan `docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md`, tasks
 T1–T9, landed on `feat/vertical-slice` as of 2026-07-14, unmerged to `main`) replaced two
 divergent action-result shapes with one spine. Before it, `try_move` mutated state **in
 place** while the interaction driver was pure and returned a `DriverResult` — two
@@ -139,7 +139,7 @@ saying so at the cited line):
 
 ## Related
 
-- `docs/plans/current-action-plan.md` — the plan this landed from (T1–T9, issues #17–#25, closed).
+- `docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md` — the plan this landed from (T1–T9, issues #17–#25, closed).
 - `docs/design/engine-architecture.md` § events-vs-effects — predates this naming split
   ("effects are committed as events"); read that as the *effects* stream. A wording
   alignment pass is owed post-plan.

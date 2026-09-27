@@ -1,10 +1,12 @@
-"""Combat core: the 40×13 grid model + fight setup (U4, KTD-1).
+"""Combat core: the 40×13 grid model and the rules of one fight.
 
-Combat is genre-engine machinery (docs/design/), not config code — this module owns the
-grid, placement, and the two distinct obstruction sets. It does NOT own the activation
-loop, shooting, damage, or AI (U5/U6): this unit is **setup only**. The driver
-sub-protocol that will drive a fight through this setup lands in ``engine.interactions``
-in U5 — this module exposes pure functions U5 calls, not a generator itself.
+Combat is genre-engine machinery (docs/design/), not config code. This module holds the
+grid constants, the two distinct obstruction predicates, :class:`CombatResult`, the
+game-supplied :class:`RulesBundle`, and :class:`CombatFight` (the mutable per-fight
+working state: activation cursor, moves, shots, the CPU decision, surrender) with its
+read-only :class:`CombatView`. It is NOT a generator: the yield/send loop that drives a
+fight lives in :mod:`engine.fight_loop`, side placement/setup in
+:mod:`engine.combat_setup`, and CPU target selection in :mod:`engine.combat_ai`.
 
 **Grid representation.** The original bounds the combat grid at cell 520 inclusive
 (``mf-prg.bas:30145``: ``p<br or p>br+520``), so movement/shots range over 521 cells
@@ -24,7 +26,7 @@ index (``row, col = divmod(position, GRID_COLS)`` recovers 2D coordinates for re
   the grid bounds. A shot's projectile freely overflies scenery/other-fighter cells
   that would block a MOVE — it only stops at an actual wall, the edge, or a hit.
 
-**Backdrop walls.** The three in-slice combat backdrops (``ks``/``kp``/``km``) are the
+**Backdrop walls.** The three combat backdrops (``ks``/``kp``/``km``) are the
 same 2003-byte C64 screen-file format as the city map (``research/src/karte``, decoded
 by ``tools/decode_city_map.py``): 1000 screen-code bytes stored bottom-up/right-to-left,
 so the row-major codes are ``data[:1000][::-1]`` (mirrors
@@ -33,8 +35,9 @@ plays out over the FIRST 521 of those 1000 decoded cells (the grid's 0..520 boun
 rows 14..24 of the loaded screen are never addressed by the fight loop. The three
 backdrops are pre-decoded once into ``data/game_configs/mafia_1920s/content/combat/*.yaml``
 (mirroring the city map's committed-artifact pattern) rather than parsed at runtime, so
-the engine never depends on the research checkout at runtime (KTD-1's "engine imports
-nothing from server/clients" sibling rule — config data must not require research either).
+the engine never depends on the research checkout at runtime (the sibling of the
+"engine imports nothing from server/clients" rule — config data must not require research
+either).
 
 ``engine/`` imports nothing from ``server``/``clients``/transport, and this module holds
 no display text.
@@ -45,9 +48,12 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from types import MappingProxyType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from engine.state import CombatState, Fighter
+
+if TYPE_CHECKING:
+    from engine.combat_ai import AiTarget
 
 #: Shared empty role map — a bundle that declares no roles for a capability.
 _EMPTY_ROLES: Mapping[str, str] = MappingProxyType({})
@@ -59,9 +65,6 @@ __all__ = [
     "MAX_CELL",
     "MOVE_EMPTY_CODES",
     "SHOT_WALL_CODES",
-    "SIDE1_ANCHOR",
-    "SIDE2_ANCHOR",
-    "STAGGER_OFFSETS",
     "RANGE_MELEE",
     "RulesBundle",
     "CombatResult",
@@ -73,13 +76,6 @@ __all__ = [
     "STEPS",
     "can_move_onto",
     "blocks_shot",
-    "placement_position",
-    "placement_positions",
-    "build_player_side",
-    "build_enemy_side",
-    "setup_combat",
-    "AiTarget",
-    "ai_target",
     "CombatFight",
     "CombatView",
 ]
@@ -89,7 +85,7 @@ __all__ = [
 # --------------------------------------------------------------------------- #
 GRID_COLS = 40  # combat grid width (mf-prg.bas:systems-analysis "combat grid 40x13")
 GRID_ROWS = 13  # nominal row count; the 521-cell bound admits a partial 14th row
-CELL_COUNT = 521  # 0..520 inclusive (mf-prg.bas:30145, 30225 — kept for R1 fidelity)
+CELL_COUNT = 521  # 0..520 inclusive (mf-prg.bas:30145, 30225 — the source's own bound)
 MAX_CELL = CELL_COUNT - 1  # 520 — MUST be legally reachable (CLAUDE.md)
 
 #: Movement target codes that are walkable (mf-prg.bas:30145: peek(p)=32 or 96).
@@ -97,54 +93,6 @@ MOVE_EMPTY_CODES = (32, 96)
 
 #: Shot-blocking wall codes (mf-prg.bas:30225-30226: peek(br+p)=160 or 156).
 SHOT_WALL_CODES = (160, 156)
-
-# --------------------------------------------------------------------------- #
-# Placement                                                                   #
-# --------------------------------------------------------------------------- #
-#: The ten combat spawn-position stagger offsets, DATA 50400 (mf-prg.bas:124,
-#: `fori=1to10:readp(i):next` — read into p(1..10), used at 30000).
-STAGGER_OFFSETS: tuple[int, ...] = (122, 81, 161, 120, 42, 202, 40, 200, 1, 241)
-
-#: Side anchors from ``mf-prg.bas:30000``: ``kp(i,j) = 129-18*(i=2) + p(j)``.
-#: Side 1 (i=1): ``(i=2)`` is false (0) -> anchor 129. Side 2 (i=2): ``(i=2)`` is
-#: true, which in C64 BASIC is -1 -> anchor = 129 - 18*(-1) = 147.
-#:
-#: Corrected by the #47 fidelity audit (this previously shipped 111, from the
-#: since-reversed true=+1 pin). The sibling expressions in this same block decide
-#: the sign structurally, and all three fail under true=+1:
-#:   :30010 ``pokefr+kp(i,j),2-4*(i=2)`` — a C64 colour code (0..15). true=-1
-#:          gives 6 (blue) for side 2 vs 2 (red) for side 1; true=+1 gives -2.
-#:   :30015 ``poke211,-20*(i=2)`` — 211/$D3 is the KERNAL cursor COLUMN and
-#:          cannot be negative. true=-1 puts side 2's label at column 20 (the
-#:          right half of the 40-column screen); true=+1 gives -20.
-#:   :30108 ``s=1-(s=1)`` — the side toggle, which must map 1<->2. true=-1 gives
-#:          1->2 and 2->1; true=+1 gives 1->0, a nonexistent side.
-#: 147 also matches this unit's plan prose ("side anchors 129/147").
-SIDE1_ANCHOR = 129
-SIDE2_ANCHOR = 129 + 18  # 147 — (i=2) is true = -1, so 129 - 18*(-1)
-
-
-def placement_position(anchor: int, slot: int) -> int:
-    """Return the linear cell for the ``slot``-th fighter (1-based) placed at ``anchor``.
-
-    Ports ``kp(i,j) = anchor + p(j)`` (mf-prg.bas:30000) for one fighter. ``slot`` is
-    1-based (matching the source's ``forj=1togz(...)``) and indexes
-    :data:`STAGGER_OFFSETS` at ``slot - 1``.
-
-    Raises ``ValueError`` if ``slot`` is out of the supported 1..10 range (the source
-    only ever reads 10 stagger offsets — a roster/spec larger than 10 fighters per
-    side is a config bug the caller should catch, not silently wrap).
-    """
-    if slot < 1 or slot > len(STAGGER_OFFSETS):
-        raise ValueError(
-            f"placement slot {slot} out of range (1..{len(STAGGER_OFFSETS)} supported)"
-        )
-    return anchor + STAGGER_OFFSETS[slot - 1]
-
-
-def placement_positions(anchor: int, count: int) -> tuple[int, ...]:
-    """Return the first ``count`` placement cells for one side, in slot order."""
-    return tuple(placement_position(anchor, slot) for slot in range(1, count + 1))
 
 
 # --------------------------------------------------------------------------- #
@@ -184,130 +132,7 @@ def blocks_shot(cell: int, grid: tuple[int, ...]) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Fighter-side construction                                                   #
-# --------------------------------------------------------------------------- #
-def build_player_side(roster: Any) -> tuple[Fighter, ...]:
-    """Build side 1 from the active player's roster (boss first, KTD-6).
-
-    Each roster :class:`~engine.state.Combatant` becomes one
-    :class:`~engine.state.Fighter` carrying its ``vitality`` slot and opaque ``attrs``
-    WHOLESALE — the function names no game stat, it copies the two blueprint carriers
-    the engine already reads through (amendment A5). ``roster[0]`` is always the boss
-    (``Player`` docstring, ``mf-prg.bas:300``) — this function does not reorder it, it
-    only maps roster order onto placement-slot order 1:1 (``mf-prg.bas:30000``'s
-    ``forj=1togz(ks(i))`` walks the roster in its stored order).
-    """
-    positions = placement_positions(SIDE1_ANCHOR, len(roster))
-    return tuple(
-        Fighter(
-            name=g.name,
-            weapon=g.weapon,
-            vitality=g.vitality,
-            attrs=dict(g.attrs),
-            position=pos,
-            down=False,
-            equipment=getattr(g, "equipment", None) or {},
-            # The roster slot this fighter came from, so the outcome maps back to the
-            # right gangster by identity rather than by position (amendment A1).
-            roster_id=slot,
-        )
-        for slot, (g, pos) in enumerate(zip(roster, positions))
-    )
-
-
-def build_enemy_side(
-    count: int,
-    weapon: int,
-    vitality: int,
-    *,
-    attrs: Mapping[str, int] | None = None,
-    name: str = "",
-) -> tuple[Fighter, ...]:
-    """Build side 2 (the NPC/enemy party) from a ``StartCombat`` spec.
-
-    Ports the combat-launch helper ``mf-prg.bas:5000``: every enemy fighter is armed
-    with the SAME ``weapon`` and starts with the SAME ``vitality`` (``fori=1togz(0):
-    gw(0,i)=w:ec(i)=e:next`` — one weapon/energy value broadcast across the whole
-    enemy roster, not per-fighter). The non-vitality stats come from ``attrs`` supplied
-    by the CALLER — the source's fixed ``bt=30:kr=30`` (``mf-prg.bas:30245``) is config
-    data now, so the engine names neither the stat nor its value (amendment A5,
-    Finding 4). Placed at :data:`SIDE2_ANCHOR`.
-    """
-    positions = placement_positions(SIDE2_ANCHOR, count)
-    enemy_attrs = dict(attrs or {})
-    return tuple(
-        Fighter(
-            name=name,
-            weapon=weapon,
-            vitality=vitality,
-            attrs=enemy_attrs,
-            position=pos,
-            down=False,
-        )
-        for pos in positions
-    )
-
-
-# --------------------------------------------------------------------------- #
-# Fight setup                                                                 #
-# --------------------------------------------------------------------------- #
-def setup_combat(
-    roster: Any,
-    *,
-    enemy_count: int,
-    enemy_weapon: int,
-    enemy_vitality: int,
-    enemy_attrs: Mapping[str, int] | None = None,
-    enemy_name: str = "",
-    grid: tuple[int, ...] = (),
-    equip: Any = None,
-) -> CombatState:
-    """Build the initial :class:`~engine.state.CombatState` for a new fight.
-
-    Ports ``mf-prg.bas:30000-30020``: places both sides (:func:`build_player_side`,
-    :func:`build_enemy_side`), initializes the enemy side's direction memory
-    ``ri(i)=-1`` for each enemy fighter (``mf-prg.bas:30020`` — the source only
-    tracks this for the CPU side), and starts the activation cursor at side 1,
-    fighter 1 (``mf-prg.bas:30100``: ``s=1:f=0`` then the first ``f=f+1`` at
-    activation start lands on fighter 1). Losses start at ``(0, 0)`` (``v(1)=0:v(2)=0``,
-    :30100) and ``result_flag`` starts unset (0).
-
-    The enemy party enters with ``enemy_vitality`` (its ``vitality`` slot) and the
-    non-vitality stats in ``enemy_attrs`` — both CALLER-supplied config data. The
-    engine names no enemy stat and holds no fixed enemy value (amendment A5).
-
-    ``grid`` is the backdrop's linear 521-cell wall/scenery code array (config data,
-    pre-decoded — see this module's docstring); an empty ``grid`` (fidelity-deviation
-    fallback) still produces a legally-playable open arena, since :func:`can_move_onto`
-    treats any cell past the end of a short ``grid`` as open ground (code 32).
-
-    ``equip`` is the GAME's ``weapon id -> stat mapping`` constructor, called once per
-    fighter here so every combatant enters the fight already carrying its equipment
-    (amendment A1). It is a parameter rather than an engine table because resolving a
-    weapon id is entity knowledge the engine does not have — and because building the
-    equipment HERE, once, is what stops a second copy existing to disagree later.
-    """
-    side1 = build_player_side(roster)
-    side2 = build_enemy_side(
-        enemy_count, enemy_weapon, enemy_vitality, attrs=enemy_attrs, name=enemy_name
-    )
-    if equip is not None:
-        side1 = tuple(replace(f, equipment=equip(f.weapon)) for f in side1)
-        side2 = tuple(replace(f, equipment=equip(f.weapon)) for f in side2)
-    dir_memory = {i: -1 for i in range(len(side2))}
-    return CombatState(
-        sides=(side1, side2),
-        grid=tuple(grid),
-        dir_memory=dir_memory,
-        active_side=1,
-        active_fighter=1,
-        losses=(0, 0),
-        result_flag=0,
-    )
-
-
-# --------------------------------------------------------------------------- #
-# Melee reach + the two combat rolls (U5)                                     #
+# Melee reach + the two combat rolls                                          #
 # --------------------------------------------------------------------------- #
 #: Longest range that still reaches only the ADJACENT cell — the engine's definition
 #: of a melee weapon. A shot steps one cell per range point (``mf-prg.bas:30220``),
@@ -336,11 +161,11 @@ STEPS: tuple[int, ...] = (STEP_LEFT, STEP_RIGHT, STEP_UP, STEP_DOWN)
 
 
 # --------------------------------------------------------------------------- #
-# The fight's result — winner + per-side losses handed back to the caller (U3) #
+# The fight's result — winner + per-side losses handed back to the caller     #
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class CombatResult:
-    """What a finished fight hands back to the invoking handler (R8, U3).
+    """What a finished fight hands back to the invoking handler.
 
     Flat and frozen, mirroring :class:`~engine.effects.CommitResult` and
     :class:`~engine.actions.EngineResult` — the two facts every caller needs and
@@ -348,15 +173,15 @@ class CombatResult:
 
     ``winner``
         The side that won: ``1`` (the acting player's roster) or ``2`` (the enemy),
-        as :func:`engine.interactions._run_combat` computes it.
+        as :func:`engine.fight_loop._run_combat` computes it.
     ``losses``
         The real per-side death tallies at the moment the fight ended —
         ``(v(1), v(2))`` from ``mf-prg.bas:30100``/``:30310``, read straight off
-        :attr:`CombatFight.losses`. A handler narrates these instead of the old 1v1
-        ``0 if winner else 1`` shortcut, which was wrong for any multi-fighter side.
+        :attr:`CombatFight.losses`. A handler narrates these rather than deriving a
+        loss count from ``winner``, which is wrong for any multi-fighter side.
 
-    Deliberately carries **no** ``state``/``sides``: the post-fight payload is U5's
-    concern, and R8 is precisely winner + losses.
+    Deliberately carries **no** ``state``/``sides``: the contract is precisely winner +
+    losses; the post-fight board is not part of it.
     """
 
     winner: int
@@ -364,15 +189,15 @@ class CombatResult:
 
 
 # --------------------------------------------------------------------------- #
-# The rules bundle — how a game answers the engine's combat questions (U2)     #
+# The rules bundle — how a game answers the engine's combat questions          #
 # --------------------------------------------------------------------------- #
 @dataclass(frozen=True)
 class RulesBundle:
-    """The formulas and attribute roles a fight runs on — supplied by the GAME (KTD-3).
+    """The formulas and attribute roles a fight runs on — supplied by the GAME.
 
     The engine owns *when* a hit test happens and what its result means; it does not
     own the formula. A config passes one of these to :class:`CombatFight` beside its
-    ``rng``, exactly as it already passes ``weapon_stats``. There is deliberately no
+    ``rng``. There is deliberately no
     global registry: two differently-ruled fights must be able to coexist in one
     process (a genre-engine requirement, not a hypothetical — a scenario harness runs
     several at once).
@@ -390,11 +215,17 @@ class RulesBundle:
         The hit test's role map and its formula ``(attacker, equipment, rng) -> bool``.
     ``damage_roles`` / ``damage_fn``
         The damage roll's role map and its formula ``(attacker, equipment, rng) -> int``.
-    There is deliberately **no** ``vitality`` entry (amendment A5): the depleting
+    ``hit_draws`` / ``damage_draws`` (optional)
+        What the matching formula draws, for a debug viewer to name each draw in a
+        recording without restating the formula: ``(attacker, equipment) ->
+        ((label, bound), ...)``, one ``rng.range(bound)`` per entry in draw order. A
+        bound of 0 is never drawn. The game's formula draws WITH these bounds, so the
+        two cannot disagree. The engine never calls them.
+    There is deliberately **no** ``vitality`` entry: the depleting
     resource is the engine's :attr:`~engine.state.Fighter.vitality` SLOT, which the
     engine reads and writes directly. A bundle field naming which attrs key held it
     was a second name for one thing — it drove a lookup the slot makes unnecessary.
-    There is likewise **no** ``equipment_stats`` entry (amendment A1): equipment stats
+    There is likewise **no** ``equipment_stats`` entry: equipment stats
     live on the combatant, so a formula reads them off the attacker it was handed. A
     bundle-held lookup would be a second source able to disagree with the roster about
     what a weapon does.
@@ -404,6 +235,8 @@ class RulesBundle:
     hit_fn: Any = None
     damage_roles: Mapping[str, str] = field(default_factory=lambda: _EMPTY_ROLES)
     damage_fn: Any = None
+    hit_draws: Any = None
+    damage_draws: Any = None
 
     def required_keys(self) -> tuple[str, ...]:
         """Every ``attrs`` key this bundle will read off a combatant.
@@ -412,151 +245,30 @@ class RulesBundle:
         combatant carries — surfacing the mismatch with both names, rather than as
         a ``KeyError`` several activations deep inside a formula. ``vitality`` is NOT
         here: it is a Fighter SLOT the engine addresses directly, always present, never
-        an ``attrs`` key to validate (amendment A5).
+        an ``attrs`` key to validate.
         """
         keys = list(self.hit_roles.values())
         keys.extend(self.damage_roles.values())
         return tuple(dict.fromkeys(keys))
 
 
-# The hit/damage formulas that lived here (``is_hit``/``damage_roll``) are gone (U2):
-# they name this game's ``kraft``/``brutalitaet`` and so are POLICY, not mechanism.
-# They now live in ``data/game_configs/mafia_1920s/combat_rules.py`` as the rules
-# bundle's ``hit_fn``/``damage_fn``, reading the attacker's attributes by role. The
-# engine calls them through the bundle and never spells a stat name. The full-domain
-# differential in ``tests/test_combat_rules.py`` proved the move exact before deletion.
+# The hit/damage formulas name this game's ``kraft``/``brutalitaet`` and so are POLICY,
+# not mechanism: they live in ``data/game_configs/mafia_1920s/combat_rules.py`` as the
+# rules bundle's ``hit_fn``/``damage_fn``, reading the attacker's attributes by role. The
+# engine calls them through the bundle and never spells a stat name.
 
 
 # --------------------------------------------------------------------------- #
-# CPU target selection — the `cr` machine-code routine (U6)                   #
-# --------------------------------------------------------------------------- #
-# The CPU hunts whoever is HOSTILE to the acting side, derived per-fight from
-# :meth:`CombatFight.hostile_to` (U4) rather than a hardcoded "always side 1" constant.
-# The original's colour-RAM/``cr`` mechanism that made it always side 1 — and why that
-# reduces to the two-party ``(2,)``/``(1,)`` default — is documented on ``hostile_to``.
-
-#: Sides driven by the AI rather than by a client prompt.
-#:
-#: Ports ``mf-prg.bas:30110`` (``ifks(s)=0thengosub30400:goto30105``) together with
-#: ``5010`` (``ks(1)=sp:ks(2)=0``): the combat-launch helper puts the NPC party in
-#: slot 2 and marks it CPU with ``ks(2)=0``. ``30020`` agrees — direction memory is
-#: only initialized ``ifks(2)=0``. The source *can* express a player-vs-player fight
-#: (``27020`` sets ``ks(1)``/``ks(2)`` to two player numbers), so this is a default,
-#: not a hardcoded rule: a caller may pass an empty ``cpu_sides`` for hot-seat play.
-DEFAULT_CPU_SIDES: tuple[int, ...] = (2,)
-
-
-@dataclass(frozen=True)
-class AiTarget:
-    """The nearest hostile fighter, as ``cr`` reports it through ``ua``..``ua+3``.
-
-    ``cr``'s four return bytes (``$A7``..``$AA``) and their BASIC decoding at
-    ``mf-prg.bas:30405`` (``x=peek(ua)-1 : y=peek(ua+1)-40``):
-
-    ==========  ===========================================  ===================
-    byte        raw meaning (disassembly)                    decoded here
-    ==========  ===========================================  ===================
-    ``ua+0``    x-direction code 0=left / 1=none / 2=right   :attr:`x`  (-1/0/+1)
-    ``ua+1``    y-direction code 0=up / 40=none / 80=down    :attr:`y`  (-40/0/+40)
-    ``ua+2``    ``abs(dx)`` to the nearest enemy             :attr:`abs_dx`
-    ``ua+3``    ``abs(dy)`` to the nearest enemy             :attr:`abs_dy`
-    ==========  ===========================================  ===================
-
-    Note that the decoded ``x``/``y`` are already **linear step deltas** (±1 and ±40,
-    i.e. :data:`STEP_LEFT`/:data:`STEP_RIGHT` and :data:`STEP_UP`/:data:`STEP_DOWN`),
-    which is exactly why the BASIC can feed them straight into ``p=x`` at ``30450``
-    and into the shot resolver at ``30215`` without any conversion. ``y``'s ±40 magnitude
-    is the *combat* grid's row width (40 columns) — the same 40 as the city map's width
-    by coincidence of screen geometry, not because the two spaces are related (CLAUDE.md).
-
-    ``side``/``index`` locate the chosen fighter for the caller; the original has no
-    equivalent (it only ever needs the deltas), so they are port bookkeeping.
-
-    A frozen dataclass, matching every other value type in this module/``engine.state``
-    (e.g. :class:`~engine.state.Fighter`) rather than a hand-rolled ``__slots__`` class.
-    """
-
-    side: int
-    index: int
-    x: int
-    y: int
-    abs_dx: int
-    abs_dy: int
-
-    @property
-    def distance(self) -> int:
-        """The ``cr`` distance metric ``dy*40 + dx`` (the ``$ECF0`` table)."""
-        return self.abs_dy * GRID_COLS + self.abs_dx
-
-
-def ai_target(fight: "CombatFight | CombatView") -> AiTarget | None:
-    """Pick the active fighter's target the way ``cr`` (``$C000``) does.
-
-    **The metric.** The disassembly's runtime-confirmed ``$ECF0`` table holds multiples
-    of ``$28`` (40): ``LDA $ECF0,X`` with ``X = abs(dy)`` yields ``dy*40``, and the
-    following ``ADC abs(dx)`` gives ``dy*40 + dx``. The **smallest** such value wins —
-    "the nearest enemy in reading order" (ml-core-disassembly.yaml, ``cr.distance_metric``).
-
-    This is emphatically **not** Euclidean or Chebyshev distance: a fighter five columns
-    away on the same row (metric 5) is "nearer" than one a single row away in the same
-    column (metric 40). The AI's whole pursuit shape follows from that bias.
-
-    **Who is a candidate.** The fighters on the side(s) hostile to the ACTIVE side
-    (:meth:`CombatFight.hostile_to`), never the active fighter's own — self-exclusion
-    falls out of the derivation, since a side is never hostile to itself (U4). In the
-    original ``cr`` scans for cells holding char 193 with colour-RAM low nibble 2, which
-    is always side 1; deriving from ``active_side`` here is bit-identical for the
-    side-2-acts case the original produces, and additionally correct when a caller puts
-    side 1 under the AI (which ``cpu_sides`` permits). Downed fighters are excluded
-    because ``mf-prg.bas:30310`` pokes their cell back to 32, removing the 193 glyph
-    ``cr`` matches on; this port checks ``Fighter.down`` instead, which is the same set.
-
-    Returns ``None`` when no hostile fighter is standing — in the original that state is
-    unreachable, because the victory check at ``30106`` fires before the AI branch at
-    ``30110`` ever runs. The port returns ``None`` rather than raising so a degenerate
-    setup degrades to "no action" instead of crashing a fight.
-
-    Ties are broken by scan order (hostile side order, then lowest fighter index),
-    matching ``cr``'s strict ``<`` comparison as it walks candidates: the first
-    candidate at the minimum wins.
-    """
-    origin = fight.active.position
-    oy, ox = divmod(origin, GRID_COLS)
-
-    best: AiTarget | None = None
-    for hostile_side in fight.hostile_to(fight.active_side):
-        for index, other in enumerate(fight.sides[hostile_side - 1]):
-            if other.down:
-                continue
-            row, col = divmod(other.position, GRID_COLS)
-            dx = col - ox
-            dy = row - oy
-            candidate = AiTarget(
-                side=hostile_side,
-                index=index,
-                # 30405's decoding: the direction bytes collapse the delta to its SIGN,
-                # scaled to a one-cell step (±1 horizontally, ±40 = one row vertically).
-                x=(STEP_RIGHT if dx > 0 else STEP_LEFT if dx < 0 else 0),
-                y=(STEP_DOWN if dy > 0 else STEP_UP if dy < 0 else 0),
-                abs_dx=abs(dx),
-                abs_dy=abs(dy),
-            )
-            if best is None or candidate.distance < best.distance:
-                best = candidate
-    return best
-
-
-# --------------------------------------------------------------------------- #
-# CombatView — the read-only argument every non-human driver receives (U6)     #
+# CombatView — the read-only argument every non-human driver receives          #
 # --------------------------------------------------------------------------- #
 class CombatView:
     """A read-only window onto a :class:`CombatFight`, handed to a decision driver.
 
-    Once :meth:`CombatFight.ai_decide` cannot execute (U6 split choice from
-    mutation), handing a driver the mutable fight is both unnecessary and an
+    Choosing an action is split from applying it (:meth:`CombatFight.ai_decide` never
+    executes), so handing a driver the mutable fight is both unnecessary and an
     invitation: a driver could call ``shoot`` directly and bypass the single
-    apply-block the loop routes every action through, breaking recording (U7)
-    silently. A driver receives THIS instead — it exposes exactly what a decision
+    apply-block the loop routes every action through, silently breaking recording.
+    A driver receives THIS instead — it exposes exactly what a decision
     reads (``sides``, ``grid``, ``active_side``, ``active_fighter``, ``active``,
     ``hostile_to``, and the per-combatant equipment lookup) and **no mutators**:
     ``shoot`` / ``try_move`` / ``advance_activation`` are absent from its surface,
@@ -567,7 +279,7 @@ class CombatView:
     holds no mutators, that is safe — nothing a driver can call through the view
     changes the fight.
 
-    :func:`ai_target` reads only this surface (``active``/``hostile_to``/
+    :func:`engine.combat_ai.ai_target` reads only this surface (``active``/``hostile_to``/
     ``active_side``/``sides``), so it accepts a view unchanged. ``rng`` and
     ``is_melee``/``equipment_range`` are exposed too, because the CPU decision
     (:meth:`CombatFight.ai_decide`) consults them to pick move-vs-shoot — reads,
@@ -617,12 +329,12 @@ class CombatView:
 
 
 # --------------------------------------------------------------------------- #
-# CombatFight — the activation loop's working state (KTD-1)                   #
+# CombatFight — the activation loop's working state                           #
 # --------------------------------------------------------------------------- #
 class CombatFight:
     """Mutable per-fight working state: the blow-by-blow the driver loop advances.
 
-    KTD-1 splits combat state in two. The **persistent** graph (``GameState.combat``,
+    Combat state is split in two. The **persistent** graph (``GameState.combat``,
     a frozen :class:`~engine.state.CombatState`) holds the setup snapshot and the
     fight's committed consequences. The **mid-fight** evolution — positions moving
     cell by cell, energies ticking down, the activation cursor walking the sides —
@@ -633,12 +345,12 @@ class CombatFight:
     post-fight graph without needing to replay every intermediate step.
 
     This class is deliberately NOT a generator. The driver
-    (:func:`engine.interactions._run_combat`) owns the yield/send protocol; this
-    object owns the *rules*. Keeping them apart is what lets U6's AI drive the same
+    (:func:`engine.fight_loop._run_combat`) owns the yield/send protocol; this
+    object owns the *rules*. Keeping them apart is what lets the AI drive the same
     rules with no client in the loop, and what keeps the future async transport a
     pure swap of the driver half.
 
-    **The fight holds no equipment table** (amendment A1). Every combatant arrives
+    **The fight holds no equipment table.** Every combatant arrives
     carrying its own constructed ``equipment`` mapping, built by the game from its
     entity data before the fight starts. There is therefore no handle to resolve, no
     lookup to miss, and — crucially — no second source that can disagree with the
@@ -670,7 +382,7 @@ class CombatFight:
         self._check_roles()
 
     def _check_roles(self) -> None:
-        """Reject a bundle naming an attribute key no combatant carries (U2).
+        """Reject a bundle naming an attribute key no combatant carries.
 
         Fails HERE, at construction, naming both the role and the missing key —
         rather than as a bare ``KeyError`` several activations deep inside a
@@ -751,20 +463,18 @@ class CombatFight:
     def equipment_stats(self, combatant: Fighter) -> Mapping[str, int]:
         """``combatant``'s own equipment stats, for the game's formulas.
 
-        A read off the roster, not a lookup (amendment A1). The old form took a
-        *handle* and resolved it through a table the fight held, which meant two
-        sources for one fact: a caller could hand the fight one table and the rules
-        bundle another, and the fight would then compute damage from one while
-        reading reach from the other. Nothing raised — it just used the wrong
-        numbers. Reading the combatant's own equipment removes the second source
-        rather than guarding against the disagreement.
+        A read off the roster, not a lookup through a table the fight holds: a
+        second table would be a second source for one fact, able to disagree with
+        the roster about what a weapon does (damage from one, reach from the other)
+        without anything raising. Reading the combatant's own equipment removes the
+        second source rather than guarding against the disagreement.
         """
         return combatant.equipment
 
     def equipment_range(self, combatant: Fighter) -> int:
         """``combatant``'s shot travel range in cells (``mf-prg.bas:30215-30216``).
 
-        Range is entity data the game put on the equipment (U1); the engine holds no
+        Range is entity data the game put on the equipment; the engine holds no
         weapon taxonomy of its own. A combatant whose equipment omits ``range`` gets
         :data:`DEFAULT_RANGE` — the source's own base ``r=2``.
         """
@@ -787,7 +497,7 @@ class CombatFight:
         ``hostile_to(2) == (1,)``. Deriving hostility from the acting side (rather than
         hardcoding "the CPU hunts side 1") is what makes a side-1 CPU fighter hunt side
         2 and never its own teammates — a side is never hostile to itself, so
-        self-exclusion falls out of the derivation with no identity check (U4).
+        self-exclusion falls out of the derivation with no identity check.
 
         **Why two fixed sides / why the CPU "always hunts side 1" in the original.**
         In the C64 game hostility is not a lookup at all: the ``cr`` machine-code
@@ -807,7 +517,7 @@ class CombatFight:
         ``30250``): under C64 ``true = -1`` that is ``s=1 -> 2`` / ``s=2 -> 1`` (one of
         the structural proofs the relational is -1, not +1 — +1 gives ``1-1=0``, a side
         that does not exist; see
-        docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md).
+        docs/solutions/architecture-patterns/basic-relational-boolean-is-minus-one-when-porting.md).
         """
         return (2,) if side == 1 else (1,)
 
@@ -896,18 +606,18 @@ class CombatFight:
 
         The whole ``mf-prg.bas:30200-30310`` attack block:
 
-        - ``30215-30216`` — the weapon's travel range, now CONFIG data
-          (:meth:`weapon_range`).
+        - ``30215-30216`` — the weapon's travel range, CONFIG data
+          (:meth:`equipment_range`).
         - ``30220-30225`` — step the projectile one cell per range point; it stops on
           leaving the grid, on a wall (:func:`blocks_shot` — codes 160/156 only), or
           when the range is exhausted. Scenery and friendly fighters are OVERFLOWN:
           the source's step test checks walls only, and its hit test ``30226``
           additionally requires the OPPOSING side's colour.
-        - ``30247`` — the two miss factors (:func:`is_hit`), using the ATTACKER's
-          kraft and the weapon's ``ts``.
-        - ``30255`` — the damage roll (:func:`damage_roll`), using the ATTACKER's
-          brutalitaet and the weapon's ``tg``.
-        - ``30260``/``30275`` — subtract from the target's energy, clamped at 0.
+        - ``30247`` — the hit test: the rules bundle's ``hit_fn`` on the ATTACKER's
+          ``hit_roles`` attribute and its equipment.
+        - ``30255`` — the damage roll: the bundle's ``damage_fn`` on the ATTACKER's
+          ``damage_roles`` attribute and its equipment.
+        - ``30260``/``30275`` — subtract from the target's ``vitality``, clamped at 0.
         - ``30300-30310`` — at 0 energy the target is marked down and the side's
           loss counter increments.
 
@@ -955,7 +665,7 @@ class CombatFight:
         damage = self._rules.damage_fn(damage_input, equipment, self._rng)
         target = self._sides[enemy_side - 1][target_index]
         # The ONE engine invariant on the depleting resource: subtract and clamp at
-        # zero. The engine addresses it as the ``vitality`` SLOT (amendment A5) — it
+        # zero. The engine addresses it as the ``vitality`` SLOT — it
         # does not know what the resource means, only that reaching zero terminates a
         # combatant.
         vitality = max(0, target.vitality - damage)
@@ -976,10 +686,10 @@ class CombatFight:
     def view(self) -> "CombatView":
         """A read-only :class:`CombatView` onto this fight, for a decision driver.
 
-        The seam U6 opened between *choosing* an action and *applying* it: a driver
+        The seam between *choosing* an action and *applying* it: a driver
         (:meth:`ai_decide`, a policy callable) receives one of these — never the
         mutable fight — so it can read the board but cannot bypass the loop's single
-        apply-block (which would break U7's recording).
+        apply-block (which would break recording).
         """
         return CombatView(self)
 
@@ -996,9 +706,9 @@ class CombatFight:
         split exists to prevent.
 
         Ports the decision logic of ``mf-prg.bas:30400-30492`` (see :meth:`ai_take_turn`
-        for the line-by-line reading); the only difference from the pre-split code is
-        that the move branch returns the CHOSEN step instead of committing it, and the
-        shoot branch returns the direction instead of calling :meth:`shoot`.
+        for the line-by-line reading), except that the move branch returns the CHOSEN
+        step instead of committing it, and the shoot branch returns the direction
+        instead of calling :meth:`shoot`.
 
         ``view`` is this fight's :class:`CombatView`; it is accepted as an argument
         (rather than read off ``self``) so a driver's decision is expressed purely in
@@ -1012,6 +722,8 @@ class CombatFight:
         "does not advance a stateful rng"; a caller wanting a repeatable probe seeds a
         fresh rng or uses a zero-variance weapon.
         """
+        from engine.combat_ai import ai_target
+
         target = ai_target(view)
         if target is None:
             # Unreachable from real play: 30106's victory check fires before 30110.
@@ -1045,7 +757,7 @@ class CombatFight:
         Returns the step it WOULD commit (``("move", step)``) instead of committing it,
         or ``("pass", None)`` when the fighter is boxed in (``30465``'s bare return). No
         position write, no direction-memory write — the loop's apply path does both, via
-        :meth:`apply_action` with ``record_dir_memory=True`` (which reproduces the old
+        :meth:`apply_action` with ``record_dir_memory=True`` (which reproduces the source's
         ``30491``/``30492`` commit-and-record on the successful step).
 
         The four attempts run in the source's exact order, each gated on direction
@@ -1092,7 +804,8 @@ class CombatFight:
     def apply_action(self, action: str, argument: Any, *, record_dir_memory: bool = False) -> Any:
         """Execute ONE chosen action against the fight — the single mutation site.
 
-        Whoever chose the action — a human via :func:`_parse_combat_response`, the AI
+        Whoever chose the action — a human via
+        :func:`engine.fight_loop._parse_combat_response`, the AI
         via :meth:`ai_decide`, a policy driver — the loop applies it HERE, so a shot
         mutates exactly once. Returns a small, action-specific value the caller
         narrates/advances on:
@@ -1106,8 +819,7 @@ class CombatFight:
 
         ``record_dir_memory`` (set for AI/policy moves) performs the ``30492``
         ``ri(f)=p`` write on a committed step, so an AI move driven through THIS
-        apply-block behaves identically to the pre-split executing move path — which is
-        what keeps ``tests/test_combat_ai.py`` green on the split with no edits. A HUMAN
+        apply-block behaves identically to :meth:`ai_take_turn`'s. A HUMAN
         move never records direction memory (it is keyed by fighter index and read only
         by the AI, so a human write on side 1 would corrupt the AI's side-2
         memory).
@@ -1132,7 +844,7 @@ class CombatFight:
 
         - ``30405`` — ``syscr`` locates the nearest side-1 fighter and decodes the
           four ``ua`` bytes into step deltas ``x``/``y`` plus ``abs(dx)``/``abs(dy)``
-          (:func:`ai_target`).
+          (:func:`engine.combat_ai.ai_target`).
         - ``30410`` — ``ifpeek(ua+2)=1orpeek(ua+3)=1goto30420``: if the target is
           **near-adjacent** on either axis, jump STRAIGHT to the attack branch,
           skipping the coin flip entirely. Note this is ``= 1``, not ``<= 1`` — a
@@ -1154,24 +866,23 @@ class CombatFight:
         Returns a small result dict for the driver to narrate: ``action`` (``"shoot"``,
         ``"move"``, or ``"none"``), ``direction`` (the step/fire delta, ``None`` when
         idle), ``result`` (the :meth:`shoot` outcome, only for ``"shoot"``), and
-        ``target`` (the chosen :class:`AiTarget`, ``None`` when the hostile side is
-        already wiped).
+        ``target`` (the chosen :class:`~engine.combat_ai.AiTarget`, ``None`` when the
+        hostile side is already wiped).
 
         The activation is **always** consumed, including when the fighter is boxed in
         and takes no step (``30465``'s bare ``return``, then ``30110``'s
         ``gosub30400:goto30105``). Advancing the cursor is the driver's job, not this
         method's — mirroring how :meth:`try_move` and :meth:`shoot` leave it alone.
 
-        **Now a thin wrapper (U6).** This is exactly :meth:`ai_decide` (the pure
-        choice) followed by :meth:`apply_action` (the one mutation), so the decision
-        logic lives in ONE place and every driver — this wrapper, the loop's
-        dispatcher — executes through the SAME apply-block, firing a shot once. Kept
-        (rather than retired) so ``tests/test_combat_ai.py``'s direct callers migrate
-        with no edits: it returns the identical ``action``/``direction``/``result``/
-        ``target`` dict the pre-split method did.
+        **A thin wrapper.** This is exactly :meth:`ai_decide` (the pure choice)
+        followed by :meth:`apply_action` (the one mutation), so the decision logic
+        lives in ONE place and every driver — this wrapper, the loop's dispatcher —
+        executes through the SAME apply-block, firing a shot once.
         """
+        from engine.combat_ai import ai_target
+
         # ai_target is recomputed here only to fill the returned dict's ``target``
-        # field (the pre-split method's contract); ai_decide computes its own.
+        # field; ai_decide computes its own.
         target = ai_target(self)
         action, argument = self.ai_decide(self.view())
         if action == "shoot":
@@ -1185,7 +896,7 @@ class CombatFight:
             # An AI move records direction memory (30492) on a committed step.
             self.apply_action("move", argument, record_dir_memory=True)
             return {"action": "move", "direction": argument, "result": None, "target": target}
-        # ai_decide's ("pass", None) is the pre-split "none" outcome — no target, a
+        # ai_decide's ("pass", None) maps to the "none" outcome — no target, a
         # degenerate direction, or a boxed-in fighter (30465). No board change.
         return {"action": "none", "direction": None, "result": None, "target": target}
 
@@ -1208,12 +919,12 @@ class CombatFight:
         reverse of your last step", encoded once here rather than re-derived per site.
 
         (Relational-sign note, per docs/solutions/architecture-patterns/
-        basic-relational-boolean-is-plus-one-when-porting.md: the four literal sidestep
+        basic-relational-boolean-is-minus-one-when-porting.md: the four literal sidestep
         guards pin the rule independently of any sign convention, and the C64
         ``true = -1`` evaluation agrees with them — it makes ``1+2*(x=1)`` equal ``-x``,
-        the exact reverse of the last step. The since-reversed ``true=+1`` pin would have
-        yielded the nonsensical ``3`` for a rightward step. This was one of the five
-        conflicts that prompted the #47 audit; it is now consistent with the convention.)
+        the exact reverse of the last step. A ``true=+1`` reading would yield the
+        nonsensical ``3`` for a rightward step — one of the structural proofs (#47) that
+        C64 true is -1.)
 
         The seed value ``ri=-1`` (``30020``) is not neutral: it is a real leftward step,
         so a freshly-spawned enemy will not open the fight by stepping right. That is the

@@ -35,7 +35,7 @@ import pytest
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 sys.path.insert(0, str(_CONFIG_DIR))
 
-from setup import new_game  # noqa: E402
+from setup import new_game  # noqa: E402  # pyright: ignore[reportMissingImports]  # resolved via the sys.path insert above
 
 from engine.effects import MoneyChange, commit  # noqa: E402
 
@@ -111,14 +111,14 @@ def test_a_mutable_collection_cannot_be_smuggled_in_at_construction():
 
     cfg = Config(formula_params={"fnm": {1: -50}})
     with pytest.raises(TypeError):
-        cfg.formula_params["fnm"] = {}
+        cfg.formula_params["fnm"] = {}  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
     # ...including one level down, where a shallow coercion would leave a hole.
     with pytest.raises(TypeError):
         cfg.formula_params["fnm"][1] = 0
 
-    m = MapState(grid=[[1, 2], [3, 4]])
+    m = MapState(grid=[[1, 2], [3, 4]])  # pyright: ignore[reportArgumentType]  # a list on purpose: the coercion is the subject
     with pytest.raises(AttributeError):
-        m.grid.append([5, 6])
+        m.grid.append([5, 6])  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
 
 # --------------------------------------------------------------------------- #

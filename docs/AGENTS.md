@@ -8,12 +8,17 @@ hardcode a plan path) and the authoritative design in `docs/design/`.
 ## Environment setup (get to a green tree first)
 
 ```bash
-pip install -e '.[dev]'   # pytest (+ ruff for lint); pyyaml is a runtime dep
-make check                # → pytest + soft lint; must be green before any work
+pip install -e '.[dev]'   # pytest, ruff, pyright (pinned); pyyaml is a runtime dep
+make check                # → pytest + lint + pyright; must be green before any work
 ```
 
-`make check` runs `pytest` plus lint (`ruff check` **and** `ruff format --check`);
-both are hard when ruff is installed and skipped only if it is absent. The research
+`make check` runs `pytest`, lint (`ruff check` **and** `ruff format --check`; hard
+when ruff is installed, skipped only if it is absent) and `python -m pyright` over
+`engine clients data tests`. pyright is **hard even when absent**: it is a pinned dev
+dependency, so a missing pyright fails the gate. Its first run downloads the pyright
+npm package (needs network). On an externally managed system Python (PEP 668), run
+the gate through uv instead: `uv run --python 3.14 --with-editable '.[dev]'
+--isolated make check` (and again with `--python 3.11`, CI's other version). The research
 knowledge base is a sibling checkout at `../research/` — handlers port from the
 BASIC line blocks it cites; confirm it is present before starting a handler unit.
 
@@ -66,7 +71,7 @@ state it as a derivation, or move it to the closed-work ledger.**
 
 ## The green-tree rule
 
-`make check` (→ `pytest` + soft lint) is the gate. **Never dispatch a subagent
+`make check` (→ `pytest` + lint + pyright) is the gate. **Never dispatch a subagent
 on a red tree, and never commit on a red tree.** After a unit's subagent
 returns: review the diff against the unit's `Files:` and scope → run
 `make check` → fix on green → commit → close the unit's issue. Only then pick
@@ -103,3 +108,24 @@ the next unit.
   IO) use their stated `Test expectation` annotations instead.
 - Behavioral-fidelity bar: assert against research-documented formulas and value
   ranges, **not** a byte-for-byte C64 RNG trace.
+
+## Verifying claims before they land
+
+Reports, docs and past claims have all been confidently wrong in this project, so
+two rules hold for every change:
+
+- **A game claim in a learning doc is verified in a fresh context before the doc is
+  committed.** Any new or changed claim in `docs/solutions/` about how the original
+  game behaves (a formula, a value, an order, a branch) is checked by an agent that
+  did not write it. It quotes the cited BASIC line verbatim with the `mafia-oracle`
+  skill's `conclude <lines> "<claim>"` command, attaches the quoted fragment next to
+  its citation in the doc, and names the test that proves a load-bearing claim
+  ("tested by `test_x`"). `tests/test_citations.py` then holds every quoted fragment
+  to the line it cites, and every test a doc names to existing.
+- **The orchestrator verifies a subagent's factual claims before they land.** A
+  report is model output, not evidence. Before committing, re-run the numbers it
+  cites (test counts, checker results, `make check`), re-read quoted BASIC against
+  `../research/src/decompiled_basic/mf-prg.bas` (or with `conclude`), check "no code
+  changed" claims mechanically (a tokenize comparison, not a skim of the diff), and
+  see each new test fail at least once. A claim that cannot be checked does not go
+  into code, a commit message or a doc as fact.

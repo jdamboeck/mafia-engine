@@ -228,10 +228,15 @@ git stash pop
 | Fixture no-ops before the assertion matters | The scripted input/RNG runs dry, or aims nowhere, before the branch executes |
 
 **Issue tracking:** #47 (inverted relational-sign convention — six tests
-asserted the bug, one that paid training makes a gangster *less* brutal),
+asserted the bug, one that paid training makes a gangster *less* brutal, where
+`:13127` `bt=bt+2-3*(ln=2)` gives `+5` at `ln=2`; tested by
+`test_range_ln2_brutality_plus_five`),
 #48 (turn-over screen content had no coverage beyond a dataclass-repr guard),
 #49 (the zero-value `_StubRng` pair), #50 (the defect #49's tests were
-nominally guarding), #51 (the EOF test's name/coverage mismatch).
+nominally guarding: the collectors' fight, `:4355` `gosub5000`, ends like every
+fight on the losses block, `:30510` `print"{down}{down}verluste der spieler:"`;
+tested by `test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender`),
+#51 (the EOF test's name/coverage mismatch).
 
 ## See also
 
@@ -240,7 +245,7 @@ nominally guarding), #51 (the EOF test's name/coverage mismatch).
   identity-based snapshot reduced its assertions to `state == state`, which "can
   never fail, for any handler." The fix there (snapshot by value, not identity)
   is a specific case of "inject a real difference and confirm the check reacts."
-- `docs/solutions/architecture-patterns/basic-relational-boolean-is-plus-one-when-porting.md`
+- `docs/solutions/architecture-patterns/basic-relational-boolean-is-minus-one-when-porting.md`
   — the #47 sign-convention reversal. Six tests had encoded the inverted
   convention and therefore could not have caught it. That doc's caution ("a
   derived value is not evidence for the rule that derived it") is the same

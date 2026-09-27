@@ -1,0 +1,79 @@
+# client (terminal play client) — classic-theme strings.
+#
+# NOT from the source: this is the terminal client's own chrome -- map hints, screen
+# headers, the turn-over summary, the status bar, command-line help and error lines.
+# It stays in English (the port's words, not the original's German), and lives here so
+# a theme can reword it without touching the client. Layout (blank lines, indents, the
+# "> " prompt marker, box-drawing and ANSI styling) stays in the client.
+# {name}-style fields are template params the client fills.
+client:
+  # Clean-exit line, printed on a quit or when stdin runs out.
+  bye: "bye."
+  # Acknowledgement line under the upkeep, turn-over and game-end screens.
+  press_any_key: "press any key..."
+
+  # Screen header names.
+  header:
+    upkeep: "upkeep"
+    job: "job"
+    turn_over: "turn_over"
+    standings: "standings"
+    game_over: "game_over"
+
+  # The map screen's note line and legend.
+  map:
+    hint: "move: W/A/S/D into a door to enter. P saves, Q quits."
+    bad_key: "(use W/A/S/D, P or Q)"
+    wall: "(a wall)"
+    edge: "(edge of the city)"
+    resized: " resized"
+    # {player} is the player's map glyph.
+    legend_you: "{player} you"
+
+  # Location screens. {location} is the location key.
+  location:
+    closed: "({location} is closed for renovations.)"
+    nothing_to_do: "(nothing to do here)"
+    # Shown when the theme has no entry_prompt for the location.
+    entry_fallback: "-- {location} --"
+    press_enter: "ENTER druecken..."
+
+  # The turn-over summary for the player whose turn just ended.
+  turn_over:
+    summary: "cash: {cash}$\nposition: {position}\nmovement: {movement}\nrank: {rank}\njail: {jail_months} months"
+
+  # The reverse-video status bar under the map and after each action.
+  status_bar: " {name} │ cash {cash}$ │ pos {pos} │ ms {ms} "
+  # Status-bar name for a player record that carries none.
+  unnamed_player: "player"
+
+  # Losses block: the name given to a side that has no name of its own.
+  side_name: "side {index}"
+
+  # A --load file that cannot be resumed: one stderr line, "error" with one reason.
+  load:
+    error: "cannot load {path}: {reason}"
+    reason:
+      not_found: "file not found"
+      is_directory: "is a directory, not a save file"
+      not_json: "not valid JSON ({detail})"
+      not_text: "not a text file"
+      bad_version: "unsupported save version ({detail})"
+      missing_field: "save is missing the field {detail}"
+      corrupt: "corrupt save ({error_type}: {detail})"
+
+  # Command line: the help text and the errors for bad flags.
+  cli:
+    description: "Play the mafia slice."
+    help_seed: "RNG seed for a new game (default {seed})."
+    help_player: "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, turn order = order given). Default: a single 'alcapone:the outfit'."
+    help_end_year: "The year the game ends (asked at setup when omitted)."
+    help_score_weight: "Score weight, e.g. 0.5 (asked at setup when omitted)."
+    help_load: "Resume a saved game (its seed and setup come from the save)."
+    help_save: "Where P saves (default: the --load file, else ./{save})."
+    help_watch_ai: "In fights, show the board after each computer move and wait for a key."
+    help_theme: "The theme to word the game in: a theme of the game config, or the path of a theme directory (default {theme})."
+    load_clash: "--load resumes a saved game; it cannot be combined with {flags}"
+    out_of_range: "{flag} must be in [{min}, {max}], got {value}"
+    config_error: "cannot load game config {config_dir}: {error}"
+    theme_error: "cannot load theme {theme}: {error}"

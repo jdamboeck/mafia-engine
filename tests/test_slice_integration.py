@@ -420,7 +420,9 @@ def _smoke_plan():
     """
     from engine.movement import advance_turn
     from tests.test_client_loop import (
-        _MOVE_KEYS,
+        MOVE_KEYS as _MOVE_KEYS,
+    )
+    from tests.test_client_loop import (
         find_door_cell,
         load_city_raw,
         walk_keys_to_cell,
@@ -493,27 +495,17 @@ def _smoke_plan():
     return lines, mid_save_at, last_save_at
 
 
-def _drive_main(argv: list[str], lines: list[str]):
-    """Run ``clients.terminal.__main__.main(argv)`` over EXACT stdin ``lines`` under a
-    SIGALRM deadline (a spin fails instead of hanging). ``main()`` discards
-    ``play()``'s return, so ``play`` is wrapped to capture its ``(state, rng)``.
-    Returns ``(stdout, (state, rng))``; any exception -- ``SystemExit`` included --
-    propagates and fails the caller."""
+def _drive_main(argv: list[str], lines: list[str]) -> str:
+    """Run ``clients.terminal.main(argv)`` over EXACT stdin ``lines`` under a SIGALRM
+    deadline (a spin fails instead of hanging); return its stdout. ``main()`` returns
+    nothing, so what a run leaves behind is read off its output and its save file.
+    Any exception -- ``SystemExit`` included -- propagates and fails the caller."""
     import io
 
-    import clients.terminal.__main__ as tmain
-
-    captured = []
-    real_play = tmain.play
-
-    def spy_play(*args, **kwargs):
-        ret = real_play(*args, **kwargs)
-        captured.append(ret)
-        return ret
+    from clients.terminal import main
 
     out = io.StringIO()
     with pytest.MonkeyPatch.context() as mp:
-        mp.setattr(tmain, "play", spy_play)
         mp.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
         mp.setattr(sys, "stdout", out)
         with deadline(
@@ -521,9 +513,14 @@ def _drive_main(argv: list[str], lines: list[str]):
             f"main() did not return within {_SMOKE_DEADLINE}s (spin?)",
             exc_type=AssertionError,
         ):
-            tmain.main(argv)
-    assert len(captured) == 1, "main() never reached play()"
-    return out.getvalue(), captured[0]
+            main(argv)
+    return out.getvalue()
+
+
+def _scores(screen: str) -> dict[str, float]:
+    """The ``punkte`` column of a standings table: player name -> score."""
+    rows = re.findall(r"^(\S+) +-?\d+\$ +(-?[0-9.e+-]+)$", screen, flags=re.MULTILINE)
+    return {name: float(score) for name, score in rows}
 
 
 def _result_screen(output: str) -> str:
@@ -544,8 +541,8 @@ def smoke_run_a(tmp_path_factory):
     Its final-turn ``p`` leaves the last save in ``a.jsonl``."""
     lines, mid, _last = _smoke_plan()
     a_save = tmp_path_factory.mktemp("smoke_a") / "a.jsonl"
-    out, ret = _drive_main([*_SMOKE_ARGV, "--save", str(a_save)], [""] + lines)
-    return {"lines": lines, "mid": mid, "out": out, "ret": ret, "save": a_save}
+    out = _drive_main([*_SMOKE_ARGV, "--save", str(a_save)], [""] + lines)
+    return {"lines": lines, "mid": mid, "out": out, "save": a_save}
 
 
 class TestClientSmokeSetupToEnding:
@@ -570,13 +567,12 @@ class TestClientSmokeSetupToEnding:
         tail = out[result_at:]
         for later in ("turn_over", "upkeep", "spielstand", "bye."):
             assert later not in tail, f"{later!r} rendered after the result"
-        state, _rng = smoke_run_a["ret"]
-        assert state.clock.year == 1928 and state.clock.month == 0
-        assert [p.name for p in state.players] == ["a", "b"]
-        # The result matches the final scores (AE1/AE2): the sole top scorer wins, or
-        # every tied top scorer is listed under the shared-victory text.
-        top = max(p.gf for p in state.players)
-        leaders = [p.name for p in state.players if p.gf == top]
+        # The result matches the final scores it shows (AE1/AE2): the sole top scorer
+        # wins, or every tied top scorer is listed under the shared-victory text.
+        scores = _scores(screen)
+        assert list(scores) == ["a", "b"], f"the result screen's table: {scores}"
+        top = max(scores.values())
+        leaders = [name for name, score in scores.items() if score == top]
         if len(leaders) == 1:
             assert f"{leaders[0]} hat gewonnen!" in screen and _TIE not in screen
         else:
@@ -589,27 +585,24 @@ class TestClientSmokeSetupToEnding:
         lines, mid = smoke_run_a["lines"], smoke_run_a["mid"]
         b_save = tmp_path / "b.jsonl"
         # Run B, first half: the same keys up to and including the mid-game p, then q.
-        out_b1, _ = _drive_main(
-            [*_SMOKE_ARGV, "--save", str(b_save)], [""] + lines[: mid + 1] + ["q"]
-        )
+        out_b1 = _drive_main([*_SMOKE_ARGV, "--save", str(b_save)], [""] + lines[: mid + 1] + ["q"])
         mid_save = load_game(b_save)
         # Run B, second half: --load, then the SAME remaining keys (a load shows no
         # title and no upkeep). Its final-turn p overwrites the loaded file.
-        out_b2, (state_b, rng_b) = _drive_main(["--load", str(b_save)], lines[mid + 1 :])
+        out_b2 = _drive_main(["--load", str(b_save)], lines[mid + 1 :])
 
-        state_a, rng_a = smoke_run_a["ret"]
+        last_a = load_game(smoke_run_a["save"])
         # The split is not vacuous: one casino hand before the save, one after it.
         assert out_b1.lower().count(_DEALT) == 1
         assert out_b2.lower().count(_DEALT) == 1
         assert "bye." in out_b1, "run B's first half did not quit on q"
         assert len(mid_save.rng_log) > 0, "no draws before the save: the RNG half is vacuous"
-        assert len(rng_a.log) > len(mid_save.rng_log), "no draws after the save"
-        assert mid_save.state != state_a
-        assert state_b == state_a
-        assert rng_b.log == rng_a.log
-        assert _result_screen(out_b2) == _result_screen(smoke_run_a["out"])
-        # Both runs pressed p on the final turn: the two saves are the same bytes.
+        assert len(last_a.rng_log) > len(mid_save.rng_log), "no draws after the save"
+        assert mid_save.state != last_a.state
+        # Both runs pressed p on the final turn: the two saves -- state, seed and every
+        # RNG draw -- are the same bytes, and the games end on the same result screen.
         assert b_save.read_bytes() == smoke_run_a["save"].read_bytes()
+        assert _result_screen(out_b2) == _result_screen(smoke_run_a["out"])
 
     def test_final_turn_save_size(self, smoke_run_a):
         from engine.persistence import load_game

@@ -1,6 +1,6 @@
 # Vehicle table — verbatim from the original game (mf-prg.bas:50300-50305).
 #
-# Each entry is ENTITY-NAME/stat data owned by the game config (KTD-5), not
+# Each entry is ENTITY-NAME/stat data owned by the game config, not
 # engine display text: the German names are the vehicle identities in the
 # 1920s Mafia world.
 #

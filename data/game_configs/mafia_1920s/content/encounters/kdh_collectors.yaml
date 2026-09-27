@@ -4,8 +4,7 @@
 # NO on_win/on_loss: the consequence is a seizure of the cash the player holds
 # AT THAT MOMENT (MoneyChange(-active.ka)) — a live state reference the declarable
 # vocabulary deliberately excludes. The declaration carries SETUP ONLY; the seizure
-# stays in Python (upkeep.py). Omitting the outcome blocks is a SUPPORTED shape,
-# not a partial migration.
+# stays in Python (upkeep.py). Omitting the outcome blocks is a SUPPORTED shape.
 #
 # Values regroup config.yaml's formula_params (kdh_collectors_*, :127-129).
 key: kdh_collectors

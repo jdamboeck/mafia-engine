@@ -21,13 +21,15 @@ from engine.combat import (
     CELL_COUNT,
     GRID_COLS,
     MAX_CELL,
+    blocks_shot,
+    can_move_onto,
+)
+from engine.combat_setup import (
     SIDE1_ANCHOR,
     SIDE2_ANCHOR,
     STAGGER_OFFSETS,
-    blocks_shot,
     build_enemy_side,
     build_player_side,
-    can_move_onto,
     placement_position,
     placement_positions,
     setup_combat,
@@ -36,6 +38,8 @@ from engine.effects import SpawnFighter, apply
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, GameState, json_safe
 from data.game_configs.mafia_1920s.gangster import Gangster
+from tests.basic_eval import eval_assignment, eval_expr
+from tests.helpers import load_source
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -63,8 +67,65 @@ def test_side2_anchor_is_147_under_c64_true_is_minus_one():
     #   :30015 `poke211,-20*(i=2)` is a cursor COLUMN -> 20, not -20
     #   :30108 `s=1-(s=1)` is the side toggle -> 2, not 0
     # See docs/solutions/architecture-patterns/
-    # basic-relational-boolean-is-plus-one-when-porting.md.
+    # basic-relational-boolean-is-minus-one-when-porting.md.
     assert SIDE2_ANCHOR == 147
+
+
+# --------------------------------------------------------------------------- #
+# The structural proofs that a true relational is -1 (not +1)                 #
+# --------------------------------------------------------------------------- #
+# Three statements of the combat set-up block are malformed unless a true relational
+# is -1, whatever balance one prefers. Each is quoted verbatim from its line
+# (checked by test_structural_proof_quotes_are_verbatim) and evaluated by the C64
+# evaluator; ``_as_plus_one`` rewrites the relational as its negation, which is what
+# reading true as +1 amounts to. basic-relational-boolean-is-minus-one-when-porting.md
+# names these tests.
+_COLUMN_POKE = (30015, "poke211,-20*(i=2)")
+_COLOUR_POKE = (30010, "pokefr+kp(i,j),2-4*(i=2)")
+_SIDE_TOGGLE = (30108, "s=1-(s=1)")
+_STRUCTURAL_QUOTES = (_COLUMN_POKE, _COLOUR_POKE, _SIDE_TOGGLE)
+
+
+def _as_plus_one(expr: str, relational: str) -> str:
+    """``expr`` with ``relational`` read as +1 when true: ``(i=2)`` becomes ``(-(i=2))``."""
+    assert relational in expr
+    return expr.replace(relational, f"(-{relational})")
+
+
+def _poke_value(statement: str) -> str:
+    """The value of a ``poke<address>,<value>`` statement (after its last comma)."""
+    return statement.rsplit(",", 1)[1]
+
+
+@pytest.mark.parametrize(("line", "text"), _STRUCTURAL_QUOTES)
+def test_structural_proof_quotes_are_verbatim(line: int, text: str) -> None:
+    """Each proof's statement is a ``:``-delimited statement of its cited line."""
+    statements = load_source()[line].split(":")
+    assert text in statements, f"{text!r} is not a statement of mf-prg.bas:{line}"
+
+
+def test_side_label_column_is_on_screen_only_if_true_is_minus_one() -> None:
+    """:30015 pokes the side label's cursor column (211/$D3, 0..39): 0 for side 1 and
+    20 for side 2 under true=-1; true=+1 would poke column -20."""
+    expr = _poke_value(_COLUMN_POKE[1])
+    assert [eval_expr(expr, {"i": i}) for i in (1, 2)] == [0, 20]
+    assert eval_expr(_as_plus_one(expr, "(i=2)"), {"i": 2}) == -20
+
+
+def test_side_colour_is_a_colour_code_only_if_true_is_minus_one() -> None:
+    """:30010 pokes each fighter's colour RAM (0..15): 2 (red) for side 1 and 6 (blue)
+    for side 2 under true=-1; true=+1 would poke -2."""
+    expr = _poke_value(_COLOUR_POKE[1])
+    assert [eval_expr(expr, {"i": i}) for i in (1, 2)] == [2, 6]
+    assert eval_expr(_as_plus_one(expr, "(i=2)"), {"i": 2}) == -2
+
+
+def test_side_toggle_maps_one_to_two_only_if_true_is_minus_one() -> None:
+    """:30108 toggles the side to move: 1 -> 2 and 2 -> 1 under true=-1; true=+1
+    would send side 1 to side 0, which does not exist."""
+    text = _SIDE_TOGGLE[1]
+    assert [eval_assignment(text, {"s": s}) for s in (1, 2)] == [2, 1]
+    assert eval_assignment(_as_plus_one(text, "(s=1)"), {"s": 1}) == 0
 
 
 @pytest.mark.parametrize("slot,offset", list(enumerate(STAGGER_OFFSETS, start=1)))
@@ -167,7 +228,7 @@ def test_movement_blocked_by_plain_scenery_code():
 
 
 def test_movement_allowed_onto_empty_codes():
-    grid = list((160,) * CELL_COUNT)
+    grid = list[int]((160,) * CELL_COUNT)
     grid[5] = 32
     grid[6] = 96
     grid = tuple(grid)
@@ -176,7 +237,7 @@ def test_movement_allowed_onto_empty_codes():
 
 
 def test_movement_blocked_by_occupied_cell():
-    grid = list((160,) * CELL_COUNT)
+    grid = list[int]((160,) * CELL_COUNT)
     grid[5] = 32
     grid = tuple(grid)
     assert can_move_onto(5, grid, occupied=frozenset({5})) is False
@@ -191,7 +252,7 @@ def test_movement_blocked_out_of_bounds():
 def test_shot_blocked_only_by_wall_codes_not_scenery():
     # A shot's projectile is NOT stopped by plain scenery (224) or an occupied cell —
     # only by an actual wall code (160/156) or the bounds (30225-30226).
-    grid = list((32,) * CELL_COUNT)
+    grid = list[int]((32,) * CELL_COUNT)
     grid[10] = 224  # decorative scenery — blocks a MOVE but not a SHOT
     grid[11] = 160  # wall — blocks a SHOT
     grid[12] = 156  # wall (alt code) — blocks a SHOT
@@ -215,7 +276,7 @@ def test_shot_blocked_out_of_bounds():
 
 
 def test_movement_and_shot_obstruction_sets_genuinely_differ():
-    grid = list((32,) * CELL_COUNT)
+    grid = list[int]((32,) * CELL_COUNT)
     grid[20] = 224  # scenery: blocks move, not shot
     grid = tuple(grid)
     move_blocked = not can_move_onto(20, grid, occupied=frozenset())
@@ -234,7 +295,7 @@ def test_cell_520_is_max_cell():
 
 
 def test_cell_520_legally_reachable_when_empty():
-    grid = list((160,) * CELL_COUNT)
+    grid = list[int]((160,) * CELL_COUNT)
     grid[520] = 32
     grid = tuple(grid)
     assert can_move_onto(520, grid, occupied=frozenset()) is True
@@ -245,7 +306,7 @@ def test_cell_520_not_rejected_by_strict_row_math():
     # bound. A correct linear implementation must not reject it as row 13 col 0.
     assert 520 // GRID_COLS == 13
     assert 520 % GRID_COLS == 0
-    grid = list((32,) * CELL_COUNT)
+    grid = list[int]((32,) * CELL_COUNT)
     grid = tuple(grid)
     assert can_move_onto(520, grid, occupied=frozenset()) is True
     assert blocks_shot(520, grid) is False  # empty cell, in bounds -> not a wall

@@ -9,7 +9,7 @@ applying effects through the buffer, sitting behind the U6 guard shell. Ports
 ``mf-prg.bas:10020-10045`` (the shared rent block) verbatim, including:
 
 * the positive-rent path (deduct ``x*p``, set tenancy, accrue months),
-* the negative-rent QUIRK (``fnm(1) == -50`` CREDITS the player),
+* the premium tile (``fnm(1)`` is 150 under C64 true=-1, the dearest rent),
 * the ``x<=0`` quiet-cancel path (:10030 — zero effects committed),
 * the affordability guard (:10035 — no deduction on insufficient cash),
 * the two SHELL guards (room-free for rent, you-are-the-tenant for pay-rent).
@@ -24,7 +24,7 @@ import yaml
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
-from engine.state import Clock, Config, GameState, MapState, Player, freeze
+from engine.state import Clock, Config, GameState, MapState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_pure, scripted as _scripted
 
@@ -36,8 +36,11 @@ load_game_config(_CONFIG_DIR)
 _SLW_SHELL = _CONFIG_DIR / "content" / "locations" / "slw.yaml"
 _SLW_STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "slw.yaml"
 
-# fnm params matching config.yaml: base 50, ln=1 -> -50 (quirk), ln=3/4 -> 0.
-_FNM_PARAMS = {"base": 50, "overrides": {1: -50, 3: 0, 4: 0}}
+# fnm params read from config.yaml itself (one source): base 50, ln=1 -> 150,
+# ln=3/4 -> 100 (mf-prg.bas:115 under C64 true=-1).
+_FNM_PARAMS = yaml.safe_load((_CONFIG_DIR / "config.yaml").read_text(encoding="utf-8"))[
+    "formula_params"
+]["fnm"]
 
 
 def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
@@ -55,8 +58,8 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
-        config=Config(formula_params=freeze({"fnm": _FNM_PARAMS})),
-        map=MapState(tenancy=freeze(tenancy or {})),
+        config=Config(formula_params={"fnm": _FNM_PARAMS}),
+        map=MapState(tenancy=tenancy or {}),
     )
 
 
@@ -87,17 +90,17 @@ def test_rent_two_months_positive_tile():
 
 
 # --------------------------------------------------------------------------- #
-# Handler: negative-rent QUIRK — fnm(1) == -50 CREDITS the player             #
+# Handler: premium tile — fnm(1) == 150, the dearest rent                     #
 # --------------------------------------------------------------------------- #
-def test_negative_rent_tile_credits_player():
-    # ln=1 -> fnm(1) == -50 (premium unit that PAYS you). Renting 2 months:
-    # MoneyChange(-x*p) = -(2*-50) = +100 -> ka INCREASES. Faithful quirk.
+def test_premium_tile_rent_is_150_a_month():
+    # ln=1 -> fnm(1) == 50-0-100*(-1) == 150 (:115). Renting 2 months costs 300.
+    # (A true=+1 reading would make this -50, a tile that PAYS the tenant.)
     st = _state(ka=5000, ln=1, active=0)
     result = run_pure(HANDLERS["slw.rent"], _scripted(2), state=st, rng=None)
 
     assert result.status == "completed"
-    assert MoneyChange(+100) in result.effects  # credit, not debit
-    assert result.state.players[0].ka == 5100  # ka went UP by 100
+    assert result.effects == [MoneyChange(-300), SetTenancy(1), RentAccrue(2)]
+    assert result.state.players[0].ka == 4700
     assert result.state.map.tenancy[1] == 0
     assert result.state.players[0].rented_months == 2
 

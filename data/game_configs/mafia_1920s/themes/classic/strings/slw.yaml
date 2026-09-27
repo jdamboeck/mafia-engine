@@ -1,6 +1,6 @@
 # slw (Schlupfwinkel / motel) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.slw.rent_quote")
+# DATA, not code: the engine emits KEYS (e.g. "locations.slw.rent_quote")
 # and the theme resolves them to these strings. Ported byte-for-byte from the
 # research (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:10000-10105).
 # The double space in menu.rent ("UND  ICH") is intentional — it is in the

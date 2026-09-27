@@ -34,26 +34,20 @@ def hostile_color_env(monkeypatch):
     """A host whose env detection would NOT pick truecolor.
 
     ``COLORTERM`` unset + ``TERM=xterm-256color`` sends ``term_color_support()``
-    down its 256-color branch; the process-wide detection cache is cleared so the
-    detection really runs (as it does in a fresh CI process). Tests asserting
-    truecolor sequences run under this so they prove they don't lean on the
-    developer's terminal.
+    down its 256-color branch. Tests asserting truecolor sequences run under this
+    so they prove they don't lean on the developer's terminal.
     """
-    from clients.terminal import palette
-
     monkeypatch.delenv("COLORTERM", raising=False)
     monkeypatch.setenv("TERM", "xterm-256color")
-    monkeypatch.setattr(palette, "_COLOR_SUPPORT", None)
 
 
 @pytest.fixture
 def truecolor(hostile_color_env, monkeypatch):
-    """Pin color support to TRUECOLOR for renderers that don't take ``support``.
+    """Pin color support to TRUECOLOR for a session built by ``play()``/``main()``.
 
-    Renderers call ``fg()``/``bg()`` without a ``support`` argument, so the pin
-    goes through the detection cache — on top of the hostile env, so the pin
-    (not the host) is what makes truecolor come out.
+    A session reads its color support from the env once, when it starts
+    (``Colors.detect``), so the pin goes through env detection:
+    ``COLORTERM=truecolor`` on top of the hostile env, so the pin (not the host) is
+    what makes truecolor come out.
     """
-    from clients.terminal import palette
-
-    monkeypatch.setattr(palette, "_COLOR_SUPPORT", palette.ColorSupport.TRUECOLOR)
+    monkeypatch.setenv("COLORTERM", "truecolor")

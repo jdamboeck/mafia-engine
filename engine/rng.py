@@ -1,13 +1,14 @@
 """The engine's single nondeterminism source.
 
-One seedable RNG. Every public draw is appended to an in-memory log so that
-event-sourced replay can be layered on additively later without touching the
-draw sites (KTD-6).
+One seedable RNG. Every public draw is appended to an in-memory log, so
+event-sourced replay (save/load's rng records, fight recordings) is layered on
+additively without touching the draw sites.
 
 Design notes
 ------------
 - Backed by stdlib ``random.Random(seed)``. We match the original game's
-  *probabilities*, not its C64 ``rnd()`` bitstream (KTD-4), so a standard PRNG
+  *probabilities*, not its C64 ``rnd()`` bitstream (the fidelity bar is behavioral,
+  not bit-exact), so a standard PRNG
   seeded with an ``int`` is the correct, fully-deterministic backend.
 - The original's core idiom is ``int(rnd(1)*N)`` -> a uniform integer in
   ``[0, N-1]`` (e.g. ``mf-prg.bas:350`` rolls ``int(rnd(1)*9)*5+10`` for the
@@ -43,7 +44,7 @@ class Rng:
 
     @classmethod
     def replayed(cls, seed: int, log) -> Rng:
-        """Rebuild a session RNG from its seed and draw log (save/load, KTD-5).
+        """Rebuild a session RNG from its seed and draw log (save/load).
 
         Builds a fresh ``Rng(seed)`` and re-issues every logged draw in order — the
         same public method with the same args — so the returned RNG's stream position

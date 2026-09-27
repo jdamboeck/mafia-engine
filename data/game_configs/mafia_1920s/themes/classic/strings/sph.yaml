@@ -1,6 +1,6 @@
 # sph (Spielhoelle / casino) — classic-theme strings (VERBATIM German).
 #
-# DATA, not code (KTD-5): the engine emits KEYS (e.g. "locations.sph.won") and the
+# DATA, not code: the engine emits KEYS (e.g. "locations.sph.won") and the
 # theme resolves them to these strings. Ported byte-for-byte from the research
 # (research-data/pass-2/location-dialogue.yaml + mf-prg.bas:16000-16040).
 # {cash} / {amount} are template params the theme fills at render time.

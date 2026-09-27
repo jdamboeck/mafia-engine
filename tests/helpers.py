@@ -34,20 +34,54 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import io
+import re
 import signal
 from collections.abc import Mapping
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from dataclasses import replace
 
+import pytest
+
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
 from engine.combat import CombatFight
 from engine.effects import commit
-from engine.interactions import run
+from engine.interactions import ShowMessage, run
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
+
+
+#: The decompiled BASIC listing in the sibling research tree. It is absent in CI, so
+#: every test that reads it goes through :func:`load_source`, which skips with a reason.
+MF_PRG = (
+    Path(__file__).resolve().parents[2] / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
+)
+
+
+def parse_source(text: str) -> dict[int, str]:
+    """``{line number: statement text}`` from the decompiled listing."""
+    lines: dict[int, str] = {}
+    for raw in text.splitlines():
+        match = re.match(r"\s*(\d+) (.*)$", raw)
+        if match:
+            lines[int(match.group(1))] = match.group(2)
+    return lines
+
+
+@functools.cache
+def _parsed_source(path: Path) -> Mapping[int, str]:
+    return MappingProxyType(parse_source(path.read_text(encoding="utf-8")))
+
+
+def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
+    """The parsed listing, read once per path; skips the calling test when it is absent."""
+    if not path.exists():
+        pytest.skip(f"this test needs the research tree: {path} is not present")
+    return _parsed_source(path)
 
 
 def make_walk_script(keys: list[str]) -> io.StringIO:
@@ -101,7 +135,7 @@ def deadline(seconds: float, message: str, *, exc_type: type[BaseException] = De
         signal.signal(signal.SIGALRM, previous)
 
 
-def scripted(*answers):
+class scripted:  # noqa: N801 - a callable used like a function at 200+ call sites
     """An ``input_source`` answering PROMPTS in order, while RECEIVING narration.
 
     Since #43 the driver hands every ``ShowMessage`` to the input source too — for
@@ -115,36 +149,38 @@ def scripted(*answers):
     still raises, so a handler that yields an unexpected *prompt* fails loudly rather
     than being answered with a fabricated value.
 
-    The returned callable exposes:
+    A small callable class rather than a closure with attributes bolted on, so the
+    type checker knows what an instance exposes:
 
     ``seen``
         Every interaction the driver presented, in order (prompts and messages).
     ``messages()``
-        Callable returning just the ``ShowMessage`` interactions delivered so far —
-        so a test whose subject IS the narration can assert on what a client would
-        have rendered. ``message_keys()`` returns their keys.
+        Just the ``ShowMessage`` interactions delivered so far — so a test whose
+        subject IS the narration can assert on what a client would have rendered.
+        ``message_keys()`` returns their keys.
     """
-    from engine.interactions import ShowMessage
 
-    it = iter(answers)
-    seen: list = []
+    def __init__(self, *answers: Any) -> None:
+        self._answers = iter(answers)
+        self.seen: list[Any] = []
 
-    def source(interaction):
-        seen.append(interaction)
+    def __call__(self, interaction: Any) -> Any:
+        self.seen.append(interaction)
         if isinstance(interaction, ShowMessage):
             # Delivered, not asked. Consumes no scripted answer; the driver acks.
             return None
         try:
-            return next(it)
+            return next(self._answers)
         except StopIteration:
             raise AssertionError(
                 f"input_source exhausted; driver asked again for {interaction!r}"
             ) from None
 
-    source.seen = seen
-    source.messages = lambda: [i for i in seen if isinstance(i, ShowMessage)]
-    source.message_keys = lambda: [i.key for i in seen if isinstance(i, ShowMessage)]
-    return source
+    def messages(self) -> list[Any]:
+        return [i for i in self.seen if isinstance(i, ShowMessage)]
+
+    def message_keys(self) -> list[str]:
+        return [i.key for i in self.messages()]
 
 
 def with_player(state, idx: int = 0, **field_changes):
@@ -179,6 +215,7 @@ def with_tenancy(state, tenancy=None, *, ln=None, owner=None):
         )
     if ln is not None:
         tenancy = {**state.map.tenancy, ln: owner}
+    assert tenancy is not None  # the either/or check above guarantees one was given
     return dataclasses.replace(
         state, map=dataclasses.replace(state.map, tenancy=MappingProxyType(dict(tenancy)))
     )
@@ -352,7 +389,7 @@ def combat_fighter(**kw) -> Fighter:
     # engine word. Accept either, energie winning if both are somehow passed.
     vitality = kw.pop("vitality", 20)
     vitality = kw.pop("energie", vitality)
-    base = dict(name="f", weapon=5, vitality=vitality, attrs=attrs, position=100)
+    base: dict[str, Any] = dict(name="f", weapon=5, vitality=vitality, attrs=attrs, position=100)
     base.update(kw)
     if "equipment" not in base and base["weapon"] in WEAPON_STATS:
         base["equipment"] = equipper(WEAPON_STATS)(base["weapon"])
@@ -461,14 +498,18 @@ def run_fight(
         if answers is not None:
             it = iter(answers)
 
-            def input_source(interaction):  # noqa: A001 - deliberate rebind
+            def answering(interaction):
                 if isinstance(interaction, CombatScreen):
                     return next(it)
                 raise AssertionError(f"unexpected interaction {interaction!r}")
+
+            input_source = answering
         else:
 
-            def input_source(interaction):  # noqa: A001 - deliberate rebind
+            def surrendering(interaction):
                 return CANCEL
+
+            input_source = surrendering
 
     spec = {}
     if scenario is not None:

@@ -27,6 +27,7 @@ import yaml
 
 from data.game_configs.mafia_1920s.setup import load_weapons, weapon_stats_by_id
 from engine.types import ConfigValidationError
+from tests.helpers import load_source
 
 _WEAPONS_YAML = (
     Path(__file__).resolve().parents[1]
@@ -164,3 +165,59 @@ def test_a_weapon_missing_range_is_rejected_at_load_time(tmp_path):
     bad.write_text(yaml.safe_dump({"weapons": [entry]}), encoding="utf-8")
     with pytest.raises(ConfigValidationError, match="range"):
         load_weapons(bad)
+
+
+# --------------------------------------------------------------------------- #
+# The weapon order, as :120/:121 READ the DATA                                #
+# --------------------------------------------------------------------------- #
+# The READ statements and the DATA lines they consume, quoted verbatim (checked by
+# test_weapon_read_quotes_are_verbatim). :120 reads the 12 location codes of :50005
+# first, so :121's nine records start at :50100 and the list index of weapons.yaml
+# is the in-game weapon index. basic-relational-boolean-is-minus-one-when-porting.md
+# rests its "x>gw is an upgrade" argument on this order.
+_READS = (
+    (120, "fori=1to12:readlk$(i):next"),
+    (121, "fori=0to8:readwa$(i),wp(i),ts(i),tg(i),ws(i):next"),
+)
+_DATA = (
+    (50005, "data slw,pub,waf,aut,kdh,sph,sgl,sub,bhf,ban,pol,ble"),
+    (50100, 'data "haende",0,2,2,1,"messer",50,3,5,0,"knueppel",100,4,3,1'),
+    (50105, 'data "schlagkette",500,4,4,4,"wurfsterne",3000,2,7,0'),
+    (50110, 'data "revolver",4000,5,10,2,"gewehr",4500,5,12,2'),
+    (50115, 'data "maschinenpistole",8000,6,15,10,"handgranaten",10000,7,18,3'),
+)
+
+
+def _read_weapon_records() -> list[tuple[str, int, int, int, int]]:
+    """Run :120 then :121 over the quoted DATA: the ``(wa$, wp, ts, tg, ws)`` records."""
+    items = iter(
+        item.strip('"') for _line, text in _DATA for item in text.removeprefix("data ").split(",")
+    )
+    for _ in range(12):  # :120 — readlk$(i), i=1..12
+        next(items)
+    return [
+        (next(items), int(next(items)), int(next(items)), int(next(items)), int(next(items)))
+        for _ in range(9)  # :121 — i=0..8
+    ]
+
+
+@pytest.mark.parametrize(("line", "text"), _READS + _DATA)
+def test_weapon_read_quotes_are_verbatim(line: int, text: str) -> None:
+    source = load_source()
+    assert source.get(line) == text, f"mf-prg.bas:{line} is {source.get(line)!r}"
+
+
+def test_weapon_index_is_the_order_121_reads_the_data(weapons):
+    """Every weapons.yaml row, by index, is the record :121 reads into that index."""
+    table = [(w["name"], w["price"], w["ts"], w["tg"], w["ws"]) for w in weapons]
+    assert table == _read_weapon_records()
+    assert table[0][0] == "haende" and table[8][0] == "handgranaten"
+
+
+def test_weapon_prices_strictly_ascend_with_the_index(weapons):
+    """Price rises with every index (0$ haende .. 10000$ handgranaten), so at :13072
+    a higher index ``x > gw`` is always the dearer weapon. Power only broadly rises:
+    messer (tg 5) outhits knueppel (tg 3), and wurfsterne has the worst aim (ts 2)."""
+    prices = [w["price"] for w in weapons]
+    assert prices == sorted(set(prices))
+    assert prices == [0, 50, 100, 500, 3000, 4000, 4500, 8000, 10000]

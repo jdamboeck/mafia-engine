@@ -2,7 +2,7 @@
 # messer (weapon 1), 10 energy. grid kp.
 #
 # No declarable consequence: the caller sets `won` and the job pays out. Setup
-# in data, payout stays with the job. Values regroup jobs.py's _CROUPIER_OPPONENT.
+# in data, payout stays with the job.
 key: job_croupier
 enemies:
   count: 1

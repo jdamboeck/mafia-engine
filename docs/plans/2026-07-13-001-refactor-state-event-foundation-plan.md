@@ -1,4 +1,4 @@
-# Current Action Plan — State/Event Foundation
+# State/Event Foundation - Plan
 
 ## Status
 

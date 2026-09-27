@@ -115,7 +115,7 @@ def _play_trajectory():
     p = state.players[0]
     obs["start_cash"] = p.ka
     obs["start_gangster_weapon"] = p.roster[0].weapon
-    obs["start_kraft"] = p.roster[0].kraft
+    obs["start_kraft"] = p.roster[0].attrs["kraft"]
 
     # --- walk into waf ln=2 (door 370) from the left (cell 369 --RIGHT--> enter) ---
     state = with_player(state, po=369)
@@ -134,7 +134,9 @@ def _play_trajectory():
     ka_before_buy = p.ka
     buy_rec = _recorder(1, 0)  # weapon 1, gangster 0
     assert "buy" in {o.id for o in available_options(waf, state, ln=2)}
-    buy_result = run(_opt(waf, "buy").handler, buy_rec, state=state, rng=None)
+    buy_handler = _opt(waf, "buy").handler
+    assert buy_handler is not None
+    buy_result = run(buy_handler, buy_rec, state=state, rng=None)
     assert buy_result.status == "completed"
     state = buy_result.state
     p = state.players[0]
@@ -154,17 +156,19 @@ def _play_trajectory():
 
     rng = _rngmod.Rng(SEED)
     ka_before_train = p.ka
-    kraft_before = p.roster[0].kraft
+    kraft_before = p.roster[0].attrs["kraft"]
     train_rec = _recorder(0, True)  # gangster 0, confirm the range cost
     assert "train" in {o.id for o in available_options(waf, state, ln=2)}
-    train_result = run(_opt(waf, "train").handler, train_rec, state=state, rng=rng)
+    train_handler = _opt(waf, "train").handler
+    assert train_handler is not None
+    train_result = run(train_handler, train_rec, state=state, rng=rng)
     assert train_result.status == "completed"
     state = train_result.state
     p = state.players[0]
     assert p.ka == ka_before_train - 1000
-    assert p.roster[0].kraft == min(99, kraft_before + 5)
+    assert p.roster[0].attrs["kraft"] == min(99, kraft_before + 5)
     obs["cash_after_train"] = p.ka
-    obs["kraft_after_train"] = p.roster[0].kraft
+    obs["kraft_after_train"] = p.roster[0].attrs["kraft"]
     obs["score_after_train"] = p.gf
     obs["rank_nr_after_train"] = p.nr
 
