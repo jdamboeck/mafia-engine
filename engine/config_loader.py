@@ -8,8 +8,10 @@ copied/third-party config loads without editing ``pyproject.toml`` or reinstalli
 :func:`load_game_config` reads ``config.yaml``, validates it against the type
 contracts in :mod:`engine.types`, then imports the config's package **by path**
 (via :func:`importlib.util.spec_from_file_location`). Importing the package fires
-the config's handler ``@register`` decorators (populating
-:data:`engine.locations.HANDLERS`) and exposes the config's ``new_game`` callable.
+the config's handler ``@register`` and effect ``@register_effect`` decorators
+(populating :data:`engine.locations.HANDLERS` and :data:`engine.effects.EFFECTS`) and
+exposes the config's ``new_game`` callable. The ``state`` section of ``config.yaml``
+declares the config's value maps (:class:`~engine.state.StateSchema`).
 
 Layering: this module imports the config *dynamically, by path* — the ``engine/``
 package never statically imports anything under ``data/``.
@@ -26,7 +28,10 @@ from typing import Any, Callable
 
 import yaml
 
+from engine.effects import EFFECTS
 from engine.locations import HANDLERS
+from engine.persistence import Registries
+from engine.state import StateSchema
 from engine.types import validate_config
 
 __all__ = [
@@ -74,6 +79,13 @@ class LoadedConfig:
     handlers:
         The engine's :data:`~engine.locations.HANDLERS` registry, now populated by
         the config's ``@register`` decorators (returned for convenient assertion).
+    effects:
+        The engine's :data:`~engine.effects.EFFECTS` registry: the generic engine
+        effects plus the config's own, registered by its ``@register_effect``
+        decorators on import.
+    state_schema:
+        The config's declared value maps (the ``state`` section of ``config.yaml``);
+        empty maps when the config declares none.
     """
 
     config_dir: Path
@@ -81,6 +93,13 @@ class LoadedConfig:
     new_game: Callable[..., Any]
     module: Any
     handlers: dict
+    effects: dict
+    state_schema: StateSchema
+
+    @property
+    def registries(self) -> Registries:
+        """What save loading and replay take (:func:`engine.persistence.load_game`)."""
+        return Registries(effects=self.effects, state_schema=self.state_schema)
 
 
 def _config_module_name(config_dir: Path) -> str:
@@ -148,13 +167,18 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
        fires the config's handler ``@register`` decorators and gives access to the
        config's ``new_game`` callable.
     3. Return a :class:`LoadedConfig` exposing the parsed config, the ``new_game``
-       callable, the imported module, and the populated ``HANDLERS`` registry.
+       callable, the imported module, the populated ``HANDLERS`` and ``EFFECTS``
+       registries, and the declared state schema (``config.yaml``'s ``state``).
     """
     config_dir = Path(config_dir).resolve()
     if not config_dir.is_dir():
         raise ValueError(f"{config_dir}: config directory does not exist.")
 
     config = load_config(config_dir / "config.yaml")
+    try:
+        state_schema = StateSchema.from_dict(config.get("state"))
+    except ValueError as exc:
+        raise type(exc)(f"{config_dir / 'config.yaml'}: {exc}") from None
     module = _import_config_package(config_dir)
 
     new_game = getattr(module, "new_game", None)
@@ -169,4 +193,6 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
         new_game=new_game,
         module=module,
         handlers=HANDLERS,
+        effects=EFFECTS,
+        state_schema=state_schema,
     )

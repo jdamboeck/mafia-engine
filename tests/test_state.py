@@ -163,7 +163,7 @@ def test_new_state_fields_survive_json_safe_round_trip():
     assert isinstance(safe["players"][0], dict)
 
 
-def test_new_state_fields_survive_persistence_round_trip(tmp_path):
+def test_new_state_fields_survive_persistence_round_trip(tmp_path, mafia_config):
     """The full persistence round-trip (not just json_safe) preserves the new fields."""
     from engine import persistence
 
@@ -172,7 +172,7 @@ def test_new_state_fields_survive_persistence_round_trip(tmp_path):
 
     save_path = tmp_path / "u2_groundwork.jsonl"
     persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=1)
-    loaded = persistence.load_game(save_path)
+    loaded = persistence.load_game(save_path, mafia_config.registries)
 
     assert loaded.state.players[0].business.shop_tile == 1
     assert loaded.state.players[0].business.shop_capital == 200

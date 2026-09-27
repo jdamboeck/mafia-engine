@@ -62,7 +62,8 @@ _DELTA_TO_KEY = {v: k for k, v in _MOVE_KEYS.items()}
 # when some earlier module in the same collection run happened to load it first, so a
 # filtered run (`pytest -k ...`) failed on an "unregistered handler" that was never
 # the real problem. Mirrors tests/test_persistence.py and tests/test_slice_integration.py.
-load_game_config(_CONFIG_DIR)
+# Its registries are what the saves below load through.
+_REGISTRIES = load_game_config(_CONFIG_DIR).registries
 
 
 # --------------------------------------------------------------------------- #
@@ -1898,7 +1899,7 @@ class TestSaveAndLoad:
         out_a, (state_a, rng_a) = _run_session(
             monkeypatch, _new_game_lines(k1 + ["p"] + k2), save=str(save), **self._NEW
         )
-        saved = load_game(save)
+        saved = load_game(save, _REGISTRIES)
         out_b, (state_b, rng_b) = _run_session(monkeypatch, k2, load=str(save))
 
         # The runs really played K2 after the save: three hands in A, one in B.
@@ -1937,7 +1938,7 @@ class TestSaveAndLoad:
             end_year=1930,
             score_weight=1.0,
         )
-        saved = load_game(save)
+        saved = load_game(save, _REGISTRIES)
         assert saved.state.players[0].jobs.type != 0, "no job held at the save: vacuous"
         assert saved.state.players[0].ms == 0
 
@@ -1976,7 +1977,7 @@ class TestSaveAndLoad:
         assert "ist an der reihe" not in out, "the upkeep banner was printed"
         assert "  upkeep  " not in out
         assert "spielende" not in out.lower() and "punktewertigkeit" not in out.lower()
-        assert state == load_game(save).state
+        assert state == load_game(save, _REGISTRIES).state
         assert state.players[0].po == cell  # resumed where the save was taken
 
     def test_map_turn_save_holds_no_combat_state(self, monkeypatch, tmp_path):
@@ -2003,7 +2004,9 @@ class TestSaveAndLoad:
             seen: list[int | None] = []
 
             def readline(self, *args) -> str:
-                self.seen.append(load_game(save).state.players[0].po if save.exists() else None)
+                self.seen.append(
+                    load_game(save, _REGISTRIES).state.players[0].po if save.exists() else None
+                )
                 return super().readline(*args)
 
         lines = _new_game_lines([k1, "p", k2, "p", "q"])
@@ -2020,7 +2023,7 @@ class TestSaveAndLoad:
         assert stdin.seen[:4] == [None] * 4, "a save existed before the first p"
         assert stdin.seen[4:] == [c1, c1, c2]
         assert list(tmp_path.iterdir()) == [save]
-        assert load_game(save).state.players[0].po == c2
+        assert load_game(save, _REGISTRIES).state.players[0].po == c2
         # Confirmed in the map's note line, with the target path.
         assert str(save) in out.getvalue()
 
@@ -2032,7 +2035,7 @@ class TestSaveAndLoad:
         _run_session(monkeypatch, _new_game_lines([k1, "p", "q"]), save=str(save), **self._NEW)
         _run_session(monkeypatch, [k2, "p", "q"], load=str(save))
         assert list(tmp_path.iterdir()) == [save]
-        assert load_game(save).state.players[0].po == c2
+        assert load_game(save, _REGISTRIES).state.players[0].po == c2
 
     def test_a_failed_save_is_noted_and_the_game_goes_on(self, monkeypatch, tmp_path):
         """``p`` into a directory that does not exist must not end the session: the
@@ -2094,10 +2097,12 @@ class TestLoadFlagConflicts:
 
         out = capsys.readouterr().out
         assert "move: W/A/S/D" in out.split(CLEAR)[1], "the first screen is not the map"
-        resumed = load_game(written)
+        resumed = load_game(written, _REGISTRIES)
         assert resumed.seed == 7, "the save's own seed was replaced"
         assert resumed.state == new_state(7)
-        assert load_game(loaded).state == new_state(7), "the loaded file was overwritten"
+        assert load_game(loaded, _REGISTRIES).state == new_state(7), (
+            "the loaded file was overwritten"
+        )
 
 
 # --------------------------------------------------------------------------- #

@@ -425,6 +425,7 @@ class TestSetupFlags:
     def _main(monkeypatch, tmp_path, argv, stdin_text):
         """Run ``main()`` end to end, pressing ``p`` on the first map screen; return
         its stdout and the state it saved."""
+        from engine.config_loader import load_game_config
         from engine.persistence import load_game
 
         save = tmp_path / "s.jsonl"
@@ -433,7 +434,7 @@ class TestSetupFlags:
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(20, "main() did not return (spin?)", exc_type=AssertionError):
             main([*argv, "--save", str(save)])
-        return out.getvalue(), load_game(save).state
+        return out.getvalue(), load_game(save, load_game_config(CONFIG_DIR).registries).state
 
     def test_flags_reach_play(self, monkeypatch, tmp_path):
         # title ack, upkeep ack, p, q -- no setup answers: the flags supply them.

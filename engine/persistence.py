@@ -19,26 +19,36 @@ the log so a replay does not re-roll. A **mid-handler** save is restored by repl
 recorded input responses into a fresh ``run_option`` so the handler re-suspends at the same
 prompt — generators are not serializable and none lives in ``GameState``.
 
-Serialization is **type-tagged**: each effect is written as ``{"_type": "<ClassName>", ...}``
-and reconstructed by looking the tag up in :data:`_EFFECT_TYPES`. ``GameState`` is nested
+Serialization is **type-tagged**: each effect is written as ``{"_type": "<tag>", ...}``
+(the tag it registered under, :func:`engine.effects.register_effect`) and reconstructed by
+looking the tag up in the loaded config's effect registry. ``GameState`` is nested
 dataclasses; it round-trips via :func:`~engine.state.json_safe` + typed reconstruction, with the
 int-keyed mapping fields (``map.tenancy``, ``map.special_cells``) restored to int keys (JSON
 stringifies dict keys). The graph's READ-ONLY collections are unwrapped to plain dict/list on
 save and rebuilt as read-only on load, so a restored state is as immutable as a built one.
+
+**Loading needs the loaded config.** The engine cannot name what a config declares, so
+:func:`load_game` and :func:`replay` take the config's :class:`Registries`: the effect
+registry (effects are rebuilt by tag) and the state schema (value maps are rebuilt, with a
+missing key default-filled and an unknown key refused). Recordings (``engine.recording``)
+hold no effects or player state and do not take them.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
+import types
+import typing
 from collections.abc import Mapping
-from dataclasses import dataclass, is_dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from engine import effects as _effects
-from engine.effects import SCHEMA_VERSION, commit
+from engine.effects import SCHEMA_VERSION, commit, effect_tag
 from engine.state import (
     Business,
     Clock,
@@ -53,6 +63,7 @@ from engine.state import (
     Job,
     MapState,
     Player,
+    StateSchema,
     Wanted,
     json_safe,
 )
@@ -60,6 +71,8 @@ from engine.state import (
 __all__ = [
     "SCHEMA_VERSION",
     "SchemaVersionError",
+    "UnknownEffectError",
+    "Registries",
     "SaveData",
     "save_game",
     "load_game",
@@ -74,23 +87,26 @@ class SchemaVersionError(Exception):
     """Raised on load when a record carries a schema ``version`` this build cannot read."""
 
 
+class UnknownEffectError(TypeError):
+    """Raised when an effect's tag is not in the effect registry it is resolved against."""
+
+
+@dataclass(frozen=True)
+class Registries:
+    """What save loading and replay need from the loaded config.
+
+    ``effects`` is the effect registry (tag -> class, :data:`engine.effects.EFFECTS`);
+    ``state_schema`` declares the per-player and global value maps. Both come from
+    :class:`~engine.config_loader.LoadedConfig` (``loaded.registries``).
+    """
+
+    effects: Mapping[str, type]
+    state_schema: StateSchema
+
+
 # --------------------------------------------------------------------------- #
 # Effect (de)serialization — type-tagged                                      #
 # --------------------------------------------------------------------------- #
-#: Every concrete Effect class, keyed by its tag (the class name). Built from the
-#: effects module's ``__all__`` so a newly added effect is covered automatically.
-def _build_effect_types() -> dict[str, type]:
-    out: dict[str, type] = {}
-    for name in _effects.__all__:
-        obj = getattr(_effects, name)
-        if isinstance(obj, type) and is_dataclass(obj) and obj is not _effects.CommitResult:
-            out[name] = obj
-    return out
-
-
-_EFFECT_TYPES: dict[str, type] = _build_effect_types()
-
-
 def _effect_to_dict(effect: Any) -> dict:
     """Serialize a frozen Effect dataclass to a type-tagged plain dict.
 
@@ -100,36 +116,57 @@ def _effect_to_dict(effect: Any) -> dict:
     is not picklable, so it cannot walk a frozen graph at all. ``json_safe`` is the
     engine's declared inverse of that frozen form and unwraps it correctly.
     """
-    tag = type(effect).__name__
-    if tag not in _EFFECT_TYPES:
-        raise TypeError(f"cannot serialize unknown effect type {tag!r}")
+    tag = effect_tag(effect)
+    if tag is None:
+        raise UnknownEffectError(
+            f"cannot serialize {type(effect).__name__!r}: it is not a registered effect"
+        )
     return {"_type": tag, **json_safe(effect)}
 
 
-#: Effect fields holding a nested dataclass, by effect type and field name.
-#: ``dataclasses.asdict`` flattens these on the way out, so reconstruction has to
-#: rebuild them — otherwise the effect replays carrying a plain dict and the first
-#: attribute read fails far from the save/load code that caused it.
-_NESTED_EFFECT_FIELDS: dict[str, dict[str, type]] = {
-    "SpawnFighter": {"fighter": Fighter},
-}
+def _dataclass_in(hint: Any) -> type | None:
+    """The dataclass a field annotation names, directly or as one arm of a union."""
+    if isinstance(hint, type) and dataclasses.is_dataclass(hint):
+        return hint
+    if typing.get_origin(hint) in (typing.Union, types.UnionType):
+        found = [a for a in typing.get_args(hint) if isinstance(a, type)]
+        classes = [a for a in found if dataclasses.is_dataclass(a)]
+        if len(classes) == 1:
+            return classes[0]
+    return None
 
 
-def _effect_from_dict(raw: dict) -> Any:
-    """Reconstruct an Effect dataclass from its type-tagged dict."""
+def _rebuild(cls: type, raw: dict) -> Any:
+    """Rebuild dataclass ``cls`` from its JSON dict, recursing into nested dataclasses.
+
+    Nested fields are found from the class's own field annotations, so an effect (the
+    engine's or a config's) with a dataclass-typed field needs no table entry: a
+    ``RosterAppend.gangster`` declared ``Combatant`` comes back a ``Combatant``, a
+    ``SpawnFighter.fighter`` declared ``Fighter`` a ``Fighter``.
+    """
+    hints = typing.get_type_hints(cls)
+    kwargs = dict(raw)
+    for f in dataclasses.fields(cls):
+        value = kwargs.get(f.name)
+        nested = _dataclass_in(hints.get(f.name))
+        if nested is not None and isinstance(value, dict):
+            kwargs[f.name] = _rebuild(nested, value)
+    return cls(**kwargs)
+
+
+def _effect_from_dict(raw: dict, effects: Mapping[str, type]) -> Any:
+    """Reconstruct an Effect dataclass from its type-tagged dict, by the registry."""
     tag = raw.get("_type")
-    if not isinstance(tag, str) or tag not in _EFFECT_TYPES:
-        raise TypeError(f"cannot deserialize unknown effect type {tag!r}")
-    cls = _EFFECT_TYPES[tag]
+    if not isinstance(tag, str) or tag not in effects:
+        raise UnknownEffectError(
+            f"the save names effect {tag!r}, which the loaded config does not register"
+        )
+    cls = effects[tag]
     kwargs = {k: v for k, v in raw.items() if k != "_type"}
     # A field added after this record was written: fill in what its absence meant.
     for name, legacy in _effects.LEGACY_FIELD_DEFAULTS.get(cls, {}).items():
         kwargs.setdefault(name, legacy)
-    for field, nested_cls in _NESTED_EFFECT_FIELDS.get(tag, {}).items():
-        value = kwargs.get(field)
-        if isinstance(value, dict):
-            kwargs[field] = nested_cls(**value)
-    return cls(**kwargs)
+    return _rebuild(cls, kwargs)
 
 
 # --------------------------------------------------------------------------- #
@@ -194,10 +231,18 @@ def _roster_member_from_dict(raw: dict) -> Combatant:
     return Combatant(**blueprint, attrs=dict(attrs))
 
 
-def _player_from_dict(raw: dict) -> Player:
+def _player_from_dict(raw: dict, schema: StateSchema | None, index: int) -> Player:
+    values = raw.get("values") or {}
+    if schema is None:
+        # No schema: the exact inverse of json_safe (see state_from_dict).
+        values = MappingProxyType(dict(values))
+    else:
+        # Default-fill a missing key; refuse an unknown or mistyped one.
+        values = schema.load_player_values(values, where=f"players[{index}]")
     return Player(
         **{
             **raw,
+            "values": values,
             "roster": tuple(_roster_member_from_dict(g) for g in raw["roster"]),
             "jobs": Job(**raw["jobs"]),
             "debt": Debt(**raw["debt"]),
@@ -245,7 +290,7 @@ def _combat_from_dict(raw: dict) -> CombatState:
     return CombatState(**restored)
 
 
-def state_from_dict(raw: dict) -> GameState:
+def state_from_dict(raw: dict, schema: StateSchema | None = None) -> GameState:
     """Reconstruct a ``GameState`` from its serialized nested dict.
 
     Public because it is the declared inverse of :func:`~engine.state.json_safe`
@@ -253,14 +298,24 @@ def state_from_dict(raw: dict) -> GameState:
     (and int-key restoration) that a generic walker cannot do. The test purity
     harness rebuilds its replay baseline with it, so this is a supported entry
     point, not persistence-internal — changing its shape breaks that harness.
+
+    With a ``schema`` the value maps load through it (default-fill, refuse unknown
+    keys) — :func:`load_game` always passes the loaded config's. Without one they come
+    back exactly as saved, which is what the exact-inverse use needs.
     """
+    global_values = raw.get("values") or {}
+    if schema is None:
+        global_values = MappingProxyType(dict(global_values))
+    else:
+        global_values = schema.load_global_values(global_values)
     return GameState(
-        players=tuple(_player_from_dict(p) for p in raw["players"]),
+        players=tuple(_player_from_dict(p, schema, i) for i, p in enumerate(raw["players"])),
         map=_map_from_dict(raw["map"]),
         combat=_combat_from_dict(raw["combat"]),
         clock=Clock(**raw["clock"]),
         config=_config_from_dict(raw["config"]),
         flags=Flags(**raw["flags"]),
+        values=global_values,
     )
 
 
@@ -348,8 +403,13 @@ def append_effect(path: str | Path, effect: Any) -> None:
 # --------------------------------------------------------------------------- #
 # Read                                                                        #
 # --------------------------------------------------------------------------- #
-def load_game(path: str | Path) -> SaveData:
-    """Load a save: parse the JSONL, verify versions, reconstruct snapshot + logs."""
+def load_game(path: str | Path, registries: Registries) -> SaveData:
+    """Load a save: parse the JSONL, verify versions, reconstruct snapshot + logs.
+
+    ``registries`` is the loaded config's (``loaded.registries``): effects are rebuilt
+    by tag through its effect registry — an unregistered tag raises
+    :class:`UnknownEffectError` naming it — and the value maps through its state schema.
+    """
     path = Path(path)
     records = [
         json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -361,9 +421,11 @@ def load_game(path: str | Path) -> SaveData:
         _check_version(rec)
 
     header = records[0]
-    state = state_from_dict(header["snapshot"])
+    state = state_from_dict(header["snapshot"], registries.state_schema)
     effect_log = [
-        _effect_from_dict(rec["effect"]) for rec in records if rec.get("kind") == "effect"
+        _effect_from_dict(rec["effect"], registries.effects)
+        for rec in records
+        if rec.get("kind") == "effect"
     ]
     # rng draws round-trip as [method, [args...], value]; normalize to the log tuple shape.
     rng_log = [
@@ -384,12 +446,21 @@ def load_game(path: str | Path) -> SaveData:
 # --------------------------------------------------------------------------- #
 # Replay + resume                                                             #
 # --------------------------------------------------------------------------- #
-def replay(save: SaveData) -> GameState:
+def replay(save: SaveData, registries: Registries) -> GameState:
     """Reproduce the final ``GameState`` = snapshot + ordered effect log.
 
     RNG draws are carried in ``save.rng_log`` for verification/auditing; replay itself
-    does not re-roll because the committed effects already encode every outcome.
+    does not re-roll because the committed effects already encode every outcome. Each
+    effect applies itself; ``registries`` is checked first, so a log holding an effect
+    the loaded config does not register fails naming its tag rather than replaying it.
     """
+    for effect in save.effect_log:
+        tag = effect_tag(effect)
+        if tag is None or tag not in registries.effects:
+            raise UnknownEffectError(
+                f"the log holds effect {tag or type(effect).__name__!r}, "
+                "which the loaded config does not register"
+            )
     return commit(save.state, save.effect_log).state
 
 

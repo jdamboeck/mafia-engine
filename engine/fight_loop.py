@@ -166,7 +166,7 @@ def _run_combat(
     order (1:1 with ``start.sides[0]``, since :func:`engine.combat_setup.build_player_side`
     never reorders the roster). ``cap`` is set to the fighter's OWN pre/post energy
     ceiling (never a fresh regen-cap computation) so the clamp in
-    ``engine.effects._apply``'s ``EnergyChange`` branch is a structural no-op here —
+    ``engine.effects.EnergyChange.apply`` is a structural no-op here —
     combat only ever LOWERS energy (no mid-fight healing exists), so the
     post-fight value is by construction the correct final value, not merely a floor.
     Side 2 (the enemy party) is NPC working state, never a roster, so it is not

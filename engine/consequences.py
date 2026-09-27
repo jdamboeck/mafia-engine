@@ -15,8 +15,9 @@ field each raise.
 **Pure.** Conversion never touches game state and never mutates its input dicts — it only
 reads the raw dicts and constructs frozen effect dataclasses. Field requiredness is
 derived declaratively from each effect's :func:`dataclasses.fields` (a field with no
-default is required; one with a default is optional), so the type registry below is the
-only thing to extend when a new consequence type is added.
+default is required; one with a default is optional), so an effect becomes a consequence type
+by registering with a ``consequence`` name (:func:`engine.effects.register_effect`);
+there is no list here to extend.
 
 ``engine/`` imports nothing from ``server``/``clients``/transport; this module holds no
 display text.
@@ -26,34 +27,9 @@ from __future__ import annotations
 
 from dataclasses import MISSING, fields
 
-from engine.effects import (
-    LEGACY_FIELD_DEFAULTS,
-    AssignWeapon,
-    MoneyChange,
-    MsChange,
-    ScoreAndRank,
-    ScoreChange,
-    SetEntryContext,
-    SetPosition,
-    StatChangeCapped,
-    Teleport,
-)
+from engine.effects import CONSEQUENCES, LEGACY_FIELD_DEFAULTS
 
-__all__ = ["effect_from_dict", "effects_from_dicts", "EFFECT_TYPES"]
-
-#: Registry mapping a consequence ``type`` string (as authored in YAML) to its effect
-#: dataclass. This is the sole extension point for new consequence types.
-EFFECT_TYPES: dict[str, type] = {
-    "ms_change": MsChange,
-    "money_change": MoneyChange,
-    "score_change": ScoreChange,
-    "teleport": Teleport,
-    "set_position": SetPosition,
-    "set_entry_context": SetEntryContext,
-    "stat_change_capped": StatChangeCapped,
-    "assign_weapon": AssignWeapon,
-    "score_and_rank": ScoreAndRank,
-}
+__all__ = ["effect_from_dict", "effects_from_dicts"]
 
 
 def _field_sets(effect_cls: type) -> tuple[set[str], set[str]]:
@@ -76,7 +52,7 @@ def _field_sets(effect_cls: type) -> tuple[set[str], set[str]]:
 def effect_from_dict(raw: dict) -> object:
     """Convert one raw consequence dict into its typed effect dataclass.
 
-    The ``type`` key selects the effect class (see :data:`EFFECT_TYPES`); the remaining
+    The ``type`` key selects the effect class (see :data:`engine.effects.CONSEQUENCES`); the remaining
     keys become constructor keyword arguments. Strict: raises ``ValueError`` for an unknown
     or missing ``type``, a missing required field, or an unknown extra field. Absent
     optional fields fall back to the dataclass default; a field added to an effect after
@@ -87,14 +63,14 @@ def effect_from_dict(raw: dict) -> object:
     if "type" not in raw:
         raise ValueError(
             "consequence dict is missing the required 'type' key; expected one of "
-            f"{sorted(EFFECT_TYPES)}"
+            f"{sorted(CONSEQUENCES)}"
         )
 
     type_name = raw["type"]
-    effect_cls = EFFECT_TYPES.get(type_name)
+    effect_cls = CONSEQUENCES.get(type_name)
     if effect_cls is None:
         raise ValueError(
-            f"unknown consequence type {type_name!r}; expected one of {sorted(EFFECT_TYPES)}"
+            f"unknown consequence type {type_name!r}; expected one of {sorted(CONSEQUENCES)}"
         )
 
     required, optional = _field_sets(effect_cls)

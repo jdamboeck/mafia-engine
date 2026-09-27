@@ -51,7 +51,7 @@ from engine.movement import (
     start_free_turn,
     try_move,
 )
-from engine.persistence import SchemaVersionError, load_game, replay, save_game
+from engine.persistence import Registries, SchemaVersionError, load_game, replay, save_game
 from engine.rng import Rng
 from engine.state import GameState
 from engine.strings import Resolver
@@ -134,7 +134,9 @@ def _load_reason(exc: BaseException, resolver: Resolver) -> str:
     return reason("corrupt", error_type=type(exc).__name__, detail=exc)
 
 
-def _load_session(path: str | Path, resolver: Resolver) -> tuple[int, GameState, Rng]:
+def _load_session(
+    path: str | Path, resolver: Resolver, registries: Registries
+) -> tuple[int, GameState, Rng]:
     """Resume a save: its seed, its state and the session RNG rebuilt mid-stream.
 
     The snapshot is authoritative (the effect log is saved empty), and the session RNG
@@ -142,10 +144,11 @@ def _load_session(path: str | Path, resolver: Resolver) -> tuple[int, GameState,
     uninterrupted play would be. A draw log that does not match the save's seed makes
     :meth:`Rng.replayed` raise ``ValueError`` -- a load failure like any other.
     Every failure becomes :class:`LoadError` with the theme's ``client.load.error`` line.
+    ``registries`` is the loaded config's: effects and value maps load through it.
     """
     try:
-        loaded = load_game(path)
-        return loaded.seed, replay(loaded), Rng.replayed(loaded.seed, loaded.rng_log)
+        loaded = load_game(path, registries)
+        return loaded.seed, replay(loaded, registries), Rng.replayed(loaded.seed, loaded.rng_log)
     except Exception as exc:
         message = resolver.resolve(
             "client.load.error", {"path": path, "reason": _load_reason(exc, resolver)}
@@ -669,7 +672,9 @@ class TerminalSession:
         )
         if load is not None:
             # raises LoadError; main() reports it
-            self.seed, self.state, self.rng = _load_session(load, self.resolver)
+            self.seed, self.state, self.rng = _load_session(
+                load, self.resolver, self.cfg.registries
+            )
         else:
             self.seed = seed if seed is not None else _DEFAULT_SEED
             # the one session RNG — threaded into every run_option call

@@ -586,12 +586,12 @@ class TestClientSmokeSetupToEnding:
         b_save = tmp_path / "b.jsonl"
         # Run B, first half: the same keys up to and including the mid-game p, then q.
         out_b1 = _drive_main([*_SMOKE_ARGV, "--save", str(b_save)], [""] + lines[: mid + 1] + ["q"])
-        mid_save = load_game(b_save)
+        mid_save = load_game(b_save, _CONFIG.registries)
         # Run B, second half: --load, then the SAME remaining keys (a load shows no
         # title and no upkeep). Its final-turn p overwrites the loaded file.
         out_b2 = _drive_main(["--load", str(b_save)], lines[mid + 1 :])
 
-        last_a = load_game(smoke_run_a["save"])
+        last_a = load_game(smoke_run_a["save"], _CONFIG.registries)
         # The split is not vacuous: one casino hand before the save, one after it.
         assert out_b1.lower().count(_DEALT) == 1
         assert out_b2.lower().count(_DEALT) == 1
@@ -608,7 +608,7 @@ class TestClientSmokeSetupToEnding:
         from engine.persistence import load_game
 
         size = smoke_run_a["save"].stat().st_size
-        saved = load_game(smoke_run_a["save"])
+        saved = load_game(smoke_run_a["save"], _CONFIG.registries)
         # The final-turn p ran on the last map screen (after player b's upkeep).
         assert saved.state.clock.active_player == 1
         assert (saved.state.clock.year, saved.state.clock.month) == (1927, 11)

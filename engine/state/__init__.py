@@ -120,6 +120,9 @@ __all__ = [
     "Config",
     "Flags",
     "GameState",
+    "StateSchema",
+    "StateSchemaError",
+    "ValueSpec",
     # NOTE: `freeze`, `json_safe`, and `tuple_replace` are deliberately NOT exported.
     # docs/design/config-and-content-contract.md § Handler API admits only "engine
     # helpers for shared BASIC subroutines" (not-enough-money, gangster picker,
@@ -334,9 +337,12 @@ class Player:
     last_location: int = 0  # ln — within-location tile index 1..9 of the last entry
     last_la: int = 0  # la — location id of the last entry (0 = none)
     rented_months: int = 0  # um(sp) — prepaid rented months accumulator (mf-prg.bas:10040)
+    #: This player's game state, declared by the config (:class:`StateSchema`): a
+    #: frozen ``name -> value`` map the engine saves and restores without naming a key.
+    values: Mapping[str, Any] = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
-        _coerce_readonly(self, "roster")
+        _coerce_readonly(self, "roster", "values")
 
 
 @dataclass(frozen=True)
@@ -529,6 +535,142 @@ class GameState:
     clock: Clock = field(default_factory=Clock)
     config: Config = field(default_factory=Config)
     flags: Flags = field(default_factory=Flags)
+    #: Game state with no player dimension, declared by the config
+    #: (:class:`StateSchema`): the same kind of frozen map as :attr:`Player.values`.
+    values: Mapping[str, Any] = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
-        _coerce_readonly(self, "players")
+        _coerce_readonly(self, "players", "values")
+
+
+# --------------------------------------------------------------------------- #
+# Declared value maps — the config's state schema                             #
+# --------------------------------------------------------------------------- #
+#: The value types a schema may declare, by the name a config writes.
+_VALUE_TYPES: dict[str, type] = {"int": int, "float": float, "bool": bool, "str": str}
+
+
+class StateSchemaError(ValueError):
+    """A malformed state schema, or saved values that do not fit the schema."""
+
+
+@dataclass(frozen=True)
+class ValueSpec:
+    """One declared value-map key: its ``name``, value ``type`` and ``default``."""
+
+    name: str
+    type: type
+    default: Any
+
+
+def _fits(spec_type: type, value: Any) -> bool:
+    # Exact type: ``True`` is an int to Python and ``1 == 1.0``, but a bool in an int
+    # key or an int in a float key is the drift a save must not carry.
+    return type(value) is spec_type
+
+
+def _parse_specs(section: Any, where: str) -> Mapping[str, ValueSpec]:
+    if not isinstance(section, Mapping):
+        raise StateSchemaError(f"state.{where} must be a mapping of name -> {{type, default}}")
+    specs: dict[str, ValueSpec] = {}
+    for name, raw in section.items():
+        if not isinstance(raw, Mapping):
+            raise StateSchemaError(f"state.{where}.{name} must be a mapping with type and default")
+        unknown = set(raw) - {"type", "default"}
+        if unknown:
+            raise StateSchemaError(f"state.{where}.{name} has unknown field(s) {sorted(unknown)}")
+        type_name = raw.get("type")
+        if type_name not in _VALUE_TYPES:
+            raise StateSchemaError(
+                f"state.{where}.{name} declares type {type_name!r}; "
+                f"expected one of {sorted(_VALUE_TYPES)}"
+            )
+        if "default" not in raw:
+            raise StateSchemaError(f"state.{where}.{name} declares no default")
+        value_type = _VALUE_TYPES[type_name]
+        default = raw["default"]
+        if value_type is float and type(default) is int:
+            default = float(default)  # YAML writes ``0`` for a float's zero
+        if not _fits(value_type, default):
+            raise StateSchemaError(
+                f"state.{where}.{name}: default {default!r} is not a {type_name}"
+            )
+        specs[name] = ValueSpec(name=name, type=value_type, default=default)
+    return MappingProxyType(specs)
+
+
+def _load_values(specs: Mapping[str, ValueSpec], raw: Any, where: str) -> Mapping[str, Any]:
+    if not isinstance(raw, Mapping):
+        raise StateSchemaError(f"{where}: saved values must be a mapping")
+    unknown = sorted(set(raw) - set(specs))
+    if unknown:
+        raise StateSchemaError(
+            f"{where}: saved key(s) {unknown} are not declared in the config's state schema"
+        )
+    loaded: dict[str, Any] = {}
+    for name, spec in specs.items():
+        if name not in raw:
+            loaded[name] = spec.default
+            continue
+        value = raw[name]
+        if not _fits(spec.type, value):
+            raise StateSchemaError(
+                f"{where}: saved key {name!r} holds {value!r}, not a {spec.type.__name__}"
+            )
+        loaded[name] = value
+    return MappingProxyType(loaded)
+
+
+@dataclass(frozen=True)
+class StateSchema:
+    """The config's declared value maps: names, types and defaults.
+
+    ``player`` declares the keys of every :attr:`Player.values`; ``global_`` those of
+    :attr:`GameState.values`. A config writes it as the ``state`` section of its
+    ``config.yaml``::
+
+        state:
+          player:
+            counter: {type: int, default: 0}
+          global:
+            round_bonus: {type: float, default: 0.0}
+
+    On load a missing key takes its declared default and an unknown key is refused,
+    so a later change can add a key without a save-format bump.
+    """
+
+    player: Mapping[str, ValueSpec] = field(default_factory=lambda: _EMPTY_MAP)
+    global_: Mapping[str, ValueSpec] = field(default_factory=lambda: _EMPTY_MAP)
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "StateSchema":
+        """Parse a config's ``state`` section; ``None`` declares two empty maps."""
+        if raw is None:
+            return cls()
+        if not isinstance(raw, Mapping):
+            raise StateSchemaError("state must be a mapping with 'player' and/or 'global'")
+        unknown = set(raw) - {"player", "global"}
+        if unknown:
+            raise StateSchemaError(
+                f"state has unknown section(s) {sorted(unknown)}; expected 'player', 'global'"
+            )
+        return cls(
+            player=_parse_specs(raw.get("player", {}), "player"),
+            global_=_parse_specs(raw.get("global", {}), "global"),
+        )
+
+    def player_defaults(self) -> Mapping[str, Any]:
+        """A fresh player's value map: every declared key at its default."""
+        return MappingProxyType({n: s.default for n, s in self.player.items()})
+
+    def global_defaults(self) -> Mapping[str, Any]:
+        """A fresh game's global value map: every declared key at its default."""
+        return MappingProxyType({n: s.default for n, s in self.global_.items()})
+
+    def load_player_values(self, raw: Any, *, where: str = "player") -> Mapping[str, Any]:
+        """Restore one saved player map: default-fill, refuse unknown or mistyped keys."""
+        return _load_values(self.player, raw, where)
+
+    def load_global_values(self, raw: Any, *, where: str = "global") -> Mapping[str, Any]:
+        """Restore the saved global map: default-fill, refuse unknown or mistyped keys."""
+        return _load_values(self.global_, raw, where)
