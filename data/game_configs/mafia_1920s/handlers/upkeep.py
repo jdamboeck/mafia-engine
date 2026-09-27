@@ -115,16 +115,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import (
-    DebtChange,
-    DebtClear,
-    EnergyChange,
-    MoneyChange,
-    RankCommit,
-    RentAccrue,
-    RosterTruncate,
-    TipClear,
-)
+from engine.effects import EnergyChange, MoneyChange, RosterTruncate
+from ..effects import DebtChange, DebtClear, RankCommit, RentAccrue, TipClear
 from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario

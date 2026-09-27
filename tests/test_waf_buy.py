@@ -421,7 +421,7 @@ def test_score_first_weapon_up_by_x8():
     st = _state(ln=2, ka=1000, gf=50.0, score_mult=1.0)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(1.0, clamp=False) in result.effects
+    assert ScoreChange(1.0, floor=None, cap=None) in result.effects
 
 
 def test_score_upgrade_new_index_higher_than_old_is_up():
@@ -431,7 +431,7 @@ def test_score_upgrade_new_index_higher_than_old_is_up():
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([5]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(1.0, clamp=False) in result.effects
+    assert ScoreChange(1.0, floor=None, cap=None) in result.effects
 
 
 def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
@@ -441,7 +441,7 @@ def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([1]), PromptChoice: iter([0]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(-2.0, clamp=False) in result.effects
+    assert ScoreChange(-2.0, floor=None, cap=None) in result.effects
 
 
 def test_score_gate_false_no_change():

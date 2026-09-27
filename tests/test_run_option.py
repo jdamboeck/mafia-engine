@@ -24,7 +24,8 @@ from __future__ import annotations
 import pytest
 
 from engine.actions import DeniedResult, EngineResult, run_option
-from engine.effects import MoneyChange, MsChange, SetTenancy
+from engine.effects import MoneyChange, MsChange
+from data.game_configs.mafia_1920s.effects import SetTenancy
 from engine.events import (
     LocationActionCancelled,
     LocationActionCompleted,

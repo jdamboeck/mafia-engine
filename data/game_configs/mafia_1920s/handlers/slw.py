@@ -30,7 +30,8 @@ before the location's menu runs.
 
 from __future__ import annotations
 
-from engine.effects import MoneyChange, RentAccrue, SetTenancy
+from engine.effects import MoneyChange
+from ..effects import RentAccrue, SetTenancy
 from engine.interactions import PromptInt, ShowMessage
 from engine.locations import register
 

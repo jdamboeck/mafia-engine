@@ -8,7 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.config_loader import load_game_config
-from engine.effects import MoneyChange, ScoreAndRank, StatChangeCapped
+from engine.effects import MoneyChange, StatChangeCapped
+from data.game_configs.mafia_1920s.effects import ScoreAndRank
 from engine.interactions import Ack, Confirm, Ctx, PromptChoice, ShowMessage
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player

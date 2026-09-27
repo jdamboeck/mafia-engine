@@ -19,7 +19,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.config_loader import load_game_config
-from engine.effects import BarrelChange, MoneyChange, ScoreAndRank
+from engine.effects import MoneyChange
+from data.game_configs.mafia_1920s.effects import BarrelChange, ScoreAndRank
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Contraband, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster

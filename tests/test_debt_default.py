@@ -38,13 +38,14 @@ import pytest
 
 from engine.combat import STEP_RIGHT
 from engine.config_loader import load_game_config
-from engine.effects import DebtChange, DebtClear, MoneyChange
+from engine.effects import MoneyChange
+from data.game_configs.mafia_1920s.effects import DebtChange, DebtClear
 from engine.interactions import ShowMessage
 from engine.state import Business, Clock, Config, Debt, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
-from tests.helpers import StubRng, run_pure, scripted as _scripted
+from tests.helpers import is_effect, StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -83,7 +84,7 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
 
 
 def _debt_effects(result):
-    return [e for e in result.effects if isinstance(e, (DebtChange, DebtClear))]
+    return [e for e in result.effects if is_effect(e, DebtChange, DebtClear)]
 
 
 # --------------------------------------------------------------------------- #
@@ -349,7 +350,7 @@ def test_counter_at_zero_is_a_fixed_point_so_the_fight_recurs():
     st = _state(debt=Debt(amount=3000, months=0), ka=5000)
     result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
     # The tick must NOT have pushed months negative on the way into the fight.
-    ticks = [e for e in result.effects if isinstance(e, DebtChange)]
+    ticks = [e for e in result.effects if is_effect(e, DebtChange)]
     assert all(e.months is None or e.months >= 0 for e in ticks)
 
 

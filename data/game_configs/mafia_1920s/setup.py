@@ -28,14 +28,16 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_config
-from engine.effects import DebtClear, MoneyChange, ScoreAndRank
+from engine.effects import MoneyChange
 from engine.interactions import ShowMessage
 from engine.rng import Rng
 from engine.state import Clock, Config, GameState, Player
 
 try:
+    from .effects import DebtClear, ScoreAndRank
     from .gangster import Gangster
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
+    from effects import DebtClear, ScoreAndRank
     from gangster import Gangster
 from engine.types import validate_rank, validate_vehicle, validate_weapon
 
@@ -171,7 +173,7 @@ def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int, int]]:
 _OUTCOME_KEYS = frozenset({"money", "score", "message", "clear"})
 
 #: The named no-argument effects a ``clear:`` step may name. Only ``debt`` today
-#: (mapping to :class:`~engine.effects.DebtClear`); listing them here keeps an
+#: (mapping to :class:`DebtClear`); listing them here keeps an
 #: unknown ``clear:`` target a LOAD-time failure, not a fight-time one.
 _CLEAR_TARGETS = frozenset({"debt"})
 
@@ -330,7 +332,7 @@ def apply_outcome(ctx, encounter: Encounter, result):
     * ``message: <theme key>`` — a :class:`~engine.interactions.ShowMessage`. Params are
       the last money roll's ``{"amount": …}`` if one preceded it, else empty.
     * ``clear: <named effect>`` — a no-argument named effect (``debt`` ->
-      :class:`~engine.effects.DebtClear`), validated at load.
+      :class:`DebtClear`), validated at load.
 
     This is the WHOLE vocabulary — no state references, no conditionals, no arithmetic
     over live values (that boundary is why the collectors' seizure and the jobs' payouts

@@ -27,11 +27,8 @@ import yaml
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "data" / "game_configs" / "mafia_1920s"
 sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 
-from engine.effects import (  # noqa: E402
-    MoneyChange,
-    SetTenancy,
-    commit,
-)
+from engine.effects import MoneyChange, commit  # noqa: E402
+from data.game_configs.mafia_1920s.effects import SetTenancy  # noqa: E402
 from engine.config_loader import load_game_config  # noqa: E402
 from engine.interactions import run  # noqa: E402
 from engine.locations import load_location  # noqa: E402
@@ -282,13 +279,14 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     assert restored.side == 1
 
 
-def test_a_score_change_recorded_before_the_clamp_field_loads_clamped(tmp_path: Path):
-    """A ScoreChange logged before ``clamp`` existed has no such key; it must load, and
-    replay with the clamp it was recorded under. One written now carries its clamp."""
+def test_a_score_change_recorded_before_the_bound_fields_loads_as_it_meant(tmp_path: Path):
+    """A ScoreChange carries its caller-supplied bound in a save. One logged before the
+    bound fields existed loads with the bound it was recorded under: no key meant the
+    [0, 100] clamp, and the replaced ``clamp`` flag meant [0, 100] or no bound."""
     from engine.effects import ScoreChange
 
     save_path = tmp_path / "game.jsonl"
-    unclamped = ScoreChange(3.0, clamp=False)
+    unclamped = ScoreChange(3.0, floor=None, cap=None)
     persistence.save_game(save_path, _fresh_state(), effect_log=[unclamped], rng_log=[], seed=SEED)
     header, effect_line = save_path.read_text(encoding="utf-8").splitlines()
     record = json.loads(effect_line)
@@ -296,16 +294,21 @@ def test_a_score_change_recorded_before_the_clamp_field_loads_clamped(tmp_path: 
         "_type": "ScoreChange",
         "amount": 3.0,
         "player": None,
-        "clamp": False,
+        "floor": None,
+        "cap": None,
     }
     assert persistence.load_game(save_path, _REGISTRIES).effect_log == [unclamped]
 
-    # The same record as an older save wrote it: no ``clamp`` key.
-    del record["effect"]["clamp"]
-    save_path.write_text(f"{header}\n{json.dumps(record)}\n", encoding="utf-8")
-    assert persistence.load_game(save_path, _REGISTRIES).effect_log == [
-        ScoreChange(3.0, clamp=True)
-    ]
+    def _load_with(fields: dict) -> list:
+        old = {"_type": "ScoreChange", "amount": 3.0, "player": None, **fields}
+        line = json.dumps({**record, "effect": old})
+        save_path.write_text(f"{header}\n{line}\n", encoding="utf-8")
+        return persistence.load_game(save_path, _REGISTRIES).effect_log
+
+    clamped = ScoreChange(3.0, floor=0.0, cap=100.0)
+    assert _load_with({}) == [clamped]  # before ``clamp`` existed
+    assert _load_with({"clamp": True}) == [clamped]
+    assert _load_with({"clamp": False}) == [unclamped]
 
 
 def test_session_save_resumes_the_rng_stream(tmp_path):

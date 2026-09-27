@@ -29,13 +29,14 @@ import pytest
 
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.config_loader import load_config, load_game_config
-from engine.effects import MoneyChange, RentAccrue, RosterTruncate
+from engine.effects import MoneyChange, RosterTruncate
+from data.game_configs.mafia_1920s.effects import RentAccrue
 from engine.interactions import ShowMessage
 from engine.locations import HANDLERS
 from engine.state import Business, Clock, Config, GameState, Player
 from engine.strings import Resolver
 from engine.upkeep import UPKEEP_HANDLER_KEY, run_upkeep
-from tests.helpers import StubRng, run_pure
+from tests.helpers import is_effect, StubRng, run_pure
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -89,7 +90,7 @@ def test_no_rent_slot_when_nothing_is_prepaid():
     assert p.ka == 1000
     assert rng.calls == []
     assert _rent_messages(shown) == []
-    assert not any(isinstance(e, (RentAccrue, MoneyChange, RosterTruncate)) for e in result.effects)
+    assert not any(is_effect(e, RentAccrue, MoneyChange, RosterTruncate) for e in result.effects)
 
 
 # --------------------------------------------------------------------------- #

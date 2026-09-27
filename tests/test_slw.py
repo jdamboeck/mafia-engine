@@ -22,7 +22,8 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.effects import MoneyChange, RentAccrue, SetTenancy
+from engine.effects import MoneyChange
+from data.game_configs.mafia_1920s.effects import RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, GameState, MapState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster

@@ -162,10 +162,9 @@ def _effect_from_dict(raw: dict, effects: Mapping[str, type]) -> Any:
             f"the save names effect {tag!r}, which the loaded config does not register"
         )
     cls = effects[tag]
-    kwargs = {k: v for k, v in raw.items() if k != "_type"}
-    # A field added after this record was written: fill in what its absence meant.
-    for name, legacy in _effects.LEGACY_FIELD_DEFAULTS.get(cls, {}).items():
-        kwargs.setdefault(name, legacy)
+    # A field added or replaced after this record was written: upgrade to what the
+    # record meant then.
+    kwargs = _effects.legacy_fields(cls, {k: v for k, v in raw.items() if k != "_type"})
     return _rebuild(cls, kwargs)
 
 

@@ -9,8 +9,8 @@ even offering the option, and kdh never does that):
   (``kr(sp)=0``); amount 0-5000; sets ``kr+=x``, ``ka+=x``, grace ``kz=6``.
 - ``kdh.repay`` (``15050-15075``) — repay part or all. Bounds ``0<=x<=kr(sp)``;
   afford check; full repayment (``kr`` reaches 0) additionally resets the grace
-  counter ``kz=0`` (:class:`~engine.effects.DebtClear`, applied ALONGSIDE the final
-  :class:`~engine.effects.DebtChange` that zeros ``kr`` — not instead of it, since a
+  counter ``kz=0`` (:class:`DebtClear`, applied ALONGSIDE the final
+  :class:`DebtChange` that zeros ``kr`` — not instead of it, since a
   partial repay that happens to land exactly on 0 is the SAME code path as an
   intentional full repay in the source: ``ifkr(sp)=0goto15075`` tests the RESULT, not
   the caller's intent).
@@ -56,7 +56,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import DebtChange, DebtClear, MoneyChange, ShopChange
+from engine.effects import MoneyChange
+from ..effects import DebtChange, DebtClear, ShopChange
 from engine.interactions import Confirm, PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario

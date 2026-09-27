@@ -27,19 +27,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.config_loader import load_game_config
-from engine.effects import (
-    EnergyChange,
-    JobClear,
-    JobSet,
-    MoneyChange,
-    MsChange,
-    ScoreAndRank,
-)
+from engine.effects import EnergyChange, MoneyChange, MsChange
+from data.game_configs.mafia_1920s.effects import JobClear, JobSet, ScoreAndRank
 from engine.locations import HANDLERS
 from engine.rng import Rng
 from engine.state import Clock, Config, GameState, Job, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
+from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -129,7 +123,7 @@ def test_job_type_uniform_1_to_4_dispatches_correct_duration():
         st = _state(rank=1, ka=100000)
         rng = _StubRng(1, type_roll, 2000)  # available; type roll; pay roll
         result = run_pure(HANDLERS["pub.job"], _scripted(True), state=st, rng=rng)
-        job_sets = [e for e in result.effects if isinstance(e, JobSet)]
+        job_sets = [e for e in result.effects if is_effect(e, JobSet)]
         assert len(job_sets) == 1
         assert job_sets[0].type == expected_type
         assert job_sets[0].months_left == expected_duration
@@ -147,7 +141,7 @@ def test_pay_rolled_within_documented_range_per_type():
             st = _state(rank=1, ka=100000)
             rng = _StubRng(1, type_roll, pay_roll)
             result = run_pure(HANDLERS["pub.job"], _scripted(True), state=st, rng=rng)
-            job_sets = [e for e in result.effects if isinstance(e, JobSet)]
+            job_sets = [e for e in result.effects if is_effect(e, JobSet)]
             assert job_sets[0].pending_pay == pay_roll
             assert rng.calls[-1] == ("hit", pay_min, pay_max)
 
@@ -201,7 +195,7 @@ def test_bouncer_trouble_picks_one_of_three_brawlers_and_fights():
         rng = _StubRng(1, brawler_roll)
         result = run_pure(HANDLERS["job.shift"], _scripted("surrender"), state=st, rng=rng)
         assert result.status == "completed"
-        assert any(isinstance(e, JobClear) for e in result.effects)
+        assert any(is_effect(e, JobClear) for e in result.effects)
 
 
 # --------------------------------------------------------------------------- #
@@ -229,7 +223,7 @@ def test_croupier_caught_probability_1_in_6_minus_trick():
         rng = _StubRng(0)  # caught roll == 0 -> caught, fight starts
         result = run_pure(HANDLERS["job.shift"], _scripted(trick, "surrender"), state=st, rng=rng)
         assert rng.calls[0] == ("range", 6 - trick)
-        assert any(isinstance(e, JobClear) for e in result.effects)  # lost the fight
+        assert any(is_effect(e, JobClear) for e in result.effects)  # lost the fight
 
 
 def test_croupier_bonus_uses_documented_range_per_trick():
@@ -252,7 +246,7 @@ def test_killer_always_fights_the_victim():
     rng = _StubRng()
     result = run_pure(HANDLERS["job.shift"], _scripted("surrender"), state=st, rng=rng)
     # A surrender loses immediately -> job cleared unpaid, score -2.
-    assert any(isinstance(e, JobClear) for e in result.effects)
+    assert any(is_effect(e, JobClear) for e in result.effects)
     assert result.state.players[0].jobs == Job()
 
 
@@ -267,7 +261,7 @@ def test_failed_shift_fight_clears_job_no_pay_score_minus_2():
     assert result.state.players[0].jobs == Job()  # cleared
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
     # :25510 `x=-2:gosub1160` — a failure lowers notoriety.
-    assert [e for e in result.effects if isinstance(e, ScoreAndRank)] == [
+    assert [e for e in result.effects if is_effect(e, ScoreAndRank)] == [
         ScoreAndRank(amount=-2.0, rank_divisor=11.1)
     ]
 
@@ -299,17 +293,17 @@ def test_croupier_completion_score_is_zero():
     # true=+1 pin. The C64 evaluation is 3+3*(-1) = 0, which is also the reading
     # that makes design sense — the croupier is the one job that already paid an
     # immediate per-shift bonus (:25125-25126), so no completion award on top.
-    from engine.effects import ScoreAndRank
+    from data.game_configs.mafia_1920s.effects import ScoreAndRank
 
     st = _state(jobs=Job(type=2, pending_pay=1200, months_left=1), ka=1000)
     rng = _StubRng(1, 300)
     result = run_pure(HANDLERS["job.shift"], _scripted(1), state=st, rng=rng)
-    score_effects = [e for e in result.effects if isinstance(e, ScoreAndRank)]
+    score_effects = [e for e in result.effects if is_effect(e, ScoreAndRank)]
     assert score_effects == [ScoreAndRank(amount=0.0, rank_divisor=11.1)]
 
 
 def test_non_croupier_completion_score_is_three():
-    from engine.effects import ScoreAndRank
+    from data.game_configs.mafia_1920s.effects import ScoreAndRank
 
     # Bouncer job, quiet-day path: reaches shift completion with NO fight at all, so
     # the assertion is fully deterministic (a fight's win/loss would need a real RNG
@@ -317,7 +311,7 @@ def test_non_croupier_completion_score_is_three():
     st = _state(jobs=Job(type=1, pending_pay=2500, months_left=1))
     rng = _StubRng(0)  # quiet day
     result = run_pure(HANDLERS["job.shift"], _scripted(), state=st, rng=rng)
-    score_effects = [e for e in result.effects if isinstance(e, ScoreAndRank)]
+    score_effects = [e for e in result.effects if is_effect(e, ScoreAndRank)]
     assert score_effects == [ScoreAndRank(amount=3.0, rank_divisor=11.1)]
 
 
@@ -374,10 +368,10 @@ def test_croupier_caught_but_wins_the_fight_completes_the_shift():
     assert "job.shift_croupier_caught" in [m.key for m in src.messages()], (
         "this test is only meaningful if the catch branch actually fired"
     )
-    assert not [e for e in result.effects if isinstance(e, JobClear)], (
+    assert not [e for e in result.effects if is_effect(e, JobClear)], (
         "a won shift must not clear the job"
     )
-    kept = [e for e in result.effects if isinstance(e, JobSet)]
+    kept = [e for e in result.effects if is_effect(e, JobSet)]
     assert kept and kept[0].months_left == 1, (
         f"a won shift decrements months_left 2 -> 1; got {kept}"
     )

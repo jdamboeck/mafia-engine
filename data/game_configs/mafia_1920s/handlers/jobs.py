@@ -47,7 +47,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import JobClear, JobSet, MoneyChange
+from engine.effects import MoneyChange
+from ..effects import JobClear, JobSet
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario

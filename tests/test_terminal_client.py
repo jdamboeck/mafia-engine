@@ -393,7 +393,8 @@ class TestSetupPrompts:
 
     def test_score_weight_half_halves_a_score_gain(self, monkeypatch):
         """AE7: with weight 0.5 from setup, a committed score gain of 4 adds 2 to gf."""
-        from engine.effects import ScoreAndRank, commit
+        from engine.effects import commit
+        from data.game_configs.mafia_1920s.effects import ScoreAndRank
 
         state, _text = _play_capturing_state(monkeypatch, "\n1940\n0.5\n")
         before = state.players[0].gf

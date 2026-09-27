@@ -58,7 +58,8 @@ from data.game_configs.mafia_1920s.setup import (
 from engine.combat import CombatFight
 from engine.combat_setup import SIDE1_ANCHOR, SIDE2_ANCHOR, placement_position
 from engine.config_loader import load_config, load_game_config
-from engine.effects import JobSet, TipSet, apply, commit
+from engine.effects import apply, commit
+from data.game_configs.mafia_1920s.effects import JobSet, TipSet
 from engine.interactions import (
     Ack,
     Confirm,
@@ -86,7 +87,7 @@ from engine.state import (
     Player,
 )
 from tests.basic_eval import eval_assignment, eval_expr
-from tests.helpers import load_source
+from tests.helpers import is_effect, load_source
 
 _REPO = Path(__file__).resolve().parents[1]
 _CONFIG_DIR = _REPO / "data" / "game_configs" / "mafia_1920s"
@@ -999,7 +1000,7 @@ def _engine_tip(v: Values) -> Any:
         draws=(0.0, v["r_p"], v["r_tp"]),
         answer=lambda i: i.key == "locations.pub.tip_confirm",
     )
-    tips = [e.tip_type for e in run.effects if isinstance(e, TipSet)]
+    tips = [e.tip_type for e in run.effects if is_effect(e, TipSet)]
     return (run.state.players[0].ka, tips[0] if tips else None)
 
 
@@ -1034,7 +1035,7 @@ def _engine_job(v: Values) -> Any:
         draws=(0.5, v["r_type"], v["r_pay"]),
         answer=lambda i: True,
     )
-    (job,) = [e for e in run.effects if isinstance(e, JobSet)]
+    (job,) = [e for e in run.effects if is_effect(e, JobSet)]
     return (job.type, job.pending_pay, job.months_left)
 
 

@@ -65,16 +65,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import (
-    BarrelChange,
-    GangsterMarkHired,
-    JobSet,
-    MoneyChange,
-    MsChange,
-    RosterAppend,
-    TipClear,
-    TipSet,
-)
+from engine.effects import MoneyChange, MsChange, RosterAppend
+from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from ..gangster import Gangster

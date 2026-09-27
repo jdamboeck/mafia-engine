@@ -17,19 +17,14 @@ from pathlib import Path
 
 from engine.combat import STEP_RIGHT
 from engine.config_loader import load_game_config
-from engine.effects import (
-    DebtChange,
-    DebtClear,
-    MoneyChange,
-    ScoreAndRank,
-    ShopChange,
-)
+from engine.effects import MoneyChange
+from data.game_configs.mafia_1920s.effects import DebtChange, DebtClear, ScoreAndRank, ShopChange
 from engine.locations import HANDLERS
 from engine.rng import Rng
 from engine.state import Business, Clock, Config, Debt, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.upkeep import UPKEEP_HANDLER_KEY
-from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
+from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -405,7 +400,7 @@ def test_collect_loss_costs_nothing():
     rng = _StubRng(1)  # ambush fires
     result = run_pure(HANDLERS["kdh.collect"], _scripted("surrender"), state=st, rng=rng)
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
-    assert not any(isinstance(e, ScoreAndRank) for e in result.effects)
+    assert not any(is_effect(e, ScoreAndRank) for e in result.effects)
     assert result.state.players[0].ka == 1000
 
 
@@ -431,7 +426,7 @@ def test_collect_win_loots_500_to_1499_and_scores_2():
     keys = [("shoot", STEP_RIGHT)] * 40 + ["surrender"]
     result = run_pure(HANDLERS["kdh.collect"], _scripted(*keys), state=st, rng=Rng(0))
     money_changes = [e for e in result.effects if isinstance(e, MoneyChange)]
-    score_changes = [e for e in result.effects if isinstance(e, ScoreAndRank)]
+    score_changes = [e for e in result.effects if is_effect(e, ScoreAndRank)]
     assert len(money_changes) == 1, "seed 0 must reach the ambush win"
     assert 500 <= money_changes[0].amount <= 1499
     assert score_changes == [ScoreAndRank(amount=2.0, rank_divisor=11.1)]

@@ -17,12 +17,13 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.config_loader import load_game_config
-from engine.effects import MoneyChange, TipClear, TipSet
+from engine.effects import MoneyChange
+from data.game_configs.mafia_1920s.effects import TipClear, TipSet
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.upkeep import run_upkeep
-from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
+from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -91,7 +92,7 @@ def test_something_available_on_the_zero_roll():
     result = run_pure(HANDLERS["pub.tip"], _scripted(True, False), state=st, rng=rng)
     assert result.status == "completed"
     # tip id roll 3 (0-based) + 1 = 4 -> arms deal branch entered.
-    assert any(isinstance(e, TipSet) for e in result.effects)
+    assert any(is_effect(e, TipSet) for e in result.effects)
 
 
 # --------------------------------------------------------------------------- #
@@ -113,7 +114,7 @@ def test_tip_id_uniform_1_to_5_dispatches_and_sets_tip_target():
         answers = [True] if expected_id != 4 else [True, False]  # tip4 declines stake
         rng = _StubRng(0, 0, roll)
         result = run_pure(HANDLERS["pub.tip"], _scripted(*answers), state=st, rng=rng)
-        tip_sets = [e for e in result.effects if isinstance(e, TipSet)]
+        tip_sets = [e for e in result.effects if is_effect(e, TipSet)]
         assert tip_sets == [TipSet(tip_type=expected_id)]
         if expected_id != 4:
             assert result.state.players[0].tip_target == expected_id
@@ -212,7 +213,7 @@ def test_arms_deal_total_loss_clears_tip_no_cash_effect():
     st = _state(tip_target=4, ka=1000)
     rng = _StubRng(0)  # range(5)==0 -> total loss
     result = run_upkeep(st, rng=rng)
-    assert [e for e in result.effects if isinstance(e, (TipClear, MoneyChange))] == [TipClear()]
+    assert [e for e in result.effects if is_effect(e, TipClear, MoneyChange)] == [TipClear()]
     assert result.state.players[0].tip_target == 0
     assert result.state.players[0].ka == 1000  # unchanged -- stake was already spent
 
@@ -240,7 +241,7 @@ def test_stake_resolves_exactly_once_across_two_turns():
     # even though we hand it an rng that WOULD produce a result if consulted.
     rng2 = _StubRng(0)  # would be "total loss" if the slot fired again
     second = run_upkeep(first.state, rng=rng2)
-    assert [e for e in second.effects if isinstance(e, (TipClear, MoneyChange))] == []
+    assert [e for e in second.effects if is_effect(e, TipClear, MoneyChange)] == []
     assert second.state.players[0].ka == 9000  # untouched by a second resolution
     assert rng2.calls == []  # the rng was never even consulted -- proves no re-fire
 
@@ -250,7 +251,7 @@ def test_other_tip_types_do_not_trigger_the_arms_deal_slot():
         st = _state(tip_target=tip_id, ka=1000)
         result = run_upkeep(st, rng=_StubRng())
         assert result.state.players[0].tip_target == tip_id  # untouched
-        assert [e for e in result.effects if isinstance(e, (TipClear, MoneyChange))] == []
+        assert [e for e in result.effects if is_effect(e, TipClear, MoneyChange)] == []
 
 
 # --------------------------------------------------------------------------- #

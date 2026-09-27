@@ -193,7 +193,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             # previously unarmed gangster raises the gang's notoriety.
             q = 0
             if active.gf < 100:
-                ctx.apply(ScoreChange(x8, clamp=False))
+                ctx.apply(ScoreChange(x8, floor=None, cap=None))
         else:
             # 13070-13071 — trade-in offer on the OLD weapon's price, yes/no confirm.
             # :13070 `q=int(wp(gw(sp,y))/1.5)`
@@ -208,10 +208,10 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             #   :13073 downgrade  `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)` -> DOWN by 2*x8 (while gf>0)
             if x > old:
                 if active.gf < 100:
-                    ctx.apply(ScoreChange(x8, clamp=False))
+                    ctx.apply(ScoreChange(x8, floor=None, cap=None))
             else:
                 if active.gf > 0:
-                    ctx.apply(ScoreChange(-2 * x8, clamp=False))
+                    ctx.apply(ScoreChange(-2 * x8, floor=None, cap=None))
 
         # 13075 — settle: cash += q - new_price; assign the weapon to the gangster.
         # :13075 `ka(sp)=ka(sp)+q-wp(x)`

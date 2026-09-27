@@ -36,11 +36,11 @@ particular does NOT import from ``engine.interactions`` — the driver imports
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from types import MappingProxyType
 from typing import Any, TypeVar
 
-from engine.state import Combatant, Fighter, GameState, Job, tuple_replace
+from engine.state import Combatant, Fighter, GameState, tuple_replace
 
 #: Schema version stamped on every effect. Bump when an effect's fields change
 #: in a way that a replay of an OLD log would need to know about; each effect references
@@ -86,6 +86,13 @@ def register_effect(
     tag (or consequence name) that is already registered replaces the old entry
     without raising: a config reload re-executes its package, and the reloaded class
     must win.
+
+    A registered dataclass effect compares equal by its tag and field values, not by
+    its exact class (:func:`_same_effect`). A config reload re-executes the config's
+    effects module and so builds a new class under the same tag; an effect built
+    before the reload, or rebuilt from a save, must still equal the same effect built
+    after it. The tag, not the class object, is an effect's identity, as it is in a
+    save.
     """
 
     def _decorator(cls: _E) -> _E:
@@ -93,6 +100,10 @@ def register_effect(
             raise TypeError(f"effect {cls.__name__} defines no apply(state) method")
         name = tag if tag is not None else cls.__name__
         setattr(cls, _TAG_ATTR, name)
+        if hasattr(cls, "__dataclass_fields__"):
+            # The dataclass __hash__ (over the field values) stays: equal effects have
+            # equal fields, so they still hash alike.
+            setattr(cls, "__eq__", _same_effect)
         EFFECTS[name] = cls
         if consequence is not None:
             CONSEQUENCES[consequence] = cls
@@ -102,8 +113,24 @@ def register_effect(
 
 
 def effect_tag(effect: Any) -> str | None:
-    """The tag ``effect``'s class registered under, or ``None`` if it never did."""
-    return getattr(type(effect), _TAG_ATTR, None)
+    """The tag ``effect``'s class (or ``effect`` itself, given a class) registered under.
+
+    ``None`` if it never registered.
+    """
+    cls = effect if isinstance(effect, type) else type(effect)
+    return getattr(cls, _TAG_ATTR, None)
+
+
+def _same_effect(self: Any, other: object) -> bool:
+    """Effect equality by tag and field values (see :func:`register_effect`)."""
+    other_tag = effect_tag(other)
+    if other_tag is None or not is_dataclass(other):
+        return NotImplemented
+    if other_tag != effect_tag(self):
+        return False
+    mine = [(f.name, getattr(self, f.name)) for f in fields(self)]
+    theirs = [(f.name, getattr(other, f.name)) for f in fields(other)]
+    return mine == theirs
 
 
 # --------------------------------------------------------------------------- #
@@ -119,46 +146,45 @@ class MoneyChange:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         return _with_player(state, idx, ka=state.players[idx].ka + self.amount)
 
 
 @register_effect(consequence="score_change")
 @dataclass(frozen=True)
 class ScoreChange:
-    """Add ``amount`` (signed) to the target player's score ``gf``.
+    """Add ``amount`` (signed) to the target player's score ``gf``, then clamp it.
 
-    ``clamp`` is REQUIRED (keyword-only, no default) because the two forms port
-    different BASIC and neither is the safe guess:
+    The bound is caller-supplied, as :class:`StatChangeCapped`'s cap is: ``floor`` and
+    ``cap`` are REQUIRED keyword-only fields (no default), because the score's bound is
+    the game's, not the engine's, and a port must choose it:
 
-    - ``clamp=False`` adds the delta with NO bound, for the source lines that change
-      ``gf`` directly without going through ``gosub 1160`` (the weapon-buy score at
-      ``:13065``/``:13072``/``:13073``), so ``gf`` can leave [0, 100] until the next
-      ``gosub 1160`` (:class:`ScoreAndRank`) clamps it.
-    - ``clamp=True`` clamps to [0, 100], the bound ``mf-prg.bas:1160`` (cap at 100) and
-      ``:1161`` (floor at 0) apply — without the ``:1165`` rank recompute. A port of a
-      ``gosub 1160`` normally wants :class:`ScoreAndRank` instead.
+    - ``floor=None, cap=None`` adds the delta with NO bound. A port of a source line that
+      changes the score directly, without the game's score routine, wants this.
+    - numbers clamp the result to ``[floor, cap]`` (either side may be ``None`` for no
+      bound on that side).
 
-    NOTE: the score *weighting* (``x * x8``, ``Config.score_mult``) is the caller's
-    concern — this raw effect just applies the delta.
+    NOTE: any score *weighting* is the caller's concern; this raw effect just applies
+    the delta.
 
-    Saves and YAML consequences written before the field existed carry no ``clamp``
-    key; they meant the clamped form. That is handled on the LOAD paths (persistence
-    and the consequence parser) via :data:`LEGACY_FIELD_DEFAULTS`, never by a
+    A record written before these fields existed is upgraded on the LOAD paths
+    (persistence and the consequence parser) by :func:`legacy_fields`, never by a
     constructor default.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: float
     player: int | None = None
-    clamp: bool = field(kw_only=True)
+    floor: float | None = field(kw_only=True)
+    cap: float | None = field(kw_only=True)
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         gf = state.players[idx].gf + self.amount
-        if self.clamp:
-            # cap 100 (mf-prg.bas:1160), floor 0 (mf-prg.bas:1161).
-            gf = _clamp(gf, 0.0, 100.0)
+        if self.cap is not None:
+            gf = min(self.cap, gf)
+        if self.floor is not None:
+            gf = max(self.floor, gf)
         return _with_player(state, idx, gf=gf)
 
 
@@ -176,7 +202,7 @@ class MsChange:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         # ms is NOT clamped — it may reach 0 (or below) to force turn end.
         return _with_player(state, idx, ms=state.players[idx].ms + self.amount)
 
@@ -198,7 +224,7 @@ class SetPosition:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         return _with_player(state, idx, po=self.cell)  # absolute cell (po(sp))
 
 
@@ -219,7 +245,7 @@ class SetEntryContext:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         return _with_player(
             state,
             idx,
@@ -243,7 +269,7 @@ class Teleport:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         return _with_player(state, idx, po=self.cell)  # absolute city-map cell
 
 
@@ -266,7 +292,7 @@ class StatChange:
 
     def apply(self, state: GameState) -> GameState:
         _validate_stat(self.stat)
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         g = _gangster_at(state, idx, self.gangster)
         # Read and write the stat through attrs, never a named field: the engine spells
         # no stat name. with_attr keeps a config Gangster's named
@@ -298,7 +324,7 @@ class StatChangeCapped:
 
     def apply(self, state: GameState) -> GameState:
         _validate_stat(self.stat)
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         g = _gangster_at(state, idx, self.gangster)
         raised = g.attrs[self.stat] + self.amount
         # cap/floor are config-supplied — the engine hardcodes no 99.
@@ -323,41 +349,10 @@ class AssignWeapon:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         _gangster_at(state, idx, self.gangster)  # range-check before the write
         # roster[g].weapon = w (mf-prg.bas:13075)
         return _with_gangster(state, idx, self.gangster, weapon=self.weapon)
-
-
-@register_effect(consequence="score_and_rank")
-@dataclass(frozen=True)
-class ScoreAndRank:
-    """Award score and recompute rank in one effect — the port of ``gosub 1160/1165``.
-
-    ``gf = clamp(gf + amount*score_mult, 0, 100)`` then ``nr = int(gf/rank_divisor)+1``,
-    computed from the CLAMPED ``gf``. Fusing the two avoids the ordering hazard a
-    separate score-then-rank pair would face (rank must see the post-clamp ``gf``). The
-    ``[0, 100]`` clamp is the one :class:`ScoreChange` applies with ``clamp=True``
-    (the one bound the engine owns rather than config). ``amount`` is the raw reward
-    ``x``; ``score_mult`` is ``x8``
-    (``Config.score_mult``). ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded.
-    Targets ``Player.nr`` (per ``:1165``).
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    amount: float
-    rank_divisor: float
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        p = state.players[idx]
-        # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
-        # :1160 `gf(sp)=gf(sp)+(x*x8)`, then `gf(sp)>100` / :1161 `gf(sp)<0` clamp it.
-        gf = _clamp(p.gf + self.amount * state.config.score_mult, 0.0, 100.0)
-        # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
-        # :1165 `nr(sp)=int(gf(sp)/11.1)+1`.
-        return _with_player(state, idx, gf=gf, nr=int(gf / self.rank_divisor) + 1)
 
 
 @register_effect()
@@ -389,50 +384,6 @@ class FlagSet:
 
 @register_effect()
 @dataclass(frozen=True)
-class SetTenancy:
-    """Set tenancy of within-location tile ``ln`` to the target player: ``uk(ln)=sp``.
-
-    Ports the tenancy assignment at ``mf-prg.bas:10040`` (the slw rent block). ``ln``
-    is the within-location tile index (1..9); the stored value is the resolved TARGET
-    player index (explicit ``player`` else the active player, per the module's targeting
-    convention). Writes ``state.map.tenancy[ln] = <idx>``.
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    ln: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # uk(ln) = sp (mf-prg.bas:10040) — rebuilt as a new read-only mapping.
-        new_map = replace(state.map, tenancy=_mapping_set(state.map.tenancy, self.ln, idx))
-        return replace(state, map=new_map)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class RentAccrue:
-    """Add ``months`` to the target player's prepaid rented-months ``um``: ``um(sp)+=x``.
-
-    Ports the rented-months accrual at ``mf-prg.bas:10040`` — the player prepays ``x``
-    months of rent. Adds to ``state.players[target].rented_months``. ``months`` is
-    signed: the turn-start countdown at ``mf-prg.bas:4046`` ``um(sp)=um(sp)-1`` is a
-    ``RentAccrue(-1)``.
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    months: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # um(sp) += x (mf-prg.bas:10040)
-        rented = state.players[idx].rented_months + self.months
-        return _with_player(state, idx, rented_months=rented)
-
-
-@register_effect()
-@dataclass(frozen=True)
 class EnergyChange:
     """Add ``amount`` to ``roster[gangster]``'s ``vitality`` (energie), clamped to ``[0, cap]``.
 
@@ -453,7 +404,7 @@ class EnergyChange:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         g = _gangster_at(state, idx, self.gangster)
         # en=en+int(kr/10)+1 (mf-prg.bas:4015), capped at [0, cap] (:4020's ifen>xthenen=x
         # is an upper clamp only in the source; a floor of 0 is the engine's own sane
@@ -463,67 +414,6 @@ class EnergyChange:
         # game's "energie".
         raised = int(_clamp(g.vitality + self.amount, 0, self.cap))
         return _with_gangster(state, idx, self.gangster, vitality=raised)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class RankCommit:
-    """Set the target player's committed rank ``rank`` (``ra(sp)``) to ``nr``.
-
-    Ports the rank-promotion commit (``mf-prg.bas:4030``:
-    ``ifra(sp)<>nr(sp)thenra(sp)=nr(sp):gosub4200``) — the SECOND half of the two-step
-    rank system: :class:`ScoreAndRank` already recomputes the PENDING next-rank counter
-    ``Player.nr`` from ``gf`` on every score award, but ``Player.rank`` (the value guards
-    and prices actually read, e.g. ``waf.py``'s ``active.rank >= 5``) only moves when this
-    effect commits it. The caller (the upkeep handler) is responsible for checking
-    ``rank != nr`` and showing the promotion screen BEFORE applying this — the effect
-    itself unconditionally sets ``rank = new_rank`` (an unconditional set is simpler and
-    still faithful, since the caller never applies it when they are already equal).
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    new_rank: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # ra(sp) = nr(sp) (mf-prg.bas:4030) — the caller decides WHEN (rank != nr).
-        return _with_player(state, idx, rank=self.new_rank)
-
-
-# --------------------------------------------------------------------------- #
-# Declared-but-deferred effects — the type exists & is serializable, but      #
-# ``apply`` raises NotImplementedError (no application is built).             #
-# Registered like any other, so a log that names one still loads.             #
-# --------------------------------------------------------------------------- #
-@register_effect()
-@dataclass(frozen=True)
-class WantedChange:
-    """Adjust a player's wanted level. Deferred — ``apply`` raises ``NotImplementedError``."""
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    amount: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        raise NotImplementedError(
-            f"{type(self).__name__} is declared but its application is not implemented."
-        )
-
-
-@register_effect()
-@dataclass(frozen=True)
-class Jail:
-    """Jail a player for ``months``. Deferred — ``apply`` raises ``NotImplementedError``."""
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    months: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        raise NotImplementedError(
-            f"{type(self).__name__} is declared but its application is not implemented."
-        )
 
 
 @register_effect()
@@ -557,208 +447,6 @@ class SpawnFighter:
 
 @register_effect()
 @dataclass(frozen=True)
-class DebtChange:
-    """Add ``amount`` (signed) to the target player's debt ``kr(sp)``, and set the
-    grace-counter ``months`` (``kz(sp)``) alongside it.
-
-    Applied by the kdh loan-shark borrow/repay handlers. Carries both fields in one
-    effect because the source sets them together at every kdh call site (borrow
-    :15030 sets ``kr(sp)=kr(sp)+x`` and ``kz(sp)=6`` in the same line; partial
-    repayment :15065 decrements ``kr`` only, leaving ``months`` untouched — pass
-    ``months=None`` for that case) — see :class:`~engine.state.Debt` for the confirmed
-    field semantics.
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    amount: int
-    months: int | None = None  # None = leave Debt.months unchanged
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        p = state.players[idx]
-        # kr(sp) += amount (mf-prg.bas:15030 borrow, :15065 repay). months is None on
-        # a partial repay (kz(sp) untouched); borrow
-        # and full-repay callers pass an explicit value alongside this effect (full
-        # repay's kz=0 reset is DebtClear, applied as a SEPARATE effect by the caller).
-        new_debt = replace(p.debt, amount=p.debt.amount + self.amount)
-        if self.months is not None:
-            new_debt = replace(new_debt, months=self.months)
-        return _with_player(state, idx, debt=new_debt)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class DebtClear:
-    """Zero the target player's debt AND its grace counter in one step.
-
-    Ports the full-repayment reset (``mf-prg.bas:15075``, ``kz(sp)=0`` once ``kr(sp)``
-    reaches 0 — kdh's repay handler applies this ALONGSIDE the final ``DebtChange`` that
-    zeros ``kr``) and is also the vocabulary of the loan-default penalty (``:4370``,
-    ``kr(sp)=0:kz(sp)=0``). A dedicated clear (rather than a
-    ``DebtChange`` computed to exactly cancel the balance) keeps both loan-shark exit
-    paths self-documenting in the replay log.
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # kr(sp)=0:kz(sp)=0 (mf-prg.bas:15075 full repayment).
-        return _with_player(state, idx, debt=replace(state.players[idx].debt, amount=0, months=0))
-
-
-@register_effect()
-@dataclass(frozen=True)
-class ShopChange:
-    """Set the target player's owned shop ``tile`` and/or its ``capital`` delta.
-
-    Applied by the kdh buy/sell/capital-adjust handlers. Targets
-    :class:`~engine.state.Business` —
-    ``tile`` sets ``shop_tile`` (``None`` leaves it unchanged; the sentinel 0 means
-    "no shop", per the field's own docstring; passing 0 explicitly clears ownership
-    on a sale), ``capital_delta`` adds to ``shop_capital`` (``None`` = no change).
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    tile: int | None = None
-    capital_delta: int | None = None
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        p = state.players[idx]
-        new_business = p.business
-        if self.tile is not None:
-            # kg(sp)=ln (buy, mf-prg.bas:15120) or kg(sp)=0 (sell, :15155).
-            new_business = replace(new_business, shop_tile=self.tile)
-        if self.capital_delta is not None:
-            # kk(sp) += capital_delta (fund/income, mf-prg.bas:15220, :4410).
-            new_business = replace(
-                new_business, shop_capital=new_business.shop_capital + self.capital_delta
-            )
-        return _with_player(state, idx, business=new_business)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class BarrelChange:
-    """Add ``amount`` (signed) to the target player's alcohol barrel stock ``ta(sp)``.
-
-    Applied by the pub alcohol trade. Targets
-    :class:`~engine.state.Contraband.alcohol_barrels`
-    (mf-prg.bas:12035 buy, :12075 sell).
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    amount: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        p = state.players[idx]
-        # ta(sp) += amount (mf-prg.bas:12035 buy, :12075 sell).
-        new_contraband = replace(
-            p.contraband, alcohol_barrels=p.contraband.alcohol_barrels + self.amount
-        )
-        return _with_player(state, idx, contraband=new_contraband)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class TipSet:
-    """Set the target player's rolled heist tip type ``tp(sp)``.
-
-    Applied by the pub tip flow. Targets :class:`~engine.state.Player.tip_target`
-    (mf-prg.bas:12225-12226:
-    the tip roll ``tp(sp)=int(rnd(1)*5)+1`` (1-5) dispatching to one of five heist-rumour
-    texts).
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    tip_type: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # tp(sp) = tip_type (mf-prg.bas:12225-12226).
-        return _with_player(state, idx, tip_target=self.tip_type)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class TipClear:
-    """Clear the target player's rolled heist tip (``tp(sp)=0``).
-
-    The counterpart to :class:`TipSet` — a used or expired tip resets ``tip_target`` to
-    0 (no tip held). Applied from both ``pub.tip``'s tip-4 decline/broke paths
-    and ``upkeep.py``'s arms-deal slot (the ``tp(sp)=0`` at ``mf-prg.bas:31000``,
-    applied FIRST so a stake resolves exactly once — see ``handlers/upkeep.py``).
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # tp(sp) = 0 (mf-prg.bas:31000 arms-deal resolve; also the tip4 decline/broke
-        # paths in pub.tip).
-        return _with_player(state, idx, tip_target=0)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class JobSet:
-    """Set the target player's accepted job: ``type``/``pending_pay``/``months_left``.
-
-    Applied by the pub job-accept flow. Ports ``mf-prg.bas:12335``: ``jo(sp)=x:jl(sp)=p`` (plus the
-    per-job-type ``jd(sp)`` duration set earlier at :12308/:12311/:12316/:12322) —
-    one effect since the source sets them as a unit when a job is accepted. Targets
-    :class:`~engine.state.Job`.
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    type: int
-    pending_pay: int
-    months_left: int
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # jo(sp)=type : jl(sp)=pending_pay : jd(sp)=months_left (mf-prg.bas:12335, plus
-        # the per-type jd(sp) set earlier at :12308/:12311/:12316/:12322).
-        new_job = Job(
-            type=self.type,
-            pending_pay=self.pending_pay,
-            months_left=self.months_left,
-        )
-        return _with_player(state, idx, jobs=new_job)
-
-
-@register_effect()
-@dataclass(frozen=True)
-class JobClear:
-    """Clear the target player's job (``jo(sp)=0``).
-
-    Ports the job-quit sites (mf-prg.bas:25560 completion, :25510 failed-shift-fight abort,
-    :26080 jail commit forces ``jo(sp)=0``) — all zero the job the same way, so one
-    effect covers every call site.
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    player: int | None = None
-
-    def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
-        # jo(sp)=0 (mf-prg.bas:25560 completion, :25510 failed shift fight, :26080
-        # jail commit). A full reset (not just type=0) so a
-        # cleared job never leaks a stale pending_pay/months_left into a future read.
-        return _with_player(state, idx, jobs=Job())
-
-
-@register_effect()
-@dataclass(frozen=True)
 class RosterAppend:
     """Append a new :class:`~engine.state.Gangster` to the target player's roster.
 
@@ -782,7 +470,7 @@ class RosterAppend:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         p = state.players[idx]
         # gz(sp)=gz(sp)+1 : gn$/gw/ge$ stored at the new slot (mf-prg.bas:12160-12165)
         # — len(roster) IS gz(sp), so appending the tuple
@@ -809,54 +497,57 @@ class RosterTruncate:
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
-        idx = _target_index(state, self.player)
+        idx = target_index(state, self.player)
         # gz(sp)=1 (mf-prg.bas:4651) — the tail of the roster leaves.
         return _with_player(state, idx, roster=state.players[idx].roster[: self.size])
 
 
-@register_effect()
-@dataclass(frozen=True)
-class GangsterMarkHired:
-    """Add ``candidate_id`` to the GLOBAL (not per-player) hired-candidates set.
-
-    Ports ``sg(g(i))=1`` (``mf-prg.bas:12165``): once ANY player
-    hires candidate ``candidate_id`` (0-based; the source's ``g(i)`` is 1-based),
-    every player's future recruit roll skips them (:12110's ``ifsg(g(i))goto12110``
-    reroll-on-hired guard). Idempotent by construction: appending an already-present
-    id would violate the "no duplicate offers" invariant upstream, but ``apply``
-    still de-dupes defensively rather than trusting every caller.
-    """
-
-    SCHEMA_VERSION = SCHEMA_VERSION
-    candidate_id: int
-
-    def apply(self, state: GameState) -> GameState:
-        # sg(g(i))=1 (mf-prg.bas:12165) — GLOBAL, not per-player. De-dupe
-        # defensively even though the handler is expected to never mark twice.
-        if self.candidate_id in state.flags.hired_gangsters:
-            return state
-        new_hired = state.flags.hired_gangsters + (self.candidate_id,)
-        return replace(state, flags=replace(state.flags, hired_gangsters=new_hired))
-
-
 #: What a field that was ADDED to an effect meant before it existed, for LOADING data
 #: written before then (saved effect logs, YAML consequences). Keyed by effect class,
-#: then field name. Only the load paths (``engine.persistence``,
-#: ``engine.consequences``) read this; a constructor never falls back to it, so new
-#: code must pass the field.
+#: then field name. Only :func:`legacy_fields` (called by the load paths,
+#: ``engine.persistence`` and ``engine.consequences``) reads this; a constructor never
+#: falls back to it, so new code must pass the field.
 #:
-#: ``ScoreChange.clamp``: every ``ScoreChange`` before the field existed clamped to
-#: [0, 100] (``mf-prg.bas:1160``/``:1161``).
+#: ``ScoreChange.floor``/``cap``: a ``ScoreChange`` written before any bound field
+#: existed always clamped to [0, 100] (``mf-prg.bas:1160``/``:1161``). This load shim
+#: is the only place the engine still spells that bound; it goes with the table at the
+#: save-format version bump.
 LEGACY_FIELD_DEFAULTS: dict[type, dict[str, Any]] = {
-    ScoreChange: {"clamp": True},
+    ScoreChange: {"floor": 0.0, "cap": 100.0},
 }
+
+
+def legacy_fields(cls: type, raw: Mapping[str, Any]) -> dict[str, Any]:
+    """``raw``'s fields for ``cls``, upgraded from a record written under an older shape.
+
+    Two upgrades, both for data written before a field changed:
+
+    - ``ScoreChange``'s ``clamp: bool`` was replaced by the caller-supplied
+      ``floor``/``cap`` pair; ``clamp=True`` meant [0, 100] and ``clamp=False`` meant no
+      bound.
+    - a field in :data:`LEGACY_FIELD_DEFAULTS` that the record omits takes its
+      pre-field meaning.
+
+    Returns a new dict; ``raw`` is never mutated.
+    """
+    given = dict(raw)
+    if cls is ScoreChange and "clamp" in given:
+        clamped = given.pop("clamp")
+        given.setdefault("floor", 0.0 if clamped else None)
+        given.setdefault("cap", 100.0 if clamped else None)
+    for name, legacy in LEGACY_FIELD_DEFAULTS.get(cls, {}).items():
+        given.setdefault(name, legacy)
+    return given
 
 
 # --------------------------------------------------------------------------- #
 # Rebuild helpers — PURE: each returns a new state, never mutates its input    #
 # --------------------------------------------------------------------------- #
-def _target_index(state: GameState, player: int | None) -> int:
+def target_index(state: GameState, player: int | None) -> int:
     """Resolve the target player index: explicit ``player`` or the active player.
+
+    Part of the handler API: a config effect's ``apply`` resolves its target here, so
+    it follows the module's targeting convention.
 
     Validates the resolved index is in ``range(len(players))`` so the docstring's
     "out-of-range index surfaces as an error" holds literally — a negative ``player``
@@ -872,11 +563,10 @@ def _target_index(state: GameState, player: int | None) -> int:
 def _clamp(value: int | float, floor: int | float, cap: int | float) -> int | float:
     """Return ``value`` bounded to ``[floor, cap]`` — the shared clamp shape.
 
-    Every capped-stat branch (:class:`ScoreChange`, :class:`StatChangeCapped`,
-    :class:`ScoreAndRank`, :class:`EnergyChange`) computed ``max(floor, min(cap,
-    value))`` inline; naming it once does not change any branch's floor/cap
-    arguments or rounding — ``int``/``float`` inputs behave exactly as the inline
-    expression did.
+    The capped-stat branches (:class:`StatChangeCapped`, :class:`EnergyChange`)
+    computed ``max(floor, min(cap, value))`` inline; naming it once does not change
+    any branch's floor/cap arguments or rounding — ``int``/``float`` inputs behave
+    exactly as the inline expression did.
     """
     return max(floor, min(cap, value))
 
@@ -960,12 +650,22 @@ def _mapping_set(mapping, key, value) -> MappingProxyType:
     return MappingProxyType(updated)
 
 
+def update_player(state: GameState, *, player: int | None = None, **changes: Any) -> GameState:
+    """Return a new state with the target player's fields replaced by ``changes``.
+
+    Part of the handler API: the player-scoped state-update helper a config effect's
+    ``apply`` composes (explicit ``player`` or the active one, range-checked), instead
+    of rebuilding the players tuple by hand. ``changes`` name ``Player`` fields.
+    """
+    return _with_player(state, target_index(state, player), **changes)
+
+
 def player_values(state: GameState, *, player: int | None = None) -> Mapping[str, Any]:
     """The target player's declared value map (explicit ``player`` or the active one).
 
     Part of the handler API: a config effect's ``apply`` reads its own state here.
     """
-    return state.players[_target_index(state, player)].values
+    return state.players[target_index(state, player)].values
 
 
 def set_player_value(
@@ -977,7 +677,7 @@ def set_player_value(
     composes, instead of rebuilding the state graph by hand. The engine does not check
     ``name`` against the schema here; save loading refuses an undeclared key.
     """
-    idx = _target_index(state, player)
+    idx = target_index(state, player)
     return _with_player(state, idx, values=_mapping_set(state.players[idx].values, name, value))
 
 

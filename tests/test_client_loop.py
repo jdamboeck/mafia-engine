@@ -2187,6 +2187,23 @@ class TestTerminalSession:
         assert session.state.players[1].gf == 25.19
         assert session.state.players[0].gf == 0, "a player not on turn was touched"
 
+    def test_upkeep_shows_the_promotion_only_when_the_committed_rank_moves(self, monkeypatch):
+        """:4030 `ifra(sp)<>nr(sp)thenra(sp)=nr(sp):gosub4200`: the wanted poster shows
+        when upkeep commits a new rank, read through the state, and not otherwise."""
+        session, out = _session(monkeypatch, ["x", "q"], seed=42, end_year=1930, score_weight=1.0)
+        session.state = self._second_player(gf=25.0, nr=3)
+        assert session.next_turn() is True
+        assert session.state.players[1].rank == 3
+        upkeep_screen = out.getvalue().split(CLEAR)[-1]
+        assert "north side\nmoran.\n25 p." in upkeep_screen, "no promotion screen"
+
+        session, out = _session(monkeypatch, ["x", "q"], seed=42, end_year=1930, score_weight=1.0)
+        session.state = self._second_player(gf=25.0, nr=1)
+        assert session.next_turn() is True
+        upkeep_screen = out.getvalue().split(CLEAR)[-1]
+        assert "ist an der reihe" in upkeep_screen, "not the upkeep screen"
+        assert "moran." not in upkeep_screen, "a promotion screen without a promotion"
+
     def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch):
         from engine.state import Job
 

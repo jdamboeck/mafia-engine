@@ -36,7 +36,6 @@ import yaml
 
 from engine.actions import run_option
 from engine.config_loader import load_game_config
-from engine.effects import RankCommit
 from engine.game_end import run_standings, run_year_end
 from engine.interactions import ShowMessage
 from engine.interactions import run as run_handler
@@ -456,9 +455,9 @@ def _run_upkeep_screen(
     Calls :func:`engine.upkeep.run_upkeep` — THE engine-level turn-start entry point —
     so the client never decides for itself whether upkeep runs; it only renders what
     already happened. The turn banner always shows; the rank-promotion "wanted poster"
-    screen shows only when the committed effects contain a :class:`RankCommit` (the
-    handler's own ``rank != nr`` gate, mirrored here rather than re-derived, so the
-    client stays a thin renderer over the driver's decision).
+    screen shows only when upkeep changed the player's committed rank (read through
+    the state before and after: the handler's own ``rank != nr`` gate decided it, so
+    the client stays a thin renderer over the driver's decision).
 
     Blocks for one keypress after the banner/promotion (mirrors the turn-over prompt's
     "press any key..." pattern) so a human has time to read it; EOF is treated as an
@@ -484,8 +483,8 @@ def _run_upkeep_screen(
     render_header(resolver.resolve("client.header.upkeep"), out, colors)
     render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out, colors)
 
-    promoted = next((e for e in result.effects if isinstance(e, RankCommit)), None)
-    if promoted is not None:
+    idx = new_state.clock.active_player
+    if new_state.players[idx].rank != state.players[idx].rank:
         cfg = load_game_config(_CONFIG_DIR)
         ranks = cfg.module.load_ranks(_CONFIG_DIR / cfg.config["entities"]["ranks"])
         out.write("\n")

@@ -18,14 +18,15 @@ from pathlib import Path
 import pytest
 
 from engine.config_loader import load_game_config
-from engine.effects import EnergyChange, RankCommit
+from engine.effects import EnergyChange
+from data.game_configs.mafia_1920s.effects import RankCommit
 from engine.interactions import ShowMessage
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.strings import Resolver
 from engine.upkeep import UPKEEP_HANDLER_KEY, run_upkeep
-from tests.helpers import run_pure
+from tests.helpers import is_effect, run_pure
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -128,7 +129,7 @@ def test_regen_runs_for_every_gangster_including_the_boss():
 def test_rank_commit_fires_when_pending_rank_differs():
     state = _state(rank=1, nr=4, gf=52.0)
     result = run_upkeep(state)
-    rank_effects = [e for e in result.effects if isinstance(e, RankCommit)]
+    rank_effects = [e for e in result.effects if is_effect(e, RankCommit)]
     assert rank_effects == [RankCommit(new_rank=4)]
     assert result.state.players[0].rank == 4
 
@@ -136,7 +137,7 @@ def test_rank_commit_fires_when_pending_rank_differs():
 def test_rank_commit_does_not_fire_when_rank_equals_nr():
     state = _state(rank=3, nr=3, gf=25.0)
     result = run_upkeep(state)
-    assert [e for e in result.effects if isinstance(e, RankCommit)] == []
+    assert [e for e in result.effects if is_effect(e, RankCommit)] == []
     assert result.state.players[0].rank == 3
 
 

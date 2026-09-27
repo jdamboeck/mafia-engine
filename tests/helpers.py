@@ -49,7 +49,7 @@ import pytest
 
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
 from engine.combat import CombatFight
-from engine.effects import commit
+from engine.effects import commit, effect_tag
 from engine.interactions import ShowMessage, run
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
@@ -181,6 +181,18 @@ class scripted:  # noqa: N801 - a callable used like a function at 200+ call sit
 
     def message_keys(self) -> list[str]:
         return [i.key for i in self.messages()]
+
+
+def is_effect(effect: Any, *classes: type) -> bool:
+    """Whether ``effect`` is one of ``classes``, by registered tag rather than class.
+
+    A config reload re-executes the config's effects module, so the class a test
+    imported and the class a reloaded handler builds are different objects with the
+    same tag. ``isinstance`` would tell them apart; the tag (the effect's identity in a
+    save) does not.
+    """
+    tag = effect_tag(effect)
+    return tag is not None and tag in {effect_tag(c) for c in classes}
 
 
 def with_player(state, idx: int = 0, **field_changes):

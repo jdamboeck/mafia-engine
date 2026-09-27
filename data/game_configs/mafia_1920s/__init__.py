@@ -3,6 +3,8 @@
 This is the top-level package the engine loads BY PATH (via
 :func:`engine.config_loader.load_game_config`). Importing it:
 
+* imports :mod:`.effects` (firing each game effect's ``@register_effect``, so
+  :data:`engine.effects.EFFECTS` holds this game's effects),
 * imports the handlers package (firing each handler's ``@register`` decorator, so
   :data:`engine.locations.HANDLERS` is populated), and
 * exposes the config's ``new_game`` and ``fnm`` entry points so the engine loader
@@ -15,6 +17,7 @@ travel together; the engine is untouched (docs/design/product-and-scope.md and d
 
 from __future__ import annotations
 
+from . import effects  # noqa: F401 — registers the config's own effects on import
 from . import handlers  # noqa: F401 — registers the config's handlers on import
 from .gangster import Gangster
 
@@ -24,6 +27,7 @@ from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game
 __all__ = [
     "new_game",
     "fnm",
+    "effects",
     "handlers",
     "load_ranks",
     "load_vehicles",

@@ -20,37 +20,38 @@ import pytest
 from engine.effects import (
     SCHEMA_VERSION,
     AssignWeapon,
-    BarrelChange,
     CommitResult,
-    DebtChange,
-    DebtClear,
     EnergyChange,
     FlagSet,
-    GangsterMarkHired,
-    Jail,
-    JobClear,
-    JobSet,
     MoneyChange,
     MsChange,
-    RankCommit,
-    RentAccrue,
     RosterAppend,
     RosterTruncate,
-    ScoreAndRank,
     ScoreChange,
     SetEntryContext,
-    SetTenancy,
     SetPosition,
-    ShopChange,
     SpawnFighter,
     StatChange,
     StatChangeCapped,
     Teleport,
-    TipClear,
-    TipSet,
-    WantedChange,
     apply,
     commit,
+)
+from data.game_configs.mafia_1920s.effects import (
+    BarrelChange,
+    DebtChange,
+    DebtClear,
+    GangsterMarkHired,
+    Jail,
+    JobClear,
+    JobSet,
+    RankCommit,
+    RentAccrue,
+    ScoreAndRank,
+    SetTenancy,
+    ShopChange,
+    TipClear,
+    TipSet,
 )
 from engine.interactions import CANCEL, PromptInt, run
 from engine.state import (
@@ -134,46 +135,55 @@ def test_money_change_and_purity():
 
 
 # --------------------------------------------------------------------------- #
-# score_change clamp [0, 100]                                                 #
+# score_change — a caller-supplied [floor, cap] bound                          #
 # --------------------------------------------------------------------------- #
 def test_score_change_caps_at_100():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(200.0, clamp=True))
+    out = apply(state, ScoreChange(200.0, floor=0.0, cap=100.0))
     assert out.players[0].gf == 100.0
 
 
 def test_score_change_floors_at_0():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(-200.0, clamp=True))
+    out = apply(state, ScoreChange(-200.0, floor=0.0, cap=100.0))
     assert out.players[0].gf == 0.0
 
 
 def test_score_change_normal_delta_lands_exactly():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(25.0, clamp=True))
+    out = apply(state, ScoreChange(25.0, floor=0.0, cap=100.0))
     assert out.players[0].gf == 75.0
 
 
 def test_score_change_unclamped_leaves_0_to_100():
-    """``clamp=False`` is the weapon-buy score (``:13065``/``:13072``/``:13073``),
+    """No bound is the weapon-buy score (``:13065``/``:13072``/``:13073``),
     which changes gf with no bound: only ``gosub 1160-1161`` clamps."""
     state = make_state()  # gf starts at 50
-    assert apply(state, ScoreChange(60.0, clamp=False)).players[0].gf == 110.0
-    assert apply(state, ScoreChange(-53.5, clamp=False)).players[0].gf == -3.5
+    assert apply(state, ScoreChange(60.0, floor=None, cap=None)).players[0].gf == 110.0
+    assert apply(state, ScoreChange(-53.5, floor=None, cap=None)).players[0].gf == -3.5
 
 
-def test_score_change_cannot_be_built_without_choosing_the_clamp():
+def test_score_change_cannot_be_built_without_choosing_the_bound():
     """A port of a direct ``gf(sp)=...`` line that writes ``ScoreChange(x)`` must not
-    silently get the :1160/:1161 clamp no such line has: the constructor refuses it."""
-    with pytest.raises(TypeError, match="clamp"):
-        ScoreChange(1.0)  # pyright: ignore[reportCallIssue]  # the missing clamp is the test: it must raise
-    with pytest.raises(TypeError, match="clamp"):
-        ScoreChange(1.0, 0)  # pyright: ignore[reportCallIssue]  # a positional clamp is the test: it must raise
+    silently get a bound no such line has, nor lose one a ``gosub 1160`` port needs:
+    the constructor refuses a missing bound."""
+    with pytest.raises(TypeError, match="floor"):
+        ScoreChange(1.0)  # pyright: ignore[reportCallIssue]  # the missing bound is the test: it must raise
+    with pytest.raises(TypeError, match="cap"):
+        ScoreChange(1.0, floor=0.0)  # pyright: ignore[reportCallIssue]  # the missing cap is the test: it must raise
+    with pytest.raises(TypeError):
+        ScoreChange(1.0, 0, 0.0, 100.0)  # pyright: ignore[reportCallIssue]  # a positional bound is the test: it must raise
+
+
+def test_score_change_bounds_one_side_only():
+    state = make_state()  # gf starts at 50
+    assert apply(state, ScoreChange(60.0, floor=0.0, cap=None)).players[0].gf == 110.0
+    assert apply(state, ScoreChange(-60.0, floor=None, cap=100.0)).players[0].gf == -10.0
 
 
 def test_score_and_rank_clamps_an_out_of_range_gf():
     """A gf left above 100 by an unclamped change is clamped at the next ``:1160``."""
-    state = apply(make_state(), ScoreChange(51.0, clamp=False))  # gf 101
+    state = apply(make_state(), ScoreChange(51.0, floor=None, cap=None))  # gf 101
     out = apply(state, ScoreAndRank(amount=0.0, rank_divisor=11.1))
     assert out.players[0].gf == 100.0
     assert out.players[0].nr == 10
@@ -747,24 +757,15 @@ def test_negative_gangster_index_raises_not_wraps():
 
 
 # --------------------------------------------------------------------------- #
-# deferred effects raise NotImplementedError                                  #
+# jail — a config effect that sets the sentence (gs(sp))                       #
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize(
-    "effect",
-    [
-        WantedChange(1),
-        Jail(3),
-        # U2 groundwork (KTD-7): declared now, activated in a later unit each.
-        # BarrelChange/TipSet/TipClear graduated to real application in U8,
-        # RosterAppend in U9, JobSet/JobClear in U10, and DebtChange/DebtClear/
-        # ShopChange in U11 (see the sections above and below) — none of these
-        # eight are deferred any longer.
-    ],
-)
-def test_deferred_effects_raise_not_implemented(effect):
+def test_jail_sets_the_target_players_jail_months():
     state = make_state()
-    with pytest.raises(NotImplementedError):
-        apply(state, effect)
+    out = apply(state, Jail(3))
+    assert out.players[0].wanted.jail_months == 3
+    # an absolute set, not a delta: a second sentence replaces the first
+    assert apply(out, Jail(2)).players[0].wanted.jail_months == 2
+    assert state.players[0].wanted.jail_months == 0  # input untouched
 
 
 # --------------------------------------------------------------------------- #
@@ -928,10 +929,10 @@ def test_commit_unknown_effect_raises_type_error():
         commit(state, [MoneyChange(-1), object()])
 
 
-def test_commit_deferred_effect_raises_not_implemented():
+def test_commit_surfaces_an_effects_apply_error():
     state = make_state()
     with pytest.raises(NotImplementedError):
-        commit(state, [WantedChange(1)])
+        commit(state, [MoneyChange(-1), FlagSet("x", 1, scope="player")])
 
 
 # --------------------------------------------------------------------------- #

@@ -43,7 +43,8 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.effects import GangsterMarkHired, MoneyChange, RosterAppend
+from engine.effects import MoneyChange, RosterAppend
+from data.game_configs.mafia_1920s.effects import GangsterMarkHired
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, Flags, GameState, MapState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
