@@ -14,7 +14,7 @@ VICE 3.10 (``x64sc``) and its output is ``tests/fixtures/c64_str/vice_capture.tx
 which ``tests/test_c64_numbers.py`` uses as the oracle. The rules below are read off
 that capture:
 
-- **Rounding.** The value is rounded to 9 significant digits first; the notation is
+- **Rounding.** The value is rounded half up to 9 significant digits first; the notation is
   chosen on the rounded value (``999999999.6`` prints `` 1E+09``).
 - **Fixed notation** for ``0.01 <= |x| < 1e9`` after rounding: digits with trailing
   zeros dropped, no ``0`` before the point (`` .01``, `` 123.456789``).
@@ -27,6 +27,7 @@ that capture:
 from __future__ import annotations
 
 import math
+from decimal import ROUND_HALF_UP, Decimal
 
 SIGNIFICANT_DIGITS = 9
 """Decimal digits the C64 prints of its 40-bit float's mantissa."""
@@ -63,16 +64,21 @@ def c64_str(value: int | float) -> str:
     """
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise TypeError(f"c64_str needs an int or float, got {type(value).__name__}")
-    number = float(value)
-    if not math.isfinite(number):
-        raise ValueError(f"the C64 cannot print {number!r}")
-    if number == 0:
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"the C64 cannot print {value!r}")
+    if value == 0:
         return " 0"
 
-    sign = "-" if number < 0 else " "
-    mantissa, exponent_text = f"{abs(number):.{SIGNIFICANT_DIGITS - 1}e}".split("e")
-    exponent = int(exponent_text)
-    digits = mantissa.replace(".", "").rstrip("0")
+    sign = "-" if value < 0 else " "
+    # The ROM rounds the 9th digit half up (a tie such as 100000000.5 prints
+    # `` 100000001``). A float is rounded from its shortest decimal repr, the number
+    # the port meant, not from the binary double's exact expansion.
+    exact = Decimal(abs(value)) if isinstance(value, int) else Decimal(repr(abs(value)))
+    rounded = exact.quantize(
+        Decimal(1).scaleb(exact.adjusted() - SIGNIFICANT_DIGITS + 1), rounding=ROUND_HALF_UP
+    )
+    exponent = rounded.adjusted()
+    digits = "".join(map(str, rounded.as_tuple().digits)).rstrip("0")
 
     if _FIXED_MIN_EXPONENT <= exponent <= _FIXED_MAX_EXPONENT:
         return sign + _fixed(digits, exponent)
