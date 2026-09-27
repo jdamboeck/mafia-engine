@@ -19,7 +19,8 @@ Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
   roll, a per-candidate draw (reroll on already-hired/already-drawn), and a settle
   that pays the price, appends the hire to the roster at energy 5, and marks the
   candidate globally hired. See ``pub_recruit``'s own docstring for the full guard
-  order and the mid-batch cap quirk (``:12145``).
+  order and the mid-batch cap quirk: ``:12145`` checks the cap after the offer, the
+  confirm and the cash check, then re-enters ``:12005`` -> ``:12105`` (gang full).
 - ``pub.job`` (``12300-12335``) — take a job. INVERTED rank guard vs. recruit's
   (``ra(sp) <= 3``, not ``>= 5``) — refusal is for players who have ALREADY grown
   too respectable for menial work. A 1-in-5 "nobody has work" roll, then one of
@@ -342,9 +343,11 @@ def pub_recruit(ctx):
        (reroll on already-hired OR already-drawn-this-batch), show the gendered
        intro + offer, confirm, afford-check, then settle (deduct price, append to
        roster at energy 5, mark the candidate globally hired) — showing the new
-       gang-size tally. ``:12145``'s mid-batch cap re-check (hitting the cap
-       DURING this batch, e.g. after a rank/multi-hire scenario) aborts the WHOLE
-       remaining batch back to the pub menu rather than continuing to offer more.
+       gang-size tally. A "no" (``:12136``) or too little cash (``:12140``) moves on
+       to the next candidate. ``:12145`` checks the cap only after those: once a hire
+       in THIS batch has filled the roster, the next candidate is still drawn,
+       introduced and offered, and a "yes" the player can pay for goes
+       ``:12145`` -> ``:12005`` -> ``:12105`` — the gang-full message, ending the batch.
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -386,12 +389,6 @@ def pub_recruit(ctx):
     running_roster_size = len(active.roster)
     drawn_this_batch: list[int] = []
     for _ in range(offered):
-        # :12145 mid-batch cap re-check: a hire earlier in THIS batch may have
-        # already filled the roster -- abort the rest of the batch rather than
-        # keep offering (mirrors the source's `ifgz(sp)=10goto12005`).
-        if running_roster_size == _CREW_CAP:
-            return []
-
         # :12110-12113 — draw a candidate, reroll on already-hired or already-drawn.
         while True:
             candidate_id = ctx.rng.range(len(candidates))
@@ -425,6 +422,16 @@ def pub_recruit(ctx):
         if running_cash < candidate["price"]:
             yield ShowMessage("system.not_enough_money")
             continue
+
+        # :12145 `ifgz(sp)=10goto12005` -- the cap, checked only after the offer, the
+        # confirm and the cash check, so a hire earlier in this batch that filled the
+        # roster still lets the next candidate be drawn and offered. :12005 re-enters
+        # :12100; the rank and housing guards cannot have changed mid-batch (effects
+        # are buffered and this loop touches neither), so the re-entry always ends at
+        # :12105's gang-full message and the batch is over.
+        if running_roster_size == _CREW_CAP:
+            yield ShowMessage("locations.pub.recruit_gang_full")
+            return []
 
         # :12160-12165 — settle: pay, append to roster at energy 5, mark hired.
         ctx.apply(MoneyChange(-candidate["price"]))
