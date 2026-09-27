@@ -239,3 +239,17 @@ def test_a_non_mapping_format_key_raises():
 def test_the_reserved_key_is_not_a_template(key):
     with pytest.raises(MissingKeyError, match="reserved"):
         _styled("c64").resolve(key)
+
+
+# --------------------------------------------------------------------------- #
+# The classic theme prints numbers as the C64 does (_format.numbers: c64).     #
+# --------------------------------------------------------------------------- #
+def test_classic_prints_a_float_price_as_the_c64_does():
+    """:12135 ``print"{down}"y$" verlangt"p"$ vorschuss, wenn"`` — a whole float price is
+    ``3000$`` on the C64 (``str$`` has no ``.0``), never Python's ``3000.0$``."""
+    out = _resolver().resolve(
+        "locations.pub.recruit_offer",
+        {"pronoun": "er", "name": "joe", "description": "stark", "price": 3000.0},
+    )
+    assert " verlangt 3000$ vorschuss" in out
+    assert "3000.0" not in out

@@ -12,7 +12,9 @@ upkeep:
   # trailing "."), score ("<n> p."), then the rank name — each line was printed in
   # reverse video ({rvon}) on the original's poster backdrop; the terminal client
   # renders that presentation, this key only carries the verbatim text content.
-  rank_promotion: "{gang_name}\n{name}.\n{score} p.\n{rank_name}"
+  # The score is :4215's mid$(str$(gf(sp)),2) — {score:mid$} drops str$'s sign
+  # position for any sign, so a negative gf loses its minus (-3.5 prints "3.5 p.").
+  rank_promotion: "{gang_name}\n{name}.\n{score:mid$} p.\n{rank_name}"
 
   # Debt-default upkeep slot (mf-prg.bas:4300-4370) — the loan-shark grace
   # countdown and its collectors fight.

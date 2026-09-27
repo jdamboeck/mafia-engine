@@ -1,0 +1,8 @@
+# Theme settings (not templates) — the reserved `_format` key (engine/strings.py).
+#
+# numbers: c64 prints every int/float param the way the C64's str$ does, minus the
+# sign-position space for a non-negative: 22.0 prints "22", -0.9 prints "-.9",
+# 0.5 prints ".5". A template whose source line prints via mid$(str$(..),2) asks
+# for that form with {n:mid$} (see upkeep.rank_promotion, game_end.standings_header).
+_format:
+  numbers: c64
