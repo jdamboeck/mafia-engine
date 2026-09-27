@@ -21,6 +21,7 @@ from engine.interactions import run
 from engine.locations import available_options, load_location
 from engine.movement import RIGHT, load_city, try_move
 from tests.helpers import scripted, with_player
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CONFIG = load_game_config(_CONFIG_DIR)
@@ -170,7 +171,7 @@ def _play_trajectory():
     obs["cash_after_train"] = p.ka
     obs["kraft_after_train"] = p.roster[0].attrs["kraft"]
     obs["score_after_train"] = p.gf
-    obs["rank_nr_after_train"] = p.nr
+    obs["rank_nr_after_train"] = game.next_rank(p)
 
     return obs
 

@@ -43,7 +43,7 @@ from engine.movement import (
     start_free_turn,
     try_move,
 )
-from engine.state import Clock, Config, GameState, MapState, Player
+from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -75,7 +75,6 @@ def _state(*, po=162, ms=25, rank=1, active=0, players=1, vehicle=0, roster=1):
         players=plist,
         clock=Clock(active_player=active, player_count=players),
         config=Config(),
-        map=MapState(),
     )
 
 

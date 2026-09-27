@@ -21,7 +21,7 @@ from types import MappingProxyType
 import pytest
 
 from engine import persistence
-from engine.config_loader import load_game_config
+from engine.config_loader import STATE_SCHEMA_FILE, load_game_config, load_state_schema
 from engine.effects import EFFECTS, MoneyChange, commit, register_effect
 from engine.state import Clock, GameState, Player, StateSchema
 from tests.helpers import _shape, run_pure, scripted
@@ -238,9 +238,29 @@ def test_a_malformed_schema_is_refused(raw, named):
         StateSchema.from_dict(raw)
 
 
-def test_a_config_without_a_state_section_declares_empty_maps(mafia_config):
-    assert dict(mafia_config.state_schema.player_defaults()) == {}
-    assert dict(mafia_config.state_schema.global_defaults()) == {}
+def test_a_config_without_a_state_schema_file_declares_empty_maps(tmp_path):
+    schema = load_state_schema(tmp_path / STATE_SCHEMA_FILE)
+    assert dict(schema.player_defaults()) == {}
+    assert dict(schema.global_defaults()) == {}
+
+
+def test_a_state_section_in_config_yaml_is_refused_naming_the_schema_file(tmp_path):
+    """One way to declare the value maps: ``state_schema.yaml``, never ``config.yaml``."""
+    import shutil
+
+    config_dir = tmp_path / "counter_game"
+    shutil.copytree(COUNTER_DIR, config_dir, ignore=shutil.ignore_patterns("__pycache__"))
+    with (config_dir / "config.yaml").open("a", encoding="utf-8") as fh:
+        fh.write("state:\n  player: {}\n")
+    with pytest.raises(ValueError, match=STATE_SCHEMA_FILE):
+        load_game_config(config_dir)
+
+
+def test_a_malformed_schema_file_is_refused_naming_the_file(tmp_path):
+    path = tmp_path / STATE_SCHEMA_FILE
+    path.write_text("player:\n  x: {type: decimal, default: 0}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=STATE_SCHEMA_FILE):
+        load_state_schema(path)
 
 
 def test_value_map_helpers_leave_the_input_state_untouched():

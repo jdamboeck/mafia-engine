@@ -18,7 +18,6 @@ brutalitaet +5 (mf-prg.bas:13125-13127, C64 true=-1: 2-3*(ln=2) is 5 at ln=2).
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import pytest
@@ -27,7 +26,8 @@ import yaml
 from engine.actions import run_option
 from engine.config_loader import load_game_config
 from engine.locations import load_location
-from tests.helpers import StubRng, scripted, with_player
+from tests.helpers import StubRng, scripted, with_player, with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CONFIG = load_game_config(_CONFIG_DIR)
@@ -56,7 +56,7 @@ def _start_state():
     )
     state = with_player(state, ka=_START_CASH, gf=_START_SCORE, rank=_RANK)
     # Housing: one apartment slot rented by player 0 (mf-prg.bas:12103).
-    return dataclasses.replace(state, map=dataclasses.replace(state.map, tenancy={1: 0}))
+    return with_tenancy(state, ln=1, owner=0)
 
 
 def _run(shell, option, state, ln, answers, rng):
@@ -141,7 +141,7 @@ def test_training_raised_each_recruits_stats_by_the_ln2_range_gains(gang):
 def test_recruits_join_at_energy_5_and_are_marked_hired(gang):
     _, final, _ = gang
     assert [g.vitality for g in _player(final).roster[1:]] == [5, 5, 5]
-    assert set(_RECRUITS) <= set(final.flags.hired_gangsters)
+    assert set(_RECRUITS) <= set(game.hired_ids(final))
 
 
 def test_cash_paid_for_exactly_three_recruits_three_weapons_and_three_trainings(gang):

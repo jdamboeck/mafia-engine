@@ -33,9 +33,10 @@ from engine.events import (
 )
 from engine.interactions import CANCEL, Confirm, PromptInt, ShowMessage
 from engine.locations import Location, Option
-from engine.state import Clock, Config, GameState, MapState, Player
+from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 
 # --------------------------------------------------------------------------- #
@@ -52,7 +53,7 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
         players=plist,
         clock=Clock(active_player=active, player_count=players),
         config=Config(formula_params={"fnm": {"base": 50, "overrides": {1: -50}}}),
-        map=MapState(tenancy=tenancy or {}),
+        values=game.tenancy_values(tenancy or {}),
     )
 
 

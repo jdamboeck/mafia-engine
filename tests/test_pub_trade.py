@@ -22,9 +22,11 @@ from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
 from data.game_configs.mafia_1920s.effects import BarrelChange, ScoreAndRank
 from engine.locations import HANDLERS
-from engine.state import Clock, Config, Contraband, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.state import Contraband
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import StubRng as _StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -48,12 +50,12 @@ def _state(*, ka=100000, ln=4, vehicle=0, barrels=0, score_mult=1.0, gf=0.0):
         roster=(Gangster(name="g0"),),
         last_location=ln,
         vehicle=vehicle,
-        contraband=Contraband(alcohol_barrels=barrels),
+        values=game.values_of(Contraband(alcohol_barrels=barrels)),
     )
     return GameState(
         players=(active,),
         clock=Clock(active_player=0, player_count=1),
-        config=Config(score_mult=score_mult, formula_params=_PARAMS),
+        config=Config(formula_params={**_PARAMS, "score_mult": score_mult}),
     )
 
 
@@ -108,7 +110,7 @@ def test_buy_capacity_capped_at_on_foot_50():
     rng = _StubRng(200, 5, 50)  # stock=200 (capped to 50), price=5, buy all 50
     result = run_pure(HANDLERS["pub.drink"], _scripted(50), state=st, rng=rng)
     assert result.effects[0] == BarrelChange(50)
-    assert result.state.players[0].contraband.alcohol_barrels == 50
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 50
 
 
 def test_buy_capacity_capped_by_carried_barrels_already_on_foot():
@@ -116,7 +118,7 @@ def test_buy_capacity_capped_by_carried_barrels_already_on_foot():
     st = _state(ln=4, ka=100000, vehicle=0, barrels=30)
     rng = _StubRng(200, 5, 20)
     result = run_pure(HANDLERS["pub.drink"], _scripted(20), state=st, rng=rng)
-    assert result.state.players[0].contraband.alcohol_barrels == 50  # 30 + 20
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 50  # 30 + 20
 
 
 def test_buy_stock_under_capacity_is_not_capped():
@@ -125,7 +127,7 @@ def test_buy_stock_under_capacity_is_not_capped():
     st = _state(ln=4, ka=100000, vehicle=1, barrels=0)  # talbot 90, tank=100
     rng = _StubRng(60, 5, 60)  # stock=60 < 100 capacity -> uncapped
     result = run_pure(HANDLERS["pub.drink"], _scripted(60), state=st, rng=rng)
-    assert result.state.players[0].contraband.alcohol_barrels == 60
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 60
 
 
 def test_sell_price_rolled_in_documented_range():
@@ -145,7 +147,7 @@ def test_buy_broke_path_no_state_change():
     assert result.status == "completed"
     assert result.effects == []
     assert result.state.players[0].ka == 10
-    assert result.state.players[0].contraband.alcohol_barrels == 0
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 0
 
 
 def test_buy_quantity_zero_is_quiet_abort():
@@ -161,7 +163,7 @@ def test_sell_quantity_zero_is_quiet_abort():
     rng = _StubRng(1, 20)
     result = run_pure(HANDLERS["pub.drink"], _scripted(0), state=st, rng=rng)
     assert result.effects == []
-    assert result.state.players[0].contraband.alcohol_barrels == 5
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 5
 
 
 # --------------------------------------------------------------------------- #
@@ -177,7 +179,7 @@ def test_buy_settle_moves_money_and_barrels_and_scores_plus_2():
         ScoreAndRank(amount=2, rank_divisor=11.1),
     ]
     assert result.state.players[0].ka == 950
-    assert result.state.players[0].contraband.alcohol_barrels == 10
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 10
 
 
 def test_sell_settle_moves_money_and_barrels_no_score_effect():
@@ -186,7 +188,7 @@ def test_sell_settle_moves_money_and_barrels_no_score_effect():
     result = run_pure(HANDLERS["pub.drink"], _scripted(5), state=st, rng=rng)
     assert result.effects == [MoneyChange(75), BarrelChange(-5)]
     assert result.state.players[0].ka == 1075
-    assert result.state.players[0].contraband.alcohol_barrels == 15
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 15
     assert result.state.players[0].gf == 0.0  # unchanged -- no score effect on sell
 
 

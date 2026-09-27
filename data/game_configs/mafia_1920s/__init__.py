@@ -3,6 +3,9 @@
 This is the top-level package the engine loads BY PATH (via
 :func:`engine.config_loader.load_game_config`). Importing it:
 
+* imports :mod:`.state` (firing each guard variable's ``@register_guard_variable``, so
+  :data:`engine.conditions.GUARD_VARIABLES` holds this game's guard vocabulary; it
+  also holds the typed accessors over the declared value maps),
 * imports :mod:`.effects` (firing each game effect's ``@register_effect``, so
   :data:`engine.effects.EFFECTS` holds this game's effects),
 * imports the handlers package (firing each handler's ``@register`` decorator, so
@@ -17,6 +20,7 @@ travel together; the engine is untouched (docs/design/product-and-scope.md and d
 
 from __future__ import annotations
 
+from . import state  # noqa: F401 — registers the config's guard variables on import
 from . import effects  # noqa: F401 — registers the config's own effects on import
 from . import handlers  # noqa: F401 — registers the config's handlers on import
 from .gangster import Gangster
@@ -29,6 +33,7 @@ __all__ = [
     "fnm",
     "effects",
     "handlers",
+    "state",
     "load_ranks",
     "load_vehicles",
     "load_weapons",

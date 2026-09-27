@@ -25,9 +25,10 @@ from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
 from data.game_configs.mafia_1920s.effects import RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
-from engine.state import Clock, Config, GameState, MapState, Player
+from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -60,7 +61,7 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
         players=plist,
         clock=Clock(active_player=active, player_count=players),
         config=Config(formula_params={"fnm": _FNM_PARAMS}),
-        map=MapState(tenancy=tenancy or {}),
+        values=game.tenancy_values(tenancy or {}),
     )
 
 
@@ -86,8 +87,8 @@ def test_rent_two_months_positive_tile():
     ]
     # Post-commit state reflects all three.
     assert result.state.players[0].ka == 4900
-    assert result.state.map.tenancy[2] == 0
-    assert result.state.players[0].rented_months == 2
+    assert game.tenant(result.state, 2) == 0
+    assert game.rented_months(result.state.players[0]) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -102,8 +103,8 @@ def test_premium_tile_rent_is_150_a_month():
     assert result.status == "completed"
     assert result.effects == [MoneyChange(-300), SetTenancy(1), RentAccrue(2)]
     assert result.state.players[0].ka == 4700
-    assert result.state.map.tenancy[1] == 0
-    assert result.state.players[0].rented_months == 2
+    assert game.tenant(result.state, 1) == 0
+    assert game.rented_months(result.state.players[0]) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -116,8 +117,8 @@ def test_zero_months_cancels_with_no_effects():
     assert result.status == "completed"  # quiet return, not a driver-cancel
     assert result.effects == []  # atomic: nothing applied
     assert result.state.players[0].ka == 5000  # unchanged
-    assert 2 not in result.state.map.tenancy  # no tenancy set
-    assert result.state.players[0].rented_months == 0
+    assert game.tenant(result.state, 2) is None  # no tenancy set
+    assert game.rented_months(result.state.players[0]) == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -133,7 +134,7 @@ def test_insufficient_cash_no_deduction():
     assert result.status == "completed"
     assert result.effects == []  # nothing deducted / no tenancy
     assert result.state.players[0].ka == 10
-    assert 2 not in result.state.map.tenancy
+    assert game.tenant(result.state, 2) is None
 
 
 def test_insufficient_cash_emits_not_enough_money():

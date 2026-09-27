@@ -48,6 +48,7 @@ from dataclasses import replace
 import pytest
 
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
+from data.game_configs.mafia_1920s.state import tenancy_values, values_of
 from engine.combat import CombatFight
 from engine.effects import commit, effect_tag
 from engine.interactions import ShowMessage, run
@@ -211,26 +212,38 @@ def with_clock(state, **field_changes):
     return dataclasses.replace(state, clock=dataclasses.replace(state.clock, **field_changes))
 
 
-def with_tenancy(state, tenancy=None, *, ln=None, owner=None):
-    """Return ``state`` with ``map.tenancy`` arranged for a test.
+def with_values(state, *views, idx: int = 0, **scalars):
+    """Return ``state`` with ``players[idx]``'s value map updated — the game-state arrange idiom.
 
-    Two shapes, since fixtures need both: pass a whole ``tenancy`` mapping to
-    replace it outright, or ``ln=``/``owner=`` to set one tile on top of what is
-    already there.
+    ``views`` are this game's entity views (``Debt(...)``, ``Job(...)``, ...) and
+    ``scalars`` plain value-map keys (``tip_target=4``); both are flattened into
+    declared keys by the config's :func:`~data.game_configs.mafia_1920s.state.values_of`
+    and merged over what the player already holds.
+    """
+    merged = {**state.players[idx].values, **values_of(*views, **scalars)}
+    return with_player(state, idx, values=merged)
 
-    Wraps the result in a proxy so a fixture cannot hand the engine a mutable
-    mapping and quietly reopen the write path the freeze exists to close.
+
+def with_tenancy(state, tenancy=None, *, ln: int | None = None, owner: int | None = None):
+    """Return ``state`` with the global tenancy values (``uk(ln)``) arranged for a test.
+
+    Two shapes, since fixtures need both: pass a whole ``{ln: owner}`` mapping to
+    replace every tile's tenancy outright, or ``ln=``/``owner=`` to set one tile on
+    top of what is already there.
     """
     if (tenancy is None) == (ln is None):
         raise TypeError(
             "with_tenancy takes either a tenancy mapping or ln=/owner=, not both or neither"
         )
     if ln is not None:
-        tenancy = {**state.map.tenancy, ln: owner}
-    assert tenancy is not None  # the either/or check above guarantees one was given
-    return dataclasses.replace(
-        state, map=dataclasses.replace(state.map, tenancy=MappingProxyType(dict(tenancy)))
-    )
+        if owner is None:
+            raise TypeError("with_tenancy(ln=...) needs the owner's player index")
+        values = {**state.values, **tenancy_values({ln: owner})}
+    else:
+        assert tenancy is not None  # the either/or check above guarantees one was given
+        kept = {k: v for k, v in state.values.items() if not k.startswith("tenancy.")}
+        values = {**kept, **tenancy_values(dict(tenancy))}
+    return dataclasses.replace(state, values=values)
 
 
 def with_config(state, **field_changes):
@@ -243,7 +256,7 @@ def _shape(value):
 
     :func:`~engine.state.json_safe` exists to ERASE types — proxy to dict, tuple to list — so a
     value comparison built on it cannot see type drift. That blind spot is not
-    cosmetic: swapping ``map.tenancy``'s ``MappingProxyType`` for a plain ``dict``
+    cosmetic: swapping a value map's ``MappingProxyType`` for a plain ``dict``
     reopens the exact R2 false floor the frozen graph closes, and both sides
     flatten to the same JSON. Python's own coercions hide more (``0 == False``,
     ``5000 == 5000.0``), so an int silently becoming a float — the corruption that

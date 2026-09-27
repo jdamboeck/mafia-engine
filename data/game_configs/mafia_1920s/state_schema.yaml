@@ -1,0 +1,90 @@
+# mafia_1920s — the declared value maps: this game's state, by name, type and default.
+#
+# The engine keeps only genre-level player fields (cash, score, rank, position,
+# vehicle, movement points, roster, entry context). Everything below is this game's
+# state; the engine freezes, saves and restores it without naming a key
+# (docs/design/engine-architecture.md § GameState overview). On load a missing key
+# takes its default here and an unknown key is refused, so a later unit adds a key
+# by declaring it. Handlers read and write these keys through state.py.
+#
+# Values are scalars only (int/float/bool/str). A structure is flattened into
+# "<entity>.<field>" keys; a BASIC array indexed by tile or candidate becomes one
+# key per index ("tenancy.<ln>", "hired.<id>").
+
+player:
+  gang_name: {type: str, default: ""}      # the gang's name, entered at setup
+  nr: {type: int, default: 1}              # nr(sp) pending rank, :1165 (committed to ra at :4030)
+
+  # Loan-shark debt: kr(sp) balance and kz(sp) grace counter (:15030, :4305).
+  # Renamed from kr to avoid the collision with the gangster stat kraft.
+  debt.amount: {type: int, default: 0}
+  debt.months: {type: int, default: 0}
+
+  # The accepted job: jo(sp) type (0 = none), jl(sp) lump-sum pay on completion,
+  # jd(sp) months left (:12308-12335, :25550).
+  job.type: {type: int, default: 0}
+  job.pending_pay: {type: int, default: 0}
+  job.months_left: {type: int, default: 0}
+
+  # The shop: kg(sp) owned kdh tile ln (0 = none) and kk(sp) capital (:15120, :15220).
+  business.shop_tile: {type: int, default: 0}
+  business.shop_capital: {type: int, default: 0}
+
+  # Contraband: papers, counterfeit money, ta(sp) alcohol barrels (:12035, :12075).
+  contraband.fake_papers: {type: int, default: 0}
+  contraband.counterfeit: {type: int, default: 0}
+  contraband.alcohol_barrels: {type: int, default: 0}
+
+  # Wanted: gs(sp) jail months, chief-bribe months, the two win flags x5/x6.
+  wanted.jail_months: {type: int, default: 0}
+  wanted.bribe_months: {type: int, default: 0}
+  wanted.x5: {type: bool, default: false}  # win flag — cash-transport event
+  wanted.x6: {type: bool, default: false}  # win flag — mayor-hit event
+
+  tip_target: {type: int, default: 0}      # tp(sp) heist tip type 1..5; 0 = no tip (:12225)
+  safe_skill: {type: int, default: 0}      # unread today
+  rented_months: {type: int, default: 0}   # um(sp) prepaid rent months (:10040, :4046)
+
+global:
+  # uk(ln): the tenant of motel tile ln, as a player index; -1 = vacant (:10040).
+  tenancy.1: {type: int, default: -1}
+  tenancy.2: {type: int, default: -1}
+  tenancy.3: {type: int, default: -1}
+  tenancy.4: {type: int, default: -1}
+  tenancy.5: {type: int, default: -1}
+  tenancy.6: {type: int, default: -1}
+  tenancy.7: {type: int, default: -1}
+  tenancy.8: {type: int, default: -1}
+  tenancy.9: {type: int, default: -1}
+  # sg(i): candidate i (0-based; entities/gangsters.yaml order) was hired by any
+  # player this game (:12106, :12165). One key per candidate.
+  hired.0: {type: bool, default: false}
+  hired.1: {type: bool, default: false}
+  hired.2: {type: bool, default: false}
+  hired.3: {type: bool, default: false}
+  hired.4: {type: bool, default: false}
+  hired.5: {type: bool, default: false}
+  hired.6: {type: bool, default: false}
+  hired.7: {type: bool, default: false}
+  hired.8: {type: bool, default: false}
+  hired.9: {type: bool, default: false}
+  hired.10: {type: bool, default: false}
+  hired.11: {type: bool, default: false}
+  hired.12: {type: bool, default: false}
+  hired.13: {type: bool, default: false}
+  hired.14: {type: bool, default: false}
+  hired.15: {type: bool, default: false}
+  hired.16: {type: bool, default: false}
+  hired.17: {type: bool, default: false}
+  hired.18: {type: bool, default: false}
+  hired.19: {type: bool, default: false}
+  hired.20: {type: bool, default: false}
+  hired.21: {type: bool, default: false}
+  hired.22: {type: bool, default: false}
+  hired.23: {type: bool, default: false}
+  hired.24: {type: bool, default: false}
+  hired.25: {type: bool, default: false}
+  hired.26: {type: bool, default: false}
+  hired.27: {type: bool, default: false}
+  hired.28: {type: bool, default: false}
+  hired.29: {type: bool, default: false}

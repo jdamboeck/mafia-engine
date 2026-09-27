@@ -58,6 +58,7 @@ from pathlib import Path
 
 from engine.effects import MoneyChange
 from ..effects import DebtChange, DebtClear, ShopChange
+from ..state import business, debt
 from engine.interactions import Confirm, PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario
@@ -115,7 +116,7 @@ def kdh_borrow(ctx):
     params = ctx.state.config.formula_params
 
     # :15010 — one loan at a time.
-    if active.debt.amount != 0:
+    if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_old_debts_first")
         return []
 
@@ -155,13 +156,13 @@ def kdh_repay(ctx):
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
-    debt = active.debt.amount
+    debt_amount = debt(active).amount
 
     # :15050-15051 — bounds 0..kr(sp); PromptInt needs max>=min even when debt is 0
     # (a guardless entry with no debt: the source still asks and the answer is
     # forced to 0, a quiet abort. This handler is never routed to at 0 debt by any
     # caller, but the bound stays well-formed regardless).
-    x = yield PromptInt("locations.kdh.repay_prompt", min=0, max=max(debt, 0))
+    x = yield PromptInt("locations.kdh.repay_prompt", min=0, max=max(debt_amount, 0))
     if x == 0:
         return []
 
@@ -174,7 +175,7 @@ def kdh_repay(ctx):
     ctx.apply(DebtChange(amount=-x))
     ctx.apply(MoneyChange(-x))
 
-    remaining = debt - x
+    remaining = debt_amount - x
     if remaining == 0:
         # :15075 — full repayment: also reset the grace counter.
         ctx.apply(DebtClear())
@@ -201,7 +202,7 @@ def kdh_trade(ctx):
     ln = active.last_location
     params = ctx.state.config.formula_params
 
-    if active.business.shop_tile == ln:
+    if business(active).shop_tile == ln:
         yield from _sell(ctx, params=params)
         return []
 
@@ -214,12 +215,12 @@ def _buy(ctx, *, ln: int, params: dict):
     active = ctx.state.players[sp]
 
     # :15105 — already own a DIFFERENT shop.
-    if active.business.shop_tile != 0:
+    if business(active).shop_tile != 0:
         yield ShowMessage("locations.kdh.already_own_a_shop")
         return
 
     # :15106 — own outstanding debt.
-    if active.debt.amount != 0:
+    if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_own_debts_first")
         return
 
@@ -227,7 +228,7 @@ def _buy(ctx, *, ln: int, params: dict):
     for i, other in enumerate(ctx.state.players):
         if i == sp:
             continue
-        if other.business.shop_tile == ln:
+        if business(other).shop_tile == ln:
             yield ShowMessage("locations.kdh.shop_belongs_to", {"name": other.name})
             return
 
@@ -288,11 +289,11 @@ def kdh_capital(ctx):
     params = ctx.state.config.formula_params
 
     # :15200 — must own this tile.
-    if active.business.shop_tile != ln:
+    if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
         return []
 
-    capital = active.business.shop_capital
+    capital = business(active).shop_capital
     cap_max = params["kdh_capital_max"]
     yield ShowMessage("locations.kdh.capital_status", {"capital": capital, "max": cap_max})
     x = yield PromptInt("locations.kdh.capital_prompt", min=-capital, max=cap_max - capital)
@@ -337,11 +338,11 @@ def kdh_collect(ctx):
     params = ctx.state.config.formula_params
 
     # :15300 — must own this tile.
-    if active.business.shop_tile != ln:
+    if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
         return []
 
-    capital = active.business.shop_capital
+    capital = business(active).shop_capital
     # :15305 — 2/3 chance of an ambush, ONLY when capital is nonzero.
     ambush = capital != 0 and ctx.rng.range(params["kdh_ambush_roll"]) != 0
     if not ambush:

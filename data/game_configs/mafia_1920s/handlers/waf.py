@@ -180,12 +180,12 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             continue
 
         old = g.weapon  # gw(sp,y) — the gangster's CURRENT weapon (0 = unarmed)
-        # x8 == the score weight (Config.score_mult); the buy-score modifies gf DIRECTLY
+        # x8 == the score weight (formula_params["score_mult"]); the buy-score modifies gf DIRECTLY
         # by ±x8 (13065/13072/13073) and does NOT go through gosub 1160, so it neither
         # recomputes rank nor clamps: an unclamped ScoreChange, not ScoreAndRank. Only the
         # gf<100 / gf>0 guards bound it, so gf=99,x8=2 upgrading reaches 101 and stays
         # there until the next gosub 1160 (ScoreAndRank) clamps it.
-        x8 = ctx.state.config.score_mult
+        x8 = ctx.state.config.formula_params["score_mult"]
 
         if old == 0:
             # 13065 — no old weapon: q=0. `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` with the C64

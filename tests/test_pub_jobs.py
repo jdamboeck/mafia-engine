@@ -31,15 +31,18 @@ from engine.effects import EnergyChange, MoneyChange, MsChange
 from data.game_configs.mafia_1920s.effects import JobClear, JobSet, ScoreAndRank
 from engine.locations import HANDLERS
 from engine.rng import Rng
-from engine.state import Clock, Config, GameState, Job, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.state import Job
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
 
 _PARAMS = {
     "rank_divisor": 11.1,
+    "score_mult": 1.0,  # x8, a setup input new_game adds to formula_params
     "job_bouncer_duration": 3,
     "job_bouncer_pay_min": 2000,
     "job_bouncer_pay_max": 2999,
@@ -67,7 +70,7 @@ def _state(*, ka=100000, rank=1, ms=5, roster=None, jobs=None):
         roster=roster
         if roster is not None
         else (Gangster(name="g0", energie=5, kraft=30, brutalitaet=30),),
-        jobs=jobs if jobs is not None else Job(),
+        values=game.values_of(jobs if jobs is not None else Job()),
     )
     return GameState(
         players=(active,),
@@ -106,7 +109,7 @@ def test_nobody_available_on_the_zero_roll():
     rng = _StubRng(0)
     result = run_pure(HANDLERS["pub.job"], _scripted(), state=st, rng=rng)
     assert result.effects == []
-    assert result.state.players[0].jobs == Job()
+    assert game.job(result.state.players[0]) == Job()
 
 
 # --------------------------------------------------------------------------- #
@@ -154,7 +157,7 @@ def test_decline_pay_confirm_no_state_change():
     rng = _StubRng(1, 0, 2000)  # available; bouncer; pay=2000
     result = run_pure(HANDLERS["pub.job"], _scripted(False), state=st, rng=rng)
     assert result.effects == []
-    assert result.state.players[0].jobs == Job()
+    assert game.job(result.state.players[0]) == Job()
     assert result.state.players[0].ms == 5
 
 
@@ -166,7 +169,7 @@ def test_accept_stores_job_and_force_ends_turn_with_ms_zero():
         JobSet(type=2, pending_pay=1200, months_left=2),
         MsChange(amount=-7),
     ]
-    assert result.state.players[0].jobs == Job(type=2, pending_pay=1200, months_left=2)
+    assert game.job(result.state.players[0]) == Job(type=2, pending_pay=1200, months_left=2)
     assert result.state.players[0].ms == 0
 
 
@@ -247,7 +250,7 @@ def test_killer_always_fights_the_victim():
     result = run_pure(HANDLERS["job.shift"], _scripted("surrender"), state=st, rng=rng)
     # A surrender loses immediately -> job cleared unpaid, score -2.
     assert any(is_effect(e, JobClear) for e in result.effects)
-    assert result.state.players[0].jobs == Job()
+    assert game.job(result.state.players[0]) == Job()
 
 
 # --------------------------------------------------------------------------- #
@@ -258,7 +261,7 @@ def test_failed_shift_fight_clears_job_no_pay_score_minus_2():
     rng = _StubRng()
     result = run_pure(HANDLERS["job.shift"], _scripted("surrender"), state=st, rng=rng)
     assert result.state.players[0].ka == 1000  # unpaid
-    assert result.state.players[0].jobs == Job()  # cleared
+    assert game.job(result.state.players[0]) == Job()  # cleared
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
     # :25510 `x=-2:gosub1160` — a failure lowers notoriety.
     assert [e for e in result.effects if is_effect(e, ScoreAndRank)] == [
@@ -274,13 +277,13 @@ def test_croupier_full_lifecycle_two_shifts_then_lump_sum():
     # Shift 1: success, no fight (trick=1, catch roll nonzero).
     rng1 = _StubRng(1, 350)
     result1 = run_pure(HANDLERS["job.shift"], _scripted(1), state=st, rng=rng1)
-    assert result1.state.players[0].jobs == Job(type=2, pending_pay=1200, months_left=1)
+    assert game.job(result1.state.players[0]) == Job(type=2, pending_pay=1200, months_left=1)
     assert result1.state.players[0].ka == 1350
 
     # Shift 2: success again -> months_left hits 0 -> full wage pays out.
     rng2 = _StubRng(1, 350)
     result2 = run_pure(HANDLERS["job.shift"], _scripted(1), state=result1.state, rng=rng2)
-    assert result2.state.players[0].jobs == Job()  # cleared
+    assert game.job(result2.state.players[0]) == Job()  # cleared
     assert result2.state.players[0].ka == 1350 + 350 + 1200  # bonus + wage
     assert any(isinstance(e, MoneyChange) and e.amount == 1200 for e in result2.effects)
 

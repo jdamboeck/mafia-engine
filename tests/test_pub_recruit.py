@@ -46,9 +46,10 @@ from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RosterAppend
 from data.game_configs.mafia_1920s.effects import GangsterMarkHired
 from engine.locations import HANDLERS
-from engine.state import Clock, Config, Flags, GameState, MapState, Player
+from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -85,8 +86,7 @@ def _state(
         players=(player,),
         clock=Clock(active_player=0, player_count=1),
         config=Config(formula_params={}),
-        map=MapState(tenancy=tenancy),
-        flags=Flags(hired_gangsters=hired_gangsters),
+        values={**game.tenancy_values(tenancy), **game.hired_values(hired_gangsters)},
     )
     return state
 
@@ -230,7 +230,7 @@ def test_hire_settles_money_roster_and_hired_flag():
     assert result.state.players[0].ka == 97000
     assert result.state.players[0].roster == (st.players[0].roster[0], _gangster(0))
     assert result.state.players[0].roster[1].energie == 5
-    assert result.state.flags.hired_gangsters == (0,)
+    assert game.hired_ids(result.state) == (0,)
 
 
 def test_decline_offer_costs_nothing_and_does_not_mark_hired():
@@ -241,7 +241,7 @@ def test_decline_offer_costs_nothing_and_does_not_mark_hired():
     assert result.effects == []
     assert result.state.players[0].ka == 100000
     assert len(result.state.players[0].roster) == 1
-    assert result.state.flags.hired_gangsters == ()
+    assert game.hired_ids(result.state) == ()
 
 
 def test_broke_path_shows_not_enough_money_no_state_change():
@@ -260,7 +260,7 @@ def test_multi_candidate_batch_hires_both():
     result = run_pure(HANDLERS["pub.recruit"], _scripted(True, True), state=st, rng=rng)
     assert result.status == "completed"
     assert len(result.state.players[0].roster) == 3  # boss + 2 hires
-    assert result.state.flags.hired_gangsters == (0, 1)
+    assert game.hired_ids(result.state) == (0, 1)
     assert result.state.players[0].ka == 100000 - 3000 - 2000  # candidate 0 + candidate 1 prices
 
 

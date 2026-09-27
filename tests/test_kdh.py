@@ -21,16 +21,19 @@ from engine.effects import MoneyChange
 from data.game_configs.mafia_1920s.effects import DebtChange, DebtClear, ScoreAndRank, ShopChange
 from engine.locations import HANDLERS
 from engine.rng import Rng
-from engine.state import Business, Clock, Config, Debt, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.state import Business, Debt
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.upkeep import UPKEEP_HANDLER_KEY
 from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
 
 _PARAMS = {
     "rank_divisor": 11.1,
+    "score_mult": 1.0,  # x8, a setup input new_game adds to formula_params
     "kdh_borrow_min": 0,
     "kdh_borrow_max": 5000,
     "kdh_borrow_grace_months": 6,
@@ -66,8 +69,10 @@ def _player(
     return Player(
         name=name,
         ka=ka,
-        debt=debt if debt is not None else Debt(),
-        business=business if business is not None else Business(),
+        values=game.values_of(
+            debt if debt is not None else Debt(),
+            business if business is not None else Business(),
+        ),
         roster=roster
         if roster is not None
         else (Gangster(name=name, energie=10, kraft=30, brutalitaet=30),),
@@ -99,7 +104,7 @@ def test_borrow_zero_is_quiet_abort():
     rng = _StubRng()
     result = run_pure(HANDLERS["kdh.borrow"], _scripted(0), state=st, rng=rng)
     assert result.effects == []
-    assert result.state.players[0].debt == Debt()
+    assert game.debt(result.state.players[0]) == Debt()
 
 
 def test_borrow_within_bounds_sets_debt_and_credits_cash():
@@ -110,7 +115,7 @@ def test_borrow_within_bounds_sets_debt_and_credits_cash():
         DebtChange(amount=3000, months=6),
         MoneyChange(3000),
     ]
-    assert result.state.players[0].debt == Debt(amount=3000, months=6)
+    assert game.debt(result.state.players[0]) == Debt(amount=3000, months=6)
     assert result.state.players[0].ka == 4000
 
 
@@ -137,7 +142,7 @@ def test_repay_zero_is_quiet_abort():
     st = _state([_player(debt=Debt(amount=1000, months=4))])
     result = run_pure(HANDLERS["kdh.repay"], _scripted(0), state=st, rng=_StubRng())
     assert result.effects == []
-    assert result.state.players[0].debt == Debt(amount=1000, months=4)
+    assert game.debt(result.state.players[0]) == Debt(amount=1000, months=4)
 
 
 def test_repay_more_than_cash_denied_no_state_change():
@@ -145,7 +150,7 @@ def test_repay_more_than_cash_denied_no_state_change():
     result = run_pure(HANDLERS["kdh.repay"], _scripted(500), state=st, rng=_StubRng())
     assert result.effects == []
     assert result.state.players[0].ka == 100
-    assert result.state.players[0].debt == Debt(amount=1000, months=4)
+    assert game.debt(result.state.players[0]) == Debt(amount=1000, months=4)
 
 
 def test_repay_partial_leaves_grace_counter_untouched():
@@ -155,7 +160,7 @@ def test_repay_partial_leaves_grace_counter_untouched():
         DebtChange(amount=-400),
         MoneyChange(-400),
     ]
-    assert result.state.players[0].debt == Debt(amount=600, months=4)
+    assert game.debt(result.state.players[0]) == Debt(amount=600, months=4)
     assert result.state.players[0].ka == 600
 
 
@@ -167,7 +172,7 @@ def test_repay_full_also_clears_grace_counter():
         MoneyChange(-1000),
         DebtClear(),
     ]
-    assert result.state.players[0].debt == Debt(amount=0, months=0)
+    assert game.debt(result.state.players[0]) == Debt(amount=0, months=0)
     assert result.state.players[0].ka == 0
 
 
@@ -214,7 +219,7 @@ def test_buy_denied_rival_scan_names_the_owner():
     assert result.effects == []
     # The rival-scan denial names the rival (message key is checked in the shell test;
     # here we confirm no purchase effects fired).
-    assert result.state.players[0].business == Business()
+    assert game.business(result.state.players[0]) == Business()
 
 
 def test_buy_price_rolled_5000_to_6000_step_100():
@@ -239,7 +244,7 @@ def test_buy_afford_check_denies_and_no_state_change():
     rng = _StubRng(0)  # price 5000
     result = run_pure(HANDLERS["kdh.trade"], _scripted(True), state=st, rng=rng)
     assert result.effects == []
-    assert result.state.players[0].business == Business()
+    assert game.business(result.state.players[0]) == Business()
 
 
 def test_buy_settles_cash_and_shop_tile():
@@ -250,7 +255,7 @@ def test_buy_settles_cash_and_shop_tile():
         MoneyChange(-5000),
         ShopChange(tile=1),
     ]
-    assert result.state.players[0].business == Business(shop_tile=1)
+    assert game.business(result.state.players[0]) == Business(shop_tile=1)
     assert result.state.players[0].ka == 95000
 
 
@@ -272,7 +277,7 @@ def test_sell_decline_confirm_no_state_change():
     rng = _StubRng(0)
     result = run_pure(HANDLERS["kdh.trade"], _scripted(False), state=st, rng=rng)
     assert result.effects == []
-    assert result.state.players[0].business == Business(shop_tile=1)
+    assert game.business(result.state.players[0]) == Business(shop_tile=1)
 
 
 def test_sell_settles_unconditionally_no_afford_check():
@@ -283,7 +288,7 @@ def test_sell_settles_unconditionally_no_afford_check():
         MoneyChange(4500),
         ShopChange(tile=0),
     ]
-    assert result.state.players[0].business.shop_tile == 0
+    assert game.business(result.state.players[0]).shop_tile == 0
     assert result.state.players[0].ka == 4500
 
 
@@ -301,7 +306,7 @@ def test_capital_zero_is_quiet_abort():
     st = _state([_player(business=Business(shop_tile=1, shop_capital=1000), last_location=1)])
     result = run_pure(HANDLERS["kdh.capital"], _scripted(0), state=st, rng=_StubRng())
     assert result.effects == []
-    assert result.state.players[0].business.shop_capital == 1000
+    assert game.business(result.state.players[0]).shop_capital == 1000
 
 
 def test_capital_deposit_bounds_upper():
@@ -328,7 +333,7 @@ def test_capital_deposit_afford_check_denies():
     )
     result = run_pure(HANDLERS["kdh.capital"], _scripted(500), state=st, rng=_StubRng())
     assert result.effects == []
-    assert result.state.players[0].business.shop_capital == 1000
+    assert game.business(result.state.players[0]).shop_capital == 1000
     assert result.state.players[0].ka == 100
 
 
@@ -338,7 +343,7 @@ def test_capital_deposit_settles():
     )
     result = run_pure(HANDLERS["kdh.capital"], _scripted(500), state=st, rng=_StubRng())
     assert result.effects == [MoneyChange(-500), ShopChange(capital_delta=500)]
-    assert result.state.players[0].business.shop_capital == 1500
+    assert game.business(result.state.players[0]).shop_capital == 1500
     assert result.state.players[0].ka == 4500
 
 
@@ -346,7 +351,7 @@ def test_capital_withdrawal_settles_no_afford_check():
     st = _state([_player(ka=0, business=Business(shop_tile=1, shop_capital=1000), last_location=1)])
     result = run_pure(HANDLERS["kdh.capital"], _scripted(-400), state=st, rng=_StubRng())
     assert result.effects == [MoneyChange(400), ShopChange(capital_delta=-400)]
-    assert result.state.players[0].business.shop_capital == 600
+    assert game.business(result.state.players[0]).shop_capital == 600
     assert result.state.players[0].ka == 400
 
 

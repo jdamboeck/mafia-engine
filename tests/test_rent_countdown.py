@@ -22,7 +22,6 @@ The source, in the order it runs at turn start:
 
 from __future__ import annotations
 
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -33,10 +32,12 @@ from engine.effects import MoneyChange, RosterTruncate
 from data.game_configs.mafia_1920s.effects import RentAccrue
 from engine.interactions import ShowMessage
 from engine.locations import HANDLERS
-from engine.state import Business, Clock, Config, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.state import Business
 from engine.strings import Resolver
 from engine.upkeep import UPKEEP_HANDLER_KEY, run_upkeep
-from tests.helpers import is_effect, StubRng, run_pure
+from tests.helpers import is_effect, StubRng, run_pure, with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -50,8 +51,16 @@ _HIRE_B = Gangster(name="hire-b", energie=5, kraft=30, brutalitaet=30)
 _RENT_KEYS = ("upkeep.rent_late", "upkeep.rent_evicted")
 
 
-def _state(*, um: int, ka: int = 1000, roster=(_BOSS, _HIRE_A, _HIRE_B), **fields) -> GameState:
-    player = Player(name="p", ka=ka, rented_months=um, roster=roster, **fields)
+def _state(
+    *,
+    um: int,
+    ka: int = 1000,
+    roster=(_BOSS, _HIRE_A, _HIRE_B),
+    business: Business = Business(),
+    tip_target: int = 0,
+) -> GameState:
+    values = game.values_of(business, rented_months=um, tip_target=tip_target)
+    player = Player(name="p", ka=ka, roster=roster, values=values)
     return GameState(
         players=(player,),
         clock=Clock(active_player=0, player_count=1),
@@ -86,7 +95,7 @@ def test_no_rent_slot_when_nothing_is_prepaid():
     # :4045 `ifum(sp)=0goto4050` — um stays 0, no draw, no message, cash untouched.
     result, shown, rng = _run(_state(um=0))
     p = result.state.players[0]
-    assert p.rented_months == 0
+    assert game.rented_months(p) == 0
     assert p.ka == 1000
     assert rng.calls == []
     assert _rent_messages(shown) == []
@@ -101,7 +110,7 @@ def test_countdown_takes_one_month_per_turn_start(um):
     # :4046 `um(sp)=um(sp)-1` — above 1 the tick is all that happens.
     result, shown, rng = _run(_state(um=um))
     p = result.state.players[0]
-    assert p.rented_months == um - 1
+    assert game.rented_months(p) == um - 1
     assert p.ka == 1000
     assert rng.calls == []  # no fine rolled while months remain
     assert _rent_messages(shown) == []
@@ -112,11 +121,11 @@ def test_countdown_runs_down_turn_by_turn_until_the_fine():
     months = []
     for _ in range(2):
         state = _run(state)[0].state
-        months.append(state.players[0].rented_months)
+        months.append(game.rented_months(state.players[0]))
     assert months == [2, 1]
     # The third turn start is the last prepaid month running out: the fine.
     result, shown, rng = _run(state, 40)
-    assert result.state.players[0].rented_months == 1
+    assert game.rented_months(result.state.players[0]) == 1
     assert result.state.players[0].ka == 1000 - 240
 
 
@@ -130,7 +139,7 @@ def test_fine_when_the_last_month_runs_out():
     p = result.state.players[0]
     assert rng.calls == [("range", 100)]
     assert p.ka == 1000 - 237
-    assert p.rented_months == 1  # put back to 1, never 0
+    assert game.rented_months(p) == 1  # put back to 1, never 0
     assert len(p.roster) == 3  # a fine, not an eviction
     assert MoneyChange(-237) in result.effects
     assert _rent_messages(shown) == [ShowMessage("upkeep.rent_late", {"amount": 237})]
@@ -151,7 +160,7 @@ def test_fine_recurs_every_turn_after_the_last_month():
         result, shown, _ = _run(state, draw)
         state = result.state
         fines.append(before - state.players[0].ka)
-        assert state.players[0].rented_months == 1
+        assert game.rented_months(state.players[0]) == 1
     assert fines == [210, 255, 299]
 
 
@@ -192,14 +201,14 @@ def test_fine_reads_the_cash_after_this_turns_shop_income():
 def test_eviction_at_zero_cash_leaves_only_the_boss():
     # :4605 `ifp=0goto4650`; :4651 `gz(sp)=1` — only gangster 1 (the boss) remains.
     state = _state(um=1, ka=0)
-    state = replace(state, map=replace(state.map, tenancy={2: 0}))
+    state = with_tenancy(state, ln=2, owner=0)
     result, shown, rng = _run(state, 50)
     p = result.state.players[0]
     assert rng.calls == [("range", 100)]  # the fine is rolled before the cap evicts
     assert [g.name for g in p.roster] == ["boss"]
     assert p.ka == 0
-    assert p.rented_months == 1  # :4046 already put it back to 1
-    assert result.state.map.tenancy == {2: 0}  # uk(ln) is never cleared by the source
+    assert game.rented_months(p) == 1  # :4046 already put it back to 1
+    assert game.tenant(result.state, 2) == 0  # uk(ln) is never cleared by the source
     assert RosterTruncate(size=1) in result.effects
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
     assert _rent_messages(shown) == [ShowMessage("upkeep.rent_evicted")]
@@ -212,7 +221,7 @@ def test_eviction_recurs_harmlessly_while_broke():
         state = result.state
         assert _rent_messages(shown) == [ShowMessage("upkeep.rent_evicted")]
     assert [g.name for g in state.players[0].roster] == ["boss"]
-    assert state.players[0].rented_months == 1
+    assert game.rented_months(state.players[0]) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -224,7 +233,7 @@ def test_turn_start_continues_after_the_fine():
     result, shown, rng = _run(state, 37, 1, 6000)
     p = result.state.players[0]
     assert rng.calls == [("range", 100), ("range", 5), ("hit", 5500, 14999)]
-    assert p.tip_target == 0
+    assert game.tip_target(p) == 0
     assert p.ka == 1000 - 237 + 6000
     keys = [m.key for m in shown]
     assert keys.index("upkeep.rent_late") < keys.index("upkeep.arms_deal_won")
@@ -269,4 +278,4 @@ def test_rent_messages_resolve_to_the_source_text():
 
 def test_run_upkeep_entry_point_applies_the_rent_slot():
     result = run_upkeep(_state(um=4))
-    assert result.state.players[0].rented_months == 3
+    assert game.rented_months(result.state.players[0]) == 3

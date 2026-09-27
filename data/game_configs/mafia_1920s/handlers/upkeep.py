@@ -117,6 +117,7 @@ from pathlib import Path
 
 from engine.effects import EnergyChange, MoneyChange, RosterTruncate
 from ..effects import DebtChange, DebtClear, RankCommit, RentAccrue, TipClear
+from ..state import business, debt, gang_name, next_rank, rented_months, tip_target
 from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario
@@ -204,29 +205,30 @@ def upkeep_turn_start(ctx):
     # award; rank ("ra") is what guards/prices actually read (waf.py's `active.rank`)
     # and only moves here. Compare against the state READ AT THIS HANDLER'S START —
     # nothing above this point can have changed nr, so this is exactly :4030's read.
-    if active.rank != active.nr:
+    if active.rank != next_rank(active):
         ranks = _rank_names()
         yield ShowMessage(
             "upkeep.rank_promotion",
             {
-                "gang_name": active.gang_name,
+                "gang_name": gang_name(active),
                 "name": active.name,
                 "score": active.gf,
-                "rank_name": ranks[active.nr - 1],
+                "rank_name": ranks[next_rank(active) - 1],
             },
         )
-        ctx.apply(RankCommit(new_rank=active.nr))
+        ctx.apply(RankCommit(new_rank=next_rank(active)))
 
     # --- 4040/4300-4370: debt check — the grace tick and the collectors fight ---
     # Ported from :4305's `kz(sp)=kz(sp)+(kz(sp)>0):ifkz(sp)=0goto4350`. See the
     # module docstring's COUNTER DIRECTION note: the tick counts DOWN.
     #
-    # `active.debt` is safe to read here: nothing above this slot in the SAME upkeep
+    # `debt(active)` is safe to read here: nothing above this slot in the SAME upkeep
     # run touches debt (regen writes energy, the rank commit writes rank). Below this
     # point, `months`/`debt_amount` are tracked LOCALLY — ctx.apply only BUFFERS, so
     # re-reading ctx.state mid-flow would see pre-tick values.
-    debt_amount = active.debt.amount
-    months = active.debt.months
+    current_debt = debt(active)
+    debt_amount = current_debt.amount
+    months = current_debt.months
     if debt_amount != 0 or months != 0:
         # :4305's `+(kz(sp)>0)` — decrement ONLY while positive, so 0 is a fixed
         # point. That fixed point is exactly what makes a won fight recur every turn
@@ -298,11 +300,12 @@ def upkeep_turn_start(ctx):
     # --- 4041-4420: shop income — ports mf-prg.bas:4041,4405-4410 --------------
     # ifkg(sp)<>0andkk(sp)<>0thengosub4400 (:4041). Re-read `active` is unnecessary:
     # nothing above this slot in the SAME upkeep run touches business.
-    if active.business.shop_tile != 0 and active.business.shop_capital != 0:
+    shop = business(active)
+    if shop.shop_tile != 0 and shop.shop_capital != 0:
         params = ctx.state.config.formula_params
         if ctx.rng.range(params["kdh_income_quiet_roll"]) != 0:
             # :4405 — 2-in-3 chance the loan business earns money this month.
-            capital = active.business.shop_capital
+            capital = shop.shop_capital
             # :4410 — `p=int(rnd(1)*kk(sp)/20+kk(sp)/10)` -> a continuous draw
             # (rnd(1) in [0,1)) scaled by a VARIABLE coefficient (capital), unlike a
             # fixed-bound roll (rng.hit). Ported as an exact discrete equivalent:
@@ -323,10 +326,10 @@ def upkeep_turn_start(ctx):
 
     # --- 4045-4046/4600-4652: rent countdown and late rent (see RENT above) -----
     # :4045 ``ifum(sp)=0goto4050``. Nothing above this slot touches um.
-    if active.rented_months != 0:
+    if rented_months(active) != 0:
         # :4046 ``um(sp)=um(sp)-1:ifum(sp)=0thenum(sp)=1:gosub4600`` — at 1 the
         # decrement and the reset cancel out, so um is written only while above 1.
-        if active.rented_months > 1:
+        if rented_months(active) > 1:
             ctx.apply(RentAccrue(-1))
         else:
             rent_params = ctx.state.config.formula_params
@@ -352,7 +355,7 @@ def upkeep_turn_start(ctx):
     # --- 4060: arms deal — ports mf-prg.bas:31000-31051 ---------------------
     # iftp(sp)=4thengosub31000 (:4060). Re-read `active` is unnecessary: nothing above
     # this slot in the SAME upkeep run touches tip_target.
-    if active.tip_target == ARMS_DEAL_TIP:
+    if tip_target(active) == ARMS_DEAL_TIP:
         # :31000 — tp(sp)=0 FIRST, before the roll: the clear must happen before the
         # loss/payout branch so a stake resolves EXACTLY ONCE (see module docstring).
         ctx.apply(TipClear())

@@ -37,6 +37,7 @@ from engine.state import freeze  # noqa: E402
 from tests.helpers import with_config, with_player  # noqa: E402
 from engine.rng import Rng  # noqa: E402
 from engine import persistence  # noqa: E402  (module under test)
+import data.game_configs.mafia_1920s.state as game  # noqa: E402
 
 # Load the config BY PATH so its "slw.rent" handler registers into
 # engine.locations.HANDLERS (mirror of tests/test_slice_integration.py).
@@ -95,33 +96,32 @@ def test_save_load_roundtrip_after_setup(tmp_path: Path):
     assert loaded.state is not state
 
 
-def test_roundtrip_preserves_int_keyed_dicts(tmp_path: Path):
-    """tenancy/special_cells are int-keyed dicts; JSON stringifies keys — assert they
-    come back as ints, not strings (the documented JSON gotcha)."""
+def test_roundtrip_preserves_a_written_global_value(tmp_path: Path):
+    """A global value an effect wrote (the tenancy of tile 2) survives the round-trip."""
     state = _fresh_state()
-    # Commit a tenancy write so there is a non-empty int-keyed dict to round-trip.
     state = commit(state, [SetTenancy(ln=2)]).state
-    assert state.map.tenancy == {2: 0}
+    assert game.tenant(state, 2) == 0
 
     save_path = tmp_path / "game.jsonl"
     persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
     loaded = persistence.load_game(save_path, _REGISTRIES)
 
-    assert loaded.state.map.tenancy == {2: 0}  # keys are ints, not "2"
+    assert game.tenant(loaded.state, 2) == 0
     assert loaded.state == state
 
 
-def test_string_keyed_config_dict_survives_roundtrip(tmp_path: Path):
-    """action_costs is dict[str,int] with SEMANTIC string keys — even numeric-looking ones
-    must NOT be coerced to int by the config restorer (formula_params-only restoration)."""
+def test_string_keyed_formula_params_survive_roundtrip(tmp_path: Path):
+    """A string-keyed ``formula_params`` sub-map whose keys are not all int-looking keeps
+    its string keys: the restorer coerces only an all-int-looking key set."""
     # A numeric-looking string key is the adversarial case for a blanket int-key restore.
-    state = with_config(_fresh_state(), action_costs=freeze({"bribe": 100, "42": 7}))
+    params = {**_fresh_state().config.formula_params, "costs": {"bribe": 100, "42": 7}}
+    state = with_config(_fresh_state(), formula_params=freeze(params))
 
     save_path = tmp_path / "game.jsonl"
     persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
     loaded = persistence.load_game(save_path, _REGISTRIES)
 
-    assert loaded.state.config.action_costs == {"bribe": 100, "42": 7}  # keys stay str
+    assert loaded.state.config.formula_params["costs"] == {"bribe": 100, "42": 7}
     assert loaded.state == state
 
 

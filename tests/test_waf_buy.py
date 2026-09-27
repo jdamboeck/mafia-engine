@@ -51,7 +51,7 @@ def _state(*, ka=100000, ln=2, rank=1, gf=50.0, score_mult=1.0, roster=None):
     return GameState(
         players=(active,),
         clock=Clock(active_player=0, player_count=1),
-        config=Config(score_mult=score_mult, formula_params=_PARAMS),
+        config=Config(formula_params={**_PARAMS, "score_mult": score_mult}),
     )
 
 

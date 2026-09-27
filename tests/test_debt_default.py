@@ -41,17 +41,20 @@ from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
 from data.game_configs.mafia_1920s.effects import DebtChange, DebtClear
 from engine.interactions import ShowMessage
-from engine.state import Business, Clock, Config, Debt, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.state import Business, Debt
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
 from tests.helpers import is_effect, StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
 
 _PARAMS = {
     "rank_divisor": 11.1,
+    "score_mult": 1.0,  # x8, a setup input new_game adds to formula_params
     "kdh_borrow_grace_months": 6,
     "kdh_income_quiet_roll": 3,
     "kdh_collectors_count": 5,
@@ -72,8 +75,10 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
     player = Player(
         name="alcapone",
         ka=ka,
-        debt=debt if debt is not None else Debt(),
-        business=business if business is not None else Business(),
+        values=game.values_of(
+            debt if debt is not None else Debt(),
+            business if business is not None else Business(),
+        ),
         roster=roster,
     )
     return GameState(
@@ -99,7 +104,7 @@ def test_counter_counts_down_not_up():
     """
     st = _state(debt=Debt(amount=3000, months=6))
     result = run_upkeep(st, rng=StubRng())
-    assert result.state.players[0].debt.months == 5
+    assert game.debt(result.state.players[0]).months == 5
     assert _debt_effects(result) == [DebtChange(amount=0, months=5)]
 
 
@@ -109,7 +114,7 @@ def test_counter_descends_over_successive_turns_to_the_fight():
     seen = []
     for _ in range(5):
         st = run_upkeep(st, rng=StubRng()).state
-        seen.append(st.players[0].debt.months)
+        seen.append(game.debt(st.players[0]).months)
     assert seen == [5, 4, 3, 2, 1]
 
 
@@ -174,7 +179,7 @@ def test_no_debt_is_a_silent_no_op():
     st = _state(debt=Debt())
     result = run_upkeep(st, rng=StubRng())
     assert _debt_effects(result) == []
-    assert result.state.players[0].debt == Debt()
+    assert game.debt(result.state.players[0]) == Debt()
 
 
 # --------------------------------------------------------------------------- #
@@ -186,7 +191,7 @@ def test_grace_zero_starts_the_collectors_fight():
     # months=1 ticks to 0 -> :4305's `ifkz(sp)=0goto4350`.
     result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
     assert result.state.players[0].ka == 0
-    assert result.state.players[0].debt == Debt(amount=0, months=0)
+    assert game.debt(result.state.players[0]) == Debt(amount=0, months=0)
 
 
 def test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender():
@@ -223,8 +228,8 @@ def test_loss_seizes_all_cash_and_wipes_the_debt():
     assert MoneyChange(-9999) in result.effects
     assert DebtClear() in result.effects
     assert result.state.players[0].ka == 0
-    assert result.state.players[0].debt.amount == 0
-    assert result.state.players[0].debt.months == 0
+    assert game.debt(result.state.players[0]).amount == 0
+    assert game.debt(result.state.players[0]).months == 0
 
 
 def test_loss_seizure_is_the_cash_at_seizure_time_not_a_stale_read():
@@ -301,7 +306,7 @@ def test_win_changes_nothing_and_the_fight_recurs_next_turn():
 
     # Nothing was seized: cash, debt and the expired counter all survive untouched.
     assert result.state.players[0].ka == 8000
-    assert result.state.players[0].debt == Debt(amount=3000, months=0)
+    assert game.debt(result.state.players[0]) == Debt(amount=3000, months=0)
     assert DebtClear() not in result.effects
     assert MoneyChange(-8000) not in result.effects
 
@@ -329,7 +334,7 @@ def test_the_fight_actually_re_fires_on_the_following_turn():
     assert "upkeep.debt_collectors_intro" in second_source.message_keys()
     assert _winner_banners(second_source) == ["eintreiber"]
     assert second.state.players[0].ka == 0
-    assert second.state.players[0].debt == Debt(amount=0, months=0)
+    assert game.debt(second.state.players[0]) == Debt(amount=0, months=0)
 
 
 def test_an_under_scripted_collectors_fight_raises_instead_of_passing():

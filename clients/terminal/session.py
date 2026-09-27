@@ -492,7 +492,7 @@ def _run_upkeep_screen(
             resolver.resolve(
                 "upkeep.rank_promotion",
                 {
-                    "gang_name": active.gang_name,
+                    "gang_name": cfg.module.state.gang_name(active),
                     "name": active.name,
                     "score": active.gf,
                     "rank_name": ranks[active.rank - 1],
@@ -736,7 +736,7 @@ class TerminalSession:
                 stdin=sys.stdin,
             )
         # new_game validates both against input_ranges and stores the weight as
-        # Config.score_mult -- nothing here sets the config directly.
+        # formula_params["score_mult"] -- nothing here sets the config directly.
         self.state = self.cfg.module.new_game(
             seed=self.seed,
             end_year=end_year,
@@ -772,7 +772,7 @@ class TerminalSession:
             # upkeep (in start_new_game on the first turn, in next_turn on later ones).
             assert self.state is not None, "state is set by setup or load before any turn"
             active = self.state.players[self.state.clock.active_player]
-            if active.jobs.type and not resuming_free_turn:
+            if self.cfg.module.state.job(active).type and not resuming_free_turn:
                 self.job_shift()
             else:
                 # :1013 -- the free turn opens with the score truncation. A resumed
@@ -876,7 +876,7 @@ class TerminalSession:
                     "position": p.po,
                     "movement": p.ms,
                     "rank": p.rank,
-                    "jail_months": p.wanted.jail_months,
+                    "jail_months": self.cfg.module.state.wanted(p).jail_months,
                 },
             ),
             out,

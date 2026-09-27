@@ -36,9 +36,11 @@ from engine.state import Clock, Config, GameState, Player
 try:
     from .effects import DebtClear, ScoreAndRank
     from .gangster import Gangster
+    from .state import SCHEMA
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from effects import DebtClear, ScoreAndRank
     from gangster import Gangster
+    from state import SCHEMA
 from engine.types import validate_rank, validate_vehicle, validate_weapon
 
 __all__ = [
@@ -396,7 +398,8 @@ def score_and_rank(x: float, params: dict) -> ScoreAndRank:
 
     ``params`` is the config's ``formula_params`` block; the ``rank_divisor`` (11.1) is
     read from it and passed into the effect (the engine hardcodes no game number). ``x`` is the raw reward (1 for range training, 2 for camp, or a buy-score
-    delta); the effect weights it by ``Config.score_mult`` (``x8``) at apply time.
+    delta); the effect weights it by ``formula_params["score_mult"]`` (``x8``) at apply
+    time.
     Every score-awarding waf path routes through this helper so rank never drifts from
     the original.
     """
@@ -515,14 +518,18 @@ def new_game(
         game_players.append(
             Player(
                 name=name,
-                gang_name=gang_name,
                 ka=cash,
                 rank=setup["start_rank"],
-                nr=setup["start_nr"],
                 po=setup["start_position"],
                 vehicle=start_vehicle,
                 ms=start_ms,
                 roster=(gangster,),
+                # Every declared key at its default, then this player's own values.
+                values={
+                    **SCHEMA.player_defaults(),
+                    "gang_name": gang_name,
+                    "nr": setup["start_nr"],
+                },
             )
         )
 
@@ -534,10 +541,14 @@ def new_game(
         player_count=len(players),
     )
     config = Config(
-        score_mult=score_weight,
-        # Passed as plain YAML dicts: Config deep-freezes them on construction.
-        formula_params=cfg["formula_params"],
-        action_costs=cfg.get("action_costs", {}),
+        # Passed as plain YAML dicts: Config deep-freezes them on construction. The
+        # x8 score weight is a setup input, so it joins the static params here.
+        formula_params={**cfg["formula_params"], "score_mult": score_weight},
     )
 
-    return GameState(players=tuple(game_players), clock=clock, config=config)
+    return GameState(
+        players=tuple(game_players),
+        clock=clock,
+        config=config,
+        values=SCHEMA.global_defaults(),
+    )

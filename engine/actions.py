@@ -125,8 +125,8 @@ def run_option(
 
     ``ln`` (the within-location tile index) is threaded into the guard evaluation context
     exactly as :func:`engine.locations.available_options` does (via
-    :func:`engine.conditions.build_context`), so ``ln``-sensitive guards such as
-    ``tenancy`` resolve against the tile actually entered. Handlers read ``ln`` off state
+    :func:`engine.conditions.build_context`), so a guard variable that reads the tile
+    resolves against the tile actually entered. Handlers read ``ln`` off state
     (the active player's ``last_location`` seam), so ``ln`` here only feeds the guard.
 
     Imports of the shell/driver/consequence machinery are LOCAL to keep this module's

@@ -73,21 +73,11 @@ from engine.interactions import (
 from engine.locations import HANDLERS
 from engine.movement import start_free_turn
 from engine.rng import Rng
-from engine.state import (
-    Business,
-    Clock,
-    CombatState,
-    Config,
-    Contraband,
-    Debt,
-    Flags,
-    GameState,
-    Job,
-    MapState,
-    Player,
-)
+from engine.state import Clock, CombatState, Config, GameState, Player
+from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job
 from tests.basic_eval import eval_assignment, eval_expr
-from tests.helpers import is_effect, load_source
+from tests.helpers import is_effect, load_source, with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 _REPO = Path(__file__).resolve().parents[1]
 _CONFIG_DIR = _REPO / "data" / "game_configs" / "mafia_1920s"
@@ -260,15 +250,23 @@ def _state(player: Player, *, score_mult: float = 1.0) -> GameState:
     return GameState(
         players=(player,),
         clock=Clock(active_player=0, player_count=1),
-        config=Config(score_mult=score_mult, formula_params=_PARAMS),
+        config=Config(formula_params={**_PARAMS, "score_mult": score_mult}),
     )
 
 
+#: The game-state arguments ``_player`` takes: entity views, and scalar value-map keys.
+_VIEW_ARGS = ("debt", "business", "contraband", "jobs")
+_SCALAR_ARGS = ("tip_target", "rented_months", "nr")
+
+
 def _player(**fields: Any) -> Player:
+    """A player; game state given by the old field names lands in its value map."""
     fields.setdefault("name", "p")
     fields.setdefault("ka", 10**6)
     fields.setdefault("roster", (_gangster(),))
-    return Player(**fields)
+    views = [fields.pop(k) for k in _VIEW_ARGS if k in fields]
+    scalars = {k: fields.pop(k) for k in _SCALAR_ARGS if k in fields}
+    return Player(**fields, values=game.values_of(*views, **scalars))
 
 
 def _grid(**axes: Iterable[Any]) -> tuple[dict[str, Any], ...]:
@@ -315,7 +313,7 @@ def _engine_slw(v: Values) -> Any:
         answer=lambda i: v["x"],
     )
     p = run.state.players[0]
-    return (p.ka, p.rented_months)
+    return (p.ka, game.rented_months(p))
 
 
 # --- :1160-1165 score and rank -------------------------------------------------------
@@ -338,7 +336,7 @@ def _basic_score(v: Values) -> Any:
 def _engine_score(v: Values) -> Any:
     state = _state(_player(gf=v["gf"]), score_mult=v["x8"])
     p = apply(state, score_and_rank(v["x"], _PARAMS)).players[0]
-    return (p.gf, p.nr)
+    return (p.gf, game.next_rank(p))
 
 
 # --- :1013 per-turn score truncation --------------------------------------------------
@@ -392,8 +390,8 @@ def _engine_grace(v: Values) -> Any:
     try:
         run = _drive(HANDLERS["upkeep.turn_start"], state)
     except _FightStarted as fight:
-        return (commit(state, fight.effects).state.players[0].debt.months, True)
-    return (run.state.players[0].debt.months, False)
+        return (game.debt(commit(state, fight.effects).state.players[0]).months, True)
+    return (game.debt(run.state.players[0]).months, False)
 
 
 # --- :4405/:4410 loan-shop income --------------------------------------------------------
@@ -453,7 +451,7 @@ def _engine_rent(v: Values) -> Any:
     player = _player(ka=v["ka"], rented_months=v["um"], roster=(_gangster(),) * 3)
     run = _drive(HANDLERS["upkeep.turn_start"], _state(player), draws=(v["r"],))
     p = run.state.players[0]
-    return (p.ka, p.rented_months, len(p.roster))
+    return (p.ka, game.rented_months(p), len(p.roster))
 
 
 # --- :31000-31010 arms-deal payout ----------------------------------------------------
@@ -642,7 +640,7 @@ def _engine_completion(v: Values) -> Any:
         answer=lambda i: 1,  # the croupier's trick
         fight=SimpleNamespace(winner=1, losses=(0, 0)),
     )
-    assert run.state.players[0].jobs == Job(), "the contract did not complete"
+    assert game.job(run.state.players[0]) == Job(), "the contract did not complete"
     return run.state.players[0].gf - 50
 
 
@@ -712,8 +710,7 @@ def _recruit_state(hired: Iterable[int], ln: int) -> GameState:
     player = _player(rank=5, last_location=ln)
     return replace(
         _state(player),
-        map=MapState(tenancy={1: 0}),
-        flags=Flags(hired_gangsters=tuple(sorted(hired))),
+        values={**game.tenancy_values({1: 0}), **game.hired_values(hired)},
     )
 
 
@@ -855,7 +852,7 @@ def _engine_batch(v: Values) -> Any:
         ka=v["ka"],
         roster=tuple(_gangster() for _ in range(v["gz"])),
     )
-    state = replace(_state(player), map=MapState(tenancy={1: 0}))
+    state = with_tenancy(_state(player), ln=1, owner=0)
     answers = iter(v["answers"])
     run = _drive(
         HANDLERS["pub.recruit"],
@@ -946,7 +943,7 @@ def _engine_alcohol_buy(v: Values) -> Any:
     )
     offered = run.asked[0].max
     p = run.state.players[0]
-    return (offered, p.ka, p.contraband.alcohol_barrels)
+    return (offered, p.ka, game.contraband(p).alcohol_barrels)
 
 
 # --- :12050/:12075 pub alcohol sell -------------------------------------------------------
@@ -970,7 +967,7 @@ def _engine_alcohol_sell(v: Values) -> Any:
         HANDLERS["pub.drink"], _state(player), draws=(0.75, v["r"]), answer=lambda i: v["y"]
     )
     p = run.state.players[0]
-    return (p.ka, p.contraband.alcohol_barrels)
+    return (p.ka, game.contraband(p).alcohol_barrels)
 
 
 # --- :12215-12225 pub tip price and tip id -----------------------------------------------
@@ -1059,7 +1056,7 @@ def _engine_shop_buy(v: Values) -> Any:
     player = _player(ka=v["ka"], last_location=1)
     run = _drive(HANDLERS["kdh.trade"], _state(player), (v["r"],), lambda i: True)
     p = run.state.players[0]
-    return (p.ka, p.business.shop_tile)
+    return (p.ka, game.business(p).shop_tile)
 
 
 def _basic_shop_sell(v: Values) -> Any:

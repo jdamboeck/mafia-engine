@@ -358,12 +358,13 @@ class AssignWeapon:
 @register_effect()
 @dataclass(frozen=True)
 class FlagSet:
-    """Set a flag ``name`` to ``value``.
+    """Set the global value ``name`` to ``value``.
 
-    Only ``scope="global"`` is implemented: it sets ``state.flags.<name>``,
-    validating that ``name`` is an existing ``Flags`` field (``ValueError`` otherwise).
-    Any non-``"global"`` scope raises ``NotImplementedError`` — per-player flag bitfields
-    are not built.
+    Only ``scope="global"`` is implemented: it sets ``state.values[name]``, the global
+    value map the config declares. ``name`` must be a key the map already holds (a
+    config's setup fills every declared key with its default), else ``ValueError``.
+    Any non-``"global"`` scope raises ``NotImplementedError`` — per-player flags are
+    not built.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -375,11 +376,11 @@ class FlagSet:
         if self.scope != "global":
             raise NotImplementedError(
                 f"FlagSet scope {self.scope!r} is not implemented; only "
-                "'global' flags are supported (per-player bitfields are not built)."
+                "'global' flags are supported (per-player flags are not built)."
             )
-        if not hasattr(state.flags, self.name):
-            raise ValueError(f"unknown global flag {self.name!r} on Flags")
-        return replace(state, flags=replace(state.flags, **{self.name: self.value}))
+        if self.name not in state.values:
+            raise ValueError(f"unknown global value {self.name!r}; it is not in the global map")
+        return set_global_value(state, self.name, self.value)
 
 
 @register_effect()
@@ -695,7 +696,7 @@ def apply(state: GameState, effect: Any) -> GameState:
 
     Dispatches through the effect's own ``apply``; an object without one raises
     ``TypeError``. Other errors surface from that ``apply``: ``IndexError`` for an
-    out-of-range target, ``ValueError`` for a bad stat/flag name,
+    out-of-range target, ``ValueError`` for a bad stat or global value name,
     ``NotImplementedError`` for a deferred effect.
     """
     if not callable(getattr(effect, "apply", None)):

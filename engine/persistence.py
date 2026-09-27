@@ -23,8 +23,9 @@ Serialization is **type-tagged**: each effect is written as ``{"_type": "<tag>",
 (the tag it registered under, :func:`engine.effects.register_effect`) and reconstructed by
 looking the tag up in the loaded config's effect registry. ``GameState`` is nested
 dataclasses; it round-trips via :func:`~engine.state.json_safe` + typed reconstruction, with the
-int-keyed mapping fields (``map.tenancy``, ``map.special_cells``) restored to int keys (JSON
-stringifies dict keys). The graph's READ-ONLY collections are unwrapped to plain dict/list on
+int-keyed mapping fields (``combat.dir_memory``, int-keyed ``formula_params`` sub-maps) restored
+to int keys (JSON stringifies dict keys). Game state is never a class here: it lives in the
+declared value maps, which hold only scalars. The graph's READ-ONLY collections are unwrapped to plain dict/list on
 save and rebuilt as read-only on load, so a restored state is as immutable as a built one.
 
 **Loading needs the loaded config.** The engine cannot name what a config declares, so
@@ -50,21 +51,14 @@ from typing import Any
 from engine import effects as _effects
 from engine.effects import SCHEMA_VERSION, commit, effect_tag
 from engine.state import (
-    Business,
     Clock,
     CombatState,
-    Config,
-    Contraband,
-    Debt,
     Combatant,
+    Config,
     Fighter,
-    Flags,
     GameState,
-    Job,
-    MapState,
     Player,
     StateSchema,
-    Wanted,
     json_safe,
 )
 
@@ -243,31 +237,15 @@ def _player_from_dict(raw: dict, schema: StateSchema | None, index: int) -> Play
             **raw,
             "values": values,
             "roster": tuple(_roster_member_from_dict(g) for g in raw["roster"]),
-            "jobs": Job(**raw["jobs"]),
-            "debt": Debt(**raw["debt"]),
-            "business": Business(**raw["business"]),
-            "contraband": Contraband(**raw["contraband"]),
-            "wanted": Wanted(**raw["wanted"]),
         }
     )
 
 
-def _map_from_dict(raw: dict) -> MapState:
-    return MapState(
-        # Rows of int codes; MapState's own __post_init__ freezes the grid (as freeze did).
-        grid=tuple(tuple(row) for row in raw["grid"]),
-        tenancy=_restore_int_keys(raw["tenancy"]),
-        special_cells=_restore_int_keys(raw["special_cells"]),
-    )
-
-
 def _config_from_dict(raw: dict) -> Config:
-    """Reconstruct ``Config``, restoring int dict keys only where they legitimately occur.
+    """Reconstruct ``Config``, restoring the int dict keys JSON stringified.
 
     ``formula_params`` holds opaque nested game data whose sub-dicts may be int-keyed
-    (e.g. ``fnm.overrides``) — restore those. ``action_costs`` is declared ``dict[str, int]``
-    with *semantic string* keys, so it is left untouched: a blanket numeric-key restore
-    would corrupt a legitimately string-keyed dict whose keys happened to look numeric.
+    (e.g. ``fnm.overrides``) — restore those.
     """
     restored = dict(raw)
     if "formula_params" in restored:
@@ -280,8 +258,8 @@ def _combat_from_dict(raw: dict) -> CombatState:
 
     ``sides`` is a 2-tuple of fighter-dict lists (JSON-safed by :func:`~engine.state.json_safe`
     into plain lists of plain dicts) — each dict rebuilds into a :class:`~engine.state.Fighter`.
-    ``dir_memory`` is keyed by enemy fighter index (int), JSON-stringified on save like
-    ``map.tenancy``, so it goes through the same :func:`_restore_int_keys` restoration.
+    ``dir_memory`` is keyed by enemy fighter index (int), JSON-stringified on save, so it
+    goes through :func:`_restore_int_keys`.
     """
     restored = dict(raw)
     restored["sides"] = tuple(tuple(Fighter(**f) for f in side) for side in raw["sides"])
@@ -309,11 +287,9 @@ def state_from_dict(raw: dict, schema: StateSchema | None = None) -> GameState:
         global_values = schema.load_global_values(global_values)
     return GameState(
         players=tuple(_player_from_dict(p, schema, i) for i, p in enumerate(raw["players"])),
-        map=_map_from_dict(raw["map"]),
         combat=_combat_from_dict(raw["combat"]),
         clock=Clock(**raw["clock"]),
         config=_config_from_dict(raw["config"]),
-        flags=Flags(**raw["flags"]),
         values=global_values,
     )
 

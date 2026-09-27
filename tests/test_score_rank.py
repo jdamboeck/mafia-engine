@@ -1,7 +1,7 @@
 """Tests for the fused ``ScoreAndRank`` effect (U3, KTD-5).
 
 ``ScoreAndRank`` is the single-effect port of ``gosub 1160/1165``:
-- ``1160``: ``gf = gf + (x*x8)``, capped at 100 (``x8`` == ``Config.score_mult``)
+- ``1160``: ``gf = gf + (x*x8)``, capped at 100 (``x8`` == ``formula_params["score_mult"]``)
 - ``1161``: floored at 0
 - ``1165``: ``nr = int(gf/rank_divisor)+1`` — recomputed from the CLAMPED gf
 
@@ -16,6 +16,7 @@ from engine.effects import apply
 from data.game_configs.mafia_1920s.effects import ScoreAndRank
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
+import data.game_configs.mafia_1920s.state as game
 
 
 def make_state(*, gf=50.0, score_mult=1.0):
@@ -23,7 +24,7 @@ def make_state(*, gf=50.0, score_mult=1.0):
     return GameState(
         players=(p,),
         clock=Clock(active_player=0),
-        config=Config(score_mult=score_mult),
+        config=Config(formula_params={"score_mult": score_mult}),
     )
 
 
@@ -32,7 +33,7 @@ def test_score_and_rank_normal_delta_and_rank():
     state = make_state(gf=50.0, score_mult=1.0)
     out = apply(state, ScoreAndRank(amount=2, rank_divisor=11.1))
     assert out.players[0].gf == 52.0
-    assert out.players[0].nr == int(52.0 / 11.1) + 1 == 5
+    assert game.next_rank(out.players[0]) == int(52.0 / 11.1) + 1 == 5
 
 
 def test_score_and_rank_caps_at_100_and_ranks_from_clamped():
@@ -40,14 +41,14 @@ def test_score_and_rank_caps_at_100_and_ranks_from_clamped():
     state = make_state(gf=99.0, score_mult=1.0)
     out = apply(state, ScoreAndRank(amount=2, rank_divisor=11.1))
     assert out.players[0].gf == 100.0
-    assert out.players[0].nr == int(100.0 / 11.1) + 1  # rank from clamped gf
+    assert game.next_rank(out.players[0]) == int(100.0 / 11.1) + 1  # rank from clamped gf
 
 
 def test_score_and_rank_floors_at_0():
     state = make_state(gf=1.0, score_mult=1.0)
     out = apply(state, ScoreAndRank(amount=-5, rank_divisor=11.1))
     assert out.players[0].gf == 0.0
-    assert out.players[0].nr == int(0.0 / 11.1) + 1 == 1
+    assert game.next_rank(out.players[0]) == int(0.0 / 11.1) + 1 == 1
 
 
 def test_score_and_rank_weights_by_score_mult():
@@ -68,13 +69,17 @@ def test_score_and_rank_divisor_is_a_parameter_not_hardcoded():
     # Config-boundary (KTD-10): pass a NON-11.1 divisor -> rank computed from IT.
     state = make_state(gf=60.0, score_mult=1.0)
     out = apply(state, ScoreAndRank(amount=0, rank_divisor=10.0))
-    assert out.players[0].nr == int(60.0 / 10.0) + 1 == 7
+    assert game.next_rank(out.players[0]) == int(60.0 / 10.0) + 1 == 7
 
 
 def test_score_and_rank_explicit_player_targeting():
     p0 = Player(name="p0", gf=50.0, roster=(Gangster(),))
     p1 = Player(name="p1", gf=20.0, roster=(Gangster(),))
-    state = GameState(players=(p0, p1), clock=Clock(active_player=0), config=Config(score_mult=1.0))
+    state = GameState(
+        players=(p0, p1),
+        clock=Clock(active_player=0),
+        config=Config(formula_params={"score_mult": 1.0}),
+    )
     out = apply(state, ScoreAndRank(amount=5, rank_divisor=11.1, player=1))
     assert out.players[1].gf == 25.0
     assert out.players[0].gf == 50.0  # active untouched

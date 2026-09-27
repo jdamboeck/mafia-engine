@@ -10,8 +10,9 @@ contracts in :mod:`engine.types`, then imports the config's package **by path**
 (via :func:`importlib.util.spec_from_file_location`). Importing the package fires
 the config's handler ``@register`` and effect ``@register_effect`` decorators
 (populating :data:`engine.locations.HANDLERS` and :data:`engine.effects.EFFECTS`) and
-exposes the config's ``new_game`` callable. The ``state`` section of ``config.yaml``
-declares the config's value maps (:class:`~engine.state.StateSchema`).
+exposes the config's ``new_game`` callable; a config's guard variables register the
+same way (:data:`engine.conditions.GUARD_VARIABLES`). ``state_schema.yaml`` beside
+``config.yaml`` declares the config's value maps (:class:`~engine.state.StateSchema`).
 
 Layering: this module imports the config *dynamically, by path* — the ``engine/``
 package never statically imports anything under ``data/``.
@@ -28,6 +29,7 @@ from typing import Any, Callable
 
 import yaml
 
+from engine.conditions import GUARD_VARIABLES
 from engine.effects import EFFECTS
 from engine.locations import HANDLERS
 from engine.persistence import Registries
@@ -39,7 +41,12 @@ __all__ = [
     "LoadedConfig",
     "load_config",
     "load_game_config",
+    "load_state_schema",
+    "STATE_SCHEMA_FILE",
 ]
+
+#: The file, beside ``config.yaml``, that declares a config's value maps.
+STATE_SCHEMA_FILE = "state_schema.yaml"
 
 #: The Engine<->Config API version this engine speaks (docs/design/config-and-content-contract.md).
 ENGINE_API = 1
@@ -59,6 +66,24 @@ def load_config(path: str | Path) -> dict:
     try:
         return validate_config(data)
     except ValueError as exc:  # add the file path to the clear error
+        raise type(exc)(f"{path}: {exc}") from None
+
+
+def load_state_schema(path: str | Path) -> StateSchema:
+    """Read a config's ``state_schema.yaml``; a missing file declares two empty maps.
+
+    The one way a config declares its value maps: the loader reads it for save loading,
+    and a config reads the same file for its own defaults. A malformed schema raises
+    :class:`~engine.state.StateSchemaError` (a ``ValueError``) naming the file.
+    """
+    path = Path(path)
+    if not path.is_file():
+        return StateSchema()
+    with path.open("r", encoding="utf-8") as fh:
+        raw = yaml.safe_load(fh)
+    try:
+        return StateSchema.from_dict(raw)
+    except ValueError as exc:
         raise type(exc)(f"{path}: {exc}") from None
 
 
@@ -84,8 +109,11 @@ class LoadedConfig:
         effects plus the config's own, registered by its ``@register_effect``
         decorators on import.
     state_schema:
-        The config's declared value maps (the ``state`` section of ``config.yaml``);
-        empty maps when the config declares none.
+        The config's declared value maps (its ``state_schema.yaml``); empty maps when
+        the config declares none.
+    guard_variables:
+        The engine's :data:`~engine.conditions.GUARD_VARIABLES` registry, filled by the
+        config's ``@register_guard_variable`` resolvers on import.
     """
 
     config_dir: Path
@@ -95,6 +123,7 @@ class LoadedConfig:
     handlers: dict
     effects: dict
     state_schema: StateSchema
+    guard_variables: dict
 
     @property
     def registries(self) -> Registries:
@@ -168,17 +197,20 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
        config's ``new_game`` callable.
     3. Return a :class:`LoadedConfig` exposing the parsed config, the ``new_game``
        callable, the imported module, the populated ``HANDLERS`` and ``EFFECTS``
-       registries, and the declared state schema (``config.yaml``'s ``state``).
+       registries, the declared state schema (``state_schema.yaml``) and the guard
+       variable registry.
     """
     config_dir = Path(config_dir).resolve()
     if not config_dir.is_dir():
         raise ValueError(f"{config_dir}: config directory does not exist.")
 
     config = load_config(config_dir / "config.yaml")
-    try:
-        state_schema = StateSchema.from_dict(config.get("state"))
-    except ValueError as exc:
-        raise type(exc)(f"{config_dir / 'config.yaml'}: {exc}") from None
+    if "state" in config:
+        raise ValueError(
+            f"{config_dir / 'config.yaml'}: a 'state' section is not read; declare the "
+            f"value maps in {STATE_SCHEMA_FILE} beside config.yaml"
+        )
+    state_schema = load_state_schema(config_dir / STATE_SCHEMA_FILE)
     module = _import_config_package(config_dir)
 
     new_game = getattr(module, "new_game", None)
@@ -195,4 +227,5 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
         handlers=HANDLERS,
         effects=EFFECTS,
         state_schema=state_schema,
+        guard_variables=GUARD_VARIABLES,
     )

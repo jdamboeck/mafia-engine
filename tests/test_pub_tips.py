@@ -24,12 +24,14 @@ from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.upkeep import run_upkeep
 from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
 
 _PARAMS = {
     "rank_divisor": 11.1,
+    "score_mult": 1.0,  # x8, a setup input new_game adds to formula_params
     "pub_tip_price_base": 1000,
     "pub_tip_price_step": 500,
     "pub_arms_deal_payout_min": 5500,
@@ -43,7 +45,7 @@ def _state(*, ka=100000, rank=4, tip_target=0, roster=None):
         ka=ka,
         rank=rank,
         roster=roster if roster is not None else (Gangster(name="g0"),),
-        tip_target=tip_target,
+        values={"tip_target": tip_target},
     )
     return GameState(
         players=(active,),
@@ -81,7 +83,7 @@ def test_nothing_available_two_thirds_no_effects():
         rng = _StubRng(roll)
         result = run_pure(HANDLERS["pub.tip"], _scripted(), state=st, rng=rng)
         assert result.effects == []
-        assert result.state.players[0].tip_target == 0
+        assert game.tip_target(result.state.players[0]) == 0
 
 
 def test_something_available_on_the_zero_roll():
@@ -117,7 +119,7 @@ def test_tip_id_uniform_1_to_5_dispatches_and_sets_tip_target():
         tip_sets = [e for e in result.effects if is_effect(e, TipSet)]
         assert tip_sets == [TipSet(tip_type=expected_id)]
         if expected_id != 4:
-            assert result.state.players[0].tip_target == expected_id
+            assert game.tip_target(result.state.players[0]) == expected_id
 
 
 # --------------------------------------------------------------------------- #
@@ -129,7 +131,7 @@ def test_decline_price_confirm_no_charge_no_tip_set():
     result = run_pure(HANDLERS["pub.tip"], _scripted(False), state=st, rng=rng)
     assert result.effects == []
     assert result.state.players[0].ka == 100000
-    assert result.state.players[0].tip_target == 0
+    assert game.tip_target(result.state.players[0]) == 0
 
 
 def test_broke_for_tip_price_no_state_change():
@@ -139,7 +141,7 @@ def test_broke_for_tip_price_no_state_change():
     assert result.status == "completed"
     assert result.effects == []
     assert result.state.players[0].ka == 500
-    assert result.state.players[0].tip_target == 0
+    assert game.tip_target(result.state.players[0]) == 0
 
 
 # --------------------------------------------------------------------------- #
@@ -151,7 +153,7 @@ def test_tip4_decline_stake_clears_the_tip():
     result = run_pure(HANDLERS["pub.tip"], _scripted(True, False), state=st, rng=rng)
     # TipSet(4) then TipClear() -- tip is void, but the 1000$ tip price WAS charged.
     assert result.effects == [MoneyChange(-1000), TipSet(tip_type=4), TipClear()]
-    assert result.state.players[0].tip_target == 0
+    assert game.tip_target(result.state.players[0]) == 0
     assert result.state.players[0].ka == 99000
 
 
@@ -161,7 +163,7 @@ def test_tip4_broke_for_the_stake_clears_the_tip():
     rng = _StubRng(0, 0, 3)  # price=1000; tip id -> 4
     result = run_pure(HANDLERS["pub.tip"], _scripted(True, True), state=st, rng=rng)
     assert result.effects == [MoneyChange(-1000), TipSet(tip_type=4), TipClear()]
-    assert result.state.players[0].tip_target == 0
+    assert game.tip_target(result.state.players[0]) == 0
     assert result.state.players[0].ka == 500  # tip price charged, stake NOT taken
 
 
@@ -174,7 +176,7 @@ def test_tip4_accept_deducts_stake_and_keeps_the_tip_set():
         TipSet(tip_type=4),
         MoneyChange(-5000),
     ]
-    assert result.state.players[0].tip_target == 4  # STAYS set for upkeep to resolve
+    assert game.tip_target(result.state.players[0]) == 4  # STAYS set for upkeep to resolve
     assert result.state.players[0].ka == 94000
 
 
@@ -183,7 +185,7 @@ def test_other_tips_do_not_trigger_the_stake_subflow():
     rng = _StubRng(0, 0, 1)  # tip id -> 2 (not the arms deal)
     result = run_pure(HANDLERS["pub.tip"], _scripted(True), state=st, rng=rng)
     assert result.effects == [MoneyChange(-1000), TipSet(tip_type=2)]
-    assert result.state.players[0].tip_target == 2
+    assert game.tip_target(result.state.players[0]) == 2
     assert result.state.players[0].ka == 99000
 
 
@@ -193,7 +195,7 @@ def test_other_tips_do_not_trigger_the_stake_subflow():
 def test_arms_deal_does_not_fire_without_a_staked_tip():
     st = _state(tip_target=0)
     result = run_upkeep(st, rng=_StubRng())
-    assert result.state.players[0].tip_target == 0
+    assert game.tip_target(result.state.players[0]) == 0
     assert [e for e in result.effects if isinstance(e, MoneyChange)] == []
 
 
@@ -205,7 +207,7 @@ def test_arms_deal_clears_the_tip_before_rolling_loss_or_payout():
     result = run_upkeep(st, rng=rng)
     kinds = [type(e).__name__ for e in result.effects]
     assert kinds.index("TipClear") < kinds.index("MoneyChange")
-    assert result.state.players[0].tip_target == 0
+    assert game.tip_target(result.state.players[0]) == 0
     assert result.state.players[0].ka == 11000
 
 
@@ -214,7 +216,7 @@ def test_arms_deal_total_loss_clears_tip_no_cash_effect():
     rng = _StubRng(0)  # range(5)==0 -> total loss
     result = run_upkeep(st, rng=rng)
     assert [e for e in result.effects if is_effect(e, TipClear, MoneyChange)] == [TipClear()]
-    assert result.state.players[0].tip_target == 0
+    assert game.tip_target(result.state.players[0]) == 0
     assert result.state.players[0].ka == 1000  # unchanged -- stake was already spent
 
 
@@ -234,7 +236,7 @@ def test_stake_resolves_exactly_once_across_two_turns():
     st = _state(tip_target=4, ka=1000)
     rng1 = _StubRng(1, 8000)  # payout branch
     first = run_upkeep(st, rng=rng1)
-    assert first.state.players[0].tip_target == 0
+    assert game.tip_target(first.state.players[0]) == 0
     assert first.state.players[0].ka == 9000
 
     # Second upkeep run on the post-resolution state: NO further arms-deal effect,
@@ -250,7 +252,7 @@ def test_other_tip_types_do_not_trigger_the_arms_deal_slot():
     for tip_id in (1, 2, 3, 5):
         st = _state(tip_target=tip_id, ka=1000)
         result = run_upkeep(st, rng=_StubRng())
-        assert result.state.players[0].tip_target == tip_id  # untouched
+        assert game.tip_target(result.state.players[0]) == tip_id  # untouched
         assert [e for e in result.effects if is_effect(e, TipClear, MoneyChange)] == []
 
 

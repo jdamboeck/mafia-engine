@@ -385,11 +385,11 @@ class TestSetupPrompts:
         assert state.clock.end_year == 1950
 
     def test_score_weight_out_of_range_reasks_twice(self, monkeypatch):
-        """AE7: 0.05 and 2.5 are rejected; 0.5 is accepted as Config.score_mult."""
+        """AE7: 0.05 and 2.5 are rejected; 0.5 is accepted as formula_params["score_mult"]."""
         state, text = _play_capturing_state(monkeypatch, "\n1940\n0.05\n2.5\n0.5\n")
         assert text.count(_END_YEAR_PROMPT) == 1
         assert text.count(_SCORE_WEIGHT_PROMPT) == 3
-        assert state.config.score_mult == 0.5
+        assert state.config.formula_params["score_mult"] == 0.5
 
     def test_score_weight_half_halves_a_score_gain(self, monkeypatch):
         """AE7: with weight 0.5 from setup, a committed score gain of 4 adds 2 to gf."""
@@ -406,7 +406,7 @@ class TestSetupPrompts:
         assert _END_YEAR_PROMPT not in text
         assert _SCORE_WEIGHT_PROMPT not in text
         assert state.clock.end_year == 1950
-        assert state.config.score_mult == 1.5
+        assert state.config.formula_params["score_mult"] == 1.5
 
     def test_eof_at_end_year_prompt_ends_session_cleanly(self, monkeypatch):
         state, text = _play_capturing_state(monkeypatch, "\n")  # title, then EOF
@@ -444,13 +444,13 @@ class TestSetupFlags:
         )
         assert _END_YEAR_PROMPT not in text and _SCORE_WEIGHT_PROMPT not in text
         assert state.clock.end_year == 1950
-        assert state.config.score_mult == 1.5
+        assert state.config.formula_params["score_mult"] == 1.5
 
     def test_absent_flags_are_asked_at_setup(self, monkeypatch, tmp_path):
         text, state = self._main(monkeypatch, tmp_path, [], "\n1940\n0.5\n\np\nq\n")
         assert text.count(_END_YEAR_PROMPT) == 1 and text.count(_SCORE_WEIGHT_PROMPT) == 1
         assert state.clock.end_year == 1940
-        assert state.config.score_mult == 0.5
+        assert state.config.formula_params["score_mult"] == 0.5
 
     @pytest.mark.parametrize(
         "argv",

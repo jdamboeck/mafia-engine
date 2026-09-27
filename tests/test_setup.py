@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from engine.config_loader import load_config, load_game_config
+import data.game_configs.mafia_1920s.state as game
 
 CONFIG_ROOT = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -59,7 +60,7 @@ def test_starting_values_in_range():
     assert p.ka in CASH_ROLLS
     assert p.po == 18
     assert p.rank == 1
-    assert p.nr == 1
+    assert game.next_rank(p) == 1
     assert p.vehicle == 0
     assert p.ms == 25  # on-foot tr(0)
 
@@ -196,7 +197,7 @@ def test_multiplayer_ok():
     )
     assert gs.clock.player_count == 2
     assert gs.clock.end_year == 1950
-    assert gs.config.score_mult == 0.5
+    assert gs.config.formula_params["score_mult"] == 0.5
     assert gs.players[1].roster[0].name == "B"
 
 

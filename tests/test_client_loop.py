@@ -47,6 +47,7 @@ from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
 from engine.rng import Rng
 from engine.upkeep import run_upkeep
 from tests.helpers import deadline, make_walk_script
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = CONFIG_DIR
 
@@ -414,16 +415,17 @@ class TestPubTipThroughClient:
             players=(
                 Player(
                     name="alcapone",
-                    gang_name="the outfit",
                     ka=ka,
                     rank=rank,
                     roster=(Gangster(name="alcapone"),),
+                    values={"gang_name": "the outfit"},
                 ),
             ),
             clock=Clock(active_player=0, player_count=1),
             config=Config(
                 formula_params={
                     "rank_divisor": 11.1,
+                    "score_mult": 1.0,
                     "pub_tip_price_base": 1000,
                     "pub_tip_price_step": 500,
                     "pub_alcohol_stock_min": 100,
@@ -456,7 +458,7 @@ class TestPubTipThroughClient:
 
         assert result.status == "completed"
         assert result.state.players[0].ka == 98000  # 100000 - 2000$ tip price
-        assert result.state.players[0].tip_target == 1
+        assert game.tip_target(result.state.players[0]) == 1
         # The Confirm prompt genuinely reached the real TerminalInput wire.
         assert "ok (j/n)?" in out.getvalue()
 
@@ -470,23 +472,22 @@ class TestPubRecruitThroughClient:
     """
 
     def _state(self, *, rank=5, ka=100000, housed=True):
-        from engine.state import Clock, Config, Flags, GameState, MapState, Player
+        from engine.state import Clock, Config, GameState, Player
         from data.game_configs.mafia_1920s.gangster import Gangster
 
         return GameState(
             players=(
                 Player(
                     name="alcapone",
-                    gang_name="the outfit",
                     ka=ka,
                     rank=rank,
                     roster=(Gangster(name="alcapone"),),
+                    values={"gang_name": "the outfit"},
                 ),
             ),
             clock=Clock(active_player=0, player_count=1),
             config=Config(formula_params={}),
-            map=MapState(tenancy={1: 0} if housed else {}),
-            flags=Flags(),
+            values=game.tenancy_values({1: 0}) if housed else {},
         )
 
     def test_recruit_one_gangster_via_the_real_input_loop(self, monkeypatch):
@@ -510,7 +511,7 @@ class TestPubRecruitThroughClient:
         assert len(result.state.players[0].roster) == 2  # boss + killer-jack
         assert result.state.players[0].roster[1].name == "killer-jack"
         assert result.state.players[0].roster[1].vitality == 5
-        assert result.state.flags.hired_gangsters == (0,)
+        assert game.hired_ids(result.state) == (0,)
         # The Confirm prompt genuinely reached the real TerminalInput wire.
         assert "ok (j/n)?" in out.getvalue()
 
@@ -542,8 +543,8 @@ class TestPubJobThroughClient:
         result = run_option(shell, "job", state, ln=2, input_source=inp, rng=Rng(1))
 
         assert result.status == "completed"
-        assert result.state.players[0].jobs.type == 1
-        assert result.state.players[0].jobs.pending_pay == 2261
+        assert game.job(result.state.players[0]).type == 1
+        assert game.job(result.state.players[0]).pending_pay == 2261
         assert result.state.players[0].ms == 0  # force-ended (mf-prg.bas:12335 ms=0)
         # The Confirm prompt genuinely reached the real TerminalInput wire.
         assert "ok (j/n)?" in out.getvalue()
@@ -592,19 +593,20 @@ class TestJobShiftThroughClient:
         SAME scenario one level up, on the real terminal input protocol."""
         from engine.interactions import run as run_handler
         from engine.rng import Rng
-        from engine.state import Clock, Config, GameState, Job, Player
+        from engine.state import Clock, Config, GameState, Player
+        from data.game_configs.mafia_1920s.state import Job
         from data.game_configs.mafia_1920s.gangster import Gangster
         from engine.strings import Resolver
 
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
-        params = {"rank_divisor": 11.1}
+        params = {"rank_divisor": 11.1, "score_mult": 1.0}
         state = GameState(
             players=(
                 Player(
                     name="alcapone",
                     ka=1000,
                     roster=(Gangster(name="alcapone", energie=10, kraft=30, brutalitaet=30),),
-                    jobs=Job(type=2, pending_pay=1200, months_left=2),
+                    values=game.values_of(Job(type=2, pending_pay=1200, months_left=2)),
                 ),
             ),
             clock=Clock(active_player=0, player_count=1),
@@ -622,7 +624,7 @@ class TestJobShiftThroughClient:
             weapon_names=[],
         )
         result1 = run_handler(HANDLERS["job.shift"], inp1, state=state, rng=Rng(1))
-        assert result1.state.players[0].jobs == Job(type=2, pending_pay=1200, months_left=1)
+        assert game.job(result1.state.players[0]) == Job(type=2, pending_pay=1200, months_left=1)
         assert result1.state.players[0].ka == 1372
         assert "welchen trick" in out1.getvalue()
 
@@ -637,7 +639,7 @@ class TestJobShiftThroughClient:
             weapon_names=[],
         )
         result2 = run_handler(HANDLERS["job.shift"], inp2, state=result1.state, rng=Rng(1))
-        assert result2.state.players[0].jobs == Job()  # cleared
+        assert game.job(result2.state.players[0]) == Job()  # cleared
         assert result2.state.players[0].ka == 1372 + 372 + 1200  # bonus + lump sum
 
 
@@ -799,6 +801,7 @@ class TestKdhLocationThroughClient:
     def _params(self):
         return {
             "rank_divisor": 11.1,
+            "score_mult": 1.0,
             "kdh_borrow_min": 0,
             "kdh_borrow_max": 5000,
             "kdh_borrow_grace_months": 6,
@@ -822,18 +825,21 @@ class TestKdhLocationThroughClient:
         }
 
     def _state(self, **overrides):
-        from engine.state import Business, Clock, Config, Debt, GameState, Player
+        from engine.state import Clock, Config, GameState, Player
         from data.game_configs.mafia_1920s.gangster import Gangster
+        from data.game_configs.mafia_1920s.state import Business, Debt
 
         return GameState(
             players=(
                 Player(
                     name="alcapone",
-                    gang_name="the outfit",
                     ka=overrides.pop("ka", 100000),
                     last_location=1,
-                    debt=overrides.pop("debt", Debt()),
-                    business=overrides.pop("business", Business()),
+                    values=game.values_of(
+                        overrides.pop("debt", Debt()),
+                        overrides.pop("business", Business()),
+                        gang_name="the outfit",
+                    ),
                     roster=(
                         Gangster(name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8),
                     ),
@@ -846,7 +852,7 @@ class TestKdhLocationThroughClient:
     def test_borrow_repay_buy_deposit_and_collect_into_the_ambush_fight(self, monkeypatch):
         from engine.actions import run_option
         from engine.rng import Rng
-        from engine.state import Debt
+        from data.game_configs.mafia_1920s.state import Debt
         from engine.strings import Resolver
 
         shell = load_shell("kdh")
@@ -864,7 +870,7 @@ class TestKdhLocationThroughClient:
         )
         result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
         assert result.status == "completed"
-        assert result.state.players[0].debt == Debt(amount=2000, months=6)
+        assert game.debt(result.state.players[0]) == Debt(amount=2000, months=6)
         state = result.state
 
         # 2. Repay in full -> grace counter clears too.
@@ -877,7 +883,7 @@ class TestKdhLocationThroughClient:
             weapon_names=[],
         )
         result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
-        assert result.state.players[0].debt == Debt()
+        assert game.debt(result.state.players[0]) == Debt()
         state = result.state
 
         # 3. Buy the shop at this tile (seed=3: price rolls 5300$; "j" confirms).
@@ -886,7 +892,7 @@ class TestKdhLocationThroughClient:
             resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
         )
         result = run_option(shell, "trade", state, ln=1, input_source=inp, rng=Rng(3))
-        assert result.state.players[0].business.shop_tile == 1
+        assert game.business(result.state.players[0]).shop_tile == 1
         assert result.state.players[0].ka == 100000 - 5300
         state = result.state
 
@@ -900,7 +906,7 @@ class TestKdhLocationThroughClient:
             weapon_names=[],
         )
         result = run_option(shell, "capital", state, ln=1, input_source=inp, rng=Rng(4))
-        assert result.state.players[0].business.shop_capital == 1000
+        assert game.business(result.state.players[0]).shop_capital == 1000
         state = result.state
 
         # 5. Collect debts -- seed=5 draws range(3)==2 (nonzero -> the KTD-9 2/3
@@ -1317,7 +1323,7 @@ class TestTurnOverScreenRendersNoRawDataclassRepr:
 
     ``play()``'s turn-over block interpolates player fields into its summary. ``wanted``
     was a scalar when that f-string was written and later became the structured
-    :class:`~engine.state.Wanted` dataclass, so ``f"wanted: {p.wanted}"`` silently began
+    :class:`Wanted` dataclass, so ``f"wanted: {p.wanted}"`` silently began
     printing ``Wanted(jail_months=0, bribe_months=0, x5=False, x6=False)`` at every
     turn boundary -- engine internals (including the two win FLAGS, which are meant to
     be secret) leaking straight onto the player's screen.
@@ -1401,7 +1407,7 @@ class TestTurnOverScreenRendersCorrectValues:
         assert f"position: {p.po}" in output
         assert f"movement: {p.ms}" in output
         assert f"rank: {p.rank}" in output
-        assert f"jail: {p.wanted.jail_months} months" in output
+        assert f"jail: {game.wanted(p).jail_months} months" in output
         # Sanity: pin the concrete numbers too, so a coincidental match between a
         # wrong field and the right one (e.g. ka and po both landing on the same
         # value) can't slip through unnoticed.
@@ -1409,7 +1415,7 @@ class TestTurnOverScreenRendersCorrectValues:
         assert p.po == 306
         assert p.ms == 0
         assert p.rank == 1
-        assert p.wanted.jail_months == 0
+        assert game.wanted(p).jail_months == 0
 
 
 class TestHandlerRegistrationIsSelfSufficientPerModule:
@@ -1470,6 +1476,7 @@ class TestDebtDefaultThroughClient:
     def _params(self):
         return {
             "rank_divisor": 11.1,
+            "score_mult": 1.0,
             "kdh_borrow_min": 0,
             "kdh_borrow_max": 5000,
             "kdh_borrow_grace_months": 6,
@@ -1484,18 +1491,19 @@ class TestDebtDefaultThroughClient:
         }
 
     def _state(self, **overrides):
-        from engine.state import Business, Clock, Config, Debt, GameState, Player
+        from engine.state import Clock, Config, GameState, Player
         from data.game_configs.mafia_1920s.gangster import Gangster
+        from data.game_configs.mafia_1920s.state import Business, Debt
 
         return GameState(
             players=(
                 Player(
                     name="alcapone",
-                    gang_name="the outfit",
                     ka=overrides.pop("ka", 20000),
                     last_location=1,
-                    debt=overrides.pop("debt", Debt()),
-                    business=Business(),
+                    values=game.values_of(
+                        overrides.pop("debt", Debt()), Business(), gang_name="the outfit"
+                    ),
                     roster=(
                         Gangster(name="alcapone", energie=50, kraft=50, brutalitaet=50, weapon=8),
                     ),
@@ -1532,7 +1540,7 @@ class TestDebtDefaultThroughClient:
         """
         from engine.actions import run_option
         from engine.rng import Rng
-        from engine.state import Debt
+        from data.game_configs.mafia_1920s.state import Debt
         from engine.strings import Resolver
 
         shell = load_shell("kdh")
@@ -1549,7 +1557,7 @@ class TestDebtDefaultThroughClient:
             weapon_names=[],
         )
         result = run_option(shell, "borrow", state, ln=1, input_source=inp, rng=Rng(1))
-        assert result.state.players[0].debt == Debt(amount=3000, months=6)
+        assert game.debt(result.state.players[0]) == Debt(amount=3000, months=6)
         assert result.state.players[0].ka == 23000
         state = result.state
 
@@ -1557,7 +1565,7 @@ class TestDebtDefaultThroughClient:
         for expected_months in (5, 4, 3, 2, 1):
             inp, _out = self._input([])  # no combat input consumed while in grace
             state = run_upkeep(state, input_source=inp, rng=Rng(7)).state
-            assert state.players[0].debt.months == expected_months
+            assert game.debt(state.players[0]).months == expected_months
             assert state.players[0].ka == 23000  # nothing seized during grace
 
         # --- turn 6: kz ticks 1 -> 0, the collectors attack --------------------
@@ -1574,13 +1582,13 @@ class TestDebtDefaultThroughClient:
 
         # Lost -> :4365-4370: all cash seized, debt and counter wiped.
         assert result.state.players[0].ka == 0
-        assert result.state.players[0].debt == Debt(amount=0, months=0)
+        assert game.debt(result.state.players[0]) == Debt(amount=0, months=0)
 
     def test_repaying_mid_grace_stops_the_countdown_and_no_fight_ever_comes(self):
         """Repay at kdh during the grace period -> upkeep never summons collectors."""
         from engine.actions import run_option
         from engine.rng import Rng
-        from engine.state import Debt
+        from data.game_configs.mafia_1920s.state import Debt
         from engine.strings import Resolver
 
         shell = load_shell("kdh")
@@ -1598,7 +1606,7 @@ class TestDebtDefaultThroughClient:
             weapon_names=[],
         )
         result = run_option(shell, "repay", state, ln=1, input_source=inp, rng=Rng(2))
-        assert result.state.players[0].debt == Debt()
+        assert game.debt(result.state.players[0]) == Debt()
         state = result.state
         cash = state.players[0].ka
 
@@ -1610,7 +1618,7 @@ class TestDebtDefaultThroughClient:
             inp, _out = self._input([])
             state = run_upkeep(state, input_source=inp, rng=Rng(7)).state
             assert state.players[0].ka == cash
-            assert state.players[0].debt == Debt()
+            assert game.debt(state.players[0]) == Debt()
 
 
 # --------------------------------------------------------------------------- #
@@ -1939,7 +1947,7 @@ class TestSaveAndLoad:
             score_weight=1.0,
         )
         saved = load_game(save, _REGISTRIES)
-        assert saved.state.players[0].jobs.type != 0, "no job held at the save: vacuous"
+        assert game.job(saved.state.players[0]).type != 0, "no job held at the save: vacuous"
         assert saved.state.players[0].ms == 0
 
         out_a, (state_a, rng_a) = _run_session(
@@ -2165,11 +2173,14 @@ class TestTerminalSession:
     # :1013 `gf(sp)=int(gf(sp)*100)/100`, placed after :1011's upkeep and :1012's job
     # dispatch, before the free turn. Player 1 is the one the rotation reaches.
     @staticmethod
-    def _second_player(**fields):
+    def _second_player(*views, nr=None, **fields):
         from dataclasses import replace
 
         state = new_state(42, [("alcapone", "the outfit"), ("moran", "north side")])
-        players = (state.players[0], replace(state.players[1], **fields))
+        moran = state.players[1]
+        scalars = {} if nr is None else {"nr": nr}
+        values = {**moran.values, **game.values_of(*views, **scalars)}
+        players = (state.players[0], replace(moran, values=values, **fields))
         return replace(state, players=players)
 
     def test_the_free_turn_truncates_the_score_after_upkeep_shows_it(self, monkeypatch):
@@ -2205,13 +2216,13 @@ class TestTerminalSession:
         assert "moran." not in upkeep_screen, "a promotion screen without a promotion"
 
     def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch):
-        from engine.state import Job
+        from data.game_configs.mafia_1920s.state import Job
 
         # Croupier, trick 1, then quit at the turn-over. seed=1 is not caught, and with
         # months_left=2 a successful shift only ticks the contract: no score moves.
         session, out = _session(monkeypatch, ["x", "1", "q"], seed=1, end_year=1930)
         session.state = self._second_player(
-            gf=25.199999, jobs=Job(type=2, pending_pay=1200, months_left=2)
+            Job(type=2, pending_pay=1200, months_left=2), gf=25.199999
         )
 
         assert session.next_turn() is True
@@ -2220,7 +2231,7 @@ class TestTerminalSession:
 
         assert "welchen trick" in out.getvalue(), "the job shift did not run"
         assert "move: W/A/S/D" not in out.getvalue(), "the employed player reached the map"
-        assert session.state.players[1].jobs.months_left == 1, "the shift did not complete"
+        assert game.job(session.state.players[1]).months_left == 1, "the shift did not complete"
         assert session.state.players[1].gf == 25.199999
 
     def test_the_same_score_by_different_steps_ties_at_the_year_end(self, monkeypatch):
@@ -2239,7 +2250,10 @@ class TestTerminalSession:
         state = replace(
             state,
             clock=replace(state.clock, year=1927, month=11, end_year=1928),
-            config=replace(state.config, score_mult=0.7),
+            config=replace(
+                state.config,
+                formula_params={**state.config.formula_params, "score_mult": 0.7},
+            ),
         )
         params = state.config.formula_params
         awards = [score_and_rank(3, params)] * 12 + [
@@ -2289,7 +2303,9 @@ class TestC64NumbersOnScreen:
         from dataclasses import replace
 
         state = new_state(42, self._TWO)
-        moran = replace(state.players[1], gf=gf, rank=1, nr=3)
+        moran = replace(
+            state.players[1], gf=gf, rank=1, values={**state.players[1].values, "nr": 3}
+        )
         state = replace(state, players=(state.players[0], moran))
 
         output = self._play_one_turn(monkeypatch, tmp_path, state)

@@ -40,6 +40,7 @@ from engine.events import EnterLocation, MoveStep, OptionDenied
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, load_city, try_move
 from tests.helpers import run_pure, scripted as _scripted, with_player
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -207,12 +208,12 @@ def test_handler_option_through_run_option_commits_and_is_pure():
     assert result.state is not state
     # fnm(2) == 50 -> 2 months cost 100; cash drops by exactly 100.
     assert result.state.players[0].ka == ka_before - 100
-    assert result.state.map.tenancy[2] == 0  # tenancy set to active player index 0
-    assert result.state.players[0].rented_months == 2
+    assert game.tenant(result.state, 2) == 0  # tenancy set to active player index 0
+    assert game.rented_months(result.state.players[0]) == 2
 
     # Purity: the input state was NOT mutated.
     assert state.players[0].ka == ka_before
-    assert 2 not in state.map.tenancy
+    assert game.tenant(state, 2) is None
 
 
 def test_handler_option_purity_via_run_pure_harness():
@@ -230,4 +231,4 @@ def test_handler_option_purity_via_run_pure_harness():
 
     assert result.status == "completed"
     assert result.state.players[0].ka == state.players[0].ka - 100
-    assert result.state.map.tenancy[2] == 0
+    assert game.tenant(result.state, 2) == 0

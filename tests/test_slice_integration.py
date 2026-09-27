@@ -51,6 +51,7 @@ from engine.interactions import PromptInt, ShowMessage, run
 from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, UP, load_city, try_move
 from tests.helpers import deadline, with_player, with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -67,6 +68,11 @@ _PUB_SHELL = _CONFIG_DIR / "content" / "locations" / "pub.yaml"
 # A fixed seed for the whole trajectory. Setup rolls give: cash 5500 (in the
 # 5000..7000 band), rank 1, ms 25 (on foot), po 18.
 SEED = 42
+
+
+def _tenancy(state) -> dict[int, int]:
+    """Every rented motel tile as ``{ln: tenant}`` (the global ``uk(ln)`` values)."""
+    return {ln: tenant for ln in range(1, 10) if (tenant := game.tenant(state, ln)) is not None}
 
 
 # --------------------------------------------------------------------------- #
@@ -185,16 +191,16 @@ def _play_trajectory():
     p = state.players[0]
     # fnm(2) == base == 50 -> 2 months cost 100; cash drops by exactly 100.
     assert p.ka == ka_before_rent - 100
-    assert state.map.tenancy[2] == 0  # tenancy set to sp (active player index 0)
-    assert p.rented_months == 2
+    assert game.tenant(state, 2) == 0  # tenancy set to sp (active player index 0)
+    assert game.rented_months(p) == 2
     # The FULL presented interaction sequence, straight off the recording input_source
     # (#43): quote -> months prompt -> success. Before narration was delivered this
     # had to be observed out-of-band by hand-driving the generator, which proved the
     # handler YIELDED the messages but not that any client could receive them.
     assert rent_rec.types == [ShowMessage, PromptInt, ShowMessage]
     obs["cash_after_positive_rent"] = p.ka
-    obs["tenancy_after_rent"] = dict(state.map.tenancy)
-    obs["rented_months_after_rent"] = p.rented_months
+    obs["tenancy_after_rent"] = _tenancy(state)
+    obs["rented_months_after_rent"] = game.rented_months(p)
 
     # ================================================================= #
     # PREMIUM TILE: renting fnm(1) == 150 costs triple the base rate.     #
@@ -214,7 +220,7 @@ def _play_trajectory():
     neg_state = neg_result.state
     # MoneyChange(-(x*p)) = -(2 * 150) = -300 -> cash DECREASES.
     assert neg_state.players[0].ka == ka_before_neg - 300
-    assert neg_state.map.tenancy[1] == 0
+    assert game.tenant(neg_state, 1) == 0
     obs["cash_after_premium_rent"] = neg_state.players[0].ka
     obs["premium_rent_delta"] = neg_state.players[0].ka - ka_before_neg
 
@@ -251,7 +257,7 @@ def _play_trajectory():
     assert cancel_result.status == "completed"  # a quiet return, not a driver-cancel
     assert cancel_result.effects == []  # atomic: nothing applied
     assert cancel_result.state.players[0].ka == ka_before_cancel  # unchanged
-    assert 2 not in cancel_result.state.map.tenancy  # no tenancy set
+    assert game.tenant(cancel_result.state, 2) is None  # no tenancy set
 
     # ================================================================= #
     # D. Walk to the pub -> recruit DENIED at rank 1 (the HEADLINE).      #
@@ -285,8 +291,8 @@ def _play_trajectory():
     obs["final_cash"] = p.ka
     obs["final_po"] = p.po
     obs["final_ms"] = p.ms
-    obs["final_rented_months"] = p.rented_months
-    obs["final_tenancy"] = dict(state.map.tenancy)
+    obs["final_rented_months"] = game.rented_months(p)
+    obs["final_tenancy"] = _tenancy(state)
     obs["final_rank"] = p.rank
     return obs
 

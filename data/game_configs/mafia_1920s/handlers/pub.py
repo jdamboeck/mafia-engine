@@ -70,6 +70,7 @@ from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from ..gangster import Gangster
+from ..state import contraband, hired_ids, tenant
 
 from ..setup import load_gangster_candidates, load_vehicles, score_and_rank
 
@@ -197,7 +198,7 @@ def pub_drink(ctx):
         # `q=tk(tm(sp))-ta(sp)`.
         vehicles = _vehicles()
         capacity = vehicles[active.vehicle]["tank"]
-        free = capacity - active.contraband.alcohol_barrels
+        free = capacity - contraband(active).alcohol_barrels
         if free < stock:
             stock = free
 
@@ -228,7 +229,7 @@ def pub_drink(ctx):
     price = ctx.rng.hit(params["pub_alcohol_sell_price_min"], params["pub_alcohol_sell_price_max"])
     yield ShowMessage("locations.pub.sell_offer", {"price": price})
     y = yield PromptInt(
-        "locations.pub.sell_quantity_prompt", min=0, max=max(active.contraband.alcohol_barrels, 0)
+        "locations.pub.sell_quantity_prompt", min=0, max=max(contraband(active).alcohol_barrels, 0)
     )
     if y == 0:
         return []
@@ -351,7 +352,7 @@ def pub_recruit(ctx):
         return []
 
     # :12103-12104 — housing guard: at least one of 5 apartment slots (uk(i)=sp).
-    if not any(ctx.state.map.tenancy.get(i) == sp for i in range(1, 6)):
+    if not any(tenant(ctx.state, i) == sp for i in range(1, 6)):
         yield ShowMessage("locations.pub.recruit_no_housing")
         return []
 
@@ -361,7 +362,7 @@ def pub_recruit(ctx):
         return []
 
     candidates = _gangster_candidates()
-    hired = ctx.state.flags.hired_gangsters
+    hired = hired_ids(ctx.state)
 
     # :12106 — offer pool: unhired candidates, capped at 3.
     pool = sum(1 for i in range(len(candidates)) if i not in hired)

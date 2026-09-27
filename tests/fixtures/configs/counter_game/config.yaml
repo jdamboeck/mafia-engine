@@ -8,10 +8,3 @@ formula_params: {}
 setup: {}
 input_ranges: {}
 
-# The declared value maps: names, types and defaults.
-state:
-  player:
-    counter: {type: int, default: 0}
-    label: {type: str, default: "none"}
-  global:
-    round_bonus: {type: float, default: 0.0}

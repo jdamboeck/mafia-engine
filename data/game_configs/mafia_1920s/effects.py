@@ -9,18 +9,50 @@ the registry holds these effects once :func:`engine.config_loader.load_game_conf
 returns. The tag is the class name, so a save written before the move still loads.
 
 Each ``apply`` rebuilds state through the engine's public helpers
-(:func:`~engine.effects.target_index`, :func:`~engine.effects.update_player`). The
-state entities these effects write (``Debt``, ``Business``, ``Job`` ...) are still
-engine classes; they move to the config's declared value maps later.
+(:func:`~engine.effects.target_index`, :func:`~engine.effects.update_player`) and this
+config's value-map accessors (:mod:`.state`): the state these effects write lives in
+the value maps ``state_schema.yaml`` declares, never in an engine class.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from types import MappingProxyType
 
-from engine.effects import SCHEMA_VERSION, register_effect, target_index, update_player
-from engine.state import GameState, Job
+from engine.effects import (
+    SCHEMA_VERSION,
+    register_effect,
+    set_player_value,
+    target_index,
+    update_player,
+)
+from engine.state import GameState
+
+try:
+    from .state import (
+        Debt,
+        Job,
+        business,
+        contraband,
+        debt,
+        mark_hired,
+        rented_months,
+        set_tenant,
+        wanted,
+        write,
+    )
+except ImportError:  # loaded bare (config dir on sys.path), as setup.py allows
+    from state import (
+        Debt,
+        Job,
+        business,
+        contraband,
+        debt,
+        mark_hired,
+        rented_months,
+        set_tenant,
+        wanted,
+        write,
+    )
 
 __all__ = [
     "BarrelChange",
@@ -50,9 +82,9 @@ class ScoreAndRank:
     separate score-then-rank pair would face (rank must see the post-clamp ``gf``). The
     ``[0, 100]`` clamp is this game's score bound (``:1160``/``:1161``). ``amount`` is
     the raw reward
-    ``x``; ``score_mult`` is ``x8``
-    (``Config.score_mult``). ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded.
-    Targets ``Player.nr`` (per ``:1165``).
+    ``x``; ``score_mult`` is ``x8`` (``formula_params["score_mult"]``, set at setup).
+    ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded. Writes the pending
+    rank ``nr`` value (per ``:1165``).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -65,10 +97,12 @@ class ScoreAndRank:
         p = state.players[idx]
         # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
         # :1160 `gf(sp)=gf(sp)+(x*x8)`, then `gf(sp)>100` / :1161 `gf(sp)<0` clamp it.
-        gf = max(0.0, min(100.0, p.gf + self.amount * state.config.score_mult))
+        score_mult = state.config.formula_params["score_mult"]
+        gf = max(0.0, min(100.0, p.gf + self.amount * score_mult))
         # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
         # :1165 `nr(sp)=int(gf(sp)/11.1)+1`.
-        return update_player(state, player=idx, gf=gf, nr=int(gf / self.rank_divisor) + 1)
+        state = update_player(state, player=idx, gf=gf)
+        return set_player_value(state, "nr", int(gf / self.rank_divisor) + 1, player=idx)
 
 
 @register_effect()
@@ -79,7 +113,7 @@ class SetTenancy:
     Ports the tenancy assignment at ``mf-prg.bas:10040`` (the slw rent block). ``ln``
     is the within-location tile index (1..9); the stored value is the resolved TARGET
     player index (explicit ``player`` else the active player, per the module's targeting
-    convention). Writes ``state.map.tenancy[ln] = <idx>``.
+    convention). Writes the global ``tenancy.<ln>`` value.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -88,9 +122,8 @@ class SetTenancy:
 
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
-        # uk(ln) = sp (mf-prg.bas:10040) — rebuilt as a new read-only mapping.
-        new_map = replace(state.map, tenancy=MappingProxyType({**state.map.tenancy, self.ln: idx}))
-        return replace(state, map=new_map)
+        # uk(ln) = sp (mf-prg.bas:10040).
+        return set_tenant(state, self.ln, idx)
 
 
 @register_effect()
@@ -99,7 +132,7 @@ class RentAccrue:
     """Add ``months`` to the target player's prepaid rented-months ``um``: ``um(sp)+=x``.
 
     Ports the rented-months accrual at ``mf-prg.bas:10040`` — the player prepays ``x``
-    months of rent. Adds to ``state.players[target].rented_months``. ``months`` is
+    months of rent. Adds to the target player's ``rented_months`` value. ``months`` is
     signed: the turn-start countdown at ``mf-prg.bas:4046`` ``um(sp)=um(sp)-1`` is a
     ``RentAccrue(-1)``.
     """
@@ -111,8 +144,8 @@ class RentAccrue:
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
         # um(sp) += x (mf-prg.bas:10040)
-        rented = state.players[idx].rented_months + self.months
-        return update_player(state, player=idx, rented_months=rented)
+        rented = rented_months(state.players[idx]) + self.months
+        return set_player_value(state, "rented_months", rented, player=idx)
 
 
 @register_effect()
@@ -123,7 +156,7 @@ class RankCommit:
     Ports the rank-promotion commit (``mf-prg.bas:4030``:
     ``ifra(sp)<>nr(sp)thenra(sp)=nr(sp):gosub4200``) — the SECOND half of the two-step
     rank system: :class:`ScoreAndRank` already recomputes the PENDING next-rank counter
-    ``Player.nr`` from ``gf`` on every score award, but ``Player.rank`` (the value guards
+    ``nr`` (a value-map key) from ``gf`` on every score award, but ``Player.rank`` (the value guards
     and prices actually read, e.g. ``waf.py``'s ``active.rank >= 5``) only moves when this
     effect commits it. The caller (the upkeep handler) is responsible for checking
     ``rank != nr`` and showing the promotion screen BEFORE applying this — the effect
@@ -146,7 +179,7 @@ class RankCommit:
 class Jail:
     """Set the target player's jail sentence to ``months``: ``gs(sp)=months``.
 
-    Jail months are this game's state (``Wanted.jail_months``, the source's ``gs(sp)``).
+    Jail months are this game's state (``wanted.jail_months``, the source's ``gs(sp)``).
     The arrest sets the sentence outright (``mf-prg.bas:26045``,
     ``gs(sp)=int(ra(sp)/2+.5)``), so this is an absolute set, not a delta. No handler
     applies it yet.
@@ -158,8 +191,8 @@ class Jail:
 
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
-        wanted = replace(state.players[idx].wanted, jail_months=self.months)
-        return update_player(state, player=idx, wanted=wanted)
+        new_wanted = replace(wanted(state.players[idx]), jail_months=self.months)
+        return write(state, new_wanted, player=idx)
 
 
 @register_effect()
@@ -172,26 +205,26 @@ class DebtChange:
     effect because the source sets them together at every kdh call site (borrow
     :15030 sets ``kr(sp)=kr(sp)+x`` and ``kz(sp)=6`` in the same line; partial
     repayment :15065 decrements ``kr`` only, leaving ``months`` untouched — pass
-    ``months=None`` for that case) — see :class:`~engine.state.Debt` for the confirmed
+    ``months=None`` for that case) — see :class:`.state.Debt` for the confirmed
     field semantics.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     amount: int
-    months: int | None = None  # None = leave Debt.months unchanged
+    months: int | None = None  # None = leave the grace counter unchanged
     player: int | None = None
 
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
-        p = state.players[idx]
+        current = debt(state.players[idx])
         # kr(sp) += amount (mf-prg.bas:15030 borrow, :15065 repay). months is None on
         # a partial repay (kz(sp) untouched); borrow
         # and full-repay callers pass an explicit value alongside this effect (full
         # repay's kz=0 reset is DebtClear, applied as a SEPARATE effect by the caller).
-        new_debt = replace(p.debt, amount=p.debt.amount + self.amount)
+        new_debt = replace(current, amount=current.amount + self.amount)
         if self.months is not None:
             new_debt = replace(new_debt, months=self.months)
-        return update_player(state, player=idx, debt=new_debt)
+        return write(state, new_debt, player=idx)
 
 
 @register_effect()
@@ -213,9 +246,7 @@ class DebtClear:
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
         # kr(sp)=0:kz(sp)=0 (mf-prg.bas:15075 full repayment).
-        return update_player(
-            state, player=idx, debt=replace(state.players[idx].debt, amount=0, months=0)
-        )
+        return write(state, Debt(amount=0, months=0), player=idx)
 
 
 @register_effect()
@@ -224,7 +255,7 @@ class ShopChange:
     """Set the target player's owned shop ``tile`` and/or its ``capital`` delta.
 
     Applied by the kdh buy/sell/capital-adjust handlers. Targets
-    :class:`~engine.state.Business` —
+    the ``business.*`` values (:class:`.state.Business`) —
     ``tile`` sets ``shop_tile`` (``None`` leaves it unchanged; the sentinel 0 means
     "no shop", per the field's own docstring; passing 0 explicitly clears ownership
     on a sale), ``capital_delta`` adds to ``shop_capital`` (``None`` = no change).
@@ -237,8 +268,7 @@ class ShopChange:
 
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
-        p = state.players[idx]
-        new_business = p.business
+        new_business = business(state.players[idx])
         if self.tile is not None:
             # kg(sp)=ln (buy, mf-prg.bas:15120) or kg(sp)=0 (sell, :15155).
             new_business = replace(new_business, shop_tile=self.tile)
@@ -247,7 +277,7 @@ class ShopChange:
             new_business = replace(
                 new_business, shop_capital=new_business.shop_capital + self.capital_delta
             )
-        return update_player(state, player=idx, business=new_business)
+        return write(state, new_business, player=idx)
 
 
 @register_effect()
@@ -256,7 +286,7 @@ class BarrelChange:
     """Add ``amount`` (signed) to the target player's alcohol barrel stock ``ta(sp)``.
 
     Applied by the pub alcohol trade. Targets
-    :class:`~engine.state.Contraband.alcohol_barrels`
+    :attr:`.state.Contraband.alcohol_barrels`
     (mf-prg.bas:12035 buy, :12075 sell).
     """
 
@@ -266,12 +296,10 @@ class BarrelChange:
 
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
-        p = state.players[idx]
+        current = contraband(state.players[idx])
         # ta(sp) += amount (mf-prg.bas:12035 buy, :12075 sell).
-        new_contraband = replace(
-            p.contraband, alcohol_barrels=p.contraband.alcohol_barrels + self.amount
-        )
-        return update_player(state, player=idx, contraband=new_contraband)
+        new_contraband = replace(current, alcohol_barrels=current.alcohol_barrels + self.amount)
+        return write(state, new_contraband, player=idx)
 
 
 @register_effect()
@@ -279,7 +307,7 @@ class BarrelChange:
 class TipSet:
     """Set the target player's rolled heist tip type ``tp(sp)``.
 
-    Applied by the pub tip flow. Targets :class:`~engine.state.Player.tip_target`
+    Applied by the pub tip flow. Targets the ``tip_target`` value
     (mf-prg.bas:12225-12226:
     the tip roll ``tp(sp)=int(rnd(1)*5)+1`` (1-5) dispatching to one of five heist-rumour
     texts).
@@ -292,7 +320,7 @@ class TipSet:
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
         # tp(sp) = tip_type (mf-prg.bas:12225-12226).
-        return update_player(state, player=idx, tip_target=self.tip_type)
+        return set_player_value(state, "tip_target", self.tip_type, player=idx)
 
 
 @register_effect()
@@ -313,7 +341,7 @@ class TipClear:
         idx = target_index(state, self.player)
         # tp(sp) = 0 (mf-prg.bas:31000 arms-deal resolve; also the tip4 decline/broke
         # paths in pub.tip).
-        return update_player(state, player=idx, tip_target=0)
+        return set_player_value(state, "tip_target", 0, player=idx)
 
 
 @register_effect()
@@ -324,7 +352,7 @@ class JobSet:
     Applied by the pub job-accept flow. Ports ``mf-prg.bas:12335``: ``jo(sp)=x:jl(sp)=p`` (plus the
     per-job-type ``jd(sp)`` duration set earlier at :12308/:12311/:12316/:12322) —
     one effect since the source sets them as a unit when a job is accepted. Targets
-    :class:`~engine.state.Job`.
+    :class:`.state.Job`.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -342,7 +370,7 @@ class JobSet:
             pending_pay=self.pending_pay,
             months_left=self.months_left,
         )
-        return update_player(state, player=idx, jobs=new_job)
+        return write(state, new_job, player=idx)
 
 
 @register_effect()
@@ -363,7 +391,7 @@ class JobClear:
         # jo(sp)=0 (mf-prg.bas:25560 completion, :25510 failed shift fight, :26080
         # jail commit). A full reset (not just type=0) so a
         # cleared job never leaks a stale pending_pay/months_left into a future read.
-        return update_player(state, player=idx, jobs=Job())
+        return write(state, Job(), player=idx)
 
 
 @register_effect()
@@ -374,18 +402,14 @@ class GangsterMarkHired:
     Ports ``sg(g(i))=1`` (``mf-prg.bas:12165``): once ANY player
     hires candidate ``candidate_id`` (0-based; the source's ``g(i)`` is 1-based),
     every player's future recruit roll skips them (:12110's ``ifsg(g(i))goto12110``
-    reroll-on-hired guard). Idempotent by construction: appending an already-present
-    id would violate the "no duplicate offers" invariant upstream, but ``apply``
-    still de-dupes defensively rather than trusting every caller.
+    reroll-on-hired guard). Idempotent by construction: the set is one bool per
+    candidate (``hired.<id>``), so marking an already-hired candidate changes nothing.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
     candidate_id: int
 
     def apply(self, state: GameState) -> GameState:
-        # sg(g(i))=1 (mf-prg.bas:12165) — GLOBAL, not per-player. De-dupe
-        # defensively even though the handler is expected to never mark twice.
-        if self.candidate_id in state.flags.hired_gangsters:
-            return state
-        new_hired = state.flags.hired_gangsters + (self.candidate_id,)
-        return replace(state, flags=replace(state.flags, hired_gangsters=new_hired))
+        # sg(g(i))=1 (mf-prg.bas:12165) — GLOBAL, not per-player. Setting a flag that
+        # is already set changes nothing, so marking twice is harmless.
+        return mark_hired(state, self.candidate_id)

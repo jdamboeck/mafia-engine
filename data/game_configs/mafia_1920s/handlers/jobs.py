@@ -49,6 +49,7 @@ from pathlib import Path
 
 from engine.effects import MoneyChange
 from ..effects import JobClear, JobSet
+from ..state import job
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario
@@ -167,14 +168,15 @@ def _fight(ctx, *, spec, backdrop: str):
 def job_shift(ctx):
     """Run one shift for the active player's accepted job -- ports ``25000-25560``.
 
-    Dispatches on ``active.jobs.type`` (``jo(sp)``); the CALLER is responsible for
+    Dispatches on ``job(active).type`` (``jo(sp)``); the CALLER is responsible for
     only invoking this when a job is actually held (mirrors ``run_upkeep``'s "the
     caller decides whether to call this" shape, except HERE the caller's decision --
     employed vs. free turn -- is the job-shift seam).
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
-    job_type = active.jobs.type
+    current_job = job(active)
+    job_type = current_job.type
 
     won = True  # quiet day / successful cheat default to "no fight, shift succeeds"
 
@@ -238,12 +240,12 @@ def job_shift(ctx):
     # months_left -- the source only ever writes jd(sp) as part of the same array
     # slot the accept step used, so replaying this effect reproduces the exact same
     # job shape with one field ticked down.
-    months_left = active.jobs.months_left - 1
+    months_left = current_job.months_left - 1
     if months_left != 0:
         ctx.apply(
             JobSet(
-                type=active.jobs.type,
-                pending_pay=active.jobs.pending_pay,
+                type=current_job.type,
+                pending_pay=current_job.pending_pay,
                 months_left=months_left,
             )
         )
@@ -251,8 +253,8 @@ def job_shift(ctx):
 
     # :25555-25560 -- contract finished: pay the full wage, award completion score.
     params = ctx.state.config.formula_params
-    ctx.apply(MoneyChange(active.jobs.pending_pay))
+    ctx.apply(MoneyChange(current_job.pending_pay))
     ctx.apply(score_and_rank(_completion_score(job_type), params))
     ctx.apply(JobClear())
-    yield ShowMessage("job.shift_completed", {"pay": active.jobs.pending_pay})
+    yield ShowMessage("job.shift_completed", {"pay": current_job.pending_pay})
     return []

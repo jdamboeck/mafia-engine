@@ -40,7 +40,8 @@ def _state(*, roster=None, rank=1, nr=1, gf=0.0, name="alcapone", gang_name="the
         if roster is not None
         else (Gangster(name=name, energie=5, kraft=15, brutalitaet=30),)
     )
-    player = Player(name=name, gang_name=gang_name, rank=rank, nr=nr, gf=gf, roster=roster)
+    values = {"gang_name": gang_name, "nr": nr}
+    player = Player(name=name, rank=rank, gf=gf, roster=roster, values=values)
     return GameState(
         players=(player,),
         clock=Clock(active_player=0, player_count=1),
@@ -213,9 +214,18 @@ def test_run_pure_clean_for_the_registered_handler():
 # multi-player: upkeep targets the ACTIVE player only                         #
 # --------------------------------------------------------------------------- #
 def test_upkeep_only_touches_the_active_player():
-    p0 = Player(name="p0", rank=1, nr=1, roster=(Gangster(energie=5, kraft=10, brutalitaet=10),))
+    p0 = Player(
+        name="p0",
+        rank=1,
+        roster=(Gangster(energie=5, kraft=10, brutalitaet=10),),
+        values={"nr": 1},
+    )
     p1 = Player(
-        name="p1", rank=1, nr=3, gf=25.0, roster=(Gangster(energie=5, kraft=10, brutalitaet=10),)
+        name="p1",
+        rank=1,
+        gf=25.0,
+        roster=(Gangster(energie=5, kraft=10, brutalitaet=10),),
+        values={"nr": 3},
     )
     state = GameState(
         players=(p0, p1), clock=Clock(active_player=1, player_count=2), config=Config()

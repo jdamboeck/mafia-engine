@@ -36,9 +36,17 @@ guard are always shown).
 from __future__ import annotations
 
 import operator
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 
-__all__ = ["OPERATORS", "VARIABLE_RESOLVERS", "build_context", "validate", "evaluate"]
+__all__ = [
+    "OPERATORS",
+    "GUARD_VARIABLES",
+    "GuardResolver",
+    "register_guard_variable",
+    "build_context",
+    "validate",
+    "evaluate",
+]
 
 #: The seven allowed comparison operators, mapped to their Python implementations.
 #: This is the *entire* operator surface — no others are accepted (an unknown
@@ -68,44 +76,43 @@ _MAX_DEPTH = 2
 
 # --- The eval context: resolvable variables --------------------------------
 
+#: A guard variable's resolver: ``(state, ln) -> value``. ``ln`` is the current
+#: within-location tile (``None`` outside a location).
+GuardResolver = Callable[[Any, Any], Any]
 
-def _active(state):
-    """The active player: ``state.players[state.clock.active_player]`` (orig ``sp``)."""
-    return state.players[state.clock.active_player]
+#: Every registered guard variable, keyed by the name a shell's guard writes in
+#: ``var``. The engine registers none and resolves none by name: a config registers
+#: the vocabulary its shells use with :func:`register_guard_variable` when its package
+#: is imported, the way ``@register_effect`` fills the effect registry. Returned on
+#: :class:`~engine.config_loader.LoadedConfig`. An unregistered name in a guard raises
+#: :class:`ValueError` when the guard is evaluated.
+GUARD_VARIABLES: dict[str, GuardResolver] = {}
+
+_R = TypeVar("_R", bound=GuardResolver)
 
 
-def _tenancy(state, ln):
-    """``uk(ln)`` resolved for the current tile ``ln`` — 0 means unoccupied.
+def register_guard_variable(name: str) -> Callable[[_R], _R]:
+    """Decorator registering ``resolver(state, ln)`` as the guard variable ``name``.
 
-    A tenancy guard is meaningless without a tile context, so ``ln is None``
-    raises a clear :class:`ValueError`.
+    Registering a name that is already registered replaces the old resolver without
+    raising: a config reload re-executes its package, and the reloaded resolver must
+    win.
     """
-    if ln is None:
-        raise ValueError("guard variable 'tenancy' requires a tile context (ln), but ln is None")
-    return state.map.tenancy.get(ln, 0)
 
+    def _decorator(resolver: _R) -> _R:
+        GUARD_VARIABLES[name] = resolver
+        return resolver
 
-#: The single documented mapping of guard-variable name -> resolver ``(state, ln)``.
-#: Extend the DSL's readable surface by adding an entry here. An unknown variable
-#: name in a guard raises :class:`ValueError`.
-VARIABLE_RESOLVERS: dict[str, Callable[[Any, Any], Any]] = {
-    "rank": lambda state, ln: _active(state).rank,
-    "gang_size": lambda state, ln: len(_active(state).roster),
-    "ka": lambda state, ln: _active(state).ka,
-    "ms": lambda state, ln: _active(state).ms,
-    "po": lambda state, ln: _active(state).po,
-    "gf": lambda state, ln: _active(state).gf,
-    "sp": lambda state, ln: state.clock.active_player,
-    "tenancy": lambda state, ln: _tenancy(state, ln),
-}
+    return _decorator
 
 
 class _Context:
     """Resolves guard-variable names to values against ``(state, ln)``.
 
     Lazy: a variable is only resolved when a guard actually references it, so a
-    guard that never mentions ``tenancy`` never triggers the ``ln``-required
-    check. Unknown names raise :class:`ValueError`.
+    guard never pays for (or trips over) a variable it does not mention. Names are
+    looked up in :data:`GUARD_VARIABLES`; an unregistered name raises
+    :class:`ValueError`.
     """
 
     def __init__(self, state, ln):
@@ -113,10 +120,10 @@ class _Context:
         self._ln = ln
 
     def resolve(self, name: str) -> Any:
-        resolver = VARIABLE_RESOLVERS.get(name)
+        resolver = GUARD_VARIABLES.get(name)
         if resolver is None:
             raise ValueError(
-                f"unknown guard variable {name!r}; known variables: {sorted(VARIABLE_RESOLVERS)}"
+                f"unknown guard variable {name!r}; known variables: {sorted(GUARD_VARIABLES)}"
             )
         return resolver(self._state, self._ln)
 

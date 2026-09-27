@@ -30,7 +30,7 @@ from engine.interactions import (
     ShowMessage,
     run,
 )
-from engine.state import Clock, Fighter, GameState, MapState, Player
+from engine.state import Clock, Fighter, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_fight, run_pure, scripted
 
@@ -418,20 +418,20 @@ def test_run_pure_catches_a_mutation_that_bypasses_frozen():
 def test_run_pure_catches_a_readonly_collection_downgrade():
     """Swapping a read-only collection for a mutable one must fail the harness.
 
-    This is the R2 false floor reopening: `map.tenancy` going from
+    This is the R2 false floor reopening: the global value map going from
     `MappingProxyType` back to a plain `dict` restores the write path the frozen
     graph exists to close. Both flatten to the same JSON, so the harness's value
     comparison alone cannot see it — only the type fingerprint can.
     """
 
     def downgrading_handler(ctx):
-        object.__setattr__(ctx.state.map, "tenancy", {1: 0})
+        object.__setattr__(ctx.state, "values", {"tenancy.1": 0})
         return []
         yield  # pragma: no cover - make this a generator
 
     st = dataclasses.replace(
         _harness_state(ka=5000),
-        map=MapState(tenancy=MappingProxyType({1: 0})),
+        values=MappingProxyType({"tenancy.1": 0}),
     )
     with pytest.raises(AssertionError, match="changed the TYPE"):
         run_pure(downgrading_handler, scripted(), state=st)
