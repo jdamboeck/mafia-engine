@@ -79,20 +79,22 @@ def _build_gang():
     state, seen["recruit"] = _run(pub, "recruit", state, _PUB_LN, [True] * 3, rng)
     assert rng.calls == [("range", 4)] + [("range", 30)] * 3, rng.calls
 
-    # Arm: weapon index, then the gangster. Schlagkette is first offered to billy
-    # (roster 3, brutalitaet 30 < 40), who is refused, then to eddie (roster 2).
+    # Arm: weapon index, then the gangster's number (:1145, 1-based: the boss is 1).
+    # Schlagkette is first offered to billy (roster 3, brutalitaet 30 < 40), who is
+    # refused, then to eddie (roster 2).
     buy_answers = {
-        1: [2, 1],  # knueppel -> joe
-        2: [3, 3, 2],  # schlagkette -> billy (refused), then eddie
-        3: [5, 3],  # revolver -> billy
+        1: [2, 2],  # knueppel -> joe
+        2: [3, 4, 3],  # schlagkette -> billy (refused), then eddie
+        3: [5, 4],  # revolver -> billy
     }
     for roster_idx, answers in buy_answers.items():
         state, seen[f"buy{roster_idx}"] = _run(waf, "buy", state, _WAF_LN, answers, StubRng())
 
-    # Train each recruit at the range: gangster, venue 0 (range; rank >= 5 asks), confirm.
+    # Train each recruit at the range: gangster number, venue 0 (range; rank >= 5
+    # asks), confirm.
     for roster_idx in (1, 2, 3):
         state, seen[f"train{roster_idx}"] = _run(
-            waf, "train", state, _WAF_LN, [roster_idx, 0, True], StubRng()
+            waf, "train", state, _WAF_LN, [roster_idx + 1, 0, True], StubRng()
         )
 
     return start, state, seen

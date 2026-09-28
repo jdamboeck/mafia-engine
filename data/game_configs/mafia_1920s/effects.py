@@ -72,6 +72,7 @@ __all__ = [
     "ShopChange",
     "TipClear",
     "TipSet",
+    "VehicleSet",
 ]
 
 
@@ -484,3 +485,22 @@ class GangsterMarkHired:
         # sg(g(i))=1 (mf-prg.bas:12165) — GLOBAL, not per-player. Setting a flag that
         # is already set changes nothing, so marking twice is harmless.
         return mark_hired(state, self.candidate_id)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class VehicleSet:
+    """Give the target player the vehicle at index ``vehicle``, ``tm(sp)``.
+
+    The car dealer writes it: a bought model (``:14050`` ``tm(sp)=y``) and a stolen
+    car (``:14118`` ``tm(sp)=5``). The old vehicle goes with no other change: the
+    movement points are the caller's (the buy moves them, the steal does not), and the
+    alcohol barrels stay, whatever the new tank holds.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    vehicle: int
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        return update_player(state, player=self.player, vehicle=self.vehicle)

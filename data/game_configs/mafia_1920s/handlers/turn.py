@@ -63,7 +63,7 @@ from engine.turns import (
 )
 
 from ..effects import Jail, PendingRankReset
-from ..setup import load_ranks, load_vehicles, load_weapons
+from ..setup import gangster_line, load_ranks, load_vehicles, load_weapons
 from ..state import contraband, job, next_rank, rented_months, wanted
 
 __all__ = [
@@ -241,19 +241,7 @@ def gang_lines(state) -> list[tuple[str, dict]]:
         return lines
     weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
     for member in active.roster:
-        lines.append(
-            (
-                "turn.overview.gangster",
-                {
-                    "name": member.name,
-                    "energie": member.vitality,
-                    "kraft": member.attrs["kraft"],
-                    "intelligenz": member.attrs["intelligenz"],
-                    "brutalitaet": member.attrs["brutalitaet"],
-                    "weapon": weapons[member.weapon]["name"],
-                },
-            )
-        )
+        lines.append(("turn.overview.gangster", gangster_line(member, weapons)))
     return lines
 
 

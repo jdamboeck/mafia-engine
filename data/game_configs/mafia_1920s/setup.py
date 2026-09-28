@@ -30,7 +30,7 @@ import yaml
 
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
-from engine.interactions import ShowMessage, StartCombat
+from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.rng import Rng
 from engine.scenario import Scenario
 from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, INTENT, Clock, Config, GameState, Player
@@ -64,6 +64,8 @@ __all__ = [
     "Encounter",
     "apply_outcome",
     "run_encounter",
+    "gangster_line",
+    "pick_gangster",
     "fnm",
     "score_and_rank",
     "narrate_combat_outcome",
@@ -465,6 +467,73 @@ def run_encounter(
         enemy_losses=result.losses[1],
     )
     return result
+
+
+# --- the gangster picker ----------------------------------------------------
+
+
+def gangster_line(member, weapons: list[dict]) -> dict:
+    """One gangster as ``:1300-1320`` prints it: the name, the four stats, the weapon.
+
+    ``:1300`` reads the stats ``x$=ge$(a,b)``; ``:1315`` prints the four of them
+    (``"e"left$(x$,2)" k"mid$(x$,3,2)" i"mid$(x$,5,2)" b"right$(x$,2)``, two digits
+    each); ``:1320`` the weapon's name. The theme template pads the digits.
+    """
+    return {
+        "name": member.name,
+        "energie": member.vitality,
+        "kraft": member.attrs["kraft"],
+        "intelligenz": member.attrs["intelligenz"],
+        "brutalitaet": member.attrs["brutalitaet"],
+        "weapon": weapons[member.weapon]["name"],
+    }
+
+
+def pick_gangster(ctx, *, cancellable: bool):
+    """The gangster picker, ``mf-prg.bas:1130-1155``: which of the gang does the job.
+
+    A generator (``y = yield from pick_gangster(ctx, cancellable=...)``) returning the
+    chosen gangster's 0-based roster index, or ``None`` for the source's ``y=0``:
+
+    * ``:1130 ifgz(sp)=0theny=0:return`` — an empty gang returns ``None`` at once,
+      with no list and no prompt;
+    * ``:1135-1140`` — each gangster, numbered from 1, as ``:1300-1320`` prints it
+      (the key the source waits for after each one is the client's pause);
+    * ``:1145 input"{down}nummer:";y:ify>gz(sp)thenprint"{up}{up}";:goto1145`` — the
+      number, 0 up to the gang's size; a larger one is asked again (the prompt's
+      ceiling, which the driver enforces);
+    * ``:1150 ify=0thenreturn`` — 0 returns ``None``. The caller decides what that
+      means (waf goes back to its weapon list, aut and the training leave);
+    * ``:1155 a=sp:b=y:gosub1350`` loads the gangster's stats; the caller reads them
+      off the roster at the returned index.
+
+    The caller prints its own question first (``:13035``, ``:13101``, ``:14101``).
+
+    ``cancellable`` says whether the client may cancel the prompt (an empty answer,
+    which discards everything the calling handler buffered). A caller that has already
+    committed to something the source keeps on a ``y=0`` passes ``False``; then only
+    0 leaves, and the caller's buffered effects stand.
+
+    What the port reads differently (the catalogue's header lists it): the prompt reads
+    whole numbers from 0 up, so a negative number (the C64 stops with an error at
+    ``:1350``'s subscript), a fraction (the C64 truncates it to a gangster) and, on a
+    prompt that is not cancellable, an empty answer (the C64 keeps whatever ``y`` last
+    held) are asked again.
+
+    The roster is ``ctx.state``'s: no caller changes the gang before it picks.
+    """
+    roster = ctx.state.players[ctx.state.clock.active_player].roster
+    if not roster:  # :1130
+        return None
+    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
+    for number, member in enumerate(roster, start=1):  # :1135-1140
+        yield ShowMessage(
+            "turn.picker.gangster", {"index": number, **gangster_line(member, weapons)}
+        )
+    y = yield PromptInt("turn.picker.prompt", min=0, max=len(roster), cancellable=cancellable)
+    if y == 0:  # :1150
+        return None
+    return y - 1  # :1155
 
 
 # --- fnm rent formula ------------------------------------------------------

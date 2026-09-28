@@ -29,10 +29,19 @@
 #     an empty answer, is asked again.
 #   - upkeep rolls the 1-in-8 mark decay of mf-prg.bas:4055-4056 only for a mark the
 #     player holds; the source rolls both every turn (handlers/upkeep.py).
-#   - after a lost police fight, the chief-bribe auto-pay (mf-prg.bas:26021) charges 0:
-#     the source's p there is whatever the fight left in it (the cell where the last
-#     player fighter fell, 0..520, or the last step if the player quit), which the
-#     port's fight does not report (handlers/police.py).
+#   - after a lost police fight, or a lost fight with the car owner (mf-prg.bas:14125),
+#     the chief-bribe auto-pay (mf-prg.bas:26021) charges 0: the source's p there is
+#     whatever the fight left in it (the cell where the last player fighter fell,
+#     0..520, or the last step if the player quit), which the port's fight does not
+#     report (handlers/police.py, handlers/aut.py).
+#   - the gangster picker's number prompt (mf-prg.bas:1145) reads whole numbers from 0
+#     up: on the C64 a negative number stops the game with an error at :1350's
+#     subscript, a fraction picks the gangster it truncates to, and an empty answer
+#     keeps whatever y last held; here each is asked again (an empty answer cancels
+#     where the caller lets the prompt be cancelled; setup.pick_gangster).
+#   - the car dealer's model key (mf-prg.bas:14020 getx$) reads a number: a letter,
+#     which val() reads as 0 and so leaves the showroom on the C64, is asked again
+#     here; RETURN leaves, as on the C64 (handlers/aut.py).
 #   - the lawyer's fee prompt reads whole numbers only: the C64 INPUT at
 #     mf-prg.bas:26060 takes a fraction, and reads text as 0 (no lawyer); both are
 #     asked again here. An empty answer keeps x$, which is "j" from the lawyer
@@ -214,3 +223,43 @@ house_rules:
       An empty answer buys nothing: it leaves quietly, as 0 does (:21011
       ``ifx=0thenreturn``).
     switch: true
+
+  - id: car_price_ignores_the_trade_in
+    citation: ":14035"
+    quote: "ifka(sp)<pthengosub1125:goto14006"
+    faithful: >-
+      The car dealer asks for the car's full price in cash before the trade-in is
+      offered (:14045 ``q=1000+1000*tm(sp)``), so a player whose cash and old car
+      together cover the price is sent back to the showroom; a player who can pay then
+      gets the trade-in on top (:14050 ``ka(sp)=ka(sp)-p+q``).
+    no_intent: >-
+      A dealer may want the price in hand before he haggles over the old car; nothing
+      in the source says the check should count the trade-in, so no single intended
+      behaviour exists.
+    switch: false
+
+  - id: stolen_car_keeps_the_movement_points
+    citation: ":14118"
+    quote: "tm(sp)=5"
+    faithful: >-
+      A stolen car changes the vehicle but not the movement points left this turn,
+      while a bought one moves them at once (:14050 ``ms=tr(y)-tr(tm(sp))+ms``); the
+      stolen car's range counts from the next turn (:1012 ``ms=tr(tm(sp))``).
+    no_intent: >-
+      A thief who has just fled the owner may be meant to lose the rest of the turn's
+      head start, or the adjustment may have been left out; the source does not say
+      which.
+    switch: false
+
+  - id: smaller_tank_keeps_the_barrels
+    citation: ":14050"
+    quote: "tm(sp)=y"
+    faithful: >-
+      Changing to a car with a smaller tank, bought or stolen (:14118 ``tm(sp)=5``),
+      leaves every alcohol barrel the player holds, above the new tank's size too. Only
+      the pub's buy (:12025 ``q=tk(tm(sp))-ta(sp)``) and the gang war (:27040) compare
+      the barrels with the tank.
+    no_intent: >-
+      The barrels could be dumped, sold or refused at the sale, and the source never
+      trims them anywhere; no single intended behaviour exists.
+    switch: false

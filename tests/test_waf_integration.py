@@ -130,10 +130,11 @@ def _play_trajectory():
     obs["ln_after_walk"] = p.last_location
 
     # --- BUY messer (index 1) for the single (unarmed) gangster 0 ---
-    # Sequence: weapon PromptInt(1) -> spec-sheet LoadSubState (auto-run) -> gangster
-    # PromptChoice(0). Unarmed -> q=0, no trade-in confirm; cash -= 50, weapon assigned.
+    # Sequence: weapon PromptInt(1) -> spec-sheet LoadSubState (auto-run) -> the shared
+    # picker's number (1, :1145). Unarmed -> q=0, no trade-in confirm; cash -= 50, weapon
+    # assigned.
     ka_before_buy = p.ka
-    buy_rec = _recorder(1, 0)  # weapon 1, gangster 0
+    buy_rec = _recorder(1, 1)  # weapon 1, gangster 1
     assert "buy" in {o.id for o in available_options(waf, state, ln=2)}
     buy_handler = _opt(waf, "buy").handler
     assert buy_handler is not None
@@ -146,7 +147,7 @@ def _play_trajectory():
     # The buy reached the gangster pick, which only happens AFTER the spec-sheet
     # LoadSubState ran and threaded its result back (the driver auto-runs the sub-state,
     # so it is not seen by the input_source) — the completed buy proves R7/R14 end-to-end.
-    assert any(type(i).__name__ == "PromptChoice" for i in buy_rec.seen)
+    assert any(getattr(i, "key", None) == "turn.picker.prompt" for i in buy_rec.seen)
     obs["weapon_after_buy"] = p.roster[0].weapon
     obs["cash_after_buy"] = p.ka
 
@@ -158,7 +159,7 @@ def _play_trajectory():
     rng = _rngmod.Rng(SEED)
     ka_before_train = p.ka
     kraft_before = p.roster[0].attrs["kraft"]
-    train_rec = _recorder(0, True)  # gangster 0, confirm the range cost
+    train_rec = _recorder(1, True)  # gangster 1, confirm the range cost
     assert "train" in {o.id for o in available_options(waf, state, ln=2)}
     train_handler = _opt(waf, "train").handler
     assert train_handler is not None

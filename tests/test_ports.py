@@ -924,6 +924,94 @@ def _engine_thanks(v: Values) -> Any:
     return (run.state.players[0].ka, run.state.players[1].ka)
 
 
+# --- :14010-14050 aut, the showroom, the trade-in and the sale --------------------------
+Q_14010_X = q(14010, "x=2")
+Q_14010_LN = q(14010, "ln=2")
+Q_14010_X2 = q(14010, "x=x+1")
+Q_14030 = q(14030, "(y-1)>x")
+Q_14035_P = q(14035, "p=3000+1000*(y-1)")
+Q_14035 = q(14035, "ka(sp)<p")
+Q_14040 = q(14040, "tm(sp)=0")
+Q_14045_Q = q(14045, "q=1000+1000*tm(sp)")
+Q_14045_IF = q(14045, "tm(sp)=5")
+Q_14045_STOLEN = q(14045, "q=1000")
+Q_14050_KA = q(14050, "ka(sp)=ka(sp)-p+q")
+Q_14050_MS = q(14050, "ms=tr(y)-tr(tm(sp))+ms")
+Q_14050_TM = q(14050, "tm(sp)=y")
+
+
+def _basic_car_sale(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ln": v["ln"], "y": v["y"], "q": 0}
+    b.update({"ka(1)": v["ka"], "tm(1)": v["tm"], "ms": 3})
+    b.update({f"tr({i})": w["tr"] for i, w in enumerate(_VEHICLES)})
+    b["x"] = Q_14010_X.assign(b)
+    if Q_14010_LN.holds(b):
+        b["x"] = Q_14010_X2.assign(b)
+    if Q_14030.holds(b):
+        return "read again"
+    b["p"] = Q_14035_P.assign(b)
+    if Q_14035.holds(b):
+        return (b["ka(1)"], b["ms"], b["tm(1)"])
+    if not Q_14040.holds(b):
+        b["q"] = Q_14045_Q.assign(b)
+        if Q_14045_IF.holds(b):
+            b["q"] = Q_14045_STOLEN.assign(b)
+    b["ka(1)"] = Q_14050_KA.assign(b)
+    b["ms"] = Q_14050_MS.assign(b)
+    return (b["ka(1)"], b["ms"], Q_14050_TM.assign(b))
+
+
+def _engine_car_sale(v: Values) -> Any:
+    asked: list[Any] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True  # :14047 the trade-in taken
+        asked.append(interaction)
+        if len(asked) > 1:
+            return 0  # the showroom again (a refused sale): leave
+        if not interaction.min <= v["y"] <= interaction.max:
+            raise _AskedAgain
+        return v["y"]
+
+    player = _player(ka=v["ka"], vehicle=v["tm"], ms=3, last_location=v["ln"])
+    try:
+        run = _drive(HANDLERS["aut.buy"], _state(player), answer=answer)
+    except _AskedAgain:
+        return "read again"
+    p = run.state.players[0]
+    return (p.ka, p.ms, p.vehicle)
+
+
+# --- :14100-14110 aut, the crowd and the lock ------------------------------------------
+Q_14100 = q(14100, "ln<>4andint(rnd(1)*3)<>0")
+Q_14110 = q(14110, "int(rnd(1)*(in/40+kr/30))=0")
+
+
+def _basic_car_theft(v: Values) -> Any:
+    b: dict[str, Any] = {"ln": v["ln"], "rnd(1)": v["r0"]}
+    if Q_14100.holds(b):
+        return "crowded"
+    b.update({"rnd(1)": v["r"], "in": v["in"], "kr": v["kr"]})
+    return "caught" if Q_14110.holds(b) else "stolen"
+
+
+def _engine_car_theft(v: Values) -> Any:
+    thief = Gangster(name="t", energie=40, kraft=v["kr"], intelligenz=v["in"])
+    player = _player(last_location=v["ln"], roster=(thief,))
+    try:
+        run = _drive(
+            HANDLERS["aut.steal"], _state(player), draws=(v["r0"], v["r"]), answer=lambda i: 1
+        )
+    except _FightStarted:
+        return "caught"
+    if run.draws_used == 1:
+        assert run.state.players[0].vehicle == 0
+        return "crowded"
+    assert run.state.players[0].vehicle == 5
+    return "stolen"
+
+
 # --- :13110-13127 waf range training ------------------------------------------------
 Q_13110 = q(13110, "p=800+200*ra(sp)")
 Q_13116 = q(13116, "ka(sp)<p")
@@ -966,7 +1054,7 @@ def _train_answer(venue: int) -> Callable[[Any], Any]:
             and interaction.key == "locations.waf.venue_prompt"
         ):
             return venue
-        return 0  # the gangster pick: the only gangster
+        return 1  # the gangster pick (:1145, 1-based): the only gangster
 
     return answer
 
@@ -1052,11 +1140,13 @@ def _engine_buy(v: Values) -> Any:
     player = _player(rank=6, gf=v["gf"], last_location=ln, roster=(_gangster(weapon=v["old"]),))
 
     def answer(interaction: Any) -> Any:
+        if interaction.key == "turn.picker.prompt":
+            return 1  # the only gangster (:1145, 1-based)
         if isinstance(interaction, PromptInt):
             return v["x"]
         if isinstance(interaction, Confirm):
             return True
-        return 0
+        raise AssertionError(f"unexpected prompt {interaction!r}")
 
     run = _drive(HANDLERS["waf.buy"], _state(player, score_mult=v["x8"]), draws, answer)
     p = run.state.players[0]
@@ -1812,6 +1902,36 @@ PORTS: list[Port] = [
         _grid(ka=(0, 2999, 3000, 3500, 4999, 5000, 10**6), r=R),
         _basic_release,
         _engine_release,
+    ),
+    Port(
+        "aut car sale",
+        (Q_14010_X, Q_14010_LN, Q_14010_X2, Q_14030, Q_14035_P, Q_14035, Q_14040)
+        + (Q_14045_Q, Q_14045_IF, Q_14045_STOLEN, Q_14050_KA, Q_14050_MS, Q_14050_TM),
+        "HANDLERS['aut.buy']",
+        # the cash check ignores the trade-in: ka=4999 with a talbot cannot buy the buick.
+        _grid(
+            ln=(1, 2, 3, 4),
+            y=(1, 2, 3, 4, 5),
+            tm=range(6),
+            ka=(0, 2999, 3000, 4999, 5000, 6000, 10**6),
+        ),
+        _basic_car_sale,
+        _engine_car_sale,
+    ),
+    Port(
+        "aut car theft",
+        (Q_14100, Q_14110),
+        "HANDLERS['aut.steal'] (the crowd and the steal roll)",
+        # 3*in+4*kr is the integer bound: 120 (in=40 or kr=30 alone) is always caught.
+        _grid(
+            ln=(1, 2, 4),
+            r0=(0.0, 0.3, 0.9990234375),
+            r=R,
+            **{"in": (0, 40, 99)},
+            kr=(0, 30, 99),
+        ),
+        _basic_car_theft,
+        _engine_car_theft,
     ),
     Port(
         "pol thank-you",

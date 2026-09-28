@@ -1,0 +1,19 @@
+# aut (Automobil-Haendler) — location shell (declarative layer).
+#
+# Ports the aut menu from mf-prg.bas:14005 (onwgoto14006,14100). Neither option
+# carries a shell guard: the source refuses only inside the handler (the cash check
+# :14035, the crowd roll :14100), after the option was picked.
+#
+#   buy    — aut.buy: a car from the showroom, the old one traded in (:14006-14052)
+#   steal  — aut.steal: a gangster breaks into a car (:14100-14131)
+#   leave  — costs 5 movement points (:3045) back to the map.
+key: aut
+options:
+  - id: buy
+    handler: "aut.buy"
+  - id: steal
+    handler: "aut.steal"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

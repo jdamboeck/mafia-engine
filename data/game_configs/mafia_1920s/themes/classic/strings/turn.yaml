@@ -50,3 +50,12 @@ turn:
     # :1300-1320 gn$(a,b); "e"left$(x$,2)" k"mid$(x$,3,2)" i"mid$(x$,5,2)" b"right$(x$,2);
     # "w:"wa$(gw(a,b)) -- ge$ holds each stat as two digits (:1385).
     gangster: "{name}\ne{energie:0>2} k{kraft:0>2} i{intelligenz:0>2} b{brutalitaet:0>2}\nw:{weapon}"
+
+  # The gangster picker (:1130-1155), shared by every location that picks one gangster
+  # (setup.pick_gangster); the caller's own question is printed before it.
+  picker:
+    # :1135 print"{down}"mid$(str$(i),2)" "; then gosub1300: the gangster as :1300-1320
+    # prints it (turn.overview.gangster).
+    gangster: "{index:mid$} {name}\ne{energie:0>2} k{kraft:0>2} i{intelligenz:0>2} b{brutalitaet:0>2}\nw:{weapon}"
+    # :1145 input"{down}nummer:";y
+    prompt: "nummer:"

@@ -85,7 +85,7 @@ Interaction catalog:
 |---|---|---|---|
 | `ShowMessage` | `key`, `params` | `Ack` | Display only. |
 | `PromptInt` | `key`, `min`, `max` | `int` or cancel | Driver enforces range/type validation. |
-| `PromptChoice` | `key`, `options[]` | chosen index/id or cancel | Menus, submenus, gangster picker. |
+| `PromptChoice` | `key`, `options[]` | chosen index/id or cancel | Menus and submenus. (The gangster picker is a numbered `PromptInt`, as `:1145` asks for a number.) |
 | `Confirm` | `key` | `bool` or cancel | Yes/no. |
 | `StartCombat` | `scenario` (fighters, arena, rules — one payload) | `CombatResult` | Suspends turn and runs combat sub-FSM. |
 | `LoadSubState` | `kind`, `params` | sub-state result | Nested minigames such as safe-cracking. |

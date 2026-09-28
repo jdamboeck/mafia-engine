@@ -10,7 +10,7 @@ from pathlib import Path
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, StatChangeCapped
 from data.game_configs.mafia_1920s.effects import ScoreAndRank
-from engine.interactions import Ack, Confirm, Ctx, PromptChoice, ShowMessage
+from engine.interactions import Ack, Confirm, Ctx, PromptChoice, PromptInt, ShowMessage
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
@@ -106,17 +106,17 @@ def test_no_gangster_aborts():
 # Venue gate (R11)                                                            #
 # --------------------------------------------------------------------------- #
 def test_venue_gate_rank_below_5_range_only():
-    # rank 4 -> no (s)/(t) prompt: the first PromptChoice is the gangster pick, and after
-    # picking, it goes straight to the range cost (no second PromptChoice).
+    # rank 4 -> no (s)/(t) prompt: after the gangster pick (the shared picker's number
+    # prompt) it goes straight to the range cost (no PromptChoice at all).
     st = _state(rank=4)
     seen = _observe(
         HANDLERS["waf.train"],
         st,
         _StubRng(),
-        {PromptChoice: [0], Confirm: [False]},  # pick gangster 0, decline range
+        {PromptInt: [1], Confirm: [False]},  # pick gangster 1, decline range
     )
-    prompt_choices = [i for i in seen if isinstance(i, PromptChoice)]
-    assert len(prompt_choices) == 1  # only the gangster pick, no venue choice
+    assert [i.key for i in seen if isinstance(i, PromptInt)] == ["turn.picker.prompt"]
+    assert not any(isinstance(i, PromptChoice) for i in seen)  # no venue choice
 
 
 def test_venue_gate_rank_5_offers_choice():
@@ -125,11 +125,10 @@ def test_venue_gate_rank_5_offers_choice():
         HANDLERS["waf.train"],
         st,
         _StubRng(),
-        {PromptChoice: [0, 0], Confirm: [False]},  # gangster 0, venue=range(0), decline
+        {PromptInt: [1], PromptChoice: [0], Confirm: [False]},  # gangster 1, range, decline
     )
     prompt_choices = [i for i in seen if isinstance(i, PromptChoice)]
-    assert len(prompt_choices) == 2  # gangster pick + venue choice
-    assert prompt_choices[1].key == "locations.waf.venue_prompt"
+    assert [i.key for i in prompt_choices] == ["locations.waf.venue_prompt"]
 
 
 # --------------------------------------------------------------------------- #
@@ -140,7 +139,7 @@ def test_range_default_ln_gains():
     st = _state(ln=3, rank=1, ka=100000)
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0], Confirm: [True]}),
+        _source({PromptInt: [1], Confirm: [True]}),
         state=st,
         rng=_StubRng(),
     )
@@ -158,7 +157,7 @@ def test_range_ln1_intelligence_plus_five():
     st = _state(ln=1, rank=1, ka=100000)
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0], Confirm: [True]}),
+        _source({PromptInt: [1], Confirm: [True]}),
         state=st,
         rng=_StubRng(),
     )
@@ -175,7 +174,7 @@ def test_range_ln2_brutality_plus_five():
     st = _state(ln=2, rank=1, ka=100000)
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0], Confirm: [True]}),
+        _source({PromptInt: [1], Confirm: [True]}),
         state=st,
         rng=_StubRng(),
     )
@@ -189,7 +188,7 @@ def test_range_gains_cap_at_99():
     st = _state(ln=3, rank=1, ka=100000, roster=roster)
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0], Confirm: [True]}),
+        _source({PromptInt: [1], Confirm: [True]}),
         state=st,
         rng=_StubRng(),
     )
@@ -200,7 +199,7 @@ def test_range_declined_no_effects():
     st = _state(ln=3, rank=1, ka=100000)
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0], Confirm: [False]}),
+        _source({PromptInt: [1], Confirm: [False]}),
         state=st,
         rng=_StubRng(),
     )
@@ -211,7 +210,7 @@ def test_range_unaffordable_no_effects():
     st = _state(ln=3, rank=1, ka=100)  # need 1000
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0], Confirm: [True]}),
+        _source({PromptInt: [1], Confirm: [True]}),
         state=st,
         rng=_StubRng(),
     )
@@ -229,7 +228,7 @@ def test_camp_gains_each_stat_by_own_fnr_draw():
     rng = _StubRng(8, 12, 15)  # int gain 8, brut 12, kraft 15
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0, 1], Confirm: [True]}),  # gangster 0, venue camp, confirm
+        _source({PromptInt: [1], PromptChoice: [1], Confirm: [True]}),  # gangster 1, camp, yes
         state=st,
         rng=rng,
     )
@@ -246,7 +245,7 @@ def test_camp_unaffordable_no_effects():
     st = _state(ln=3, rank=5, ka=100)  # need 5000
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0, 1], Confirm: [True]}),
+        _source({PromptInt: [1], PromptChoice: [1], Confirm: [True]}),
         state=st,
         rng=_StubRng(8, 8, 8),
     )
@@ -262,7 +261,7 @@ def test_stat_effects_apply_before_score():
     st = _state(ln=3, rank=1, ka=100000)
     result = run_pure(
         HANDLERS["waf.train"],
-        _source({PromptChoice: [0], Confirm: [True]}),
+        _source({PromptInt: [1], Confirm: [True]}),
         state=st,
         rng=_StubRng(),
     )

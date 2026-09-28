@@ -8,6 +8,7 @@ config-load time via :func:`engine.config_loader.load_game_config`.
 
 from __future__ import annotations
 
+from . import aut  # noqa: F401 — registers aut.buy / aut.steal
 from . import ble  # noqa: F401 — registers ble.passport / ble.counterfeit
 from . import game_end  # noqa: F401 — registers game_end.standings / game_end.year_end
 from . import jobs  # noqa: F401 — registers "job.shift" (the employed-turn flow)
@@ -23,6 +24,7 @@ from . import upkeep  # noqa: F401 — registers "upkeep.turn_start" (engine.upk
 from . import waf  # noqa: F401 — registers waf.buy / waf.train + the weapon_spec sub-state
 
 __all__ = [
+    "aut",
     "ble",
     "game_end",
     "jobs",

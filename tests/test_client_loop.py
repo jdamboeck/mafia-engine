@@ -303,8 +303,8 @@ class TestWafBuyThroughClient:
         cell = find_door_cell(city_raw, "waf", ln=1)
         walk = walk_keys_across_turns(state, city, cell)
         # buy(0) -> weapon idx 5 (revolver, in [3,7] stock range, no stat gates, 4000$
-        # affordable against the 5500$ starting cash) -> gangster 0.
-        keys = walk + ["", "0", "5", "0"]
+        # affordable against the 5500$ starting cash) -> gangster 1 (:1145, 1-based).
+        keys = walk + ["", "0", "5", "1"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # The buy committed: cash dropped by the revolver's price (5500$ - 4000$).
@@ -317,8 +317,8 @@ class TestWafBuyThroughClient:
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=2)
         walk = walk_keys_to_cell(state, city, cell)
-        # buy(0) -> weapon idx 1 (messer, in [1,5] stock range, 50$, no gates) -> gangster 0.
-        keys = walk + ["", "0", "1", "0"]
+        # buy(0) -> weapon idx 1 (messer, in [1,5] stock range, 50$, no gates) -> gangster 1.
+        keys = walk + ["", "0", "1", "1"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         assert "cash 5450$" in output
@@ -334,8 +334,8 @@ class TestWafTrainThroughClient:
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=2)
         walk = walk_keys_to_cell(state, city, cell)
-        # train(1) -> gangster 0 -> (rank 0 < 5, so no venue choice) -> confirm "y".
-        keys = walk + ["", "1", "0", "y"]
+        # train(1) -> gangster 1 -> (rank 0 < 5, so no venue choice) -> confirm "y".
+        keys = walk + ["", "1", "1", "y"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # Range training at rank 0 costs range_base (1000$): 5500$ -> 4500$.
@@ -667,7 +667,7 @@ class TestSessionRngDeterminism:
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=2)
         walk = walk_keys_to_cell(state, city, cell)
-        keys = walk + ["", "1", "0", "y"]
+        keys = walk + ["", "1", "1", "y"]
 
         out1 = run_play(monkeypatch, seed=42, stdin_keys=keys)
         out2 = run_play(monkeypatch, seed=42, stdin_keys=keys)
@@ -790,6 +790,22 @@ class TestBleReachableByWalking:
         output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "2"])
         assert "closed for renovations" not in output
         assert "WO DRUECKT DER SCHUH?" in output
+
+
+class TestAutReachableByWalking:
+    """aut's first door (cell 147, ``ln=1``) opens the car dealer's menu, and leave goes
+    back."""
+
+    def test_aut_reachable_by_walking(self, monkeypatch):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
+        state = new_state(42)
+        walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "aut"))
+        # Splash ack, then leave (menu index 2).
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "2"])
+        assert "closed for renovations" not in output
+        assert "FLOTTESTEN SCHLITTEN." in output
 
 
 class TestPolReachableByWalking:

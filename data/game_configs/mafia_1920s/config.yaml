@@ -14,7 +14,7 @@ name: "mafia_1920s"
 
 # This config's own content version. A save records it and is refused under another,
 # so bump it when a content change would make an existing save load wrongly.
-content_version: 5
+content_version: 6
 description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 
 # Entity tables live in sibling files under entities/.
@@ -160,7 +160,7 @@ formula_params:
   # Police capture and trial — mf-prg.bas:26000-26080 (handlers/police.py). The police
   # fight's base count/weapon/energy are content/encounters/police_fight.yaml's.
   police_count_rank_divisor: 2   # gz(0)=5+int(rnd(1)*ra(sp)/2) (:26000)
-  police_weapon_senior: 7        # w=5-2*(ra(sp)>5): gewehr above rank 5 (:26010)
+  police_weapon_senior: 7        # w=5-2*(ra(sp)>5): maschinenpistole above rank 5 (:26010)
   police_weapon_senior_rank: 5
   police_energy_per_rank: 2      # e=20+2*(ra(sp)-1)-int(rnd(1)*21) (:26010)
   police_energy_spread: 21
@@ -192,6 +192,22 @@ formula_params:
   pol_gang_cap: 10              # ifgz(sp)=10: the phantom thanks and goes (:21205)
   # the freed phantom: gn$="knasti":gw=0:ge$="05100540" (:21210; ge$ is en,kr,in,bt, :1350)
   pol_inmate: {name: knasti, weapon: 0, energie: 5, kraft: 10, intelligenz: 5, brutalitaet: 40}
+
+  # aut (Automobil-Haendler) — mf-prg.bas:14000-14131 (handlers/aut.py). The models are
+  # entities/vehicles.yaml's; the owner's fight is content/encounters/aut_owner.yaml.
+  aut_models: 3                 # x=2 (:14010): models 1..x+1 in the showroom
+  aut_extra_model_tile: 2       # ifln=2thenx=x+1 (:14010): a fourth model on tile 2
+  aut_price_base: 3000          # p=3000+1000*(y-1) (:14035)
+  aut_price_step: 1000
+  aut_trade_in_base: 1000       # q=1000+1000*tm(sp) (:14045)
+  aut_trade_in_step: 1000
+  aut_stolen_vehicle: 5         # tm(sp)=5, the citroen (:14118)
+  aut_trade_in_stolen: 1000     # iftm(sp)=5thenq=1000 (:14045)
+  aut_crowd_roll: 3             # ifln<>4andint(rnd(1)*3)<>0: too crowded (:14100)
+  aut_no_crowd_tile: 4
+  # ifint(rnd(1)*(in/40+kr/30))=0 -> caught (:14110)
+  aut_steal_in_divisor: 40
+  aut_steal_kr_divisor: 30
 
   # The map roadblock — mf-prg.bas:2041, :6000-6036 (handlers/roadblock.py).
   # ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3 (:2041)

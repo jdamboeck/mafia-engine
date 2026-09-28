@@ -17,7 +17,6 @@ from engine.interactions import (
     CANCEL,
     Confirm,
     LoadSubState,
-    PromptChoice,
     PromptInt,
     ShowMessage,
 )
@@ -55,13 +54,34 @@ def _state(*, ka=100000, ln=2, rank=1, gf=50.0, score_mult=1.0, roster=None):
     )
 
 
+#: The shared gangster picker's prompt (``setup.pick_gangster``, :1145 ``nummer:``):
+#: answered 1-based, 0 for none. Scripts key it by this prompt key, not by its type,
+#: since the weapon list is a ``PromptInt`` too.
+PICK = "turn.picker.prompt"
+
+
+def _is_pick(interaction) -> bool:
+    return isinstance(interaction, PromptInt) and interaction.key == PICK
+
+
+def _scripted_answer(iters, interaction):
+    """The next scripted answer: by the prompt's key when scripted, else by its type."""
+    key = getattr(interaction, "key", None)
+    if key in iters:
+        return next(iters[key])
+    for typ, it in iters.items():
+        if isinstance(typ, type) and isinstance(interaction, typ):
+            return next(it)
+    raise AssertionError(f"unscripted interaction {interaction!r}")
+
+
 def _observe(handler, state, rng, answers):
     """Step `handler` out-of-band and record EVERY yielded interaction, including the
     ShowMessage/LoadSubState the real driver auto-handles without consulting a source.
 
     Mirrors driver semantics: ShowMessage -> Ack; LoadSubState -> run its registered
     sub-state to completion (acking its own ShowMessages) and send its return value back;
-    PromptInt/PromptChoice/Confirm -> the next scripted answer for that type. Returns the
+    PromptInt/PromptChoice/Confirm -> the next scripted answer for its key or type. Returns the
     list of yielded interactions (observation only; use run_pure for effect assertions).
     """
     from engine.interactions import Ack, Cancelled, Ctx
@@ -73,10 +93,7 @@ def _observe(handler, state, rng, answers):
     seen = []
 
     def answer(interaction):
-        for typ, it in iters.items():
-            if isinstance(interaction, typ):
-                return next(it)
-        raise AssertionError(f"unscripted interaction {interaction!r}")
+        return _scripted_answer(iters, interaction)
 
     interaction = next(gen)
     try:
@@ -120,10 +137,7 @@ def _by_type_source(answers):
             # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
             # and the driver acks regardless of what we return here.
             return None
-        for typ, it in iters.items():
-            if isinstance(interaction, typ):
-                return next(it)
-        raise AssertionError(f"unscripted interaction {interaction!r}")
+        return _scripted_answer(iters, interaction)
 
     return source
 
@@ -269,19 +283,19 @@ def test_spec_sheet_shown_then_continues_to_gangster_pick():
         HANDLERS["waf.buy"],
         st,
         _StubRng(),
-        {PromptInt: [1], PromptChoice: [CANCEL]},
+        {PromptInt: [1], PICK: [CANCEL]},
     )
-    # The weapon-spec LoadSubState was yielded, then the parent continued to a gangster
-    # PromptChoice (proving the sub-state threaded back into the parent).
+    # The weapon-spec LoadSubState was yielded, then the parent continued to the gangster
+    # picker (proving the sub-state threaded back into the parent).
     subs = [i for i in seen if isinstance(i, LoadSubState)]
     assert len(subs) == 1 and subs[0].kind == "weapon_spec"
     assert subs[0].params["index"] == 1  # messer
-    assert any(isinstance(i, PromptChoice) for i in seen)
+    assert any(_is_pick(i) for i in seen)
 
     # Effect-level: gangster-pick cancel discards the whole buy.
     result = run_pure(
         HANDLERS["waf.buy"],
-        _by_type_source({PromptInt: [1], PromptChoice: [CANCEL]}),
+        _by_type_source({PromptInt: [1], PICK: [CANCEL]}),
         state=_state(ln=2, ka=100000),
         rng=_StubRng(),
     )
@@ -305,7 +319,7 @@ def test_stat_gate_intelligence_blocks_then_passes():
         HANDLERS["waf.buy"],
         st,
         _StubRng(1),  # grenade miss
-        {PromptInt: [6], PromptChoice: [0, 1]},
+        {PromptInt: [6], PICK: [1, 2]},
     )
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
     assert "locations.waf.too_dumb" in keys
@@ -313,7 +327,7 @@ def test_stat_gate_intelligence_blocks_then_passes():
     # Effect-level: smart gangster (index 1) got the weapon.
     result = run_pure(
         HANDLERS["waf.buy"],
-        _by_type_source({PromptInt: [6], PromptChoice: [0, 1]}),
+        _by_type_source({PromptInt: [6], PICK: [1, 2]}),
         state=_state(
             ln=1,
             rank=6,
@@ -338,7 +352,7 @@ def test_stat_gate_kraft_and_brutality():
         HANDLERS["waf.buy"],
         st,
         _StubRng(),
-        {PromptInt: [3], PromptChoice: [0, CANCEL]},
+        {PromptInt: [3], PICK: [1, CANCEL]},
     )
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
     assert "locations.waf.too_weak" in keys
@@ -355,7 +369,7 @@ def test_stat_gates_run_in_source_order_when_several_fall_short():
         HANDLERS["waf.buy"],
         st,
         _StubRng(),
-        {PromptInt: [3], PromptChoice: [0, CANCEL]},
+        {PromptInt: [3], PICK: [1, CANCEL]},
     )
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
     assert "locations.waf.too_weak" in keys
@@ -374,7 +388,7 @@ def test_stat_gate_works_on_a_reloaded_bare_combatant():
         HANDLERS["waf.buy"],
         st,
         _StubRng(),
-        {PromptInt: [3], PromptChoice: [0, CANCEL]},
+        {PromptInt: [3], PICK: [1, CANCEL]},
     )
     keys = [getattr(i, "key", None) for i in seen if isinstance(i, ShowMessage)]
     assert "locations.waf.too_weak" in keys
@@ -386,7 +400,7 @@ def test_stat_gate_works_on_a_reloaded_bare_combatant():
 def test_first_weapon_unarmed_settles_cash_and_assigns():
     # Unarmed gangster buys messer (1, price 50): q=0, cash -= 50, assign weapon 1.
     st = _state(ln=2, ka=1000)
-    answers = {PromptInt: iter([1]), PromptChoice: iter([0])}
+    answers = {PromptInt: iter([1]), PICK: iter([1])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
     assert result.status == "completed"
     assert MoneyChange(-50) in result.effects
@@ -400,7 +414,7 @@ def test_trade_in_offer_uses_old_weapon_price_and_settles():
     # q = int(3000/1.5) = 2000. Accept -> cash += 2000 - 4000 = -2000. Assign 5.
     roster = (Gangster(name="g", weapon=4, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, roster=roster)
-    answers = {PromptInt: iter([5]), PromptChoice: iter([0]), Confirm: iter([True])}
+    answers = {PromptInt: iter([5]), PICK: iter([1]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
     assert result.status == "completed"
     assert MoneyChange(2000 - 4000) in result.effects
@@ -414,7 +428,7 @@ def test_trade_in_decline_returns_to_weapon_list():
     # buy 5, pick gangster 0, DECLINE trade-in -> back to weapon list, then cancel.
     answers = {
         PromptInt: iter([5, CANCEL]),
-        PromptChoice: iter([0]),
+        PICK: iter([1]),
         Confirm: iter([False]),
     }
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
@@ -437,7 +451,7 @@ def test_score_first_weapon_up_by_x8():
     # :13065 `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)`; (gf<100) is true = -1 -> score UP by x8.
     # Arming a previously unarmed gangster raises notoriety.
     st = _state(ln=2, ka=1000, gf=50.0, score_mult=1.0)
-    answers = {PromptInt: iter([1]), PromptChoice: iter([0])}
+    answers = {PromptInt: iter([1]), PICK: iter([1])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
     assert ScoreChange(1.0, floor=None, cap=None) in result.effects
 
@@ -447,7 +461,7 @@ def test_score_upgrade_new_index_higher_than_old_is_up():
     # (higher index = better weapon), so `gf - x8*(gf<100)` -> UP by x8.
     roster = (Gangster(name="g", weapon=1, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
-    answers = {PromptInt: iter([5]), PromptChoice: iter([0]), Confirm: iter([True])}
+    answers = {PromptInt: iter([5]), PICK: iter([1]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
     assert ScoreChange(1.0, floor=None, cap=None) in result.effects
 
@@ -457,7 +471,7 @@ def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
     # so `gf + x8*2*(gf>0)` with (gf>0) true = -1 -> DOWN by 2*x8.
     roster = (Gangster(name="g", weapon=5, intelligenz=99, kraft=99, brutalitaet=99),)
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
-    answers = {PromptInt: iter([1]), PromptChoice: iter([0]), Confirm: iter([True])}
+    answers = {PromptInt: iter([1]), PICK: iter([1]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
     assert ScoreChange(-2.0, floor=None, cap=None) in result.effects
 
@@ -465,7 +479,7 @@ def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
 def test_score_gate_false_no_change():
     # gf=100 -> (gf<100) false for first-weapon -> NO score change.
     st = _state(ln=2, ka=1000, gf=100.0, score_mult=1.0)
-    answers = {PromptInt: iter([1]), PromptChoice: iter([0])}
+    answers = {PromptInt: iter([1]), PICK: iter([1])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
     assert not any(isinstance(e, ScoreChange) for e in result.effects)
 
@@ -476,8 +490,8 @@ def test_score_gate_false_no_change():
 def test_empty_roster_loops_back_to_weapon_list_no_empty_picker():
     # The original picker (1130) returns y=0 on an empty roster, looping back to the weapon
     # list (13035 goto13010) — it never presents an empty gangster picker. So buying with an
-    # empty roster must re-list weapons (not hang on an unanswerable PromptChoice), then a
-    # weapon cancel ends the buy with no effects and no gangster PromptChoice ever shown.
+    # empty roster must re-list weapons (not hang on an unanswerable prompt), then a
+    # weapon cancel ends the buy with no effects and no gangster prompt ever shown.
     st = _state(ln=2, ka=1000, roster=())
     seen = _observe(
         HANDLERS["waf.buy"],
@@ -485,7 +499,7 @@ def test_empty_roster_loops_back_to_weapon_list_no_empty_picker():
         _StubRng(),
         {PromptInt: [1, CANCEL]},  # pick messer -> loops back (empty roster) -> cancel
     )
-    assert not any(isinstance(i, PromptChoice) for i in seen)  # no empty picker presented
+    assert not any(_is_pick(i) for i in seen)  # no empty picker presented
     assert sum(isinstance(i, PromptInt) for i in seen) == 2  # re-listed the weapons
 
     result = run_pure(
@@ -498,9 +512,50 @@ def test_empty_roster_loops_back_to_weapon_list_no_empty_picker():
     assert result.effects == []
 
 
+def test_a_gangster_pick_of_0_goes_back_to_the_weapon_list():
+    # :13035 ``gosub1130:ify=0goto13010``: 0 at the shared picker (:1150) re-lists the
+    # weapons; the spec sheet and the question come again with the next pick (13035).
+    seen = _observe(
+        HANDLERS["waf.buy"],
+        _state(ln=2, ka=1000),
+        _StubRng(),
+        {PromptInt: [1, 1], PICK: [0, 1]},
+    )
+    weapon_prompts = [i for i in seen if isinstance(i, PromptInt) and not _is_pick(i)]
+    assert len(weapon_prompts) == 2
+    assert sum(isinstance(i, LoadSubState) for i in seen) == 2
+
+    result = run_pure(
+        HANDLERS["waf.buy"],
+        _by_type_source({PromptInt: [1, 1], PICK: [0, 1]}),
+        state=_state(ln=2, ka=1000),
+        rng=_StubRng(),
+    )
+    assert result.status == "completed"
+    assert result.effects == [
+        ScoreChange(1.0, floor=None, cap=None),
+        MoneyChange(-50),
+        AssignWeapon(weapon=1, gangster=0),
+    ]
+
+
+def test_a_failed_stat_gate_shows_the_spec_sheet_and_the_question_again():
+    # :13055 ``gosub1100:goto13035`` re-runs 13035 whole: spec sheet, question, picker.
+    roster = (Gangster(name="g", kraft=19, brutalitaet=40),)
+    seen = _observe(
+        HANDLERS["waf.buy"],
+        _state(ln=2, roster=roster, ka=100000),
+        _StubRng(),
+        {PromptInt: [3], PICK: [1, CANCEL]},
+    )
+    assert sum(isinstance(i, LoadSubState) for i in seen) == 2
+    keys = [i.key for i in seen if isinstance(i, ShowMessage)]
+    assert keys.count("locations.waf.gangster_prompt") == 2
+
+
 def test_cancel_at_gangster_pick_commits_nothing():
     st = _state(ln=2, ka=1000)
-    answers = {PromptInt: iter([1]), PromptChoice: iter([CANCEL])}
+    answers = {PromptInt: iter([1]), PICK: iter([CANCEL])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
     assert result.status == "cancelled"
     assert result.effects == []

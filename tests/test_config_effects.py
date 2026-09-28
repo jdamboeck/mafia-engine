@@ -88,6 +88,7 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
         fx.JobSet(type=2, pending_pay=900, months_left=3),
         fx.JobClear(),
         fx.GangsterMarkHired(candidate_id=4),
+        fx.VehicleSet(vehicle=5),
     ]
     assert {type(e).__name__ for e in log} == set(_config_effect_classes()), (
         "the round-trip log must hold one of every config effect"

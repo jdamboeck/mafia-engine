@@ -30,9 +30,9 @@ Faithfulness notes
 Cancellability rule
 -------------------
 Only whole-action aborts use ``cancellable=True`` (the driver's atomic discard). Every
-"return to an earlier menu" (afford-fail, stat-gate fail, trade-in decline) is an
-IN-HANDLER loop, because a driver-cancel unwinds the entire handler and cannot resume at
-an inner menu.
+"return to an earlier menu" (afford-fail, stat-gate fail, a gangster pick of 0, trade-in
+decline) is an IN-HANDLER loop, because a driver-cancel unwinds the entire handler and
+cannot resume at an inner menu.
 
 ``ln`` seam
 -----------
@@ -47,7 +47,7 @@ from engine.interactions import Confirm, LoadSubState, PromptChoice, PromptInt, 
 from engine.locations import register
 from engine.substates import register_substate
 
-from ..setup import load_weapons, score_and_rank
+from ..setup import load_weapons, pick_gangster, score_and_rank
 
 __all__ = ["waf_buy", "waf_train", "weapon_spec"]
 
@@ -145,9 +145,7 @@ def waf_buy(ctx):
             yield ShowMessage("system.not_enough_money")
             continue
 
-        # 13035 — spec sheet (sub-state), then pick the gangster to arm (0 cancels back).
-        yield LoadSubState("weapon_spec", {"weapon": weapons[x], "index": x})
-
+        # 13035 — spec sheet (sub-state), then pick the gangster to arm (0 goes back).
         gangster_picked = yield from _pick_gangster_and_arm(ctx, active, weapons, x, params)
         if gangster_picked:
             return []
@@ -155,25 +153,22 @@ def waf_buy(ctx):
 
 
 def _pick_gangster_and_arm(ctx, active, weapons, x, params):
-    """Pick a gangster, run the stat gates, settle the trade-in + purchase.
+    """Show the weapon, pick a gangster, run the stat gates, settle the trade-in + purchase.
 
     Returns ``True`` when the purchase settled (the buy is done), ``False`` when the flow
-    returned to the weapon list (gangster cancel or trade-in decline) so ``waf.buy`` loops.
+    returned to the weapon list (a picked 0 or a trade-in decline) so ``waf.buy`` loops.
     Yields interactions to the driver via ``yield from``.
     """
     new_price = weapons[x]["price"]
-    # 1130 — the original's gangster picker returns y=0 immediately when the player owns
-    # no gangster (gz(sp)=0), which at 13035 (ify=0goto13010) loops back to the weapon
-    # list. Mirror that here rather than presenting an unanswerable empty PromptChoice.
-    if not active.roster:
-        return False
-    while True:  # 13035 gangster-pick loop (stat-gate fail returns here)
-        # 13035 gosub 1130 — pick which owned gangster; y=0 cancels back to the list.
-        y = yield PromptChoice(
-            "locations.waf.gangster_prompt",
-            options=[g.name for g in active.roster],
-            cancellable=True,
-        )
+    while True:  # 13035 — a failed stat gate comes back here (goto13035)
+        # :13035 ``gosub13500:print"{clr}{down}fuer welchen gangster:":gosub1130:ify=0goto13010``
+        # — the spec sheet, the question, the shared picker. A 0, or an empty gang
+        # (:1130), goes back to the weapon list; an empty answer cancels the buy.
+        yield LoadSubState("weapon_spec", {"weapon": weapons[x], "index": x})
+        yield ShowMessage("locations.waf.gangster_prompt")
+        y = yield from pick_gangster(ctx, cancellable=True)
+        if y is None:
+            return False
         g = active.roster[y]
 
         # 13050-13060 — three per-gangster stat gates, checked in source order against
@@ -249,12 +244,11 @@ def waf_train(ctx):
         yield ShowMessage("locations.waf.no_gangster")
         return []
 
-    # 13101-13102 — pick which gangster to train (0 cancels the whole action).
-    y = yield PromptChoice(
-        "locations.waf.train_prompt",
-        options=[g.name for g in active.roster],
-        cancellable=True,
-    )
+    # :13101 ``print"wen soll ich trainieren:"``, :13102 ``gosub1130:ify=0thenreturn``.
+    yield ShowMessage("locations.waf.train_prompt")
+    y = yield from pick_gangster(ctx, cancellable=True)
+    if y is None:
+        return []
 
     # 13103-13107 — venue: rank >= 5 offers (s)chiesstand vs (t)rainingscamp; below, range only.
     is_camp = False

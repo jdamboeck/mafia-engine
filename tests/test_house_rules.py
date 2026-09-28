@@ -634,6 +634,18 @@ _FAITHFUL_ONLY_TESTS = {
         "tests.test_police_capture",
         "test_the_lawyer_prompt_asks_again_only_above_the_cash_or_below_zero",
     ),
+    "car_price_ignores_the_trade_in": (
+        "tests.test_aut",
+        "test_buying_needs_the_full_price_in_cash_even_with_a_trade_in",
+    ),
+    "stolen_car_keeps_the_movement_points": (
+        "tests.test_aut",
+        "test_a_stolen_car_keeps_the_movement_points",
+    ),
+    "smaller_tank_keeps_the_barrels": (
+        "tests.test_aut",
+        "test_a_smaller_tank_keeps_the_barrel_count",
+    ),
 }
 
 
