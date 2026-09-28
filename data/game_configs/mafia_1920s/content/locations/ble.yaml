@@ -1,0 +1,19 @@
+# ble (Blueten-Eddie) — location shell (declarative layer).
+#
+# Ports the ble menu from mf-prg.bas:22005 (onwgoto22010,22100). Neither option
+# carries a shell guard: the source refuses only inside the handler (the cash check
+# :22014, the stake bounds :22105-22106), after the option was picked.
+#
+#   passport     — ble.passport: a passport for the whole gang (:22010-22020)
+#   counterfeit  — ble.counterfeit: real dollars for counterfeit bills (:22100-22120)
+#   leave        — costs 5 movement points (:3045) back to the map.
+key: ble
+options:
+  - id: passport
+    handler: "ble.passport"
+  - id: counterfeit
+    handler: "ble.counterfeit"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

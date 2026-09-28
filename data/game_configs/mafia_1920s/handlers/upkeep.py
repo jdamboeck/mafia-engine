@@ -7,8 +7,8 @@ that looks this generator up and drives it at every player's turn start, before 
 free turn (or a job shift).
 
 The flow runs in this fixed order
-(``banner -> regen -> rank -> debt -> shop income -> rent -> arms deal ->
-job-shift/free-turn``):
+(``banner -> regen -> rank -> debt -> shop income -> rent -> marks fade -> arms deal
+-> job-shift/free-turn``):
 
 * **banner** (``4005-4006``) — announce the active player.
 * **per-gangster energy regen** (``4015-4025``) — ``en += int(kraft/10)+1``, capped at
@@ -17,7 +17,7 @@ job-shift/free-turn``):
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-followed by four resolution slots:
+followed by five resolution slots:
 
 * **debt check** (``4040``, ``4300-4370``) — the loan-shark grace countdown and
   its collectors fight. Ports ``:4305``'s tick, ``:4306-4309``'s warning,
@@ -29,6 +29,11 @@ followed by four resolution slots:
   shop's capital.
 * **rent** (``4045-4046``, ``4600-4652``) — the prepaid-months countdown and the
   late-rent consequence. See RENT below.
+* **marks fade** (``4055-4056``) — two separate 1-in-8 rolls, silent: ``:4055``
+  ``ag(sp)=ag(sp)and254`` clears the passport, then ``:4056``
+  ``ag(sp)=ag(sp)and253`` the counterfeit mark. The source rolls both every turn;
+  this port rolls only for a mark the player holds, since a roll on a clear bit
+  changes nothing (the fidelity bar is behavioural; the RNG draw order may differ).
 * **arms deal** (``4060``) — the staked heist-tip resolution, ports
   ``mf-prg.bas:31000-31051``. Only fires when the active player's ``tip_target ==
   pub.ARMS_DEAL_TIP`` (4) — set by ``pub.tip``'s stake sub-flow. The tip is CLEARED
@@ -47,8 +52,8 @@ belongs to the caller (the client's turn loop, which dispatches ``job.shift`` fo
 employed player) — this generator's ``return []`` handing control back is exactly the hand-off
 point.
 
-Lines NOT ported here: ``4050`` (bribe-protection aging), ``4055-4056`` (fake-papers/
-counterfeit decay) — nothing in this config triggers them.
+Line NOT ported here: ``4050`` (bribe-protection aging) — nothing in this config
+triggers it.
 
 RENT — ``:4045-4046`` and ``:4600-4652``
 ----------------------------------------
@@ -116,8 +121,16 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.effects import EnergyChange, MoneyChange, RosterTruncate
-from ..effects import DebtChange, DebtClear, RankCommit, RentAccrue, TipClear
-from ..state import business, debt, gang_name, next_rank, rented_months, tip_target
+from ..effects import DebtChange, DebtClear, MarkSet, RankCommit, RentAccrue, TipClear
+from ..state import (
+    business,
+    contraband,
+    debt,
+    gang_name,
+    next_rank,
+    rented_months,
+    tip_target,
+)
 from engine.interactions import ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario
@@ -351,6 +364,18 @@ def upkeep_turn_start(ctx):
                 cash -= fine
         # :4620/:4652 ``goto1100`` is the press-a-key pause, whose ``return`` closes
         # gosub4600 — turn start falls through to :4050 and on to the arms deal.
+
+    # --- 4055-4056: the marks fade, 1 in 8 each (see module docstring) --------
+    # Nothing above this slot touches the marks.
+    held = contraband(active)
+    if held.fake_papers:
+        # :4055 ``ifint(rnd(1)*8)=0thenag(sp)=ag(sp)and254``
+        if ctx.rng.range(ctx.state.config.formula_params["marks_decay_roll"]) == 0:
+            ctx.apply(MarkSet(fake_papers=False))
+    if held.counterfeit:
+        # :4056 ``ifint(rnd(1)*8)=0thenag(sp)=ag(sp)and253``
+        if ctx.rng.range(ctx.state.config.formula_params["marks_decay_roll"]) == 0:
+            ctx.apply(MarkSet(counterfeit=False))
 
     # --- 4060: arms deal — ports mf-prg.bas:31000-31051 ---------------------
     # iftp(sp)=4thengosub31000 (:4060). Re-read `active` is unnecessary: nothing above

@@ -23,6 +23,12 @@
 #   - the hit test draws both miss factors of mf-prg.bas:30247 even when the first
 #     already missed, so the RNG log has one shape per shot (combat_rules.py).
 #   - the debug free-memory line of mf-prg.bas:1208 is not shown (handlers/turn.py).
+#   - ble's stake prompt reads whole numbers only: the C64 INPUT at mf-prg.bas:22105
+#     takes a fraction, and an empty answer keeps the stake variable's last value from
+#     wherever it was set (both checked in VICE; handlers/ble.py). A fraction here, or
+#     an empty answer, is asked again.
+#   - upkeep rolls the 1-in-8 mark decay of mf-prg.bas:4055-4056 only for a mark the
+#     player holds; the source rolls both every turn (handlers/upkeep.py).
 house_rules:
   - id: intelligence_or_30
     citation: ":311"
@@ -116,4 +122,17 @@ house_rules:
       -1 may be a "no step yet" mark that happens to be a real step, or a deliberate
       nudge for a side that starts on the right and closes in leftwards; the source
       does not say which.
+    switch: false
+
+  - id: passport_rebuy_charged
+    citation: ":22020"
+    quote: "ag(sp)=ag(sp)or1"
+    faithful: >-
+      Blueten-Eddie sells a passport to a player who already holds one: the price
+      (:22010 ``p=1000*x``) is charged again and the mark, one bit, stays as it was, so
+      the second passport buys nothing.
+    no_intent: >-
+      The option asks for a new passport ("einen neuen pass"), so selling one to a
+      holder may be meant, and the source keeps no age or count a new one could reset;
+      nothing says whether Eddie should refuse instead.
     switch: false

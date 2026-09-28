@@ -476,6 +476,103 @@ def _engine_arms(v: Values) -> Any:
     return run.state.players[0].ka
 
 
+# --- :4055-4056 the marks fade -------------------------------------------------------
+Q_4055 = q(4055, "int(rnd(1)*8)=0")
+Q_4055_AG = q(4055, "ag(sp)=ag(sp)and254")
+Q_4056 = q(4056, "int(rnd(1)*8)=0")
+Q_4056_AG = q(4056, "ag(sp)=ag(sp)and253")
+
+
+def _ag(player: Player) -> int:
+    """``ag(sp)`` rebuilt from the two marks: the passport is bit 1, counterfeit bit 2."""
+    held = game.contraband(player)
+    return held.fake_papers + 2 * held.counterfeit
+
+
+def _marks(ag: int) -> Contraband:
+    return Contraband(fake_papers=ag & 1, counterfeit=(ag & 2) // 2)
+
+
+def _basic_decay(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ag(1)": v["ag"], "rnd(1)": v["r0"]}
+    if Q_4055.holds(b):
+        b["ag(1)"] = Q_4055_AG.assign(b)
+    b["rnd(1)"] = v["r1"]
+    if Q_4056.holds(b):
+        b["ag(1)"] = Q_4056_AG.assign(b)
+    return b["ag(1)"]
+
+
+def _engine_decay(v: Values) -> Any:
+    # The port rolls only for a held mark (a roll on a clear bit changes nothing), so it
+    # is handed the source's roll for each mark it holds, in the source's order.
+    draws = [r for bit, r in ((1, v["r0"]), (2, v["r1"])) if v["ag"] & bit]
+    player = _player(contraband=_marks(v["ag"]))
+    run = _drive(HANDLERS["upkeep.turn_start"], _state(player), draws=draws)
+    assert run.draws_used == len(draws)
+    return _ag(run.state.players[0])
+
+
+# --- :22010-22020 ble passport ---------------------------------------------------------
+Q_22010 = q(22010, "p=1000*x")
+Q_22014 = q(22014, "ka(sp)<p")
+Q_22020_KA = q(22020, "ka(sp)=ka(sp)-p")
+Q_22020_AG = q(22020, "ag(sp)=ag(sp)or1")
+
+
+def _basic_passport(v: Values) -> Any:
+    b = {"sp": 1, "x": v["gz"], "ka(1)": v["ka"], "ag(1)": v["ag"]}
+    b["p"] = Q_22010.assign(b)
+    if Q_22014.holds(b):
+        return (b["ka(1)"], b["ag(1)"])
+    return (Q_22020_KA.assign(b), Q_22020_AG.assign(b))
+
+
+def _engine_passport(v: Values) -> Any:
+    player = _player(ka=v["ka"], roster=(_gangster(),) * v["gz"], contraband=_marks(v["ag"]))
+    run = _drive(HANDLERS["ble.passport"], _state(player), answer=lambda i: True)
+    return (run.state.players[0].ka, _ag(run.state.players[0]))
+
+
+# --- :22105-22120 ble counterfeit money ------------------------------------------------
+Q_22105 = q(22105, "q<=0")
+Q_22106 = q(22106, "q>5000orq>ka(sp)")
+Q_22110 = q(22110, "p=int(rnd(1)*q/2)+q+100")
+Q_22120_KA = q(22120, "ka(sp)=ka(sp)-q+p")
+Q_22120_AG = q(22120, "ag(sp)=ag(sp)or2")
+
+
+class _AskedAgain(Exception):
+    """The answer is outside the prompt's bounds: the driver would ask again."""
+
+
+def _basic_counterfeit(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "q": v["q"], "ka(1)": v["ka"], "ag(1)": v["ag"]}
+    if Q_22105.holds(b):
+        return (b["ka(1)"], b["ag(1)"])
+    if Q_22106.holds(b):
+        return "asked again"
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_22110.assign(b)
+    return (Q_22120_KA.assign(b), Q_22120_AG.assign(b))
+
+
+def _engine_counterfeit(v: Values) -> Any:
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            if not interaction.min <= v["q"] <= interaction.max:
+                raise _AskedAgain
+            return v["q"]
+        return True  # the :22115 confirm
+
+    player = _player(ka=v["ka"], contraband=_marks(v["ag"]))
+    try:
+        run = _drive(HANDLERS["ble.counterfeit"], _state(player), draws=(v["r"],), answer=answer)
+    except _AskedAgain:
+        return "asked again"
+    return (run.state.players[0].ka, _ag(run.state.players[0]))
+
+
 # --- :13110-13127 waf range training ------------------------------------------------
 Q_13110 = q(13110, "p=800+200*ra(sp)")
 Q_13116 = q(13116, "ka(sp)<p")
@@ -1304,6 +1401,37 @@ PORTS: list[Port] = [
         ),
         _basic_rent,
         _engine_rent,
+    ),
+    Port(
+        "the marks fade",
+        (Q_4055, Q_4055_AG, Q_4056, Q_4056_AG),
+        "HANDLERS['upkeep.turn_start'] (marks fade)",
+        _grid(ag=range(4), r0=(0.0, 0.1249, 0.125, 0.5, 0.9990234375), r1=(0.0, 0.125, 0.7)),
+        _basic_decay,
+        _engine_decay,
+    ),
+    Port(
+        "ble passport",
+        (Q_22010, Q_22014, Q_22020_KA, Q_22020_AG),
+        "HANDLERS['ble.passport']",
+        _grid(gz=(1, 2, 5, 10), ka=(0, 999, 1000, 1999, 2000, 5000, 10**6), ag=range(4)),
+        _basic_passport,
+        _engine_passport,
+    ),
+    Port(
+        "ble counterfeit money",
+        (Q_22105, Q_22106, Q_22110, Q_22120_KA, Q_22120_AG),
+        "HANDLERS['ble.counterfeit']",
+        # q <= 0 leaves, q above 5000 or the cash is asked again; odd q leaves a
+        # half-width last bucket in int(rnd(1)*q/2).
+        _grid(
+            q=(-5000, -1, 0, 1, 2, 3, 7, 100, 999, 1000, 1001, 4999, 5000, 5001, 99999),
+            ka=(-50, 0, 1, 1000, 5000, 10**6),
+            ag=(0, 1, 2, 3),
+            r=R,
+        ),
+        _basic_counterfeit,
+        _engine_counterfeit,
     ),
     Port(
         "arms-deal payout",

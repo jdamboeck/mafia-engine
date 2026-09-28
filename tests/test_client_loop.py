@@ -776,6 +776,21 @@ class TestUnimplementedDoorGracefulDenial:
         assert not shell_path.exists()
 
 
+class TestBleReachableByWalking:
+    """ble's one door (cell 371) opens Blueten-Eddie's menu, and leave goes back."""
+
+    def test_ble_reachable_by_walking(self, monkeypatch):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
+        state = new_state(42)
+        walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "ble"))
+        # Splash ack, then leave (menu index 2).
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "2"])
+        assert "closed for renovations" not in output
+        assert "WO DRUECKT DER SCHUH?" in output
+
+
 # --------------------------------------------------------------------------- #
 # U11 — kdh reachable + a full play-through via the real input loop           #
 # --------------------------------------------------------------------------- #

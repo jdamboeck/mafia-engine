@@ -610,6 +610,10 @@ _FAITHFUL_ONLY_TESTS = {
         "tests.test_combat_ai",
         "test_the_minus_one_seed_blocks_a_rightward_first_step",
     ),
+    "passport_rebuy_charged": (
+        "tests.test_ble",
+        "test_passport_bought_again_while_held_is_charged_again",
+    ),
 }
 
 

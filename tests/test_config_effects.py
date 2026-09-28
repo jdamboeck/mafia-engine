@@ -79,6 +79,8 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
         fx.DebtClear(),
         fx.ShopChange(tile=2, capital_delta=300),
         fx.BarrelChange(amount=5),
+        fx.MarkSet(fake_papers=True, counterfeit=True),
+        fx.MarkSet(fake_papers=False),
         fx.TipSet(tip_type=3),
         fx.TipClear(),
         fx.JobSet(type=2, pending_pay=900, months_left=3),

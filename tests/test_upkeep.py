@@ -234,3 +234,88 @@ def test_upkeep_only_touches_the_active_player():
     assert result.state.players[0] == p0  # untouched — not the active player
     assert result.state.players[1].rank == 3  # promoted
     assert result.state.players[1].roster[0].vitality == 6  # 5 + (10//10+1)=2 -> cap 2+2+2=6
+
+
+# --------------------------------------------------------------------------- #
+# :4055-4056 — the marks fade: 1 in 8 each, two separate rolls                #
+# --------------------------------------------------------------------------- #
+def _marked_state(papers: int, counterfeit: int, *, tip: int = 0) -> GameState:
+    from data.game_configs.mafia_1920s.state import Contraband, values_of
+
+    values = values_of(
+        Contraband(fake_papers=papers, counterfeit=counterfeit), nr=1, tip_target=tip
+    )
+    player = Player(name="p", rank=1, roster=(Gangster(energie=5, kraft=15),), values=values)
+    return GameState(
+        players=(player,),
+        clock=Clock(active_player=0, player_count=1),
+        config=Config(
+            formula_params={
+                "marks_decay_roll": 8,
+                "pub_arms_deal_payout_min": 5500,
+                "pub_arms_deal_payout_max": 14999,
+            }
+        ),
+    )
+
+
+def _marks_after(state: GameState, rng) -> tuple[int, int]:
+    from data.game_configs.mafia_1920s.state import contraband
+
+    result = run_pure(HANDLERS[UPKEEP_HANDLER_KEY], lambda i: None, state=state, rng=rng)
+    held = contraband(result.state.players[0])
+    return (held.fake_papers, held.counterfeit)
+
+
+def test_marks_decay_one_in_eight_each_passport_first():
+    """:4055 ``ifint(rnd(1)*8)=0thenag(sp)=ag(sp)and254`` (passport), then :4056
+    ``...and253`` (counterfeit): one ``range(8)`` roll each, in that order; only a 0
+    clears. All 64 roll pairs: each mark goes on exactly 1 of 8 of its own rolls, and
+    the two are independent (each of the four outcomes has its product share)."""
+    from tests.helpers import StubRng
+
+    outcomes: dict[tuple[int, int], int] = {}
+    for first in range(8):
+        for second in range(8):
+            rng = StubRng(first, second)
+            marks = _marks_after(_marked_state(1, 1), rng)
+            assert rng.calls == [("range", 8), ("range", 8)]
+            assert marks == (int(first != 0), int(second != 0))
+            outcomes[marks] = outcomes.get(marks, 0) + 1
+    assert outcomes == {(0, 0): 1, (0, 1): 7, (1, 0): 7, (1, 1): 49}
+
+
+def test_mark_decay_is_silent_and_emits_one_clear_per_lost_mark():
+    """No message is printed for either (:4055-4056); a lost mark is one ``MarkSet``."""
+    from data.game_configs.mafia_1920s.effects import MarkSet
+    from tests.helpers import StubRng, scripted
+
+    src = scripted()
+    result = run_pure(
+        HANDLERS[UPKEEP_HANDLER_KEY], src, state=_marked_state(1, 1), rng=StubRng(0, 0)
+    )
+    assert src.message_keys() == ["upkeep.turn_banner"]
+    marks = [e for e in result.effects if is_effect(e, MarkSet)]
+    assert marks == [MarkSet(fake_papers=False), MarkSet(counterfeit=False)]
+
+
+def test_a_mark_not_held_rolls_nothing():
+    """Only a held mark is rolled for: a roll on a clear bit changes nothing, so the
+    port draws per held mark (the source draws both every turn; behaviour is equal)."""
+    from tests.helpers import StubRng
+
+    rng = StubRng(5)
+    assert _marks_after(_marked_state(0, 1), rng) == (0, 1)
+    assert rng.calls == [("range", 8)]
+    rng = StubRng()
+    assert _marks_after(_marked_state(0, 0), rng) == (0, 0)
+    assert rng.calls == []
+
+
+def test_mark_decay_comes_before_the_arms_deal():
+    """:4055-4056 run before :4060 ``iftp(sp)=4thengosub31000``."""
+    from tests.helpers import StubRng
+
+    rng = StubRng(0, 0, 1, 0)  # papers roll, counterfeit roll, arms loss roll, payout
+    _marks_after(_marked_state(1, 1, tip=4), rng)
+    assert rng.calls == [("range", 8), ("range", 8), ("range", 5), ("hit", 5500, 14999)]

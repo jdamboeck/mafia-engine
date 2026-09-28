@@ -14,7 +14,7 @@ name: "mafia_1920s"
 
 # This config's own content version. A save records it and is refused under another,
 # so bump it when a content change would make an existing save load wrongly.
-content_version: 2
+content_version: 3
 description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 
 # Entity tables live in sibling files under entities/.
@@ -144,6 +144,18 @@ formula_params:
   # drawn as rng.range(spread)+base, then capped at the player's cash.
   slw_late_rent_fine_base: 200
   slw_late_rent_fine_spread: 100
+
+  # ble (Blueten-Eddie) — mf-prg.bas:22000-22120.
+  ble_passport_price: 1000   # per gangster, boss included: x=gz(sp):p=1000*x (:22010)
+  ble_passport_score: 1      # x=1:gosub1160 (:22020)
+  ble_counterfeit_max: 5000  # ifq>5000orq>ka(sp) asks again (:22106)
+  # p=int(rnd(1)*q/2)+q+100 (:22110), drawn as range(q)//spread + q + bonus
+  ble_counterfeit_spread: 2
+  ble_counterfeit_bonus: 100
+  ble_counterfeit_score: 1   # x=1:gosub1160 (:22120)
+  # the marks fade at upkeep: ifint(rnd(1)*8)=0 clears each one (:4055 passport,
+  # :4056 counterfeit)
+  marks_decay_roll: 8
 
 # New-game setup constants (mf-prg.bas:220,300-315,350). These mirror the
 # BASIC setup; this config's setup.py is the authoritative porting site. Kept here so

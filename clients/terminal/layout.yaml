@@ -13,6 +13,7 @@ map:
     pub: { char: "\u25b8", color: light_green } # ▸ right triangle
     sph: { char: "\u25aa", color: yellow }      # ▪ small square
     waf: { char: "\u25b4", color: light_red }   # ▴ up triangle
+    ble: { char: "\u25be", color: cyan }        # ▾ down triangle
   # Special cells (dynamic event markers)
   special_cells:
     569: { char: "\u25cc", color: blue }   # ◌ transport

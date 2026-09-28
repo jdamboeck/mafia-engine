@@ -62,6 +62,7 @@ __all__ = [
     "Jail",
     "JobClear",
     "JobSet",
+    "MarkSet",
     "PendingRankReset",
     "RankCommit",
     "RentAccrue",
@@ -320,6 +321,33 @@ class BarrelChange:
         # ta(sp) += amount (mf-prg.bas:12035 buy, :12075 sell).
         new_contraband = replace(current, alcohol_barrels=current.alcohol_barrels + self.amount)
         return write(state, new_contraband, player=idx)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class MarkSet:
+    """Set or clear the target player's marks, the two bits of ``ag(sp)``.
+
+    ``fake_papers`` is bit 1, the passport (set by ble ``:22020`` ``ag(sp)=ag(sp)or1``,
+    cleared by the upkeep decay ``:4055`` ``ag(sp)=ag(sp)and254``); ``counterfeit`` is
+    bit 2 (set ``:22120`` ``ag(sp)=ag(sp)or2``, cleared ``:4056`` ``ag(sp)=ag(sp)and253``).
+    ``None`` leaves that mark as it is. Setting a held mark or clearing a clear one
+    changes nothing, as the bit operations do.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    fake_papers: bool | None = None
+    counterfeit: bool | None = None
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        idx = target_index(state, self.player)
+        marks = contraband(state.players[idx])
+        if self.fake_papers is not None:
+            marks = replace(marks, fake_papers=int(self.fake_papers))
+        if self.counterfeit is not None:
+            marks = replace(marks, counterfeit=int(self.counterfeit))
+        return write(state, marks, player=idx)
 
 
 @register_effect()
