@@ -465,8 +465,14 @@ def _walking(*, po: int, ms: int, rank: int = 1):
     return replace(state, players=(active,), clock=replace(state.clock, turn_phase=WALKING))
 
 
+#: A :func:`_script` answer: the location menu's index of its ``leave`` option.
+_LEAVE = object()
+
+
 def _script(gen, answers):
     """Drive ``gen`` with ``answers`` for its prompts (display-only ones get ``None``).
+
+    :data:`_LEAVE` answers a location menu with the index of its ``leave`` option.
 
     Returns ``(interactions seen, outcome)``; stops at the first turn-over screen with
     outcome ``"turn_over"``, or when ``answers`` run out with outcome ``"open"``.
@@ -485,6 +491,9 @@ def _script(gen, answers):
                     gen.close()
                     return seen, "open"
                 response = answers.pop(0)
+                if response is _LEAVE:
+                    assert isinstance(interaction, LocationMenu)
+                    response = interaction.options.index("leave")
             else:
                 response = _answer(interaction)
             interaction = gen.send(response)
@@ -526,14 +535,14 @@ def test_a_location_handler_that_gives_points_back_continues_the_map():
         "pub": Location("pub", [Option("refuel", handler=refuel), Option("sit", handler=sit)])
     }
 
-    # The door costs the last 5 points; the handler gives 10 back: the map goes on.
+    # The handler sets 10; the door's 5 come after it (:2060): the map goes on at 5.
     runner = _runner(_walking(po=start, ms=5), Rng(42), shells=shells)
     seen, outcome = _script(runner.run(), [into, 0])
     assert given, "the handler never ran"
     assert outcome == "open"
     assert _types(seen) == [MapMove, LocationMenu, OptionDone, MapMove]
     assert seen[-1].outcome == "enter"
-    assert runner.state.players[0].ms == 10
+    assert runner.state.players[0].ms == 5
 
     # The same visit giving nothing back ends the turn after it, with no map prompt.
     runner = _runner(_walking(po=start, ms=5), Rng(42), shells=shells)
@@ -592,7 +601,9 @@ def test_the_location_menu_lists_only_the_options_whose_guard_passes():
     seen, _ = _script(runner.run(), [into])
 
     # pub.recruit is guarded rank > 4; a rank-1 player is not offered it.
-    assert seen[1] == LocationMenu(location="pub", options=("drink", "tip", "job"), ln=1, player=0)
+    assert seen[1] == LocationMenu(
+        location="pub", options=("drink", "tip", "job", "leave"), ln=1, player=0
+    )
 
 
 def test_the_default_hooks_change_nothing_and_draw_nothing():
@@ -646,6 +657,122 @@ def test_the_roadblock_gate_never_fires_at_rank_three_or_below():
 
 
 # --------------------------------------------------------------------------- #
+# A visit's charges: leave at :3045, the door at :2060                         #
+# --------------------------------------------------------------------------- #
+_SHELLS = ("kdh", "pub", "slw", "sph", "waf")
+
+
+@pytest.mark.parametrize("location", _SHELLS)
+def test_entering_and_leaving_at_once_costs_ten_movement_points(location):
+    # :3045 ifw=awthenms=ms-5:return, then :2060 ms=ms-5 -- every shell, the pub too.
+    start, into = _approach(_door(location)[0])
+    runner = _runner(_walking(po=start, ms=20), Rng(42))
+    seen, outcome = _script(runner.run(), [into, _LEAVE])
+
+    assert outcome == "open"
+    assert isinstance(seen[1], LocationMenu) and seen[1].options[-1] == "leave"
+    assert isinstance(seen[-1], MapMove) and seen[-1].outcome == "enter"
+    assert runner.state.players[0].ms == 10
+
+
+def test_leaving_with_three_points_goes_to_minus_seven_and_the_next_turn_resets_it():
+    start, into = _approach(_door("pub")[0])
+    runner = _runner(_walking(po=start, ms=3), Rng(42))
+    seen, outcome = _script(runner.run(), [into, _LEAVE])
+
+    # 3 - 5 (:3045) - 5 (:2060) = -7; :2060 ifms>0goto2000 fails: the turn is over.
+    assert outcome == "turn_over"
+    assert _types(seen) == [MapMove, LocationMenu, OptionDone, Acknowledge]
+    assert runner.state.players[0].ms == -7
+
+    # :1012 ms=tr(tm(sp)) at the next turn start.
+    runner = _runner(runner.state, Rng(42))
+    _drive(runner, runner.run(NEXT_PLAYER), stop_at_free_turn=1)
+    active = runner.state.players[0]
+    assert active.ms == _VEHICLES[active.vehicle]["tr"]
+
+
+def test_an_empty_or_out_of_range_key_at_the_location_menu_is_ignored():
+    # :3040 getx$:w=val(x$):ifw<1orw>awgoto3040 -- no key leaves for free.
+    start, into = _approach(_door("sph")[0])
+    runner = _runner(_walking(po=start, ms=20), Rng(42))
+    ignored = [None, "", "1", 2, -1, 99, True, 1.0]
+    seen, outcome = _script(runner.run(), [into, *ignored])
+
+    assert outcome == "open"
+    assert _types(seen) == [MapMove] + [LocationMenu] * (len(ignored) + 1)
+    assert len(set(seen[1:])) == 1, "the menu changed while waiting"
+    assert runner.state.players[0].ms == 20, "an ignored key cost movement points"
+
+
+def _one_option_pub(handler) -> dict:
+    return {"pub": Location("pub", [Option("act", handler=handler)])}
+
+
+def test_a_location_handler_that_zeroes_the_movement_points_ends_the_turn_at_once():
+    def sentenced(ctx):
+        active = ctx.state.players[ctx.state.clock.active_player]
+        ctx.apply(MsChange(-active.ms))  # :12335 ...ms=0:goto1100
+        yield from ()
+
+    start, into = _approach(_door("pub")[0])
+    runner = _runner(_walking(po=start, ms=20), Rng(42), shells=_one_option_pub(sentenced))
+    seen, outcome = _script(runner.run(), [into, 0])
+
+    # :2060 ms=ms-5 -> -5, not >0: back to the turn loop with no map prompt (:2065).
+    assert outcome == "turn_over"
+    assert _types(seen) == [MapMove, LocationMenu, OptionDone, Acknowledge]
+    assert runner.state.players[0].ms == -5
+
+
+def test_the_door_charge_comes_after_the_location_handler():
+    seen_ms: list[int] = []
+
+    def look(ctx):
+        seen_ms.append(ctx.state.players[ctx.state.clock.active_player].ms)
+        yield from ()
+
+    start, into = _approach(_door("pub")[0])
+    runner = _runner(_walking(po=start, ms=20), Rng(42), shells=_one_option_pub(look))
+    seen, _ = _script(runner.run(), [into, 0])
+
+    # :2055 gosub3000 runs the handler, then :2060 ms=ms-5.
+    assert seen_ms == [20]
+    assert runner.state.players[0].ms == 15
+    assert isinstance(seen[-1], MapMove) and seen[-1].outcome == "enter"
+
+
+def test_the_movement_points_are_checked_before_the_map_prompt():
+    # :2005 ifms<=0thenreturn comes before :2010's key read: no prompt at all.
+    runner = _runner(_walking(po=18, ms=0), Rng(42))
+    seen, outcome = _script(runner.run(), ["up"])
+
+    assert outcome == "turn_over"
+    assert _types(seen) == [Acknowledge]
+
+
+def test_the_client_ignores_an_empty_or_invalid_key_at_the_location_menu(monkeypatch):
+    from tests.test_client_loop import (
+        find_door_cell,
+        load_city_raw,
+        new_state,
+        run_play_returning,
+        walk_keys_to_cell,
+    )
+
+    city_raw = load_city_raw()
+    walk = walk_keys_to_cell(new_state(42), load_city(city_raw), find_door_cell(city_raw, "sph"))
+    # The splash ack, three ignored keys, then "1" (leave), then quit on the map.
+    _, (state, _) = run_play_returning(
+        monkeypatch, seed=42, stdin_keys=walk + ["", "", "9", "x", "1", "q"], seconds=20
+    )
+
+    # The walk's last key is the door itself: its steps cost 1 each, the visit 5 + 5.
+    active = state.players[0]
+    assert active.ms == _VEHICLES[active.vehicle]["tr"] - (len(walk) - 1) - 10
+
+
+# --------------------------------------------------------------------------- #
 # The previous tile, ll(sp)                                                    #
 # --------------------------------------------------------------------------- #
 def test_the_previous_tile_is_written_after_a_visit_and_cleared_at_the_turn_start(tmp_path):
@@ -653,8 +780,8 @@ def test_the_previous_tile_is_written_after_a_visit_and_cleared_at_the_turn_star
     start, into = _approach(door)
     runner = _runner(_walking(po=start, ms=20), Rng(42))
     # :2055 gosub3000:ll(sp)=20*la+ln -- after the visit, whatever was chosen there.
-    seen, _ = _script(runner.run(), [into, None])
-    assert _types(seen) == [MapMove, LocationMenu, MapMove]
+    seen, _ = _script(runner.run(), [into, _LEAVE])
+    assert _types(seen) == [MapMove, LocationMenu, OptionDone, MapMove]
     assert runner.state.players[0].previous_tile == (la, 2)
 
     # Saved with the game.

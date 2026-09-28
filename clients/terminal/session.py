@@ -32,6 +32,7 @@ import json
 import math
 import sys
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -354,11 +355,13 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
 
 def _render_location_menu(
     menu: LocationMenu, resolver: Resolver, colors: Colors, out, stdin=None
-) -> int | None:
+) -> Any:
     """Show a location's menu (the runner's :class:`LocationMenu`); return the pick.
 
-    Returns the chosen 0-based index, or ``None`` (no valid number) -- the runner then
-    leaves the location without running anything.
+    Returns the chosen 0-based index. A blank line or a key that is not an offered
+    option is ignored and the prompt waits again, as the runner does
+    (``mf-prg.bas:3040``): only the shell's own leave option leaves. EOF returns
+    ``_QUIT`` (the session ends). With no options there is nothing to pick: ``None``.
     """
     if stdin is None:
         stdin = sys.stdin
@@ -393,11 +396,15 @@ def _render_location_menu(
         except Exception:
             label = option_id
         render_menu_option(i, label, out, colors)
-    render_prompt(out)
-    out.flush()
-
-    raw = _read_line_visible(stdin, out).strip()
-    return int(raw) if raw.isdigit() else None
+    while True:
+        render_prompt(out)
+        out.flush()
+        line = _read_line_visible(stdin, out)
+        if line == "":  # EOF
+            return _QUIT
+        raw = line.strip()
+        if raw.isdigit() and int(raw) < len(menu.options):
+            return int(raw)
 
 
 def _render_upkeep_screen(

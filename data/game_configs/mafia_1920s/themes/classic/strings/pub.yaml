@@ -18,6 +18,7 @@ locations:
       recruit: "'ICH SUCHE EIN PAAR JUNGS FUER MEINE    GANG. MAL SEHEN, WER DA IST...'"
       tip: "'HAST DU VIELLEICHT ''N GUTEN TIP FUER   ''NEN UEBERFALL ODER SOWAS?'"
       job: "'ICH BRAUCHE DRINGEND EINEN JOB, EINEN  AUFTRAG! DU VERSTEHST SCHON...'"
+      leave: "'SCHEINT NICHT DER RICHTIGE LADEN ZU    SEIN. ICH VERSCHWINDE WIEDER...'"
     rank_too_low: "'als {rank} kannst du noch keine eigenen leute haben!'"
 
     # --- alcohol trade (mf-prg.bas:12010-12075) ---

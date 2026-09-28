@@ -390,9 +390,11 @@ class LocationMenu:
     The turn runner yields one after a door entry. ``location`` is the shell's key,
     ``options`` the ids of the options whose guard passes, in shell order, and ``ln``
     the tile entered (``mf-prg.bas:2050``). The answer is the chosen option's 0-based
-    index; anything else — no answer, a non-number, an index out of range — leaves
-    the location without running anything. With no ``options`` there is nothing to
-    choose and any answer leaves. ``player`` is the player inside (``None``: active).
+    index; anything else — no answer, a non-number, an index out of range — is ignored
+    and the same menu is asked again (``:3040 ifw<1orw>awgoto3040``): no answer leaves
+    for free, leaving is the shell's own option. With no ``options`` there is nothing
+    to choose and any answer ends the visit. ``player`` is the player inside
+    (``None``: active).
     """
 
     location: str

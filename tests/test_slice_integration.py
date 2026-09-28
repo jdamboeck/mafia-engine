@@ -178,7 +178,7 @@ def _play_trajectory():
     assert r_enter.payload.kind == "enter"
     assert r_enter.payload.la == 1 and r_enter.payload.ln == 2
     assert p.po == 181  # po does NOT move onto the door
-    assert p.ms == 19  # ms -= 5 on entry
+    assert p.ms == 24  # no charge at the door: :2060 ms=ms-5 follows the visit
     assert p.last_location == 2  # the ln seam populated by real entry
     obs["po_after_slw_walk"] = p.po
     obs["ms_after_slw_walk"] = p.ms
@@ -317,7 +317,7 @@ def test_vertical_slice_end_to_end():
     assert obs["premium_rent_delta"] == -300
 
     # Walk bookkeeping.
-    assert obs["po_after_slw_walk"] == 181 and obs["ms_after_slw_walk"] == 19
+    assert obs["po_after_slw_walk"] == 181 and obs["ms_after_slw_walk"] == 24
     assert obs["po_after_pub_walk"] == 473
 
     # Final fingerprint reflects only the positive-rent effects on the main line
@@ -420,10 +420,12 @@ def _smoke_plan():
     turn-over, its ack, the standings ack on a round wrap, and the result-screen ack
     (``game_over``) or the next turn's upkeep ack -- exactly
     ``tests.test_client_loop.burn_turn_keys``, plus the visits and saves. sph moves
-    nobody and spends no ``ms`` (only the door step does, inside ``try_move``), and an
+    nobody and spends no ``ms`` (only the door's 5 do, after the visit), and an
     idle player's upkeep asks nothing (``test_idle_upkeep_never_asks_across_the_game``),
     so the walk needs no RNG to stay in step with the real run.
     """
+    from engine.effects import MsChange, commit
+    from engine.movement import ENTER_COST
     from tests.helpers import next_turn_by_hand
     from tests.test_client_loop import (
         MOVE_KEYS as _MOVE_KEYS,
@@ -448,7 +450,10 @@ def _smoke_plan():
             keys.append(key)
             kind = getattr(result.payload, "kind", None)
             if kind == "enter":
-                return keys + ["", "0", "0", "100"], state, result.payload.turn_over
+                # :2060 ms=ms-5 after the visit, as the turn runner charges it.
+                state = commit(state, [MsChange(-ENTER_COST)]).state
+                over = state.players[state.clock.active_player].ms <= 0
+                return keys + ["", "0", "0", "100"], state, over
             if kind != "step" or result.payload.turn_over:
                 return None  # the walk needs more than this turn's movement
         return None

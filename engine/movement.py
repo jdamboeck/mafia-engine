@@ -10,8 +10,10 @@ turn/movement layer from the decompiled BASIC:
 * **Movement** — ``mf-prg.bas:2000-2065``: one step per direction key on the
   40-wide grid. A move toward the target cell ``p = po + delta`` either STEPS onto
   a walkable street (grid code 156, ``ms -= 1``), ENTERS a location if ``p`` is a
-  door-table cell (``ms -= 5``, ``po`` unchanged — entering is the action, not a
-  move), or is rejected as a WALL. ``ms <= 0`` ends the turn (``mf-prg.bas:2005``).
+  door-table cell (``po`` unchanged — entering is the action, not a move), or is
+  rejected as a WALL. ``ms <= 0`` ends the turn (``mf-prg.bas:2005``). The door's 5
+  points (:data:`ENTER_COST`) are not charged here: the source charges them after the
+  visit (``:2055 gosub3000`` returns to ``:2060 ms=ms-5``), so the turn runner does.
 * **The map step's rules** — the roadblock (``:2041``) and the event cells
   (``la=13/14``, ``:2045/2046``) are game rules: the engine turn runner
   (:mod:`engine.turns`) asks the config's hooks for them. :func:`try_move` reports an
@@ -77,7 +79,8 @@ DIRECTION_DELTAS = {"up": UP, "down": DOWN, "left": LEFT, "right": RIGHT}
 #: 156-gate correctly refuses to step onto a door — entry is via the door table.
 STREET_CODE = 156
 
-#: Movement-point costs: 1 per street step (:2040), 5 to enter a location (:2060).
+#: Movement-point costs: 1 per street step (:2040), charged by :func:`try_move`; 5 for a
+#: location visit (:2060), charged by the turn runner after the visit.
 STEP_COST = 1
 ENTER_COST = 5
 
@@ -164,8 +167,9 @@ class MoveResult:
 
     ``kind`` is one of:
       * ``"step"``     — stepped onto a street cell (``po`` moved, ``ms -= 1``);
-      * ``"enter"``    — entered a location (``po`` unchanged, ``ms -= 5``);
-        ``la``/``ln`` carry the resolved location + tile;
+      * ``"enter"``    — entered a location (``po`` unchanged, ``ms`` unchanged: the
+        door's charge comes after the visit); ``la``/``ln`` carry the resolved
+        location + tile;
       * ``"wall"``     — the target was a wall (no change);
       * ``"oob"``      — the target was out of bounds (no change);
       * ``"special"``  — the target was an la=13/14 event cell (no change here: the
@@ -212,10 +216,11 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
     3. Walkable street (:2035/2040): ``code(p) == 156`` -> STEP: commits
        ``SetPosition(p)`` + ``MsChange(-1)``, emits :class:`~engine.events.MoveStep`,
        ``status="completed"``, ``kind="step"``.
-    4. Else try to ENTER (:2045-2060): if ``p`` is a door-table cell -> ENTER that
-       location: commits ``SetEntryContext(la, ln)`` (the ``ln`` seam) +
-       ``MsChange(-5)``, emits :class:`~engine.events.EnterLocation`; ``po`` stays put
-       (``kind="enter"``, ``la``/``ln`` set), ``status="completed"``.
+    4. Else try to ENTER (:2050): if ``p`` is a door-table cell -> ENTER that
+       location: commits ``SetEntryContext(la, ln)`` (the ``ln`` seam), emits
+       :class:`~engine.events.EnterLocation`; ``po`` stays put (``kind="enter"``,
+       ``la``/``ln`` set), ``status="completed"``. The door's :data:`ENTER_COST` is
+       the caller's to charge after the visit (``:2060``).
     5. Special cell (la=13/14): no events, no effects, ``status="not_implemented"``,
        ``kind="special"`` -- the turn runner asks the config's special-cell hook.
     6. Otherwise a WALL (:2050): reject the move. Emits
@@ -286,14 +291,14 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
             payload=payload,
         )
 
-    # :2045-2060 — otherwise try to ENTER a location via the door table.
+    # :2050 — otherwise try to ENTER a location via the door table.
     door = city.door(target)
     if door is not None:
         la, ln = door
         # The ln seam: SetEntryContext records last_la/last_location BEFORE the
         # location's handler runs. po does NOT move onto the door — entering is the
-        # action (mf-prg.bas:2060). ms -= 5 unconditionally (may go negative).
-        result = commit(state, [SetEntryContext(la=la, ln=ln), MsChange(-ENTER_COST)])
+        # action. No charge here: :2060 ms=ms-5 comes after the visit (gosub3000).
+        result = commit(state, [SetEntryContext(la=la, ln=ln)])
         new_player = result.state.players[active]
         event = EnterLocation(
             player=active,

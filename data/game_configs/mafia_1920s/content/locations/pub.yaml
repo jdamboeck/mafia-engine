@@ -13,6 +13,10 @@
 #   tip     — no guard; rank>3 check happens inside the handler (mf-prg.bas:12200).
 #   job     — no guard; rank<4 (INVERTED vs. recruit) check happens inside the
 #             handler (mf-prg.bas:12300).
+#   leave   — guardless; the pub file's fifth and last option (aw=5), which the
+#             dispatch 'onwgoto12010,12100,12200,12300' never reaches: :3045
+#             ifw=awthenms=ms-5:return charges 5 movement points, on top of the
+#             door's 5 (:2060).
 #
 # At rank 1 the recruit guard fails (rank>4 is false), so that option is EXCLUDED by
 # available_options — walking to the pub at rank 1 shows the denial.
@@ -31,3 +35,7 @@ options:
     handler: "pub.tip"
   - id: job
     handler: "pub.job"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

@@ -31,6 +31,7 @@ the reference title's turn head, ``mf-prg.bas:1010-1013``::
     2050 syslc,p:la=peek(ua+1):ln=peek(ua+2):ifla=0goto2005
     2055 gosub3000:ll(sp)=20*la+ln
     2060 ms=ms-5:ifms>0goto2000
+    2065 return
 
 The runner asks for each step with :class:`~engine.interactions.MapMove` and moves
 with :func:`engine.movement.try_move`. A move onto an event cell first asks the
@@ -42,13 +43,26 @@ then the previous tile. A door to a location with no shell shows
 :data:`LOCATION_CLOSED_SCREEN`. The shells and the city are the loaded config's
 (:class:`~engine.config_loader.LoadedConfig`), passed in.
 
-The free turn ends when movement points run out, with no menu (``:2042``-``:2005``,
-``:2060``). After each hook and each location visit the runner re-reads movement
-points from state instead of trusting what the move left, since a handler can raise
-them (the car purchase, ``:14050``) or zero them (a sentence). After a visit the turn
-ends when the entry left none and the handler gave none back; a handler that zeroes
-the points it found leaves one more map prompt, whose next step ends the turn, as the
-terminal client always did.
+**The location menu** (``:3040``/``:3045``)::
+
+    3040 getx$:w=val(x$):ifw<1orw>awgoto3040
+    3045 ifw=awthenms=ms-5:return
+
+An answer that is not one of the offered options is ignored and the menu is asked
+again: no key leaves for free. Every option, the shell's ``leave`` too, runs through
+:func:`engine.actions.step_option`, so the leave's own consequences charge its
+points (``:3045``).
+
+**The charges and the end of the free turn.** ``:2005 ifms<=0thenreturn`` is checked
+before every map prompt (``:2010``): the free turn ends when movement points run out,
+with no menu (``:2042 goto2005``, ``:2060``, ``:2065``). A door's 5 points
+(:data:`~engine.movement.ENTER_COST`) are charged after the visit, where
+``gosub3000`` returns to ``:2060 ms=ms-5`` -- so the location's handler sees the
+points from before the door, and entering and leaving at once costs 10 (``:3045`` then
+``:2060``). The runner re-reads movement points from state after each hook and each
+visit instead of trusting what the move left, since a handler can raise them (the car
+purchase, ``:14050``) or zero them (taking a job, ``:12335``); a handler that zeroes
+them ends the turn at once, with no further map prompt.
 
 Every rule is a config handler registered under a fixed key in
 :data:`engine.locations.HANDLERS`, the way ``upkeep.turn_start`` is. The runner only
@@ -91,6 +105,7 @@ from typing import TYPE_CHECKING, Any
 from engine.actions import step_option
 from engine.effects import (
     AdvanceTurn,
+    MsChange,
     SetMovementPoints,
     SetPreviousTile,
     SetTurnPhase,
@@ -113,7 +128,7 @@ from engine.interactions import (
     step,
 )
 from engine.locations import available_options
-from engine.movement import DIRECTION_DELTAS, try_move
+from engine.movement import DIRECTION_DELTAS, ENTER_COST, try_move
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
 if TYPE_CHECKING:  # typing only
@@ -356,6 +371,8 @@ class TurnRunner:
         city = self._city
         outcome: str | None = None
         while True:
+            if self._movement_points() <= 0:  # :2005 ifms<=0thenreturn
+                return None
             answer = yield MapMove(outcome=outcome, player=self.state.clock.active_player)
             if answer == MAP_QUIT:
                 return QUIT
@@ -365,8 +382,6 @@ class TurnRunner:
                 # unknown answer asks again with nothing moved.
                 outcome = None
                 continue
-            if self._movement_points() <= 0:  # :2005 ifms<=0thenreturn
-                return None
             target = self.state.players[self.state.clock.active_player].po + delta
             if target in city.special_cells:  # :2045/2046 an event cell
                 # The config says whether it is armed (the source pokes an armed cell
@@ -376,8 +391,6 @@ class TurnRunner:
                 )
                 if armed:
                     outcome = "special"
-                    if self._movement_points() <= 0:
-                        return None
                     continue
             result = try_move(self.state, city, delta)
             self.state = result.state
@@ -385,16 +398,13 @@ class TurnRunner:
             outcome = move.kind
             if move.kind == "step":  # :2041 the roadblock
                 yield from self._hook(ROADBLOCK_HOOK_KEY)
-                over = self._movement_points() <= 0
             elif move.kind == "enter":  # :2050-2060 a door
                 assert move.la is not None and move.ln is not None
                 yield from self._visit(move.la, move.ln)
-                # Re-read: the handler may have given points back (the car purchase).
-                over = move.turn_over and self._movement_points() <= 0
-            else:  # a wall, the edge, an unarmed event cell off the street: nothing moved
-                over = False
-            if over:
-                return None
+                # :2060 ms=ms-5, after the visit: on the points the handler left.
+                self._commit(MsChange(-ENTER_COST))
+            # else a wall, the edge, an unarmed event cell off the street: nothing moved.
+            # Back to :2005, which re-reads the points from state.
 
     def _visit(self, la: int, ln: int) -> Generator[Any, Any, None]:
         """``:2055`` ``gosub3000:ll(sp)=20*la+ln``: the location, then the previous tile."""
@@ -413,19 +423,27 @@ class TurnRunner:
         self._commit(SetPreviousTile(la=la, ln=ln))
 
     def _location_menu(self, shell: Location, ln: int) -> Generator[Any, Any, None]:
-        """The shell's menu; the chosen option runs, anything else leaves."""
+        """The shell's menu until an offered option is chosen; that option runs.
+
+        ``:3040 ifw<1orw>awgoto3040``: any other answer is ignored and the menu is
+        asked again. With no options offered there is nothing to wait for, and the
+        visit ends.
+        """
         options = available_options(shell, self.state, ln)
         player = self.state.clock.active_player
-        answer = yield LocationMenu(
+        menu = LocationMenu(
             location=shell.key, options=tuple(o.id for o in options), ln=ln, player=player
         )
-        if isinstance(answer, bool) or not isinstance(answer, int):
+        answer = yield menu
+        if not options:
             return
-        if not 0 <= answer < len(options):
-            return
+        while (
+            isinstance(answer, bool)
+            or not isinstance(answer, int)
+            or not (0 <= answer < len(options))
+        ):
+            answer = yield menu
         chosen = options[answer]
-        if chosen.id == "leave":
-            return
         result = yield from step_option(
             shell, chosen.id, self.state, ln=ln, rng=self.rng, observe_ai=self._observe_ai
         )

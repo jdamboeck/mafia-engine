@@ -16,7 +16,7 @@ refactor introduced, one seam at a time:
 
 * movement (``try_move``) returns an ``EngineResult`` whose events name the move
   (``MoveStep`` / ``EnterLocation``) and whose effects are the sole mutations
-  (``SetPosition`` + ``MsChange`` on a step; ``SetEntryContext`` + ``MsChange`` on
+  (``SetPosition`` + ``MsChange`` on a step; ``SetEntryContext`` on
   an entry) — and is PURE (new state out, input untouched);
 * a guard-denied option through the location-aware ``run_option`` dispatcher yields
   ``status="blocked"`` with an ``OptionDenied`` event, a ``DeniedResult`` payload,
@@ -115,7 +115,7 @@ def test_movement_step_result_events_effects_and_purity():
 
 
 # --------------------------------------------------------------------------- #
-# 2. Location entry: EnterLocation event / SetEntryContext+MsChange effects /  #
+# 2. Location entry: EnterLocation event / the SetEntryContext effect /        #
 #    resulting state has last_location + last_la set to the door's (ln, la).   #
 # --------------------------------------------------------------------------- #
 def test_location_entry_result_events_effects_and_entry_context():
@@ -136,17 +136,16 @@ def test_location_entry_result_events_effects_and_entry_context():
     # The entry is a semantic EnterLocation event.
     assert EnterLocation in _types(result.events)
 
-    # Effects: SetEntryContext (the ln seam) AND MsChange (the -5 entry cost).
-    effect_types = _types(result.effects)
-    assert SetEntryContext in effect_types
-    assert MsChange in effect_types
+    # Effects: SetEntryContext (the ln seam) only; the door's -5 comes after the
+    # visit (:2060), from the turn runner.
+    assert _types(result.effects) == [SetEntryContext]
 
     # The resulting state carries the door's (ln, la) on the active player.
     entered = result.state.players[0]
     assert entered.last_location == 2  # ln
     assert entered.last_la == 1  # la
     assert entered.po == 181  # po does NOT move onto the door
-    assert entered.ms == ms_before - 5  # ENTER_COST
+    assert entered.ms == ms_before  # no charge at the door
 
     # Purity: the input state is untouched (ms and entry context all unchanged).
     assert state.players[0].ms == ms_before

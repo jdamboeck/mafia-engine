@@ -187,7 +187,7 @@ def test_special_cell_is_not_implemented():
 
 # --------------------------------------------------------------------------- #
 # Door entry (THE resolved mechanic): target-cell lookup, NOT adjacency.      #
-# From 162, UP (-40) targets 122 = slw door (la=1, ln=1): enter, 5 ms, po     #
+# From 162, UP (-40) targets 122 = slw door (la=1, ln=1): enter (no charge), po #
 # stays at 162, and the ln seam sets last_location=1.                         #
 # --------------------------------------------------------------------------- #
 def test_enter_slw_via_door_target():
@@ -203,28 +203,27 @@ def test_enter_slw_via_door_target():
     assert res.state is not st
     # You do NOT stand on the door cell — po is unchanged (no SetPosition on entry).
     assert res.state.players[0].po == 162
-    # Location-visit cost is 5 ms (mf-prg.bas:2060).
-    assert res.state.players[0].ms == 20
+    # No charge at the door: :2060 ms=ms-5 comes after the visit (the turn runner's).
+    assert res.state.players[0].ms == 25
     # The ln seam: entering set the active player's last_location = ln (and last_la).
     assert res.state.players[0].last_location == 1
     assert res.state.players[0].last_la == 1
-    # Events + effects: EnterLocation event, SetEntryContext + MsChange effects.
+    # Events + effects: EnterLocation event, the SetEntryContext effect only.
     assert res.events == [
         EnterLocation(player=0, from_cell=162, door_cell=122, delta=UP, la=1, ln=1)
     ]
-    assert res.effects == [SetEntryContext(la=1, ln=1), MsChange(-ENTER_COST)]
+    assert res.effects == [SetEntryContext(la=1, ln=1)]
 
 
-def test_enter_charges_5ms_unconditionally_and_can_go_negative():
-    # mf-prg.bas:2060 charges ms-=5 UNCONDITIONALLY, then checks >0 — so entering
-    # with fewer than 5 ms drives ms negative and ends the turn (faithful; entry is
-    # NOT blocked for lack of budget).
+def test_entering_with_fewer_points_than_the_door_costs_is_not_blocked():
+    # :2050 enters whatever ms is left; the door's 5 come after the visit (:2060
+    # ms=ms-5, the turn runner's), so the handler runs on the 3 points left.
     st = _state(po=162, ms=3, active=0)
     res = try_move(st, _city(), UP)  # target 122 = slw door
     assert res.payload.kind == "enter"
-    assert res.state.players[0].ms == -2  # 3 - 5, not clamped, not blocked
-    assert res.payload.turn_over is True  # ms <= 0 ends the turn
-    assert st.players[0].ms == 3  # input untouched
+    assert res.state.players[0].ms == 3
+    assert res.payload.turn_over is False
+    assert ENTER_COST == 5
 
 
 # --------------------------------------------------------------------------- #

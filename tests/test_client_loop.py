@@ -1909,51 +1909,32 @@ class TestSaveAndLoad:
         # And the snapshot is not simply the end state (K2 changed cash).
         assert saved.state != state_a
 
-    def test_a_save_after_taking_a_job_resumes_the_free_turn_not_a_shift(
+    def test_taking_a_job_ends_the_turn_at_once_so_no_save_falls_before_the_shift(
         self, monkeypatch, tmp_path
     ):
-        """Accepting a job zeroes ``ms`` but leaves the player on the map for the rest
-        of the turn, where ``p`` still saves. The shift belongs to the NEXT turn start;
-        a load that ran it at once would play an extra shift and skip a month."""
-        from engine.persistence import load_game
-
+        """Accepting a job zeroes ``ms`` (``:12335 ...ms=0:goto1100``); the visit
+        returns to ``:2060 ms=ms-5``, which is not above 0, and ``:2065`` returns to
+        the turn loop. No map prompt follows, so no save can fall between the job and
+        its first shift, which belongs to the NEXT turn start. (Until U8 the port showed
+        one more map prompt here, and this test saved on it.)"""
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
-        k1 = walk + ["", "2", "j"]  # splash ack, menu 2 (job), accept
-        # K2: one move ends the turn (ms is 0); ack turn-over, standings, upkeep; the
-        # next turn is the shift (seed 5: a bouncer fight) -- surrender it; ack the
-        # following turn-over/standings/upkeep acks; quit on the map.
-        k2 = ["w", "x", "x", "x", "surrender", "x", "x", "x", "q"]
+        # Splash ack, menu 2 (job), accept; then "p" meets the turn-over screen (any
+        # key goes on), and "q" quits at the standings.
         save = tmp_path / "job.jsonl"
-        _run_session(
+        out, (state, _) = _run_session(
             monkeypatch,
-            _new_game_lines(k1 + ["p"] + k2),
+            _new_game_lines(walk + ["", "2", "j", "p", "q"]),
             save=str(save),
             seed=5,
             end_year=1930,
             score_weight=1.0,
         )
-        saved = load_game(save, _REGISTRIES)
-        assert game.job(saved.state.players[0]).type != 0, "no job held at the save: vacuous"
-        assert saved.state.players[0].ms == 0
-
-        out_a, (state_a, rng_a) = _run_session(
-            monkeypatch,
-            _new_game_lines(k1 + ["p"] + k2),
-            save=str(tmp_path / "a2.jsonl"),
-            seed=5,
-            end_year=1930,
-            score_weight=1.0,
-        )
-        out_b, (state_b, rng_b) = _run_session(monkeypatch, k2, load=str(save))
-        # The shift really ran after the save point in both runs.
-        assert "randalieren" in out_a.split("spielstand gespeichert")[-1]
-        assert "randalieren" in out_b
-        # A resumed game opens on the saved free turn: the map, not the job screen.
-        assert out_b.index("move: W/A/S/D") < out_b.index("randalieren")
-        assert state_b == state_a
-        assert rng_b.log == rng_a.log
+        assert game.job(state.players[0]).type != 0, "no job taken: vacuous"
+        assert state.players[0].ms == -5
+        assert "move: W/A/S/D" not in out.split("du hast den job!")[-1]
+        assert not save.exists(), "a save fell between the job and its shift"
 
     def test_load_skips_title_setup_and_upkeep(self, monkeypatch, tmp_path):
         """AE3: a loaded game opens on the map -- no title, no setup, no upkeep banner --
