@@ -1,11 +1,11 @@
 """The job-shift flow — ports ``mf-prg.bas:25000-25560``.
 
 This is the flow that REPLACES an employed player's free turn (the job-shift seam):
-once ``pub.job`` (``handlers/pub.py``) accepts a job, the CALLER (the client's turn
-loop, ``clients/terminal/session.py``'s ``play()``) dispatches this generator instead
-of offering the map/menu, right after upkeep runs. This module owns no dispatch
-decision itself — it is a plain registered handler, driven exactly like any location
-option via :func:`engine.interactions.run`.
+once ``pub.job`` (``handlers/pub.py``) accepts a job, the engine turn runner
+(``engine.turns``) runs this generator instead of the free turn, right after upkeep,
+whenever this config's job hook (``handlers/turn.py``) says a job is held. This module
+owns no dispatch decision itself — it is a plain registered handler, driven exactly
+like any location option.
 
 Ports, dispatching on the accepted job's ``type`` (``jo(sp)``, mf-prg.bas:25010's
 ``onjo(sp)goto25015,25100,25015,25200`` — note types 1 AND 3 share ONE flow):
@@ -53,6 +53,7 @@ from ..state import job
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.locations import register
 from engine.scenario import Scenario
+from engine.turns import JOB_SHIFT_HANDLER_KEY as ENGINE_JOB_SHIFT_KEY
 
 from ..combat_rules import build_rules, enemy_attrs, equipper
 from ..setup import (
@@ -70,11 +71,11 @@ from .pub import JOB_BOUNCER, JOB_CROUPIER, JOB_DOORMAN, JOB_KILLER
 
 __all__ = ["job_shift", "JOB_SHIFT_HANDLER_KEY"]
 
-#: The registry key this shift generator is registered under -- looked up by the
-#: caller (the client's turn loop) exactly like ``engine.upkeep.UPKEEP_HANDLER_KEY``,
-#: reusing the SAME ``engine.locations.HANDLERS`` registry (the "one registry"
-#: convention; this is not a location option, but it is still just another handler id).
-JOB_SHIFT_HANDLER_KEY = "job.shift"
+#: The registry key this shift generator is registered under -- the engine turn
+#: runner's (``engine.turns``) fixed key, looked up exactly like
+#: ``engine.upkeep.UPKEEP_HANDLER_KEY``, in the SAME ``engine.locations.HANDLERS``
+#: registry (this is not a location option, but it is still just another handler id).
+JOB_SHIFT_HANDLER_KEY = ENGINE_JOB_SHIFT_KEY
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -168,10 +169,8 @@ def _fight(ctx, *, spec, backdrop: str):
 def job_shift(ctx):
     """Run one shift for the active player's accepted job -- ports ``25000-25560``.
 
-    Dispatches on ``job(active).type`` (``jo(sp)``); the CALLER is responsible for
-    only invoking this when a job is actually held (mirrors ``run_upkeep``'s "the
-    caller decides whether to call this" shape, except HERE the caller's decision --
-    employed vs. free turn -- is the job-shift seam).
+    Dispatches on ``job(active).type`` (``jo(sp)``); the engine turn runner only
+    invokes this when the config's job hook (``handlers/turn.py``) says a job is held.
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]

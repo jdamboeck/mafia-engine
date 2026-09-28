@@ -517,6 +517,92 @@ class RosterTruncate:
         return _with_player(state, idx, roster=state.players[idx].roster[: self.size])
 
 
+#: Months per year — the wrap divisor for the year/month clock (the engine stores
+#: integer ``year``/``month`` in place of mf-prg.bas:1010's fractional ``ja = ja + 1/12``,
+#: which accumulates twelfths of a year per round).
+MONTHS_PER_YEAR = 12
+
+
+@register_effect()
+@dataclass(frozen=True)
+class AdvanceTurn:
+    """Rotate the turn to the next player; a wrap advances the calendar one month.
+
+    The turn runner's rotation (``mf-prg.bas:1010`` ``sp=sp+1:ifsp=sz+1thensp=1:...
+    ja=ja+1/12``): the active player moves on, and after the last player it wraps to
+    player 0 (0-based here) and a full round has passed, so ``month`` increments and
+    ``year`` increments only when ``month`` wraps past 11 (``int(ja)`` rises once per
+    12 additions of ``1/12``). Sequencing, not a game rule: it carries no data.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+
+    def apply(self, state: GameState) -> GameState:
+        clock = state.clock
+        year, month = clock.year, clock.month
+        next_player = clock.active_player + 1
+        if next_player >= clock.player_count:
+            next_player = 0  # wrap to player 0 (:1010)
+            month += 1  # a full round advances the month by 1 (ja += 1/12)
+            if month >= MONTHS_PER_YEAR:
+                month = 0
+                year += 1  # 12 full rounds -> a full year (int(ja) increments)
+        return replace(
+            state, clock=replace(clock, year=year, month=month, active_player=next_player)
+        )
+
+
+@register_effect()
+@dataclass(frozen=True)
+class SetMovementPoints:
+    """Set the target player's movement points ``ms`` to ``value`` (an absolute set).
+
+    The turn runner's ``:1012`` refill writes the value the config's movement-points
+    hook returns (``ms=tr(tm(sp))`` in the reference title). :class:`MsChange` is the
+    signed delta a handler spends; this is the turn start's fresh budget.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    value: int
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        return _with_player(state, target_index(state, self.player), ms=self.value)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class SetScore:
+    """Set the target player's score ``gf`` to ``value`` (an absolute set, no clamp).
+
+    For a rule that rewrites the score rather than adding to it (the config's ``:1013``
+    truncation hook). :class:`ScoreChange` adds a delta, which could not land on an
+    exact value through float addition.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    value: float
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        return _with_player(state, target_index(state, self.player), gf=self.value)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class SetTurnPhase:
+    """Record where the turn runner re-enters this turn (``clock.turn_phase``).
+
+    ``phase`` is one of :data:`engine.turns.PHASES`; the runner is its only writer.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    phase: str
+
+    def apply(self, state: GameState) -> GameState:
+        return replace(state, clock=replace(state.clock, turn_phase=self.phase))
+
+
 #: What a field that was ADDED to an effect meant before it existed, for LOADING data
 #: written before then (saved effect logs, YAML consequences). Keyed by effect class,
 #: then field name. Only :func:`legacy_fields` (called by the load paths,

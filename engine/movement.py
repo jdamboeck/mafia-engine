@@ -4,9 +4,10 @@ This is generic engine machinery, not game-specific content (docs/design/config-
 FSM + turn loop + movement economy" is engine-provided). It ports the original's
 turn/movement layer from the decompiled BASIC:
 
-* **Turn loop** — ``mf-prg.bas:1010-1013``: rotate the active player, wrap after
-  the last player (advancing the calendar), and replenish movement points from
-  the active player's vehicle: ``ms = tr(tm(sp))``.
+* **Turn loop helpers** — ``mf-prg.bas:1010-1013``: :func:`advance_turn` and
+  :func:`start_free_turn`, for callers that step turns by hand. The turn ORDER is
+  :mod:`engine.turns`'s (the engine turn runner), which commits the same rotation
+  as effects and asks the config's hooks for the game rules in it.
 * **Movement** — ``mf-prg.bas:2000-2065``: one step per direction key on the
   40-wide grid. A move toward the target cell ``p = po + delta`` either STEPS onto
   a walkable street (grid code 156, ``ms -= 1``), ENTERS a location if ``p`` is a
@@ -32,12 +33,21 @@ never statically imports anything under ``data/``.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Any
 
 from engine.actions import EngineResult
-from engine.effects import MsChange, SetEntryContext, SetPosition, commit
-from engine.state import GameState, tuple_replace
+from engine.effects import (
+    MONTHS_PER_YEAR,
+    AdvanceTurn,
+    MsChange,
+    SetEntryContext,
+    SetMovementPoints,
+    SetPosition,
+    SetScore,
+    commit,
+)
+from engine.state import GameState
 from engine.events import EnterLocation, MoveBlocked, MoveStep
 
 __all__ = [
@@ -341,60 +351,28 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
     )
 
 
-#: Months per year — the wrap divisor for the year/month clock (the engine stores
-#: integer ``year``/``month`` in place of mf-prg.bas:1010's fractional ``ja = ja + 1/12``,
-#: which accumulates twelfths of a year per round).
-MONTHS_PER_YEAR = 12
-
-
 def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, bool]:
     """End the active player's turn and rotate to the next (mf-prg.bas:1010-1012).
 
-    Ports the turn-loop head (``:1013``'s score truncation is :func:`start_free_turn`,
-    since it runs only after upkeep and only for a player without a job):
+    A convenience over the turn runner's own effects, for callers that step turns by
+    hand (tests, walk planners): :class:`~engine.effects.AdvanceTurn` rotates the active
+    player and, on a wrap, advances the calendar one month; then the new active
+    player's movement points are refilled from its vehicle's ``tr`` in ``vehicles``
+    (``ms = tr(tm(sp))``, :1012) with :class:`~engine.effects.SetMovementPoints`. The
+    engine turn runner (:mod:`engine.turns`) does not call this: it commits the
+    rotation at ``:1010`` and asks the config's movement-points hook for ``ms`` at
+    ``:1012``, after upkeep.
 
-    * ``sp = sp + 1``; when it passes the player count it **wraps to player 0**
-      (0-based here; the original is 1-based). On wrap, a full round has elapsed,
-      so the calendar advances ONE MONTH (``ja = ja + 1/12``): ``month``
-      increments, and ``year`` increments only when ``month`` wraps past 11 (i.e.
-      once every 12 full rounds) — matching ``int(ja)`` incrementing once per 12
-      additions of ``1/12``.
-    * ``ms = tr(tm(sp))`` (:1012) — the NEW active player's movement points are
-      replenished from its vehicle's ``tr`` in the config's ``vehicles`` table.
-
-    Pure, like :func:`try_move`: the state graph is frozen, so this returns a NEW
-    state rather than mutating in place — **callers must adopt the returned state**.
+    Pure, like :func:`try_move`: **callers must adopt the returned state**.
 
     Returns:
         ``(new_state, game_over)`` where ``game_over`` is ``True`` if the game has
-        reached ``end_year``. This only reports it; the client ends the game on it
-        (running the year-end flow, :mod:`engine.game_end`).
+        reached ``end_year``.
     """
-    clock = state.clock
-    year = clock.year
-    month = clock.month
-    next_player = clock.active_player + 1
-    if next_player >= clock.player_count:
-        next_player = 0  # wrap to player 0 (:1010-1011)
-        month += 1  # a full round advances the month by 1 (ja += 1/12)
-        if month >= MONTHS_PER_YEAR:
-            month = 0
-            year += 1  # 12 full rounds -> a full year (int(ja) increments)
-
-    new_clock = replace(clock, year=year, month=month, active_player=next_player)
-
-    # :1012 — replenish ms from the new active player's vehicle: ms = tr(tm(sp)).
-    active = state.players[next_player]
-    new_active = replace(active, ms=vehicles[active.vehicle]["tr"])
-
-    new_state = replace(
-        state,
-        clock=new_clock,
-        players=tuple_replace(state.players, next_player, new_active),
-    )
-
-    # Game-over hook: report reaching end_year; the client ends the game on it.
-    return new_state, int(year) >= clock.end_year
+    rotated = commit(state, [AdvanceTurn()]).state
+    active = rotated.players[rotated.clock.active_player]
+    new_state = commit(rotated, [SetMovementPoints(vehicles[active.vehicle]["tr"])]).state
+    return new_state, int(new_state.clock.year) >= new_state.clock.end_year
 
 
 #: Decimal places ``gf * 100`` is rounded to before :func:`start_free_turn` floors it.
@@ -420,20 +398,19 @@ def start_free_turn(state: GameState) -> GameState:
     * after ``:1010``'s year-end jump (``goto40100``), so the final scoring sees each
       score as it stood when that player's last turn ended.
 
-    The caller (the client's turn loop) calls this where the free turn begins. BASIC
-    ``int`` is floor, so a negative score goes toward -inf (-0.125 becomes -0.13).
-    ``gf * 100`` is rounded to :data:`_SCORE_SNAP_DECIMALS` places first, so every
-    whole-cent score is a fixed point and a second call changes nothing.
+    BASIC ``int`` is floor, so a negative score goes toward -inf (-0.125 becomes
+    -0.13). ``gf * 100`` is rounded to :data:`_SCORE_SNAP_DECIMALS` places first, so
+    every whole-cent score is a fixed point and a second call changes nothing.
 
-    Sets ``gf`` by ``replace`` rather than an effect, as :func:`advance_turn` sets
-    ``ms``: both are the engine's own turn machinery, not a handler. Pure: returns a
-    NEW state.
+    The engine turn runner (:mod:`engine.turns`) does not call this: ``:1013`` is a
+    game formula, so the runner asks the config's score-truncation hook
+    (:data:`engine.turns.SCORE_TRUNCATION_HOOK_KEY`). This engine copy stays for the
+    callers that step turns by hand and its port test; ``tests/test_turn_runner.py``
+    holds it and the mafia_1920s hook to the same values. Pure: returns a NEW state.
     """
-    sp = state.clock.active_player
-    active = state.players[sp]
+    active = state.players[state.clock.active_player]
     cents = math.floor(round(active.gf * 100, _SCORE_SNAP_DECIMALS))
-    truncated = replace(active, gf=cents / 100)
-    return replace(state, players=tuple_replace(state.players, sp, truncated))
+    return commit(state, [SetScore(cents / 100)]).state
 
 
 def police_interrupt_would_fire(state, ms: int, rng: Any) -> bool:

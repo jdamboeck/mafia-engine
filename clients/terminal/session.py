@@ -2,24 +2,27 @@
 
 Composes the client building blocks (:class:`TerminalInput`, the render helpers, and
 the movement primitives) into a full game over the mafia_1920s config. It holds no
-rules: movement goes through ``engine.movement.try_move``, location actions through
-``engine.actions.run_option``, turn starts through ``engine.upkeep.run_upkeep``, and it
-adopts the returned ``EngineResult.state`` after every step (all are pure).
+rules and no turn order: the engine turn runner (:class:`engine.turns.TurnRunner`)
+owns the order of every turn -- next player, standings and the year-end check on a
+wrap, upkeep, the config's turn-start hooks, a job shift or the free turn, the
+turn-over -- and this session renders what the runner yields (its acknowledgement
+screens, its hooks' and handlers' prompts, narration and fights) and adopts the
+runner's state at every interaction.
+
+The free turn is still played here, on the runner's :class:`~engine.turns.FreeTurn`
+hand-off: walk with W/A/S/D (``engine.movement.try_move``) -> press into a door to
+ENTER one of the locations with a shell -> pick a menu option (the driver runs the
+handler through ``engine.actions.run_option``) -> back on the map; the free turn ends
+when ms hits 0.
 
 A new game shows the title screen, then asks the two setup questions (end year, score
 weight; ``mf-prg.bas:170-176``) unless the caller supplied them. One to four players
-take hot-seat turns:
-
-    upkeep banner  ->  a job shift (employed player)  OR  a free turn on the map:
-      walk with W/A/S/D  ->  press into a door to ENTER one of the five locations
-      with a shell (slw/pub/sph/waf/kdh)  ->  pick a menu option (the driver runs the
-      handler via TerminalInput)  ->  back on the map; the turn ends when ms hits 0
-    ->  turn-over summary  ->  next player. After each round the standings show; when
-        the end year is reached the year-end result shows and the game ends.
+take hot-seat turns.
 
 ``p`` on the map saves (to the ``save`` path / the loaded file / ``mafia-save.jsonl``);
-a ``load`` resumes a save (:func:`_load_session`). ``q`` on the map or at a
-turn-over/standings prompt quits. The command line lives in :mod:`clients.terminal.cli`.
+a ``load`` resumes a save (:func:`_load_session`) in the phase it recorded. ``q`` on
+the map or at a turn-over/standings prompt quits. The command line lives in
+:mod:`clients.terminal.cli`.
 
 The headless end-to-end proof is ``tests/test_slice_integration.py``, which drives the
 same protocol without a terminal.
@@ -36,25 +39,28 @@ import yaml
 
 from engine.actions import run_option
 from engine.config_loader import load_game_config
-from engine.game_end import run_standings, run_year_end
-from engine.interactions import ShowMessage
-from engine.interactions import run as run_handler
-from engine.locations import HANDLERS, available_options, load_location
-from engine.movement import (
-    DOWN,
-    LEFT,
-    RIGHT,
-    UP,
-    advance_turn,
-    load_city,
-    start_free_turn,
-    try_move,
-)
+from engine.game_end import run_standings
+from engine.interactions import Acknowledge, Heading, ShowMessage
+from engine.locations import available_options, load_location
+from engine.movement import DOWN, LEFT, RIGHT, UP, load_city, try_move
 from engine.persistence import Registries, SchemaVersionError, load_game, replay, save_game
 from engine.rng import Rng
 from engine.state import GameState
 from engine.strings import Resolver
-from engine.upkeep import run_upkeep
+from engine.turns import (
+    JOB_SHIFT_SCREEN,
+    NEXT_PLAYER,
+    PAUSED,
+    STANDINGS_SCREEN,
+    TURN_OVER_SCREEN,
+    TURN_START,
+    UPKEEP,
+    UPKEEP_SCREEN,
+    WALKING,
+    YEAR_END_SCREEN,
+    FreeTurn,
+    TurnRunner,
+)
 
 from clients.terminal import (
     CLEAR,
@@ -98,6 +104,10 @@ _DEFAULT_SEED = 42
 #: The theme a session is worded in when ``--theme`` is not given; every other theme
 #: is merged over it.
 _DEFAULT_THEME = "classic"
+
+
+#: What :meth:`TerminalSession.render` returns when the player quit at that screen.
+_QUIT = object()
 
 
 class LoadError(Exception):
@@ -447,44 +457,31 @@ def _run_location(
     return result.state  # adopt (run_option is pure)
 
 
-def _run_upkeep_screen(
-    state, resolver: Resolver, colors: Colors, out, rng: Rng, stdin=None, inp=None
-):
-    """Run the active player's turn-start upkeep and show its banner/promotion.
+def _render_upkeep_screen(
+    state, previous_rank: int, resolver: Resolver, colors: Colors, out, stdin=None
+) -> None:
+    """Show the upkeep screen the turn runner acknowledges after upkeep ran.
 
-    Calls :func:`engine.upkeep.run_upkeep` — THE engine-level turn-start entry point —
-    so the client never decides for itself whether upkeep runs; it only renders what
-    already happened. The turn banner always shows; the rank-promotion "wanted poster"
-    screen shows only when upkeep changed the player's committed rank (read through
-    the state before and after: the handler's own ``rank != nr`` gate decided it, so
-    the client stays a thin renderer over the driver's decision).
+    The turn banner always shows; the rank-promotion "wanted poster" shows only when
+    upkeep changed the player's committed rank (``previous_rank``, from the runner's
+    :class:`~engine.interactions.Acknowledge`, against ``state`` after upkeep: the
+    handler's own ``rank != nr`` gate decided it, so the client stays a thin renderer).
 
-    Blocks for one keypress after the banner/promotion (mirrors the turn-over prompt's
-    "press any key..." pattern) so a human has time to read it; EOF is treated as an
-    ack, not a quit, since upkeep offers no cancel path — the
-    turn must proceed regardless.
-
-    ``inp`` is the session's :class:`TerminalInput`, forwarded to ``run_upkeep`` so the
-    debt-default collectors fight (``mf-prg.bas:4350``) can read real combat input.
-    Every other upkeep step yields only auto-acked ``ShowMessage`` screens and never
-    consults it. This does not reopen a cancel path: combat prompts are
-    non-cancellable, so a quit during the fight surrenders — losing it, and
-    triggering the seizure — rather than escaping upkeep.
+    Blocks for one line (mirrors the turn-over prompt's "press any key..." pattern) so
+    a human has time to read it; EOF is treated as an ack, not a quit, since upkeep
+    offers no cancel path -- the turn must proceed regardless.
     """
     if stdin is None:
         stdin = sys.stdin
 
-    result = run_upkeep(state, input_source=inp, rng=rng)
-    new_state = result.state  # adopt (run_upkeep is pure)
-    assert new_state is not None, "run_upkeep was given a state, so it returns one"
-    active = new_state.players[new_state.clock.active_player]
+    idx = state.clock.active_player
+    active = state.players[idx]
 
     render_screen_clear(out)
     render_header(resolver.resolve("client.header.upkeep"), out, colors)
     render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out, colors)
 
-    idx = new_state.clock.active_player
-    if new_state.players[idx].rank != state.players[idx].rank:
+    if active.rank != previous_rank:
         cfg = load_game_config(_CONFIG_DIR)
         ranks = cfg.module.load_ranks(_CONFIG_DIR / cfg.config["entities"]["ranks"])
         out.write("\n")
@@ -504,59 +501,21 @@ def _run_upkeep_screen(
 
     _write_press_any_key(resolver, out)
     _read_line_visible(stdin, out)
-    return new_state
 
 
-def _run_job_shift_screen(
-    state, resolver: Resolver, colors: Colors, inp: TerminalInput, out, rng: Rng
-):
-    """Run the active player's job shift (the turn-start job-shift seam) and render it.
+def _render_lines_screen(header: str, lines, resolver: Resolver, colors: Colors, out) -> bool:
+    """Show a display-only flow (standings or year-end) as ONE screen and wait for a key.
 
-    Dispatched by the CALLER (:func:`play`'s turn loop), right after upkeep, in place
-    of the free turn -- an employed player never reaches the map/menu this turn
-    (``data/game_configs/mafia_1920s/handlers/jobs.py``'s ``job_shift``, registered
-    under ``"job.shift"`` in the SAME :data:`engine.locations.HANDLERS` registry a
-    location option's handler string resolves against). Drives the generator via
-    :func:`engine.interactions.run` directly (there is no location shell/guard layer
-    for a shift, unlike :func:`_run_location`), sharing the ONE session RNG and the
-    real terminal ``inp`` so the shift's ``StartCombat`` fights render exactly like
-    any other fight.
-    """
-    render_screen_clear(out)
-    render_header(resolver.resolve("client.header.job"), out, colors)
-    result = run_handler(HANDLERS["job.shift"], inp, state=state, rng=rng)
-    return result.state  # adopt (run is pure)
-
-
-def _run_game_end_screen(
-    runner, header: str, state, resolver: Resolver, colors: Colors, out, rng: Rng
-) -> bool:
-    """Run a display-only game-end flow (standings or year-end) and show it as ONE screen.
-
-    ``runner`` is :func:`engine.game_end.run_standings` or
-    :func:`engine.game_end.run_year_end`; WHICH state it gets is the caller's
-    decision. The runner's input source collects every ``ShowMessage`` the
-    config handler yields (one per row -- templates cannot iterate); each is resolved
-    through the theme and rendered in order under one header, then the screen waits
-    for one key like the turn-over prompt. Any other interaction raises, mirroring the
-    engine runners' own display-only contract, so a handler that starts asking
-    questions fails loudly instead of being answered here.
+    ``lines`` are the flow's rows as ``(key, params)`` pairs (one per row -- templates
+    cannot iterate); each is resolved through the theme and rendered in order under one
+    header, then the screen waits for one key like the turn-over prompt.
 
     Returns ``False`` when that key is a quit (``q`` or EOF, :func:`_is_quit`), so the
     caller ends the session; ``True`` otherwise.
     """
-    messages: list[ShowMessage] = []
-
-    def collect(interaction):
-        if not isinstance(interaction, ShowMessage):
-            raise AssertionError(f"game-end flow asked a question: {interaction!r}")
-        messages.append(interaction)
-
-    runner(state, input_source=collect, rng=rng)
-
     render_screen_clear(out)
     render_header(header, out, colors)
-    render_body("\n".join(resolver.resolve(m.key, m.params) for m in messages), out, colors)
+    render_body("\n".join(resolver.resolve(key, params) for key, params in lines), out, colors)
     _write_press_any_key(resolver, out)
     return not _is_quit(_read_key())
 
@@ -744,54 +703,94 @@ class TerminalSession:
             players=self.players or [("alcapone", "the outfit")],
         )
 
-        # The engine owns the coupling — upkeep runs at EVERY turn start,
-        # including the very first (before the map loop's first render), so no path
-        # through this client can reach a free turn without it. Later turns run it
-        # right after advance_turn rotates (in next_turn), at the exact same seam.
-        self.state = _run_upkeep_screen(
-            self.state, resolver, self.colors, out, self.rng, inp=self.inp
-        )
-        self.run_turns(resuming_free_turn=False)
+        # The engine turn runner owns the order of every turn from here on; a new
+        # game enters it at the first player's turn start, upkeep first.
+        self.drive_turns(UPKEEP)
 
     def resume_loaded_game(self) -> None:
         """Enter the turns of a loaded game: no title, no setup, no upkeep."""
-        # A loaded game skips all of that: it was set up, and this turn's
-        # upkeep already ran, before the save.
-        # A save is only ever taken on the map during a free turn -- including the rest
-        # of the turn in which a job was just accepted (ms=0, job already set). So the
-        # first iteration after a load resumes that free turn; the shift belongs to the
-        # NEXT turn start, exactly as in uninterrupted play.
-        self.run_turns(resuming_free_turn=True)
+        # The runner re-enters the phase the save recorded: a save is only ever taken
+        # on the map, so the saved player's free turn resumes, and this turn's upkeep
+        # and turn start (which ran before the save) do not run again.
+        self.drive_turns()
 
     def run_turns(self, *, resuming_free_turn: bool) -> None:
-        """The turn loop: a job shift or a map turn, then turn-over, until the session ends."""
-        while True:
-            # Job-shift seam: an EMPLOYED player never reaches the map/menu this
-            # turn -- the shift flow replaces the free turn entirely (mirrors the
-            # source's :1012 dispatch). Checked fresh every turn start, right after
-            # upkeep (in start_new_game on the first turn, in next_turn on later ones).
-            assert self.state is not None, "state is set by setup or load before any turn"
-            active = self.state.players[self.state.clock.active_player]
-            if self.cfg.module.state.job(active).type and not resuming_free_turn:
-                self.job_shift()
-            else:
-                # :1013 -- the free turn opens with the score truncation. A resumed
-                # turn already had it before the save, as the source runs it once.
-                if not resuming_free_turn:
-                    self.state = start_free_turn(self.state)
-                resuming_free_turn = False
-                if not self.map_turn():
-                    return
-            if not self.turn_over():
-                return
-            if not self.next_turn():
-                return
+        """Play turns from this turn's start after upkeep (or its open free turn).
 
-    def job_shift(self) -> None:
-        """Run the employed active player's job shift in place of the free turn."""
-        self.state = _run_job_shift_screen(
-            self.state, self.resolver, self.colors, self.inp, self.out, self.rng
-        )
+        This and :meth:`next_turn` only name where the runner is entered; the order
+        from there is the runner's.
+        """
+        self.drive_turns(WALKING if resuming_free_turn else TURN_START)
+
+    def next_turn(self) -> bool:
+        """Advance to the next player's turn, through its upkeep; ``False`` ends the session."""
+        return self.drive_turns(NEXT_PLAYER, until=TURN_START)
+
+    def drive_turns(self, entry: str | None = None, *, until: str | None = None) -> bool:
+        """Drive the engine turn runner from ``entry``, rendering what it yields.
+
+        The runner (:class:`engine.turns.TurnRunner`) owns the order of the turn; this
+        only renders its screens and answers its prompts, adopting the runner's state
+        at every interaction. ``entry=None`` re-enters the phase the state recorded.
+        Returns ``True`` when the runner reached ``until``, ``False`` when the game
+        ended or the player quit.
+        """
+        assert self.state is not None, "state is set by setup or load before any turn"
+        runner = TurnRunner(self.state, self.rng, observe_ai=self.inp.observes_ai)
+        turns = runner.run(entry, until=until)
+        try:
+            interaction = next(turns)
+            while True:
+                self.state = runner.state
+                response = self.render(interaction)
+                if response is _QUIT:
+                    turns.close()
+                    return False
+                interaction = turns.send(response)
+        except StopIteration as stop:
+            self.state = runner.state
+            return stop.value == PAUSED
+
+    def render(self, interaction):
+        """Show one interaction of the turn runner; return its answer, or ``_QUIT``."""
+        if isinstance(interaction, FreeTurn):
+            return self.state if self.map_turn() else _QUIT
+        if isinstance(interaction, Heading):
+            if interaction.key != JOB_SHIFT_SCREEN:
+                raise AssertionError(f"unknown screen heading {interaction.key!r}")
+            render_screen_clear(self.out)
+            render_header(self.text("client.header.job"), self.out, self.colors)
+            return None
+        if isinstance(interaction, Acknowledge):
+            return self.acknowledge(interaction)
+        # A hook's or handler's own interaction: prompts, narration, fights.
+        return self.inp(interaction)
+
+    def acknowledge(self, screen: Acknowledge):
+        """Show one of the runner's acknowledgement screens; ``_QUIT`` on a quit key."""
+        if screen.key == UPKEEP_SCREEN:
+            _render_upkeep_screen(
+                self.state, screen.params["previous_rank"], self.resolver, self.colors, self.out
+            )
+            return None
+        if screen.key == TURN_OVER_SCREEN:
+            return None if self.turn_over() else _QUIT
+        if screen.key == STANDINGS_SCREEN:
+            header = self.text("client.header.standings")
+            if not _render_lines_screen(
+                header, screen.params["lines"], self.resolver, self.colors, self.out
+            ):
+                self.out.write(self.text("client.bye") + "\n")
+                return _QUIT
+            return None
+        if screen.key == YEAR_END_SCREEN:
+            # :40100 — the year-end result; the game ends after it, whatever the key.
+            header = self.text("client.header.game_over")
+            _render_lines_screen(
+                header, screen.params["lines"], self.resolver, self.colors, self.out
+            )
+            return None
+        raise AssertionError(f"unknown acknowledgement screen {screen.key!r}")
 
     def map_turn(self) -> bool:
         """Play the free turn on the map until ``ms`` runs out; ``False`` on a quit."""
@@ -888,57 +887,21 @@ class TerminalSession:
             return False
         return True
 
-    def next_turn(self) -> bool:
-        """Advance to the next turn (standings, ending, upkeep); ``False`` ends the session."""
-        assert self.state is not None, "state is set by setup or load before any turn"
-        played = self.state  # the round just finished, for the standings
-        # advance_turn is pure — the rotated/replenished state must be adopted.
-        self.state, game_over = advance_turn(self.state, self.vehicles)
-        # :1010 — on a round wrap (back to player 0) gosub4500 shows the standings
-        # BEFORE ja=ja+1/12, so they get the pre-advance state: the date shown is
-        # the round just played.
-        if self.state.clock.active_player == 0:
-            if not self.round_end(played):
-                return False
-        if game_over:
-            self.ending()
-            return False
-        # Upkeep for the NEW active player, right at the turn-start seam
-        # advance_turn just opened — before this player's free turn (or job
-        # shift) is offered.
-        self.state = _run_upkeep_screen(
-            self.state, self.resolver, self.colors, self.out, self.rng, inp=self.inp
-        )
-        return True
-
     def round_end(self, played) -> bool:
         """Show the standings for ``played``, the round just finished; ``False`` on a quit."""
-        if not _run_game_end_screen(
-            run_standings,
-            self.text("client.header.standings"),
-            played,
-            self.resolver,
-            self.colors,
-            self.out,
-            self.rng,
-        ):
+        lines: list[tuple[str, dict]] = []
+
+        def collect(interaction):
+            if not isinstance(interaction, ShowMessage):
+                raise AssertionError(f"the standings asked a question: {interaction!r}")
+            lines.append((interaction.key, interaction.params))
+
+        run_standings(played, input_source=collect, rng=self.rng)
+        header = self.text("client.header.standings")
+        if not _render_lines_screen(header, lines, self.resolver, self.colors, self.out):
             self.out.write(self.text("client.bye") + "\n")
             return False
         return True
-
-    def ending(self) -> None:
-        """Show the year-end result; the game ends here."""
-        # :40100 — the year-end result (standings again, then winner/tie) on the
-        # POST-advance state; the game ends here, so no upkeep and no new turn.
-        _run_game_end_screen(
-            run_year_end,
-            self.text("client.header.game_over"),
-            self.state,
-            self.resolver,
-            self.colors,
-            self.out,
-            self.rng,
-        )
 
 
 def play(

@@ -544,3 +544,104 @@ def test_show_message_reaches_the_input_source_before_being_acked():
     assert [i.key for i in seen if isinstance(i, ShowMessage)] == ["some.key"], (
         "ShowMessage never reached the input source; clients cannot render it"
     )
+
+
+# --------------------------------------------------------------------------- #
+# step(): the generator form of the driver                                     #
+# --------------------------------------------------------------------------- #
+def _prompt_substate_fight_handler(ctx):
+    """A handler with a prompt (re-prompted once), a sub-state and a fight."""
+    from data.game_configs.mafia_1920s.combat_rules import build_rules
+    from engine.fight_loop import AiDriver, HumanDriver
+    from engine.interactions import StartCombat
+    from tests.helpers import combat_fighter
+
+    n = yield PromptInt("how_many", min=1, max=5)
+    picked = yield LoadSubState("step_parity_pick", {"n": n})
+    yield ShowMessage("picked", {"picked": picked})
+    sides = (
+        (combat_fighter(name="hero", weapon=5, energie=20, position=6 * 40 + 15, roster_id=0),),
+        (combat_fighter(name="thug", weapon=6, energie=35, position=6 * 40 + 30),),
+    )
+    result = yield StartCombat(
+        sides=sides, rules=build_rules(), drivers={1: HumanDriver(), 2: AiDriver()}
+    )
+    ctx.apply(("fight", result.winner, tuple(result.losses)))
+    return ["done", n, picked]
+
+
+class _Client:
+    """A scripted client: answers each interaction by kind, and records what it saw."""
+
+    observes_ai = True
+
+    def __init__(self):
+        self.seen: list = []
+        self._int_answers = iter(["nine", "3"])  # one invalid answer, then a valid one
+
+    def __call__(self, interaction):
+        from engine.interactions import CombatScreen
+
+        self.seen.append(interaction)
+        if isinstance(interaction, PromptInt):
+            return next(self._int_answers)
+        if isinstance(interaction, PromptChoice):
+            return "1"
+        if isinstance(interaction, CombatScreen):
+            return ("shoot", +1)
+        return None
+
+
+def test_step_driven_by_a_scripted_sender_gives_the_same_result_as_run():
+    from engine.interactions import CombatScreen, step
+    from engine.rng import Rng
+    from engine.substates import SUBSTATES, register_substate
+
+    @register_substate("step_parity_pick")
+    def _pick(ctx, params):
+        choice = yield PromptChoice("pick_one", options=["a", "b", "c"])
+        ctx.apply(("picked", choice, params["n"]))
+        return choice
+
+    try:
+        pulled = _Client()
+        pulled_rng = Rng(42)
+        expected = run(_prompt_substate_fight_handler, pulled, rng=pulled_rng)
+
+        sent = _Client()
+        sent_rng = Rng(42)
+        steps = step(_prompt_substate_fight_handler, None, sent_rng, observe_ai=True)
+        try:
+            interaction = next(steps)
+            while True:
+                interaction = steps.send(sent(interaction))
+        except StopIteration as stop:
+            result = stop.value
+    finally:
+        SUBSTATES.pop("step_parity_pick", None)
+
+    kinds = {type(i) for i in sent.seen}
+    assert {PromptInt, PromptChoice, ShowMessage, CombatScreen} <= kinds
+    assert any(i.prompt == "observe" for i in sent.seen if isinstance(i, CombatScreen))
+    assert sent.seen == pulled.seen
+    assert result == expected
+    assert result.payload.returned == ["done", 3, 1]
+    assert sent_rng.log and sent_rng.log == pulled_rng.log
+
+
+def test_step_yields_acknowledge_and_heading_and_sends_back_ack():
+    from engine.interactions import Acknowledge, Heading, step
+
+    got = []
+
+    def handler(ctx):
+        got.append((yield Heading("title")))
+        got.append((yield Acknowledge("screen", {"x": 1})))
+        return None
+
+    steps = step(handler)
+    assert next(steps) == Heading("title")
+    assert steps.send("ignored") == Acknowledge("screen", {"x": 1})
+    with pytest.raises(StopIteration):
+        steps.send(CANCEL)
+    assert got == [Ack, Ack]

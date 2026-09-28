@@ -379,6 +379,14 @@ class Clock:
     end_year: int = 1978  # x9 — game-end year, validated [1928,1978] (mf-prg.bas:172)
     active_player: int = 0  # sp — active player index
     player_count: int = 1  # sz — player count, validated [1,4] (mf-prg.bas:206)
+    #: Where the engine turn runner (``engine.turns``) re-enters this turn: one of
+    #: ``engine.turns.PHASES``. The runner writes it at its resumable points: the
+    #: turn start (``"upkeep"``, with the rotation) and the open free turn
+    #: (``"walking"``). ``"walking"`` is also the default, because it is where every
+    #: state the runner has not driven resumes: a save taken before this field existed
+    #: (saves were only ever taken on the map) and a freshly set-up game, which a
+    #: client enters at the turn start explicitly.
+    turn_phase: str = "walking"
 
 
 @dataclass(frozen=True)

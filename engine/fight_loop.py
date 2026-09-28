@@ -11,7 +11,7 @@ free of it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -133,18 +133,22 @@ class ReplayDriver(Driver):
 
 def _run_combat(
     start: "StartCombat",
-    input_source: Callable[[Any], Any],
     ctx: "Ctx",
-) -> "CombatResult":
+    *,
+    observe_ai: bool = False,
+) -> "Generator[CombatScreen, Any, CombatResult]":
     """Drive a full fight to a winner and return its :class:`~engine.combat.CombatResult`.
 
     The combat sub-protocol, structurally a sibling of
-    :func:`engine.interactions._run_substate`: an INLINE loop over the parent's ``ctx``
-    (so the fight's effects buffer into the parent action and commit or discard with
-    it), never a nested :func:`engine.interactions.run` call (which would commit the
-    fight independently and break that atomicity).
+    :func:`engine.interactions._run_substate`: a generator composed into
+    :func:`engine.interactions.step` with ``yield from``, so every human side's
+    :class:`CombatScreen` (and, with ``observe_ai``, every observation frame) reaches
+    the client through ``step``'s own stream. It runs over the parent's ``ctx`` (so
+    the fight's effects buffer into the parent action and commit or discard with it),
+    never a nested driver (which would commit the fight independently and break that
+    atomicity).
 
-    Ports the activation loop ``mf-prg.bas:30100-30155`` via :func:`_drive_fight`
+    Ports the activation loop ``mf-prg.bas:30100-30155`` via :func:`_fight_steps`
     (victory check, one action per activation, CPU sides decided with no prompt,
     human sides prompted with a :class:`CombatScreen`).
 
@@ -186,9 +190,9 @@ def _run_combat(
     # without a shot) simply sees an unchanged ``vitality`` and buffers no delta.
     pre_vitality = [f.vitality for f in fight.sides[0]]
 
-    # The activation loop is the SHARED one (:func:`_drive_fight`) so `_run_combat` and
+    # The activation loop is the SHARED one (:func:`_fight_steps`) so `_run_combat` and
     # `simulate` cannot drift — the same loop, whether a client is in it or not.
-    winner = _drive_fight(fight, drivers, input_source)
+    winner = yield from _fight_steps(fight, drivers, observe_ai=observe_ai)
 
     # Buffer the roster's persistent energy/down consequence BEFORE handing
     # the winner back, so it commits atomically with the invoking handler's own
@@ -268,6 +272,34 @@ def _drive_fight(
     input_source: Callable[[Any], Any],
     recorder: Any = None,
 ) -> int:
+    """Advance a fight to a winner, pulling each human answer from ``input_source``.
+
+    A thin pull loop over :func:`_fight_steps` (the shared activation loop): every
+    screen it yields is handed to ``input_source`` and the answer sent back. The
+    observation opt-in is read off ``input_source`` (a truthy ``observes_ai``
+    attribute), so the headless callers (``simulate``, ``record_fight``) stay OFF.
+    """
+    steps = _fight_steps(
+        fight,
+        drivers,
+        recorder,
+        observe_ai=bool(getattr(input_source, "observes_ai", False)),
+    )
+    try:
+        screen = next(steps)
+        while True:
+            screen = steps.send(input_source(screen))
+    except StopIteration as stop:
+        return stop.value
+
+
+def _fight_steps(
+    fight: Any,
+    drivers: "Mapping[int, Driver]",
+    recorder: Any = None,
+    *,
+    observe_ai: bool = False,
+) -> "Generator[CombatScreen, Any, int]":
     """Advance a fight to a winner, one activation at a time — the SHARED loop.
 
     Ports the activation loop ``mf-prg.bas:30100-30155``, driver-agnostic:
@@ -275,7 +307,7 @@ def _drive_fight(
     1. Victory check (``30106``) — the fight ends the moment one side has no standing
        fighter, mid-round, without finishing the current side's turn.
     2. Pick ``drivers[fight.active_side]``. If it is ``human``, yield a
-       :class:`CombatScreen` and read one response via ``input_source`` (the ONLY
+       :class:`CombatScreen` and receive one response (the ONLY
        suspending path — "headless" means no yield occurs on a non-human side's turn).
        Otherwise the driver ``decide``s ``(action, argument)`` with NO client in the
        loop.
@@ -291,9 +323,9 @@ def _drive_fight(
     **Non-cancellable.** :data:`CANCEL` / EOF at a human prompt is mapped to a
     surrender, never a ``Cancelled`` throw — a mandatory fight must not be escapable.
 
-    A ``human`` driver on a side reached during a **headless** run (``input_source is
-    None``) is a caller error: :func:`simulate` rejects human drivers up front, so this
-    loop can assume a human side always has a usable ``input_source``.
+    A ``human`` driver on a side reached during a **headless** run is a caller error:
+    :func:`simulate` rejects human drivers up front, so this loop can assume a human
+    side always has a client to answer it.
 
     **Recording seam.** An optional ``recorder`` (a
     :class:`engine.recording._Recorder`) observes the loop without altering it: it marks
@@ -301,20 +333,20 @@ def _drive_fight(
     a driver reassignment, and appends one ``ActivationEvent`` per applied action. A
     non-recording caller passes ``recorder=None`` and every hook is a no-op.
 
-    **Observation frames.** If ``input_source`` carries a truthy
-    ``observes_ai`` attribute, the loop hands it one display-only :class:`CombatScreen`
-    with ``prompt=`` :data:`OBSERVE_PROMPT` after EACH non-human activation applies
-    (including the one that ends the fight), AFTER the recorder has captured it. The
-    response is ignored and nothing is drawn from the RNG, so the fight, its rng log, and
-    its recording are identical with or without the opt-in. The opt-in lives on the input
-    source (read with ``getattr``) rather than as a keyword so no signature changes:
+    **Observation frames.** With ``observe_ai``, the loop yields one display-only
+    :class:`CombatScreen` with ``prompt=`` :data:`OBSERVE_PROMPT` after EACH non-human
+    activation applies (including the one that ends the fight), AFTER the recorder has
+    captured it. The response is ignored and nothing is drawn from the RNG, so the
+    fight, its rng log, and its recording are identical with or without the opt-in. The
+    pull-style callers read the opt-in off their input source (a truthy ``observes_ai``
+    attribute, see :func:`_drive_fight` and :func:`engine.interactions.run`):
     ``simulate``/``record_fight``'s headless ``_no_input_source`` and every wrapper
     callable (``persistence``'s chained input, ``upkeep``/``game_end`` fallbacks, test
     scripts) lack the attribute and therefore stay OFF — the faithful default, since the
     original's CPU path narrates nothing between activations (``mf-prg.bas:30110``).
     """
     message: Any = None
-    observes_ai = bool(getattr(input_source, "observes_ai", False))
+    observes_ai = observe_ai
     while True:
         winner = fight.winner()
         if winner is not None:
@@ -344,7 +376,7 @@ def _drive_fight(
                 prompt="action",
                 message=message,
             )
-            raw = input_source(screen)
+            raw = yield screen
             message = None
             action, argument = _parse_combat_response(raw)
         else:
@@ -383,26 +415,32 @@ def _drive_fight(
                     draw_start=draw_start,
                     decision_draw_count=decision_draw_count,
                 )
-            # Then the opt-in observation frame — after the recorder, so the
-            # recording never sees it; display-only, response discarded, no draws.
-            if observes_ai and driver.kind != "human":
-                input_source(
-                    CombatScreen(
-                        sides=fight.sides,
-                        grid=fight.grid,
-                        active_side=acting_side,
-                        active_fighter=acting_fighter_index + 1,
-                        losses=fight.losses,
-                        prompt=OBSERVE_PROMPT,
-                        message=result or None,
-                    )
+
+        def _observed(result: Any) -> "list[CombatScreen]":
+            # The opt-in observation frame, yielded right after the recorder captured
+            # the activation, so the recording never sees it; display-only, response
+            # discarded, no draws.
+            if not (observes_ai and driver.kind != "human"):
+                return []
+            return [
+                CombatScreen(
+                    sides=fight.sides,
+                    grid=fight.grid,
+                    active_side=acting_side,
+                    active_fighter=acting_fighter_index + 1,
+                    losses=fight.losses,
+                    prompt=OBSERVE_PROMPT,
+                    message=result or None,
                 )
+            ]
 
         if action == "surrender":
             return fight.surrender()
         if action == "pass":
             fight.advance_activation()
             _record("pass", {}, {})
+            for frame in _observed({}):
+                yield frame  # the response is ignored
             continue
         if action == "move":
             committed = fight.apply_action(
@@ -422,6 +460,8 @@ def _drive_fight(
                 )
             fight.advance_activation()
             _record("move", {}, {})
+            for frame in _observed({}):
+                yield frame  # the response is ignored
             continue
         if action == "shoot":
             result = fight.apply_action("shoot", argument)
@@ -429,9 +469,13 @@ def _drive_fight(
             winner = fight.winner()
             if winner is not None:
                 _record("shoot", result, calc_inputs)
+                for frame in _observed(result):
+                    yield frame  # the response is ignored
                 return fight.finish(winner)
             fight.advance_activation()
             _record("shoot", result, calc_inputs)
+            for frame in _observed(result):
+                yield frame  # the response is ignored
             continue
         # 30139: an unrecognized key. A HUMAN falls back to the GET wait and re-prompts;
         # a non-human driver that returns an unknown action has a broken decide contract

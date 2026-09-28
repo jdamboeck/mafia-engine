@@ -14,7 +14,8 @@ from . import kdh  # noqa: F401 — registers kdh.borrow/repay/trade/capital/col
 from . import pub  # noqa: F401 — imported for its @register("pub.recruit") side effect
 from . import slw  # noqa: F401 — imported for its @register("slw.rent") side effect
 from . import sph  # noqa: F401 — imported for its @register("sph") side effect
+from . import turn  # noqa: F401 — registers the engine turn runner's hooks (engine.turns)
 from . import upkeep  # noqa: F401 — registers "upkeep.turn_start" (engine.upkeep.run_upkeep)
 from . import waf  # noqa: F401 — registers waf.buy / waf.train + the weapon_spec sub-state
 
-__all__ = ["game_end", "jobs", "kdh", "pub", "slw", "sph", "upkeep", "waf"]
+__all__ = ["game_end", "jobs", "kdh", "pub", "slw", "sph", "turn", "upkeep", "waf"]
