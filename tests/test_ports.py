@@ -55,7 +55,7 @@ from data.game_configs.mafia_1920s.setup import (
     new_game,
     score_and_rank,
 )
-from engine.combat import CombatFight
+from engine.combat import CombatFight, CombatResult
 from engine.combat_setup import SIDE1_ANCHOR, SIDE2_ANCHOR, placement_position
 from engine.config_loader import load_config, load_game_config
 from engine.effects import apply, commit
@@ -73,7 +73,7 @@ from engine.interactions import (
 from engine.locations import HANDLERS
 from engine.turns import ROADBLOCK_HOOK_KEY, SCORE_TRUNCATION_HOOK_KEY
 from engine.rng import Rng
-from engine.state import Clock, CombatState, Config, GameState, Player
+from engine.state import Clock, CombatState, Config, Fighter, GameState, Player
 from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job, Wanted
 from data.game_configs.mafia_1920s.handlers import police
 from tests.basic_eval import eval_assignment, eval_expr
@@ -1012,6 +1012,88 @@ def _engine_car_theft(v: Values) -> Any:
     return "stolen"
 
 
+# --- :17210-17592 sgl, Jack's gang, the payout and what follows -----------------------
+Q_17210 = q(17210, "gz(0)=3-2*(gz(sp)>5)")
+Q_17500 = q(17500, "int(rnd(1)*3)=0")
+Q_17505 = q(17505, "p=int(rnd(1)*200)+800-300*(ln=2)-200*(ln=7)-200*(ln=9)+600*(w=2)")
+Q_17530 = q(17530, "p=int(rnd(1)*100)+100")
+Q_17550 = q(17550, "ka(sp)=ka(sp)+p")
+Q_17575 = q(17575, "p=int(rnd(1)*100)+300")
+Q_17578 = q(17578, "ka(sp)=ka(sp)+p")
+Q_17590 = q(17590, "p=int(rnd(1)*100)+200")
+
+
+def _basic_jack_count(v: Values) -> Any:
+    return Q_17210.assign({"sp": 1, "gz(1)": v["gz"]})
+
+
+def _engine_jack_count(v: Values) -> Any:
+    # Tile 1 refuses protection (:17200), so Jack's gang fights; count its men.
+    player = _player(rank=2, last_la=7, last_location=1, roster=(_gangster(),) * v["gz"])
+    gen = HANDLERS["sgl.protection"](Ctx(state=_state(player), rng=StubRng(())))
+    interaction = next(gen)
+    while not isinstance(interaction, StartCombat):
+        interaction = gen.send(Ack)
+    gen.close()
+    assert interaction.scenario is not None and interaction.scenario.sides is not None
+    return len(interaction.scenario.sides[1])
+
+
+def _jack_won(w: int) -> CombatResult:
+    """A won Jack fight (:17210) whose last shooter carries weapon ``w`` (:30215).
+    Protection pays at once on tiles 2, 3 and 8 (``w=3``); elsewhere it goes through
+    this fight."""
+    return CombatResult(winner=1, losses=(0, 3), last_shooter=Fighter(weapon=w))
+
+
+def _sgl_w(v: Values) -> int:
+    return 3 if v["ln"] in (2, 3, 8) else v["w"]
+
+
+def _basic_extortion(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ln": v["ln"], "w": _sgl_w(v), "ka(1)": 1000}
+    b["rnd(1)"] = v["r0"]
+    small = Q_17500.holds(b)
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_17530.assign(b) if small else Q_17505.assign(b)
+    return Q_17550.assign(b)
+
+
+def _engine_extortion(v: Values) -> Any:
+    player = _player(rank=2, ka=1000, last_la=7, last_location=v["ln"])
+    run = _drive(
+        HANDLERS["sgl.protection"],
+        _state(player),
+        draws=(v["r0"], v["r"]),
+        answer=lambda i: 0,
+        fight=_jack_won(v["w"]),
+    )
+    return run.state.players[0].ka
+
+
+def _basic_settle(v: Values) -> Any:
+    """Take the small payment (:17530), then wreck the shop (:17575) or finish the owner
+    (:17590); any fight is won, and the till or the pockets go to :17578."""
+    b: dict[str, Any] = {"sp": 1, "ln": v["ln"], "ka(1)": 1000, "rnd(1)": v["r"]}
+    b["p"] = Q_17530.assign(b)
+    b["ka(1)"] = Q_17550.assign(b)
+    b["rnd(1)"] = v["r2"]
+    b["p"] = Q_17575.assign(b) if v["choice"] == 2 else Q_17590.assign(b)
+    return Q_17578.assign(b)
+
+
+def _engine_settle(v: Values) -> Any:
+    player = _player(rank=2, ka=1000, last_la=7, last_location=v["ln"])
+    run = _drive(
+        HANDLERS["sgl.protection"],
+        _state(player),
+        draws=(0.0, v["r"], v["r2"]),
+        answer=lambda i: v["choice"] - 1,
+        fight=_jack_won(3),
+    )
+    return run.state.players[0].ka
+
+
 # --- :13110-13127 waf range training ------------------------------------------------
 Q_13110 = q(13110, "p=800+200*ra(sp)")
 Q_13116 = q(13116, "ka(sp)<p")
@@ -1932,6 +2014,31 @@ PORTS: list[Port] = [
         ),
         _basic_car_theft,
         _engine_car_theft,
+    ),
+    Port(
+        "sgl jack's gang",
+        (Q_17210,),
+        "HANDLERS['sgl.protection'] (the size of Jack's gang)",
+        _grid(gz=range(1, 11)),
+        _basic_jack_count,
+        _engine_jack_count,
+    ),
+    Port(
+        "sgl payout",
+        (Q_17500, Q_17505, Q_17530, Q_17550),
+        "HANDLERS['sgl.protection'] (sgl._extort)",
+        # w is the last shooter's weapon after Jack's fight: 2 pays +600.
+        _grid(ln=range(1, 10), w=range(9), r0=(0.0, 0.3, 0.375, 0.9990234375), r=R),
+        _basic_extortion,
+        _engine_extortion,
+    ),
+    Port(
+        "sgl shop wrecked, owner finished",
+        (Q_17530, Q_17550, Q_17575, Q_17590, Q_17578),
+        "HANDLERS['sgl.protection'] (sgl._demolish, sgl._kill_owner)",
+        _grid(ln=range(1, 10), choice=(2, 3), r=(0.0, 0.5), r2=R),
+        _basic_settle,
+        _engine_settle,
     ),
     Port(
         "pol thank-you",

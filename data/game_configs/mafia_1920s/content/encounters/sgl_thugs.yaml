@@ -1,0 +1,14 @@
+# The thugs the shopkeeper waves over when the player wrecks his shop
+# (mf-prg.bas:17570-17573, tiles 2, 6, 7 and 8).
+#
+#   17573 bn$(0)="schlaeger":gz(0)=5:w=3:e=20:kf$="ksgl":gosub5000:ifs=2thenreturn
+#
+# No declarable consequence: a loss returns with the payment kept, a win goes on to
+# the till (:17575), both in handlers/sgl.py.
+key: sgl_thugs
+enemies:
+  count: 5              # gz(0)=5 — :17573
+  weapon: 3             # w=3, schlagkette — :17573
+  vitality: 20          # e=20 — :17573
+  name: schlaeger       # bn$(0)="schlaeger" — :17573
+grid: ksgl              # kf$="ksgl" — :17573

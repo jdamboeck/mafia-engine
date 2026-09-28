@@ -80,7 +80,7 @@ Every option is always shown. The source refuses **after** the choice, in this o
 ### Shared success `:17500-17592`
 1. `:17500` `x=2:gosub1160` → **`gf += 2*x8`**, clamp [0,100], `nr` recomputed. This happens *before* the payout roll.
 2. RNG `int(rnd(1)*3)=0` (P=1/3) → **small payout** `:17530`: `p=int(rnd(1)*100)+100` (100..199). Message "'ich habe leider nur `p` $!" (the same for every option) → step 4.
-3. Else (P=2/3) `:17505`: `p=int(rnd(1)*200)+800-300*(ln=2)-200*(ln=7)-200*(ln=9)+600*(w=2)`. That is 800..999, **+300 at ln2, +200 at ln7, +200 at ln9, +600 if w=2**. `:17510 onwgoto` response:
+3. Else (P=2/3) `:17505`: `p=int(rnd(1)*200)+800-300*(ln=2)-200*(ln=7)-200*(ln=9)+600*(w=2)`. That is 800..999, **+300 at ln2, +200 at ln7, +200 at ln9, −600 if w=2** (C64 true is −1, so `+600*(w=2)` subtracts; corrected in U18 against the BASIC). `:17510 onwgoto` response:
    - w=1 `:17511-17512` "i..i..ich z..zahle ja schon! hi..hier sind `p` $!"
    - w=2 `:17515` "deine arme ma (schnief)! gib ihr die `p` $ hier!" then `:17516 ll(sp)=0` (**dead**, see §2)
    - w=3 `:17520` "'ich habe `p` dollar, reicht das?'"
@@ -108,7 +108,7 @@ Every option is always shown. The source refuses **after** the choice, in this o
 | 8 | police | refuse | ok | refuse | – | yes | no |
 | 9 | ok | refuse | Jack | refuse | +200 | no | no |
 
-Option 2 always adds +600 (w=2). "police" = `:17020 → 26000`. Option 1 with boss bt<30 → police at every tile.
+Option 2 always pays 600 less (w=2: `+600*(w=2)` is −600 with C64 true = −1; corrected in U18). "police" = `:17020 → 26000`. Option 1 with boss bt<30 → police at every tile.
 
 ### Exits to police
 | site | entry | state set first |

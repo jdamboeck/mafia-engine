@@ -17,6 +17,7 @@ from . import pol  # noqa: F401 — registers pol.surrender / pol.bribe / pol.fr
 from . import police  # noqa: F401 — the police capture module the callers share (no handler)
 from . import roadblock  # noqa: F401 — registers the roadblock hook (turn.roadblock)
 from . import pub  # noqa: F401 — imported for its @register("pub.recruit") side effect
+from . import sgl  # noqa: F401 — registers sgl.threat / sob_story / protection / fake_police
 from . import slw  # noqa: F401 — imported for its @register("slw.rent") side effect
 from . import sph  # noqa: F401 — imported for its @register("sph") side effect
 from . import turn  # noqa: F401 — registers the engine turn runner's hooks (engine.turns)
@@ -33,6 +34,7 @@ __all__ = [
     "police",
     "pub",
     "roadblock",
+    "sgl",
     "slw",
     "sph",
     "turn",

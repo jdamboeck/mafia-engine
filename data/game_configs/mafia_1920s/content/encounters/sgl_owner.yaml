@@ -1,0 +1,14 @@
+# The shopkeeper who fights for his life (mf-prg.bas:17580-17592, tiles 1 and 4).
+#
+#   17587 bn$(0)="ladenbesitzer":gz(0)=1:w=7:e=30:kf$="ksgl":gosub5000
+#   17588 ifs=2thenreturn
+#
+# No declarable consequence: a loss returns (:17588), a win goes on to his pockets
+# (:17590), both in handlers/sgl.py.
+key: sgl_owner
+enemies:
+  count: 1              # gz(0)=1 — :17587
+  weapon: 7             # w=7, maschinenpistole (:17586 prints wa$(7)) — :17587
+  vitality: 30          # e=30 — :17587
+  name: ladenbesitzer   # bn$(0)="ladenbesitzer" — :17587
+grid: ksgl              # kf$="ksgl" — :17587

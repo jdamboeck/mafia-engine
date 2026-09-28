@@ -646,6 +646,10 @@ _FAITHFUL_ONLY_TESTS = {
         "tests.test_aut",
         "test_a_smaller_tank_keeps_the_barrel_count",
     ),
+    "jack_fight_reply_by_killing_weapon": (
+        "tests.test_sgl",
+        "test_after_a_won_jack_fight_the_killers_weapon_picks_the_reply",
+    ),
 }
 
 

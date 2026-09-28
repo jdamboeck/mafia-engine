@@ -222,7 +222,7 @@ def _run_combat(
             )
         )
     # Hand back the winner AND the real per-side death tallies (v(1)/v(2)).
-    return CombatResult(winner=winner, losses=fight.losses)
+    return CombatResult(winner=winner, losses=fight.losses, last_shooter=fight.last_shooter)
 
 
 def _build_fight(start: "StartCombat", *, rng: Any) -> Any:
@@ -545,7 +545,7 @@ def simulate(
     # No input_source: a headless run never reaches the human/yield branch (guarded
     # above), so the loop never consults it.
     winner = _drive_fight(fight, dict(drivers), _no_input_source)
-    return CombatResult(winner=winner, losses=fight.losses)
+    return CombatResult(winner=winner, losses=fight.losses, last_shooter=fight.last_shooter)
 
 
 def _no_input_source(interaction: Any) -> Any:

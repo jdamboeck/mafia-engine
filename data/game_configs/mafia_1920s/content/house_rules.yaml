@@ -263,3 +263,20 @@ house_rules:
       The barrels could be dumped, sold or refused at the sale, and the source never
       trims them anywhere; no single intended behaviour exists.
     switch: false
+
+  - id: jack_fight_reply_by_killing_weapon
+    citation: ":30215"
+    quote: "w=gw(ks(s),f)"
+    faithful: >-
+      After a won fight with Narben-Jack's gang (:17210), the shop's payout (:17505
+      ``+600*(w=2)``, which is -600 when w=2, as C64 true is -1) and reply (:17510
+      ``onwgoto17511,17515,17520,17525``) read ``w``, which the fight has set to the
+      weapon of whoever fired the last shot, the gangster who killed the last of
+      Jack's men. A kill with a knueppel (weapon 2) pays 600 less, with the sob-story
+      reply; messer, schlagkette and wurfsterne pick their replies; any other weapon
+      falls through to the first reply.
+    no_intent: >-
+      The protection option's own number is 3, and :17210 sets ``w=7`` for the fight,
+      so the reply may be meant to be option 3's, or Jack's gang's, or the source may
+      simply reuse ``w``; nothing says which.
+    switch: false

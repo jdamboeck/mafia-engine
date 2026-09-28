@@ -180,12 +180,21 @@ class CombatResult:
         :attr:`CombatFight.losses`. A handler narrates these rather than deriving a
         loss count from ``winner``, which is wrong for any multi-fighter side.
 
-    Deliberately carries **no** ``state``/``sides``: the contract is precisely winner +
-    losses; the post-fight board is not part of it.
+    ``last_shooter``
+        The fighter who fired the fight's last shot, as it stood when it fired, or
+        ``None`` if nobody fired. A shot is any fire order in one of the four
+        directions, hit or miss (``mf-prg.bas:30215`` ``w=gw(ks(s),f)`` runs for every
+        one), so for a fight won by a kill it is the fighter who landed the killing
+        blow. A caller that reads the shooter's equipment after the fight (the source
+        leaves its weapon in ``w``) reads it here.
+
+    Deliberately carries **no** ``state``/``sides``: the contract is winner + losses +
+    the last shooter; the post-fight board is not part of it.
     """
 
     winner: int
     losses: tuple[int, int]
+    last_shooter: Fighter | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -398,6 +407,7 @@ class CombatFight:
         self._result_flag: int = combat.result_flag
         self.finished: bool = False
         self.dir_memory: dict = dict(combat.dir_memory)
+        self._last_shooter: Fighter | None = None
         # No engine-side default that NAMES an attribute: a bundle-less fight is a
         # fight with no formulas, which is a caller error the moment a shot is fired.
         # (The reference title's bundle lives in its own config, never here.)
@@ -466,6 +476,11 @@ class CombatFight:
     def losses(self) -> tuple[int, int]:
         """Per-side downed counts — ``v(1)``/``v(2)`` (``mf-prg.bas:30310``)."""
         return (self._losses[0], self._losses[1])
+
+    @property
+    def last_shooter(self) -> Fighter | None:
+        """The fighter who fired the last shot so far, or ``None`` (see :class:`CombatResult`)."""
+        return self._last_shooter
 
     @property
     def result_flag(self) -> int:
@@ -659,6 +674,9 @@ class CombatFight:
             return miss
 
         attacker = self.active
+        # :30215 ``w=gw(ks(s),f)`` — every fire order, hit or miss, leaves its
+        # shooter's weapon behind.
+        self._last_shooter = attacker
         enemy_side = self.hostile_to(self.active_side)[0]
         equipment = self.equipment_stats(attacker)
 

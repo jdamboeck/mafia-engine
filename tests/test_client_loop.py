@@ -748,8 +748,8 @@ class TestUnimplementedDoorGracefulDenial:
     ``content/locations/kdh.yaml``, so kdh is reachable now (see
     ``TestKdhLocationThroughClient`` below) and the guard needs a DIFFERENT
     genuinely-unimplemented location to keep proving the denial path works. ``sgl``
-    (Schutzgeld-Laden — cells 49/145/340/443/538 in city.yaml, U11's serial order) fits:
-    wired into the map, no shell yet.
+    served until it landed; ``sub`` (the subway — cells 149/167/511/… in city.yaml) fits
+    now: wired into the map, no shell yet.
     """
 
     def test_walking_into_an_unimplemented_door_denies_gracefully(self, monkeypatch):
@@ -757,23 +757,23 @@ class TestUnimplementedDoorGracefulDenial:
         city = load_city(city_raw)
         load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
-        sgl_cell = find_door_cell(city_raw, "sgl")
-        walk = walk_keys_across_turns(state, city, sgl_cell)
+        sub_cell = find_door_cell(city_raw, "sub")
+        walk = walk_keys_across_turns(state, city, sub_cell)
         # No follow-up keys needed: denial is immediate and returns straight to the map.
         output = run_play(monkeypatch, seed=42, stdin_keys=walk)
-        # Assert the denial text itself, NOT `or "sgl" in output`: the map's status-bar
-        # location legend renders "sgl" on every map screen, so that disjunct was
+        # Assert the denial text itself, NOT `or "sub" in output`: the map's status-bar
+        # location legend renders "sub" on every map screen, so that disjunct was
         # satisfied regardless of what the guard printed (verified — replacing the
         # whole message with unrelated text kept this test green).
         assert "closed for renovations" in output, (
             "the unimplemented-door guard printed no denial message"
         )
 
-    def test_sgl_shell_file_does_not_exist_yet(self):
+    def test_sub_shell_file_does_not_exist_yet(self):
         """Documents WHY the guard is needed (regression bait for whichever unit lands
-        sgl next: this assertion should be the first thing to fail, prompting a swap to
+        sub next: this assertion should be the first thing to fail, prompting a swap to
         another still-unimplemented location rather than deleting the coverage)."""
-        shell_path = _CONFIG_DIR / "content" / "locations" / "sgl.yaml"
+        shell_path = _CONFIG_DIR / "content" / "locations" / "sub.yaml"
         assert not shell_path.exists()
 
 

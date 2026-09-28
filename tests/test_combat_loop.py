@@ -25,6 +25,7 @@ from engine.combat import (
     DEFAULT_RANGE,
     RANGE_MELEE,
     STEP_RIGHT,
+    STEP_UP,
 )
 from engine.effects import MoneyChange
 from engine.rng import Rng
@@ -572,6 +573,40 @@ def test_scripted_seeded_fight_has_a_deterministic_transcript():
         ("range", 40),
         ("range", 100),
     ]
+
+
+def test_the_result_names_the_fighter_who_fired_the_last_shot():
+    """``CombatResult.last_shooter``: ``:30215`` ``w=gw(ks(s),f)`` leaves the last
+    shooter's weapon behind, so a fight won by a kill names the killer — here the second
+    fighter, with a different weapon from the first."""
+    sides = (
+        (
+            _f(name="a", weapon=5, energie=20, position=100, kraft=30, brutalitaet=0),
+            _f(name="b", weapon=1, energie=20, position=140, kraft=30, brutalitaet=0),
+        ),
+        (
+            _f(name="x", weapon=0, energie=1, position=101),
+            _f(name="y", weapon=0, energie=1, position=141),
+        ),
+    )
+    script = iter([("shoot", +1), ("shoot", +1)])
+    rng = _StubRng(1, 10, 0, 1, 10, 0)
+    result = run_fight(**_spec(sides=sides), input_source=lambda i: next(script), rng=rng)
+    assert result.winner == 1
+    assert result.last_shooter is not None
+    assert (result.last_shooter.name, result.last_shooter.weapon) == ("b", 1)
+
+
+def test_a_missed_shot_is_a_shot_and_no_shot_leaves_no_shooter():
+    """Every fire order counts, hit or miss (``:30215`` runs before the hit test); a
+    fight that ends before anyone fires has no last shooter."""
+    answers = iter([("shoot", STEP_UP), ("surrender", None)])
+    result = run_fight(**_spec(cpu_sides=()), input_source=lambda i: next(answers), rng=_StubRng())
+    assert result.winner == 1
+    assert result.last_shooter is not None and result.last_shooter.name == "hero"
+
+    result = run_fight(**_spec(), input_source=lambda i: CANCEL, rng=_StubRng())
+    assert result.last_shooter is None
 
 
 def test_losses_are_visible_on_the_screen_that_follows_a_knockout():

@@ -429,7 +429,9 @@ def record_fight(
         losses=fight.losses,
         house_rules=house_rules,
     )
-    return CombatResult(winner=winner, losses=fight.losses), recording
+    return CombatResult(
+        winner=winner, losses=fight.losses, last_shooter=fight.last_shooter
+    ), recording
 
 
 # --------------------------------------------------------------------------- #

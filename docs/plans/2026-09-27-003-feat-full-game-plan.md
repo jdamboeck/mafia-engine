@@ -1007,14 +1007,14 @@ Pattern: `waf.buy` (showroom, trade-in, picker), `tests/test_waf_buy.py`.
 - the rank gate (`:17005`) comes before the trap;
 - the trap goes to `:26000`;
 - Jack's gang (`:17210`), the thugs (`:17572`) and the shop owner (`:17587`, tiles 1 and 4) fight on `ksgl`;
-- after a won fight, the killing gangster's weapon (`:30215`) picks the reply text and the +600 bonus. This is a faithful quirk with no switch, because its intent is unclear;
+- after a won fight, the killing gangster's weapon (`:30215`) picks the reply text and the `+600*(w=2)` term, which is −600 for a club kill (C64 true is −1; amended in U18). This is a faithful quirk with no switch, because its intent is unclear;
 - money is credited before the fight (`:17550`).
 
 **Test scenarios:**
 - Entering the same tile twice in one turn triggers the police.
 - Entering A, then B, then A is safe.
 - The previous tile clears at the next turn start.
-- A won Jack's-gang fight with a club kill pays +600.
+- A won Jack's-gang fight with a club kill pays 600 less (amended in U18: `+600*(w=2)` is −600).
 - The thugs appear only on tiles 2, 6, 7 and 8.
 - A rank-1 revisit shows the rank refusal, not the police.
 - Choosing leave on a revisit escapes the trap.
