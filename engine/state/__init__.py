@@ -112,6 +112,9 @@ __all__ = [
     "CombatState",
     "Clock",
     "Config",
+    "FAITHFUL",
+    "INTENT",
+    "HOUSE_RULE_SETTINGS",
     "GameState",
     "StateSchema",
     "StateSchemaError",
@@ -395,18 +398,39 @@ class Clock:
     turn_phase: str = "walking"
 
 
+#: A house rule's two settings: the original's behaviour, or the intended one.
+FAITHFUL = "faithful"
+INTENT = "intent"
+HOUSE_RULE_SETTINGS = (FAITHFUL, INTENT)
+
+
 @dataclass(frozen=True)
 class Config:
     """Rules/params (frozen per game at build time conceptually).
 
     ``formula_params`` is opaque config data the engine never inspects: the config
     fills it at setup and reads it back in its own formulas and handlers.
+
+    ``house_rules`` is the game's house-rules map (docs/design/config-and-content-contract.md
+    § House rules): a switchable catalogue entry's id -> :data:`FAITHFUL` or
+    :data:`INTENT`, chosen at setup and fixed for the game. The engine never reads a
+    switch by its id; the config does, through the state. The map is frozen like the
+    rest of the graph, and :func:`engine.effects.apply` refuses any effect that changes
+    ``state.config``, so no effect can write it. A save stores it and a save without it
+    is refused (:class:`engine.persistence.MissingHouseRulesError`).
     """
 
     formula_params: Mapping = field(default_factory=lambda: _EMPTY_MAP)
+    house_rules: Mapping[str, str] = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
-        _coerce_readonly(self, "formula_params")
+        _coerce_readonly(self, "formula_params", "house_rules")
+        for rule_id, setting in self.house_rules.items():
+            if setting not in HOUSE_RULE_SETTINGS:
+                raise ValueError(
+                    f"house rule {rule_id!r} is set to {setting!r}; "
+                    f"expected one of {list(HOUSE_RULE_SETTINGS)}"
+                )
 
 
 @dataclass(frozen=True)

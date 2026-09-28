@@ -1,0 +1,16 @@
+# House rules — this game's rule-quirk catalogue.
+#
+# Each entry records one rule quirk of the original (mf-prg.bas): the port plays the
+# faithful behaviour by default, and setup offers a switch to the intended one where the
+# intent is clear. Checked when the config loads (house_rules.py); a bad entry fails it.
+#
+#   - id: lower_case_id        # unique; the key in state.config.house_rules
+#     citation: ":26020"       # the BASIC line (or range ":1015-1050") it ports
+#     faithful: "..."          # what the original does
+#     intent: "..."            # what it evidently meant to do  -- or, instead:
+#     no_intent: "..."         # why no intended behaviour is recorded
+#     switch: true             # setup offers it; needs an intent text
+#
+# A switchable entry also needs its one-line setup description in the theme, under
+# house_rules.<id> (themes/classic/strings/house_rules.yaml).
+house_rules: []

@@ -22,6 +22,7 @@ handler imports ``fnm`` from HERE (its own config), not from the engine.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -31,15 +32,19 @@ from engine.config_loader import load_config
 from engine.effects import MoneyChange
 from engine.interactions import ShowMessage
 from engine.rng import Rng
-from engine.state import Clock, Config, GameState, Player
+from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, Clock, Config, GameState, Player
 
 try:
     from .effects import DebtClear, ScoreAndRank
     from .gangster import GANGSTER_ATTR_NAMES, Gangster
+    from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
+    from .house_rules import load_house_rules, switchable
     from .state import SCHEMA
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from effects import DebtClear, ScoreAndRank
     from gangster import GANGSTER_ATTR_NAMES, Gangster
+    from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
+    from house_rules import load_house_rules, switchable
     from state import SCHEMA
 from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
 
@@ -472,12 +477,29 @@ def _roll_stat(rng: Rng, roll: dict) -> int:
     return rng.range(roll["choices"]) * roll["step"] + roll["base"]
 
 
+def _house_rules_map(cfg_dir: Path, choices: Mapping[str, str]) -> dict[str, str]:
+    """Every switch of the catalogue in ``cfg_dir`` at faithful, then ``choices``."""
+    rules = switchable(load_house_rules(cfg_dir / HOUSE_RULES_FILE))
+    chosen = {rule.id: FAITHFUL for rule in rules}
+    for rule_id, setting in choices.items():
+        if rule_id not in chosen:
+            raise ValueError(f"the catalogue offers no switch for house rule {rule_id!r}")
+        if setting not in HOUSE_RULE_SETTINGS:
+            raise ValueError(
+                f"house rule {rule_id!r} is set to {setting!r}; "
+                f"expected one of {list(HOUSE_RULE_SETTINGS)}"
+            )
+        chosen[rule_id] = setting
+    return chosen
+
+
 def new_game(
     *,
     seed: int,
     end_year: int,
     score_weight: float,
     players: list[tuple[str, str]],
+    house_rules: Mapping[str, str] | None = None,
     config_path: str | Path = _DEFAULT_CONFIG,
 ) -> GameState:
     """Build a fresh :class:`GameState` — the ported BASIC new-game setup.
@@ -493,6 +515,12 @@ def new_game(
     players:
         One ``(name, gang_name)`` per player; 1..4 players. Each player's single
         starting gangster is named after the player.
+    house_rules:
+        The setup's house-rules choices, switchable catalogue id -> ``"faithful"`` or
+        ``"intent"``. Every switch the catalogue beside ``config_path`` offers starts
+        at faithful; these override it. An id the catalogue offers no switch for, or
+        another setting, raises ``ValueError``. The full map lands on
+        ``state.config.house_rules``.
     config_path:
         Which ``config.yaml`` to assemble from.
 
@@ -568,6 +596,7 @@ def new_game(
         # Passed as plain YAML dicts: Config deep-freezes them on construction. The
         # x8 score weight is a setup input, so it joins the static params here.
         formula_params={**cfg["formula_params"], "score_mult": score_weight},
+        house_rules=_house_rules_map(cfg_dir, house_rules or {}),
     )
 
     return GameState(

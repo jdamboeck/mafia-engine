@@ -1,0 +1,3 @@
+# house rules — the one-line description setup shows for each switchable entry of
+# content/house_rules.yaml, keyed by its id:  house_rules.<id>: "..."
+house_rules: {}

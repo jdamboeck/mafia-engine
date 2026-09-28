@@ -16,8 +16,9 @@ answer a direction; pressing into a door enters the location, whose menu the run
 offers next; ``m`` leaves the map for the turn menu (the source's exit key, ``:2019``).
 
 A new game shows the title screen, then asks the two setup questions (end year, score
-weight; ``mf-prg.bas:170-176``) unless the caller supplied them. One to four players
-take hot-seat turns.
+weight; ``mf-prg.bas:170-176``) unless the caller supplied them, then offers the
+optional house-rules step (skipped by default; not shown when the config's catalogue
+offers no switch). One to four players take hot-seat turns.
 
 ``p`` at the turn menu or on the map saves (to the ``save`` path / the loaded file /
 ``mafia-save.jsonl``); a ``load`` resumes a save (:func:`_load_session`) in the phase it
@@ -51,6 +52,7 @@ from engine.interactions import (
     TurnMenu,
 )
 from engine.persistence import (
+    MissingHouseRulesError,
     Registries,
     SaveConfigError,
     SchemaVersionError,
@@ -59,7 +61,7 @@ from engine.persistence import (
     save_game,
 )
 from engine.rng import Rng
-from engine.state import GameState
+from engine.state import FAITHFUL, INTENT, GameState
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
@@ -157,6 +159,8 @@ def _load_reason(exc: BaseException, resolver: Resolver) -> str:
         return reason("bad_version", detail=exc)
     if isinstance(exc, SaveConfigError):
         return reason(f"other_{exc.field}", found=exc.found, expected=exc.expected)
+    if isinstance(exc, MissingHouseRulesError):
+        return reason("no_house_rules")
     if isinstance(exc, KeyError):
         return reason("missing_field", detail=exc)
     return reason("corrupt", error_type=type(exc).__name__, detail=exc)
@@ -524,6 +528,50 @@ def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out,
             return value
 
 
+def _ask_house_rules(rules, resolver, out, stdin) -> dict[str, str]:
+    """The optional house-rules step: each switchable rule's setting, faithful by default.
+
+    ``rules`` are the catalogue entries that have a switch; with none the step is not
+    shown. Enter at the offer keeps every rule faithful; the change key opens the list,
+    where a rule's number switches it between faithful and intent and Enter starts the
+    game (any other answer shows the list again). Real EOF raises :class:`EndOfInput`.
+    """
+    chosen = {rule.id: FAITHFUL for rule in rules}
+    if not rules:
+        return chosen
+
+    def read() -> str:
+        line = _read_line_visible(stdin, out)
+        if line == "":
+            raise EndOfInput
+        return line.strip()
+
+    change_key = resolver.resolve("client.house_rules.change_key")
+    render_screen_clear(out)
+    out.write(f"{resolver.resolve('client.house_rules.offer', {'key': change_key})} ")
+    out.flush()
+    if read().lower() != change_key.lower():
+        return chosen
+    while True:
+        render_screen_clear(out)
+        out.write(resolver.resolve("client.house_rules.title") + "\n")
+        for number, rule in enumerate(rules, start=1):
+            entry = {
+                "number": number,
+                "setting": resolver.resolve(f"client.house_rules.setting.{chosen[rule.id]}"),
+                "description": resolver.resolve(f"house_rules.{rule.id}"),
+            }
+            out.write(resolver.resolve("client.house_rules.entry", entry) + "\n")
+        out.write(f"{resolver.resolve('client.house_rules.prompt')} ")
+        out.flush()
+        answer = read()
+        if answer == "":
+            return chosen
+        if answer.isdigit() and 1 <= int(answer) <= len(rules):
+            rule_id = rules[int(answer) - 1].id
+            chosen[rule_id] = INTENT if chosen[rule_id] == FAITHFUL else FAITHFUL
+
+
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
 
@@ -652,13 +700,23 @@ class TerminalSession:
                 out=out,
                 stdin=sys.stdin,
             )
+        # The optional house-rules step: every game, solo or not, goes through it.
+        module = self.cfg.module
+        house_rules = _ask_house_rules(
+            module.house_rules.switchable(module.house_rules.CATALOGUE),
+            resolver,
+            out,
+            sys.stdin,
+        )
         # new_game validates both against input_ranges and stores the weight as
-        # formula_params["score_mult"] -- nothing here sets the config directly.
-        self.state = self.cfg.module.new_game(
+        # formula_params["score_mult"] and the house rules as the frozen map --
+        # nothing here sets the config directly.
+        self.state = module.new_game(
             seed=self.seed,
             end_year=end_year,
             score_weight=score_weight,
             players=self.players or [("alcapone", "the outfit")],
+            house_rules=house_rules,
         )
 
         # The engine turn runner owns the order of every turn from here on; a new

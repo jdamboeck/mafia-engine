@@ -54,6 +54,22 @@ client:
   # Losses block: the name given to a side that has no name of its own.
   side_name: "side {index}"
 
+  # The new-game house-rules step, after the setup questions. Shown only when the
+  # config's catalogue offers a switch; skipped by default (Enter at the offer). Each
+  # rule's description is the theme's house_rules.<id>.
+  house_rules:
+    # {key} is change_key: the answer that opens the list.
+    offer: "house rules: Enter plays every rule as in the original, {key} changes them:"
+    change_key: "h"
+    title: "house rules -- each quirk of the original, played faithfully or as intended:"
+    # {number} picks the entry, {setting} is setting.faithful/intent, {description}
+    # the rule's house_rules.<id>.
+    entry: "{number}. [{setting}] {description}"
+    setting:
+      faithful: "faithful"
+      intent: "intent"
+    prompt: "a number switches that rule, Enter starts the game:"
+
   # A --load file that cannot be resumed: one stderr line, "error" with one reason.
   load:
     error: "cannot load {path}: {reason}"
@@ -66,6 +82,7 @@ client:
       older_version: "the save was made by an older version of the game (save version {found}; this version reads {supported})"
       other_config_id: "the save belongs to another game ({found}, not {expected})"
       other_content_version: "the save was made for another content version of this game ({found}, not {expected})"
+      no_house_rules: "the save stores no house rules"
       missing_field: "save is missing the field {detail}"
       corrupt: "corrupt save ({error_type}: {detail})"
 

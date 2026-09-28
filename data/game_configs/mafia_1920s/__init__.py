@@ -12,6 +12,8 @@ This is the top-level package the engine loads BY PATH (via
   :data:`engine.locations.HANDLERS` is populated),
 * imports :mod:`.gangster` (declaring this game's stat names, which ``StatChange``
   validation reads — :data:`engine.effects.STAT_NAMES`),
+* imports :mod:`.house_rules`, which checks the quirk catalogue
+  (``content/house_rules.yaml``), so a bad entry fails the config load,
 * validates the weapon table, so a weapon requirement naming an undeclared stat is
   refused when the config loads rather than at the first shop visit, and
 * exposes the config's ``new_game`` and ``fnm`` entry points so the engine loader
@@ -29,6 +31,7 @@ from pathlib import Path
 from . import state  # noqa: F401 — registers the config's guard variables on import
 from . import effects  # noqa: F401 — registers the config's own effects on import
 from . import handlers  # noqa: F401 — registers the config's handlers on import
+from . import house_rules  # the quirk catalogue, schema-checked on import
 from .gangster import Gangster
 
 from .combat_rules import build_rules, equipper
@@ -42,6 +45,7 @@ __all__ = [
     "fnm",
     "effects",
     "handlers",
+    "house_rules",
     "state",
     "load_ranks",
     "load_vehicles",

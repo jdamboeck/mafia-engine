@@ -37,8 +37,9 @@ missing key default-filled and an unknown key refused). :func:`save_game` takes 
 for the config's id and content version it stamps in the header; a save loaded under
 another config or content version is refused (:class:`SaveConfigError`), as is a save of
 another :data:`SCHEMA_VERSION` (:class:`SchemaVersionError`) -- nothing upgrades an old
-save. Recordings (``engine.recording``) hold no effects or player state and do not take
-them.
+save. A snapshot whose config stores no house-rules map is refused too
+(:class:`MissingHouseRulesError`): the map is never default-filled. Recordings
+(``engine.recording``) hold no effects or player state and do not take them.
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ __all__ = [
     "SCHEMA_VERSION",
     "SchemaVersionError",
     "SaveConfigError",
+    "MissingHouseRulesError",
     "UnknownEffectError",
     "Registries",
     "SaveData",
@@ -115,6 +117,17 @@ class SaveConfigError(Exception):
         self.found = found
         self.expected = expected
         super().__init__(f"save {field} {found!r} != the loaded config's {expected!r}")
+
+
+class MissingHouseRulesError(Exception):
+    """Raised on load when a save's snapshot stores no house-rules map.
+
+    The map is chosen at setup and changes what the rules do, so a save without it is
+    refused rather than default-filled (docs/design/engine-architecture.md § Save/replay).
+    """
+
+    def __init__(self) -> None:
+        super().__init__("the save's config stores no house_rules map")
 
 
 class UnknownEffectError(TypeError):
@@ -271,8 +284,12 @@ def _config_from_dict(raw: dict) -> Config:
     """Reconstruct ``Config``, restoring the int dict keys JSON stringified.
 
     ``formula_params`` holds opaque nested game data whose sub-dicts may be int-keyed
-    (e.g. ``fnm.overrides``) — restore those.
+    (e.g. ``fnm.overrides``) — restore those. The house-rules map (string ids) comes
+    back as saved; a config with no map raises :class:`MissingHouseRulesError`, never
+    a default: the one saved field that is never default-filled.
     """
+    if "house_rules" not in raw:
+        raise MissingHouseRulesError()
     restored = dict(raw)
     if "formula_params" in restored:
         restored["formula_params"] = _restore_numeric_keys(restored["formula_params"])

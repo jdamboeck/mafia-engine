@@ -779,10 +779,26 @@ def apply(state: GameState, effect: Any) -> GameState:
     ``TypeError``. Other errors surface from that ``apply``: ``IndexError`` for an
     out-of-range target, ``ValueError`` for a bad stat or global value name,
     ``NotImplementedError`` for a deferred effect.
+
+    The game's config (``state.config``: its formula params and house-rules map) is
+    fixed for the game, so an effect whose result changes it raises
+    :class:`ConfigWriteError`: every effect application funnels through here, so no
+    effect -- the engine's or a config's -- can write the house-rules map.
     """
     if not callable(getattr(effect, "apply", None)):
         raise TypeError(f"Unknown effect type: {type(effect).__name__!r} has no apply(state)")
-    return effect.apply(state)
+    new_state = effect.apply(state)
+    if new_state.config is not state.config and new_state.config != state.config:
+        name = effect_tag(effect) or type(effect).__name__
+        raise ConfigWriteError(f"effect {name!r} changed state.config, which is fixed for the game")
+    return new_state
+
+
+class ConfigWriteError(RuntimeError):
+    """An effect's result changed ``state.config`` (formula params, house rules).
+
+    The config is chosen at setup and fixed for the game; no effect may write it.
+    """
 
 
 @dataclass(frozen=True)
