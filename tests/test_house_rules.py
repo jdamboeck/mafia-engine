@@ -392,3 +392,129 @@ def test_an_effect_that_rebuilds_an_equal_config_is_not_refused():
         assert after.values["touched"] is True
     finally:
         EFFECTS.pop("_RebuildsConfig", None)
+
+
+# --------------------------------------------------------------------------- #
+# The map in the rules bundle, the scenario files and the fight lab (U38)      #
+# --------------------------------------------------------------------------- #
+_SCENARIOS = sorted((_CONFIG_DIR / "content" / "scenarios").glob("*.yaml"))
+
+
+def test_an_in_game_fight_is_built_under_the_games_map():
+    """The collectors fight (``mf-prg.bas:4350``) takes its rules bundle's map from
+    ``state.config.house_rules``, so a recording of it stores the game's choices."""
+    from data.game_configs.mafia_1920s import state as game
+    from data.game_configs.mafia_1920s.gangster import Gangster
+    from data.game_configs.mafia_1920s.state import Business, Debt
+    from engine.interactions import ShowMessage, StartCombat
+    from engine.locations import HANDLERS
+    from engine.state import Clock, Player
+    from engine.upkeep import UPKEEP_HANDLER_KEY
+    from tests.helpers import StubRng
+
+    load_game_config(_CONFIG_DIR)
+    params = yaml.safe_load((_CONFIG_DIR / "config.yaml").read_text(encoding="utf-8"))
+    chosen = {"alpha": "intent", "beta": "faithful"}
+    player = Player(
+        name="alcapone",
+        ka=7500,
+        values=game.values_of(Debt(amount=3000, months=1), Business()),
+        roster=(Gangster(name="alcapone", energie=40, kraft=30, brutalitaet=30),),
+    )
+    state = GameState(
+        players=(player,),
+        clock=Clock(active_player=0, player_count=1),
+        config=Config(formula_params=params["formula_params"], house_rules=chosen),
+    )
+
+    class _Ctx:
+        rng = StubRng()
+
+        def __init__(self) -> None:
+            self.state = state
+
+        def apply(self, effect):
+            pass
+
+    gen = HANDLERS[UPKEEP_HANDLER_KEY](_Ctx())
+    interaction = gen.send(None)
+    while isinstance(interaction, ShowMessage):
+        interaction = gen.send(None)
+    assert isinstance(interaction, StartCombat)
+    assert interaction.scenario is not None and interaction.scenario.rules is not None
+    assert dict(interaction.scenario.rules.house_rules) == chosen
+
+
+@pytest.mark.parametrize("path", _SCENARIOS, ids=lambda p: p.stem)
+def test_each_scenario_file_loads_with_its_all_faithful_map(path, mafia_module):
+    from clients.terminal import fightlab
+
+    hr = mafia_module.house_rules
+    all_faithful = {rule.id: "faithful" for rule in hr.switchable(hr.CATALOGUE)}
+    assert yaml.safe_load(path.read_text(encoding="utf-8"))["house_rules"] == all_faithful
+    scenario = fightlab.load_scenario(path)
+    assert scenario.rules is not None
+    assert dict(scenario.rules.house_rules) == all_faithful
+
+
+def _scenario_without_map(tmp_path: Path, **changes) -> Path:
+    raw = yaml.safe_load((_CONFIG_DIR / "content" / "scenarios" / "kdh_ambush.yaml").read_text())
+    del raw["house_rules"]
+    raw.update(changes)
+    path = tmp_path / "scenario.yaml"
+    _write_yaml(path, raw)
+    return path
+
+
+def test_a_scenario_file_with_no_map_is_refused(tmp_path):
+    from clients.terminal import fightlab
+
+    with pytest.raises(ValueError) as exc:
+        fightlab.load_scenario(_scenario_without_map(tmp_path))
+    assert str(exc.value) == "scenario 'scenario.yaml': stores no house-rules map"
+
+
+def test_a_scenario_file_whose_map_differs_from_the_catalogue_is_refused(tmp_path):
+    from clients.terminal import fightlab
+
+    path = _scenario_without_map(tmp_path, house_rules={"alpha": "intent"})
+    with pytest.raises(ValueError) as exc:
+        fightlab.load_scenario(path)
+    assert str(exc.value) == (
+        "scenario 'scenario.yaml': the catalogue offers no switch for house rule 'alpha'"
+    )
+
+
+def test_the_fight_lab_refuses_a_scenario_with_no_map_in_one_line(capsys, tmp_path):
+    from clients.terminal import fightlab
+
+    path = _scenario_without_map(tmp_path)
+    with pytest.raises(SystemExit) as exc:
+        fightlab.main(["play", "--scenario", str(path)])
+    assert exc.value.code == 1
+    assert capsys.readouterr().err == "scenario 'scenario.yaml': stores no house-rules map\n"
+
+
+def test_the_fight_lab_refuses_a_recording_made_under_another_map_in_one_line(capsys, tmp_path):
+    """The fight lab watches under this config's all-faithful map; a recording made
+    under other choices is refused in one line naming the entry that differs."""
+    from dataclasses import replace as dc_replace
+
+    from clients.terminal import fightlab
+    from data.game_configs.mafia_1920s.combat_rules import build_rules
+    from engine.fight_loop import AiDriver
+    from engine.recording import record_fight, save
+
+    scenario = fightlab.load_scenario(_SCENARIOS[0])
+    scenario = dc_replace(scenario, rules=build_rules({"alpha": "intent"}))
+    _, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
+    path = tmp_path / "other.json"
+    save(recording, path)
+
+    with pytest.raises(SystemExit) as exc:
+        fightlab.main(["watch", "--recording", str(path)])
+    assert exc.value.code == 1
+    assert capsys.readouterr().err == (
+        "house rule 'alpha' differs: the recording was made with 'intent', "
+        "the supplied rules have it unset\n"
+    )

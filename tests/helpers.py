@@ -505,7 +505,7 @@ def build_fight(
             active_fighter=active[1],
         ),
         rng=rng,
-        rules=build_rules() if rules is None else rules,
+        rules=build_rules({}) if rules is None else rules,
     )
 
 

@@ -263,7 +263,7 @@ def upkeep_turn_start(ctx):
             scenario = Scenario.from_encounter(
                 enc.variants[0],
                 active.roster,
-                build_rules(),
+                build_rules(ctx.state.config.house_rules),
                 enemy_attrs=enemy_attrs(debt_params),
                 grid=_backdrop(enc.grid),
                 equip=equipper(_weapon_stats()),

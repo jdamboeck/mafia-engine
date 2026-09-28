@@ -20,10 +20,18 @@ from typing import Any
 
 import yaml
 
-from engine.state import INTENT, GameState
+from engine.state import HOUSE_RULE_SETTINGS, INTENT, GameState
 from engine.types import ConfigValidationError
 
-__all__ = ["CATALOGUE", "CATALOGUE_FILE", "HouseRule", "intent", "load_house_rules", "switchable"]
+__all__ = [
+    "CATALOGUE",
+    "CATALOGUE_FILE",
+    "HouseRule",
+    "check_stored_map",
+    "intent",
+    "load_house_rules",
+    "switchable",
+]
 
 #: Where the catalogue lives, relative to the config directory.
 CATALOGUE_FILE = Path("content") / "house_rules.yaml"
@@ -121,6 +129,31 @@ def load_house_rules(path: str | Path) -> tuple[HouseRule, ...]:
 def switchable(rules: tuple[HouseRule, ...]) -> tuple[HouseRule, ...]:
     """The entries setup offers a switch for, in catalogue order."""
     return tuple(rule for rule in rules if rule.switch)
+
+
+def check_stored_map(stored: Any, rules: tuple[HouseRule, ...]) -> dict[str, str]:
+    """A house-rules map an artifact stores, checked against ``rules``' switches.
+
+    An artifact that replays rules (a fight-lab scenario file) stores the map it runs
+    under. It must hold a setting for exactly the catalogue's switches: a missing map,
+    a missing switch, a switch the catalogue does not offer or an unknown setting
+    raises ``ValueError`` naming it -- never a default (R21).
+    """
+    if not isinstance(stored, dict):
+        raise ValueError("stores no house-rules map")
+    offered = [rule.id for rule in switchable(rules)]
+    for rule_id, setting in stored.items():
+        if rule_id not in offered:
+            raise ValueError(f"the catalogue offers no switch for house rule {rule_id!r}")
+        if setting not in HOUSE_RULE_SETTINGS:
+            raise ValueError(
+                f"house rule {rule_id!r} is set to {setting!r}; "
+                f"expected one of {list(HOUSE_RULE_SETTINGS)}"
+            )
+    for rule_id in offered:
+        if rule_id not in stored:
+            raise ValueError(f"stores no setting for house rule {rule_id!r}")
+    return dict(stored)
 
 
 #: This config's catalogue, checked on import (the config's load).

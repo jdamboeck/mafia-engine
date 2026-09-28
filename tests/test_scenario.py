@@ -52,14 +52,14 @@ def test_from_roster_matches_setup_combat_field_for_field():
         equip=equipper(_weapon_stats()),
     )
     state = setup_combat(roster, **kwargs)
-    scenario = Scenario.from_roster(roster, rules=build_rules(), seed=7, **kwargs)
+    scenario = Scenario.from_roster(roster, rules=build_rules({}), seed=7, **kwargs)
 
     assert scenario.sides == state.sides
     assert scenario.grid == state.grid
     assert scenario.dir_memory is not None
     assert dict(scenario.dir_memory) == dict(state.dir_memory)
     # The two fields setup_combat does not carry, but the scenario does:
-    assert scenario.rules == build_rules()
+    assert scenario.rules == build_rules({})
     assert scenario.seed == 7
 
 
@@ -91,12 +91,12 @@ def test_explicit_scenario_needs_no_gamestate_or_config():
             (Fighter(name="thug", weapon=0, vitality=5, position=101),),
         ),
         grid=(),
-        rules=build_rules(),
+        rules=build_rules({}),
     )
     assert scenario.sides is not None
     assert scenario.sides[0][0].name == "hero"
     assert scenario.sides[1][0].name == "thug"
-    assert scenario.rules == build_rules()
+    assert scenario.rules == build_rules({})
 
 
 def test_a_scenario_defaults_to_an_empty_placeholder():
@@ -142,7 +142,7 @@ def test_a_scenario_with_an_invented_weapon_resolves_a_shot_from_on_fighter_stat
                 ),
             ),
         ),
-        rules=build_rules(),
+        rules=build_rules({}),
     )
     assert scenario.sides is not None
     state = CombatState(sides=scenario.sides, grid=scenario.grid or ())
@@ -183,7 +183,7 @@ def test_scenario_runs_to_a_combat_result_with_no_gamestate():
                 ),
             ),
         ),
-        rules=build_rules(),
+        rules=build_rules({}),
     )
     assert scenario.sides is not None
     state = CombatState(sides=scenario.sides, grid=scenario.grid or ())

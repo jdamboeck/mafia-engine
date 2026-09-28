@@ -681,7 +681,7 @@ class TestWatchAi:
         from engine.rng import Rng
 
         def handler(ctx):
-            result = yield StartCombat(sides=self._sides(), grid=(), rules=build_rules())
+            result = yield StartCombat(sides=self._sides(), grid=(), rules=build_rules({}))
             return result
 
         return run(handler, inp, state=None, rng=Rng(42))

@@ -142,7 +142,7 @@ def _fight(ctx, *, spec, backdrop: str):
     scenario = Scenario.from_encounter(
         spec,
         active.roster,
-        build_rules(),
+        build_rules(ctx.state.config.house_rules),
         # The fixed CPU-enemy stats (mf-prg.bas:30245) are config data.
         enemy_attrs=enemy_attrs(ctx.state.config.formula_params),
         grid=_backdrop(backdrop),

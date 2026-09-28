@@ -48,6 +48,7 @@ from engine.fight_loop import AiDriver, HumanDriver
 from engine.recording import load as load_recording
 from engine.recording import record_fight, replay
 from engine.scenario import Scenario
+from engine.state import FAITHFUL
 from engine.strings import Resolver
 
 from clients.terminal import TerminalInput
@@ -83,6 +84,8 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 #
 #   encounter: kdh_ambush          # names content/encounters/<key>.yaml (the enemy side)
 #   seed: 42                       # optional default seed (--seed overrides)
+#   house_rules: {}                # the house-rules map it runs under (required; {} =
+#                                  # all faithful while the catalogue has no switch)
 #   player:                        # side 1 — invented fighters, no roster needed
 #     - {name: hero, weapon: 5, energie: 20, kraft: 34, brutalitaet: 28}
 
@@ -99,6 +102,18 @@ def _config_helpers():
     return setup, combat_rules, Gangster
 
 
+def _all_faithful_rules() -> Any:
+    """This config's rules bundle under its all-faithful house-rules map.
+
+    fightlab has no game to take a map from, so ``watch`` replays under this one: a
+    recording made under other choices is refused, naming the entry that differs.
+    """
+    from data.game_configs.mafia_1920s import combat_rules, house_rules
+
+    offered = house_rules.switchable(house_rules.CATALOGUE)
+    return combat_rules.build_rules({rule.id: FAITHFUL for rule in offered})
+
+
 def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
     """Load a scenario file into a complete two-sided :class:`~engine.scenario.Scenario`.
 
@@ -112,7 +127,13 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
     activations deep in a fight.
 
     ``seed`` overrides the file's own ``seed:`` (``--seed`` on the command line).
+
+    The file's ``house_rules:`` map is the one the fight's rules bundle is built under.
+    A file with no map, or one whose map does not set exactly the catalogue's switches,
+    is refused with a ``ValueError`` naming the problem (R21).
     """
+    from data.game_configs.mafia_1920s import house_rules
+
     setup, combat_rules, Gangster = _config_helpers()
 
     path = Path(path)
@@ -126,6 +147,10 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
     player_specs = raw.get("player")
     if not player_specs:
         raise ValueError(f"scenario {path.name!r}: missing 'player' (side 1's fighters)")
+    try:
+        chosen = house_rules.check_stored_map(raw.get("house_rules"), house_rules.CATALOGUE)
+    except ValueError as exc:
+        raise ValueError(f"scenario {path.name!r}: {exc}") from None
 
     params = yaml.safe_load((_CONFIG_DIR / "config.yaml").read_text(encoding="utf-8"))[
         "formula_params"
@@ -166,7 +191,7 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
     return Scenario.from_encounter(
         spec,
         roster,
-        combat_rules.build_rules(),
+        combat_rules.build_rules(chosen),
         enemy_attrs=combat_rules.enemy_attrs(params),
         grid=grid,
         equip=equip,
@@ -533,9 +558,9 @@ def watch(
 
         sleeper = time.sleep
 
-    setup, combat_rules, _Gangster = _config_helpers()
-    # Re-attach live rules so a divergence check can re-run the real formulas.
-    recording = load_recording(recording_path, rules=combat_rules.build_rules())
+    # Re-attach live rules so a divergence check can re-run the real formulas. They
+    # carry the all-faithful map, so a recording made under other choices is refused.
+    recording = load_recording(recording_path, rules=_all_faithful_rules())
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     colors = Colors.detect(load_palette(_CONFIG_DIR, "classic"))
     weapon_names = _weapon_names()
@@ -638,10 +663,16 @@ def main(argv: list[str] | None = None) -> None:
     )
 
     args = parser.parse_args(argv)
-    if args.command == "play":
-        play(args.scenario, seed=args.seed, debug=args.debug)
-    elif args.command == "watch":
-        watch(args.recording, debug=args.debug, delay=args.delay)
+    try:
+        if args.command == "play":
+            play(args.scenario, seed=args.seed, debug=args.debug)
+        elif args.command == "watch":
+            watch(args.recording, debug=args.debug, delay=args.delay)
+    except ValueError as exc:
+        # A scenario or recording the lab refuses (a bad weapon id, a missing or
+        # different house-rules map): one readable line, no traceback.
+        print(exc, file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entry point

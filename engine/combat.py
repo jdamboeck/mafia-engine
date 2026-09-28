@@ -50,7 +50,7 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from engine.state import CombatState, Fighter
+from engine.state import HOUSE_RULE_SETTINGS, CombatState, Fighter
 
 if TYPE_CHECKING:
     from engine.combat_ai import AiTarget
@@ -221,6 +221,11 @@ class RulesBundle:
         ((label, bound), ...)``, one ``rng.range(bound)`` per entry in draw order. A
         bound of 0 is never drawn. The game's formula draws WITH these bounds, so the
         two cannot disagree. The engine never calls them.
+    ``house_rules``
+        The game's house-rules map the formulas were built under (a switch id ->
+        :data:`~engine.state.FAITHFUL` / :data:`~engine.state.INTENT`), frozen. Plain
+        data the engine never reads by id: a recording stores it and a replay compares
+        it (:mod:`engine.recording`), so a fight never replays under other choices.
     There is deliberately **no** ``vitality`` entry: the depleting
     resource is the engine's :attr:`~engine.state.Fighter.vitality` SLOT, which the
     engine reads and writes directly. A bundle field naming which attrs key held it
@@ -237,6 +242,16 @@ class RulesBundle:
     damage_fn: Any = None
     hit_draws: Any = None
     damage_draws: Any = None
+    house_rules: Mapping[str, str] = field(default_factory=lambda: _EMPTY_ROLES)
+
+    def __post_init__(self) -> None:
+        for rule_id, setting in self.house_rules.items():
+            if setting not in HOUSE_RULE_SETTINGS:
+                raise ValueError(
+                    f"house rule {rule_id!r} is set to {setting!r}; "
+                    f"expected one of {list(HOUSE_RULE_SETTINGS)}"
+                )
+        object.__setattr__(self, "house_rules", MappingProxyType(dict(self.house_rules)))
 
     def required_keys(self) -> tuple[str, ...]:
         """Every ``attrs`` key this bundle will read off a combatant.

@@ -1010,7 +1010,7 @@ class TestInteractiveCombatThroughTerminalInput:
             result = yield StartCombat(
                 sides=equipped,
                 grid=(),
-                rules=build_rules(),
+                rules=build_rules({}),
                 cpu_sides=cpu_sides,
             )
             return result.winner

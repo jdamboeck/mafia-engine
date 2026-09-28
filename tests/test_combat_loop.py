@@ -403,7 +403,7 @@ def _spec(**kw) -> dict[str, Any]:
     base = dict(
         sides=_combat_state().sides,
         grid=(),
-        rules=build_rules(),
+        rules=build_rules({}),
     )
     base.update(kw)
     return base
@@ -686,7 +686,7 @@ def _observed_fight(*, observes_ai: bool):
     rng = Rng(42)
     result = run_fight(
         sides=_observe_fight_sides(),
-        rules=build_rules(),
+        rules=build_rules({}),
         drivers={1: HumanDriver(), 2: cpu},
         input_source=src,
         rng=rng,
@@ -722,7 +722,7 @@ def test_a_source_that_does_not_opt_in_never_receives_an_observation_frame():
 
     result = run_fight(
         sides=_observe_fight_sides(),
-        rules=build_rules(),
+        rules=build_rules({}),
         drivers={1: HumanDriver(), 2: cpu},
         input_source=strict,
         rng=Rng(42),

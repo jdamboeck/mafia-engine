@@ -71,7 +71,7 @@ def test_scenario_file_enemy_side_equals_from_encounter():
     from_encounter = Scenario.from_encounter(
         enc.variants[0],
         roster,
-        build_rules(),
+        build_rules({}),
         enemy_attrs=enemy_attrs(params),
         grid=grid,
         equip=equipper(weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")),
@@ -153,7 +153,7 @@ def test_b_at_activation_5_renders_activation_4_matching_forward_replay(recordin
     # forward from the decision log and checks the board after EVERY activation against
     # its snapshot, so a clean replay proves each seek target (index 4 included) is
     # exactly the forward-replay board.
-    assert replay(recording, rules=build_rules()) == ReplayReport(diverged=False)
+    assert replay(recording, rules=build_rules({})) == ReplayReport(diverged=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -410,6 +410,7 @@ def test_unknown_weapon_id_fails_at_load_naming_the_id(tmp_path):
     bad = tmp_path / "bad.yaml"
     bad.write_text(
         "encounter: kdh_ambush\n"
+        "house_rules: {}\n"
         "player:\n"
         "  - {name: hero, weapon: 999, energie: 20, kraft: 34, brutalitaet: 28}\n",
         encoding="utf-8",

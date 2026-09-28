@@ -564,7 +564,7 @@ def _prompt_substate_fight_handler(ctx):
         (combat_fighter(name="thug", weapon=6, energie=35, position=6 * 40 + 30),),
     )
     result = yield StartCombat(
-        sides=sides, rules=build_rules(), drivers={1: HumanDriver(), 2: AiDriver()}
+        sides=sides, rules=build_rules({}), drivers={1: HumanDriver(), 2: AiDriver()}
     )
     ctx.apply(("fight", result.winner, tuple(result.losses)))
     return ["done", n, picked]
@@ -675,7 +675,7 @@ def _named_handler(*, fight_player=None, prompt_player=None):
         )
         yield StartCombat(
             sides=sides,
-            rules=build_rules(),
+            rules=build_rules({}),
             drivers={1: HumanDriver(player=fight_player), 2: AiDriver()},
         )
         return None

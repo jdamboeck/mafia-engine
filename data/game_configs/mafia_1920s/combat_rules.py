@@ -16,6 +16,7 @@ it lives with the config so a new game = copy this directory.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
 from engine.combat import RulesBundle
@@ -146,11 +147,15 @@ def equipper(weapon_stats: Any) -> Any:
     return equip
 
 
-def build_rules() -> RulesBundle:
-    """Build this game's :class:`~engine.combat.RulesBundle`.
+def build_rules(house_rules: Mapping[str, str]) -> RulesBundle:
+    """Build this game's :class:`~engine.combat.RulesBundle` under ``house_rules``.
+
+    ``house_rules`` is the game's house-rules map: in a game ``state.config.house_rules``,
+    in a fight-lab scenario the map the scenario file stores. The bundle carries it, so
+    a recording stores it and a replay under other choices is refused.
 
     Takes no equipment lookup: the formulas read stats off the attacker's own
-    ``equipment``, so the bundle carries only formulas and roles.
+    ``equipment``, so the bundle carries only formulas, roles and the map.
     """
     return RulesBundle(
         hit_roles=HIT_ROLES,
@@ -159,6 +164,7 @@ def build_rules() -> RulesBundle:
         damage_fn=damage_roll,
         hit_draws=hit_draws,
         damage_draws=damage_draws,
+        house_rules=house_rules,
     )
 
 

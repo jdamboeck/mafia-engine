@@ -702,7 +702,7 @@ def _ai_spec(**kw):
             (_f(name="thug", weapon=5, energie=20, position=_cell(5, 20)),),
         ),
         grid=(),
-        rules=build_rules(),
+        rules=build_rules({}),
     )
     base.update(kw)
     return base

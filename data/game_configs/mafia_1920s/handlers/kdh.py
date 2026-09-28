@@ -356,7 +356,7 @@ def kdh_collect(ctx):
     scenario = Scenario.from_encounter(
         spec,
         active.roster,
-        build_rules(),
+        build_rules(ctx.state.config.house_rules),
         enemy_attrs=enemy_attrs(params),
         grid=_backdrop(enc.grid),
         equip=equipper(_weapon_stats()),

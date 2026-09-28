@@ -108,7 +108,7 @@ def test_from_encounter_equals_inline_from_roster(
     assert (spec.count, spec.weapon, spec.vitality, spec.name) == (count, weapon, vitality, name)
 
     via_encounter = Scenario.from_encounter(
-        spec, roster, build_rules(), enemy_attrs=attrs, grid=grid, equip=equip
+        spec, roster, build_rules({}), enemy_attrs=attrs, grid=grid, equip=equip
     )
     via_roster = Scenario.from_roster(
         roster,
@@ -119,7 +119,7 @@ def test_from_encounter_equals_inline_from_roster(
         enemy_name=name,
         grid=grid,
         equip=equip,
-        rules=build_rules(),
+        rules=build_rules({}),
     )
     assert via_encounter == via_roster
 
