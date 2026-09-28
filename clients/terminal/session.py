@@ -4,16 +4,14 @@ Composes the client building blocks (:class:`TerminalInput`, the render helpers,
 the movement primitives) into a full game over the mafia_1920s config. It holds no
 rules and no turn order: the engine turn runner (:class:`engine.turns.TurnRunner`)
 owns the order of every turn -- next player, standings and the year-end check on a
-wrap, upkeep, the config's turn-start hooks, a job shift or the free turn, the
-turn-over -- and this session renders what the runner yields (its acknowledgement
-screens, its hooks' and handlers' prompts, narration and fights) and adopts the
-runner's state at every interaction.
+wrap, upkeep, the config's turn-start hooks, a job shift or the free turn and its map
+steps and location visits, the turn-over -- and this session renders what the runner
+yields (its acknowledgement screens, the map-move prompt, the location menu, its
+hooks' and handlers' prompts, narration and fights) and adopts the runner's state at
+every interaction.
 
-The free turn is still played here, on the runner's :class:`~engine.turns.FreeTurn`
-hand-off: walk with W/A/S/D (``engine.movement.try_move``) -> press into a door to
-ENTER one of the locations with a shell -> pick a menu option (the driver runs the
-handler through ``engine.actions.run_option``) -> back on the map; the free turn ends
-when ms hits 0.
+On the map-move prompt W/A/S/D answer a direction; pressing into a door enters the
+location, whose menu the runner offers next.
 
 A new game shows the title screen, then asks the two setup questions (end year, score
 weight; ``mf-prg.bas:170-176``) unless the caller supplied them. One to four players
@@ -37,18 +35,24 @@ from pathlib import Path
 
 import yaml
 
-from engine.actions import run_option
 from engine.config_loader import load_game_config
 from engine.game_end import run_standings
-from engine.interactions import Acknowledge, Heading, ShowMessage
-from engine.locations import available_options, load_location
-from engine.movement import DOWN, LEFT, RIGHT, UP, load_city, try_move
+from engine.interactions import (
+    MAP_SAVE,
+    Acknowledge,
+    Heading,
+    LocationMenu,
+    MapMove,
+    OptionDone,
+    ShowMessage,
+)
 from engine.persistence import Registries, SchemaVersionError, load_game, replay, save_game
 from engine.rng import Rng
 from engine.state import GameState
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
+    LOCATION_CLOSED_SCREEN,
     NEXT_PLAYER,
     PAUSED,
     STANDINGS_SCREEN,
@@ -58,7 +62,6 @@ from engine.turns import (
     UPKEEP_SCREEN,
     WALKING,
     YEAR_END_SCREEN,
-    FreeTurn,
     TurnRunner,
 )
 
@@ -73,7 +76,6 @@ from clients.terminal import (
     client_text,
     hide_cursor,
     install_sigwinch_handler,
-    render_result,
     show_cursor,
 )
 from clients.terminal.ascii_art import location_art, title_screen
@@ -89,8 +91,11 @@ from clients.terminal.renderers import (
 
 _CONFIG_DIR = CONFIG_DIR
 
-#: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
-_MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+#: W/A/S/D -> the map-move prompt's directions; Q (or empty) -> quit. Case-insensitive.
+_MOVE_KEYS = {"w": "up", "s": "down", "a": "left", "d": "right"}
+
+#: A map-move outcome -> the map note that reports it (any other outcome: the hint).
+_OUTCOME_NOTES = {"wall": "client.map.wall", "oob": "client.map.edge"}
 
 #: The map screen's save key and the save target when neither ``--save`` nor
 #: ``--load`` names one (relative, so it lands in the working directory).
@@ -261,41 +266,6 @@ _CODE_TO_CHAR: dict[int, str] = {
 }
 
 
-def _shell_path(location_key: str) -> Path:
-    return _CONFIG_DIR / "content" / "locations" / f"{location_key}.yaml"
-
-
-def _shell_exists(location_key: str) -> bool:
-    """Whether this location has a shell yet.
-
-    The map's door table runs ahead of the shells: city.yaml has doors for all
-    twelve menu locations, but only some have a shell under ``content/locations/``,
-    so walking into the others would otherwise crash on a missing file. Derived from
-    disk rather than a hardcoded list so a new shell needs no edit here to become
-    reachable.
-    """
-    return _shell_path(location_key).is_file()
-
-
-def _load_shell(location_key: str):
-    """Load a location shell by its key (e.g. ``slw``)."""
-    return load_location(yaml.safe_load(_shell_path(location_key).read_text(encoding="utf-8")))
-
-
-def _door_location_map(city_raw: dict) -> dict[int, str]:
-    """Map ``la`` (numeric location id from the door table) -> shell key.
-
-    The decoded city carries ``location`` (the shell key) alongside ``la`` for every door,
-    so a single pass builds the id->key lookup the REPL needs when ``try_move`` reports an
-    ``enter`` with a numeric ``la``.
-    """
-    out: dict[int, str] = {}
-    for door in city_raw.get("doors", []):
-        if "la" in door and "location" in door:
-            out[door["la"]] = door["location"]
-    return out
-
-
 def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Colors) -> None:
     """Draw the 40x25 city with per-cell colors from the C64 color RAM.
 
@@ -377,43 +347,20 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
     render_status_bar_from_state(state, out, resolver, colors)
 
 
-def _run_location(
-    location_key: str,
-    ln: int,
-    state,
-    resolver: Resolver,
-    colors: Colors,
-    inp: TerminalInput,
-    out,
-    rng: Rng,
-    stdin=None,
-):
-    """Show a location's available options and run the one the player picks.
+def _render_location_menu(
+    menu: LocationMenu, resolver: Resolver, colors: Colors, out, stdin=None
+) -> int | None:
+    """Show a location's menu (the runner's :class:`LocationMenu`); return the pick.
 
-    Returns the (possibly new) state. Guard-denied options are excluded by
-    ``available_options`` and never listed. ``leave`` (and an empty choice)
-    returns to the map without running anything.
-
-    ``rng`` is the ONE session RNG constructed in :func:`play` (session-owned; a
-    network transport may move that ownership to the server) and threaded
-    through every handler call for this location. Any handler that draws
-    (``ctx.rng.range``/``ctx.rng.hit``) needs a real :class:`Rng`, not ``None``.
+    Returns the chosen 0-based index, or ``None`` (no valid number) -- the runner then
+    leaves the location without running anything.
     """
     if stdin is None:
         stdin = sys.stdin
-
-    if not _shell_exists(location_key):
-        # No state change, and no move spent beyond try_move's door-step charge.
-        render_screen_clear(out)
-        out.write(resolver.resolve("client.location.closed", {"location": location_key}) + "\n\n")
-        out.flush()
-        return state
-
-    shell = _load_shell(location_key)
-    options = available_options(shell, state, ln)
-    if not options:
+    location_key = menu.location
+    if not menu.options:
         out.write(resolver.resolve("client.location.nothing_to_do") + "\n")
-        return state
+        return None
 
     # Entry prompt sets the scene
     try:
@@ -435,26 +382,17 @@ def _run_location(
     render_header(location_key, out, colors)
     render_body(entry_text, out, colors)
     out.write("\n")
-    for i, opt in enumerate(options):
+    for i, option_id in enumerate(menu.options):
         try:
-            label = resolver.resolve(f"locations.{location_key}.menu.{opt.id}")
+            label = resolver.resolve(f"locations.{location_key}.menu.{option_id}")
         except Exception:
-            label = opt.id
+            label = option_id
         render_menu_option(i, label, out, colors)
     render_prompt(out)
     out.flush()
 
     raw = _read_line_visible(stdin, out).strip()
-
-    if not raw.isdigit() or not (0 <= int(raw) < len(options)):
-        return state  # invalid / empty -> back to the map, no action run
-    chosen = options[int(raw)]
-    if chosen.id == "leave":
-        return state
-
-    result = run_option(shell, chosen.id, state, ln=ln, input_source=inp, rng=rng)
-    render_result(result, out, resolver, colors)
-    return result.state  # adopt (run_option is pure)
+    return int(raw) if raw.isdigit() else None
 
 
 def _render_upkeep_screen(
@@ -606,11 +544,12 @@ class TerminalSession:
         )
         self.cfg = load_game_config(_CONFIG_DIR)
 
+        # The map's drawing data (door glyphs by location); the rules' city is the config's.
         self.city_raw = yaml.safe_load(
             (_CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
         )
-        self.city = load_city(self.city_raw)
-        self.la_to_key = _door_location_map(self.city_raw)
+        assert self.cfg.city is not None, "the mafia_1920s config has a city map"
+        self.city = self.cfg.city
 
         cfg = self.cfg
         self.vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
@@ -736,7 +675,13 @@ class TerminalSession:
         ended or the player quit.
         """
         assert self.state is not None, "state is set by setup or load before any turn"
-        runner = TurnRunner(self.state, self.rng, observe_ai=self.inp.observes_ai)
+        runner = TurnRunner(
+            self.state,
+            self.rng,
+            city=self.cfg.city,
+            shells=self.cfg.shells,
+            observe_ai=self.inp.observes_ai,
+        )
         turns = runner.run(entry, until=until)
         try:
             interaction = next(turns)
@@ -753,18 +698,36 @@ class TerminalSession:
 
     def render(self, interaction):
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``."""
-        if isinstance(interaction, FreeTurn):
-            return self.state if self.map_turn() else _QUIT
-        if isinstance(interaction, Heading):
-            if interaction.key != JOB_SHIFT_SCREEN:
-                raise AssertionError(f"unknown screen heading {interaction.key!r}")
-            render_screen_clear(self.out)
-            render_header(self.text("client.header.job"), self.out, self.colors)
+        if isinstance(interaction, MapMove):
+            return self.map_prompt(interaction)
+        if isinstance(interaction, LocationMenu):
+            return _render_location_menu(interaction, self.resolver, self.colors, self.out)
+        if isinstance(interaction, OptionDone):
+            # Between actions, a status bar off the action's committed state; a
+            # cancelled action committed nothing and shows nothing.
+            if interaction.status != "cancelled":
+                render_status_bar_from_state(self.state, self.out, self.resolver, self.colors)
             return None
+        if isinstance(interaction, Heading):
+            return self.heading(interaction)
         if isinstance(interaction, Acknowledge):
             return self.acknowledge(interaction)
         # A hook's or handler's own interaction: prompts, narration, fights.
         return self.inp(interaction)
+
+    def heading(self, screen: Heading) -> None:
+        """Open one of the runner's own screens under its heading."""
+        out = self.out
+        if screen.key == JOB_SHIFT_SCREEN:
+            render_screen_clear(out)
+            render_header(self.text("client.header.job"), out, self.colors)
+        elif screen.key == LOCATION_CLOSED_SCREEN:
+            # No state change, and no move spent beyond the door step's charge.
+            render_screen_clear(out)
+            out.write(self.text("client.location.closed", dict(screen.params)) + "\n\n")
+            out.flush()
+        else:
+            raise AssertionError(f"unknown screen heading {screen.key!r}")
 
     def acknowledge(self, screen: Acknowledge):
         """Show one of the runner's acknowledgement screens; ``_QUIT`` on a quit key."""
@@ -792,9 +755,16 @@ class TerminalSession:
             return None
         raise AssertionError(f"unknown acknowledgement screen {screen.key!r}")
 
-    def map_turn(self) -> bool:
-        """Play the free turn on the map until ``ms`` runs out; ``False`` on a quit."""
+    def map_prompt(self, prompt: MapMove):
+        """Answer the runner's map-move prompt: a direction, or ``_QUIT``.
+
+        The map is drawn with a note saying what the last move did. A resize redraws,
+        the save key saves (when the prompt offers saving) and redraws, any other key
+        says so and redraws; none of them reaches the runner.
+        """
         out = self.out
+        # What the last move did; a prompt no move preceded (a fresh free turn) hints.
+        self.note = self.text(_OUTCOME_NOTES.get(prompt.outcome or "", "client.map.hint"))
         while True:
             out.write(CLEAR)
             render_map(self.city, self.city_raw, self.state, out, self.resolver, self.colors)
@@ -806,41 +776,15 @@ class TerminalSession:
                 continue
             if _is_quit(key):
                 out.write(self.text("client.bye") + "\n")
-                return False
-
-            if key == _SAVE_KEY:
+                return _QUIT
+            if key == _SAVE_KEY and MAP_SAVE in prompt.commands:
                 self.save()
                 continue
-
-            delta = _MOVE_KEYS.get(key)
-            if delta is None:
+            direction = _MOVE_KEYS.get(key)
+            if direction is None or direction not in prompt.directions:
                 self.note = self.text("client.map.bad_key")
                 continue
-
-            assert self.state is not None, "state is set by setup or load before any turn"
-            result = try_move(self.state, self.city, delta)
-            self.state = result.state
-            payload = result.payload
-            kind = getattr(payload, "kind", None)
-            note_key = {"wall": "client.map.wall", "oob": "client.map.edge"}.get(
-                kind or "", "client.map.hint"
-            )
-            self.note = self.text(note_key)
-            if kind == "enter":
-                key_for_la = self.la_to_key.get(payload.la)
-                if key_for_la is not None:
-                    self.state = _run_location(
-                        key_for_la,
-                        payload.ln,
-                        self.state,
-                        self.resolver,
-                        self.colors,
-                        self.inp,
-                        out,
-                        self.rng,
-                    )
-            if getattr(payload, "turn_over", False):
-                return True
+            return direction
 
     def save(self) -> None:
         """Save the game from the map (``p``) and set the map note to the outcome."""

@@ -27,7 +27,10 @@ Neither, or both, is a load-time :class:`ValueError`.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
+
+import yaml
 
 from engine.conditions import build_context, evaluate, validate
 
@@ -37,6 +40,7 @@ __all__ = [
     "Option",
     "Location",
     "load_location",
+    "load_shells",
     "available_options",
 ]
 
@@ -152,6 +156,30 @@ def load_location(raw: dict) -> Location:
         raise ValueError(f"location 'options' must be a list: {options_raw!r}")
     options = [_parse_option(o) for o in options_raw]
     return Location(key=raw["key"], options=options)
+
+
+def load_shells(directory: str | Path) -> dict[str, Location]:
+    """Parse every location shell (``*.yaml``) in ``directory``, keyed by its ``key``.
+
+    The handlers the shells name must be registered first (the config package's
+    import registers them). A missing directory holds no shells. A malformed shell, or
+    two shells with one key, raises ``ValueError`` naming the file.
+    """
+    directory = Path(directory)
+    shells: dict[str, Location] = {}
+    if not directory.is_dir():
+        return shells
+    for path in sorted(directory.glob("*.yaml")):
+        with path.open("r", encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh)
+        try:
+            shell = load_location(raw)
+        except ValueError as exc:
+            raise type(exc)(f"{path}: {exc}") from None
+        if shell.key in shells:
+            raise ValueError(f"{path}: a second shell with the key {shell.key!r}")
+        shells[shell.key] = shell
+    return shells
 
 
 def available_options(location: Location, state, ln: int | None = None) -> list[Option]:

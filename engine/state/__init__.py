@@ -222,7 +222,8 @@ class Player:
     """A single player: the genre-level fields the engine operates on, plus ``values``.
 
     The engine keeps only what any game in the genre has: identity, cash, score, rank,
-    map position, vehicle, movement points, the roster and the location-entry context.
+    map position, vehicle, movement points, the roster, the location-entry context and
+    the previous tile.
     Everything else a player carries is this game's state, and it lives in ``values``,
     a frozen map the config declares (:class:`StateSchema`). The engine saves and
     restores it without naming a key.
@@ -246,12 +247,18 @@ class Player:
     roster: tuple[Combatant, ...] = ()  # roster[0] is always the boss (see class docstring)
     last_location: int = 0  # ln — within-location tile index 1..9 of the last entry
     last_la: int = 0  # la — location id of the last entry (0 = none)
+    #: ``ll(sp)`` — the ``(la, ln)`` of the last location visit that ENDED this turn:
+    #: the turn runner writes it after each location visit returns (mf-prg.bas:2055
+    #: ``gosub3000:ll(sp)=20*la+ln``) and clears it to ``(0, 0)`` at the turn start
+    #: (:1012 ``ll(sp)=0``). Map sequencing, like ``po``; separate from the entry
+    #: context above, which door entry writes BEFORE the handler runs.
+    previous_tile: tuple[int, int] = (0, 0)
     #: This player's game state, declared by the config (:class:`StateSchema`): a
     #: frozen ``name -> value`` map the engine saves and restores without naming a key.
     values: Mapping[str, Any] = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
-        _coerce_readonly(self, "roster", "values")
+        _coerce_readonly(self, "roster", "values", "previous_tile")
 
 
 @dataclass(frozen=True)

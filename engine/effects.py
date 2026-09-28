@@ -590,6 +590,25 @@ class SetScore:
 
 @register_effect()
 @dataclass(frozen=True)
+class SetPreviousTile:
+    """Set the target player's previous tile ``(la, ln)`` (``ll(sp)``); ``(0, 0)`` clears it.
+
+    The turn runner writes it after each location visit returns (``mf-prg.bas:2055``)
+    and clears it at the turn start (``:1012``).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    la: int = 0
+    ln: int = 0
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        idx = target_index(state, self.player)
+        return _with_player(state, idx, previous_tile=(self.la, self.ln))
+
+
+@register_effect()
+@dataclass(frozen=True)
 class SetTurnPhase:
     """Record where the turn runner re-enters this turn (``clock.turn_phase``).
 

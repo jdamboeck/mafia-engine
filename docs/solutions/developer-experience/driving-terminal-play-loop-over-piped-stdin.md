@@ -42,7 +42,7 @@ unmerged as of this writing — the SHA may be rewritten on merge).
 
 **1. Lines are read before the map loop.** A new game's `play()` reads one line
 for the title screen's "press a key" and one for the first turn-start upkeep
-screen's ack, *before* the map loop (`TerminalSession.map_turn`) reads its first
+screen's ack, *before* the map-move prompt (`TerminalSession.map_prompt`) reads its first
 key. The setup prompts between them read one line each too, unless
 `end_year`/`score_weight` are passed to `play()`, and every later turn change
 adds one more upkeep ack. A scripted stdin whose first line is the first

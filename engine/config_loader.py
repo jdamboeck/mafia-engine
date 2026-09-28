@@ -14,6 +14,11 @@ exposes the config's ``new_game`` callable; a config's guard variables register 
 same way (:data:`engine.conditions.GUARD_VARIABLES`). ``state_schema.yaml`` beside
 ``config.yaml`` declares the config's value maps (:class:`~engine.state.StateSchema`).
 
+The loaded config also exposes its world: its location shells (every
+``content/locations/*.yaml``, parsed against the registered handlers) and its city map
+(``content/map/city.yaml``), so the engine turn runner and every client find them on
+the :class:`LoadedConfig`, never by path.
+
 Layering: this module imports the config *dynamically, by path* — the ``engine/``
 package never statically imports anything under ``data/``.
 """
@@ -31,7 +36,8 @@ import yaml
 
 from engine.conditions import GUARD_VARIABLES
 from engine.effects import EFFECTS, STAT_NAMES
-from engine.locations import HANDLERS
+from engine.locations import HANDLERS, Location, load_shells
+from engine.movement import City, load_city
 from engine.persistence import Registries
 from engine.state import StateSchema
 from engine.types import validate_config
@@ -43,10 +49,17 @@ __all__ = [
     "load_game_config",
     "load_state_schema",
     "STATE_SCHEMA_FILE",
+    "LOCATIONS_DIR",
+    "CITY_FILE",
 ]
 
 #: The file, beside ``config.yaml``, that declares a config's value maps.
 STATE_SCHEMA_FILE = "state_schema.yaml"
+
+#: Where a config keeps its location shells (one ``<key>.yaml`` each), and its city
+#: map, relative to its directory.
+LOCATIONS_DIR = Path("content") / "locations"
+CITY_FILE = Path("content") / "map" / "city.yaml"
 
 #: The Engine<->Config API version this engine speaks (docs/design/config-and-content-contract.md).
 ENGINE_API = 1
@@ -87,6 +100,14 @@ def load_state_schema(path: str | Path) -> StateSchema:
         raise type(exc)(f"{path}: {exc}") from None
 
 
+def _load_city_file(path: Path) -> City | None:
+    """The config's city map, or ``None`` for a config that has none."""
+    if not path.is_file():
+        return None
+    with path.open("r", encoding="utf-8") as fh:
+        return load_city(yaml.safe_load(fh))
+
+
 @dataclass
 class LoadedConfig:
     """A handle over a loaded game config.
@@ -118,6 +139,10 @@ class LoadedConfig:
         The engine's :data:`~engine.effects.STAT_NAMES`: the stat names the config
         declared with :func:`~engine.effects.declare_stat_names` on import, which
         ``StatChange`` validation reads.
+    shells:
+        The config's location shells (:data:`LOCATIONS_DIR`), keyed by location key.
+    city:
+        The config's city map (:data:`CITY_FILE`), or ``None`` when it has none.
     """
 
     config_dir: Path
@@ -129,6 +154,8 @@ class LoadedConfig:
     state_schema: StateSchema
     guard_variables: dict
     stat_names: set[str]
+    shells: dict[str, Location]
+    city: City | None
 
     @property
     def registries(self) -> Registries:
@@ -203,7 +230,7 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
     3. Return a :class:`LoadedConfig` exposing the parsed config, the ``new_game``
        callable, the imported module, the populated ``HANDLERS`` and ``EFFECTS``
        registries, the declared state schema (``state_schema.yaml``), the guard
-       variable registry and the declared stat names.
+       variable registry, the declared stat names, the location shells and the city.
     """
     config_dir = Path(config_dir).resolve()
     if not config_dir.is_dir():
@@ -234,4 +261,6 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
         state_schema=state_schema,
         guard_variables=GUARD_VARIABLES,
         stat_names=STAT_NAMES,
+        shells=load_shells(config_dir / LOCATIONS_DIR),
+        city=_load_city_file(config_dir / CITY_FILE),
     )

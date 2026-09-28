@@ -50,7 +50,7 @@ The engine owns the order of a turn. The config owns every rule in it. The runne
 3. `:1012`: movement points and the job skip.
 4. `:1013`: score truncation and the jail skip.
 5. The turn menu.
-6. The map step (`:2035-2060`): step, roadblock hook, special-cell hook, door entry.
+6. The map step (`:2035-2060`): the map-move prompt; the special-cell hook before a move onto an event cell (569/861), since an armed cell is not a street; the step and the roadblock hook; or the door entry, the location menu and its option, then the previous tile.
 
 The config supplies each rule as a handler under a fixed key, the way `upkeep.turn_start` works today. Score truncation, the job skip, the jail skip, the roadblock and the special cells are game rules, so they are hooks. The runner only calls them in order.
 
@@ -89,9 +89,13 @@ Interaction catalog:
 | `Confirm` | `key` | `bool` or cancel | Yes/no. |
 | `StartCombat` | `scenario` (fighters, arena, rules — one payload) | `CombatResult` | Suspends turn and runs combat sub-FSM. |
 | `LoadSubState` | `kind`, `params` | sub-state result | Nested minigames such as safe-cracking. |
-| Map-move prompt | `keys` (including save and quit) | direction or command | The runner's map step. |
-| Location menu | `options[]` | chosen option | A `PromptChoice` over the location shell. |
-| Acknowledgement | `key`, `params` | `Ack` | Upkeep, turn-over, and standings screens. |
+| `Acknowledge` | `key`, `params`, `player` | `Ack` | The runner's upkeep, turn-over, standings and year-end screens. |
+| `Heading` | `key`, `params` | ignored | Display only: a runner screen opens (the job shift, a location with no shell). |
+| `MapMove` | `outcome`, `directions[]`, `commands[]` (save, quit), `player` | a direction or a command | The runner's map-move prompt, before each map step. `outcome` is what the last answer did (step, enter, wall, edge, special). Save is the driver's: the runner asks again. |
+| `LocationMenu` | `location`, `options[]`, `ln`, `player` | chosen index | The location shell's options whose guard passes. Any other answer leaves the location. |
+| `OptionDone` | `location`, `option`, `status`, `player` | ignored | Display only: the chosen option ran (`completed`, or `cancelled` with nothing committed). |
+
+`MapMove`, `LocationMenu` and `OptionDone` are the runner's own; a handler never yields them.
 
 Every interaction carries an optional player index. It defaults to the active player. An interaction answered by someone else names that player: the freed player's payment at the police station, the defender's side in a gang war, the jailed player's side in a prison brawl. Combat marks each side's controller this way. A client prints its whose-turn line from this field.
 
@@ -345,6 +349,7 @@ Fields of the mixed classes:
 | `Player.tip_target` | value map | This game's tip (`tp`). |
 | `Player.safe_skill` | value map | Game state; unread today. |
 | `Player.last_location`, `.last_la` | keep | Location-entry sequencing (`ln`, `la`), written by door entry. |
+| `Player.previous_tile` | keep | `ll(sp)`, the `(la, ln)` of the last visit this turn: map sequencing, written by the runner after each visit (`:2055`) and cleared at the turn start (`:1012`). |
 | previous tile (`ll`, new) | keep | The runner writes it after each location handler and clears it at turn start: map sequencing. It is saved. |
 | `Player.rented_months` | value map | This game's prepaid rent (`um`). |
 | `Clock.year`, `.month` | keep | The calendar the runner advances on each wrap. The start year is setup data. |
@@ -373,10 +378,10 @@ The engine keeps the guard DSL and a registry of variable resolvers. The config 
 
 | Name | Verdict | Rule |
 |---|---|---|
-| `advance_turn` | keep, as effects | Advancing the active player and the calendar is sequencing. It becomes generic engine effects. The movement-point refill reads the vehicle's `tr`, a game field, so the `:1012` rule becomes a hook that returns the value. |
+| `advance_turn` | keep, as effects | Advancing the active player and the calendar is sequencing. The runner commits it as generic engine effects. The movement-point refill reads the vehicle's `tr`, a game field, so the `:1012` rule is a hook that returns the value. |
 | `start_free_turn` | hook | `:1013` score truncation is a uniform game formula. It becomes the config's hook, built on the engine's C64 float helper. |
 | year-end check | keep | Termination: `year >= end_year`, with `end_year` set by the config. |
-| `police_interrupt_would_fire` | hook | The roadblock gate (`:2041`, rank above 3) is a game rule. It becomes the roadblock hook. |
+| `police_interrupt_would_fire` | hook | The roadblock gate (`:2041`, rank above 3) is a game rule. It is the config's roadblock hook (`turn.roadblock`), asked after each street step; the gate is config code. |
 
 #### Entity contracts (`engine/types/__init__.py`)
 

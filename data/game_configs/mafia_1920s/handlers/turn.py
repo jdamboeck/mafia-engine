@@ -17,6 +17,15 @@ use:
   ``gf(sp)=int(gf(sp)*100)/100``.
 * :data:`~engine.turns.JAIL_HOOK_KEY` — ``:1013`` ``ifgs(sp)thengosub1500:goto1010``.
   A no-op: nothing can jail a player yet, so no turn is spent in jail.
+* :data:`~engine.turns.ROADBLOCK_HOOK_KEY` — ``:2041``
+  ``ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3thengosub6000:goto2060``. A no-op:
+  the roadblock (``gosub6000``) is not built, so its gate
+  (:func:`roadblock_would_fire`) is not asked either -- asking it would draw
+  ``rnd(5)`` for a stop that cannot happen and shift every later draw.
+* :data:`~engine.turns.SPECIAL_CELL_HOOK_KEY` — ``:2045``/``:2046`` the cash-transport
+  and mayor cells (569/861, ``la=13``/``14``), armed by ``:2002``/``:2003`` for the
+  player holding that tip (``tp(sp)=3``/``5``). A no-op: the two flows are not
+  built, so the cell is never armed and stays the street it is on the map.
 
 Handler-API conformance: touches only ``ctx.state`` (read-only), ``ctx.apply(<Effect>)``
 and this config's own helpers. None of them draws from ``ctx.rng`` or asks anything.
@@ -34,7 +43,9 @@ from engine.turns import (
     JAIL_HOOK_KEY,
     JOB_HOOK_KEY,
     MOVEMENT_POINTS_HOOK_KEY,
+    ROADBLOCK_HOOK_KEY,
     SCORE_TRUNCATION_HOOK_KEY,
+    SPECIAL_CELL_HOOK_KEY,
 )
 
 from ..setup import load_vehicles
@@ -46,7 +57,10 @@ __all__ = [
     "has_job",
     "score_truncation",
     "jail",
+    "roadblock",
+    "special_cell",
     "truncated_score",
+    "roadblock_would_fire",
 ]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
@@ -112,5 +126,35 @@ def score_truncation(ctx):
 @register(JAIL_HOOK_KEY)
 def jail(ctx):
     """``:1013`` ``ifgs(sp)``: a jailed player's turn. Never, yet (no jail is built)."""
+    yield from ()
+    return False
+
+
+def roadblock_would_fire(state, ms: int, rng) -> bool:
+    """Whether the ``:2041`` roadblock would stop the active player.
+
+    The source gate is ``ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3``: ``ms`` a
+    multiple of 20, a 1-in-5 roll, and a rank above 3. The ``rank > 3`` term is why a
+    rank-1 player is never stopped; it is checked first, so a player at rank 3 or below
+    draws nothing. ``rng`` supplies ``range(5)`` (``rnd(5)``); ``0`` is the hit.
+    """
+    active = state.players[state.clock.active_player]
+    if active.rank <= 3:  # ra(sp) > 3 -- false at ranks 1..3
+        return False
+    if ms % 20 != 0:
+        return False
+    return rng.range(5) == 0
+
+
+@register(ROADBLOCK_HOOK_KEY)
+def roadblock(ctx):
+    """``:2041`` the roadblock after a street step. A no-op: the stop is not built."""
+    yield from ()
+    return None
+
+
+@register(SPECIAL_CELL_HOOK_KEY)
+def special_cell(ctx, *, cell, la):
+    """``:2045``/``:2046`` the event cells 569/861: never armed yet (no flow is built)."""
     yield from ()
     return False

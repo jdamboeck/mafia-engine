@@ -13,10 +13,10 @@ turn/movement layer from the decompiled BASIC:
   a walkable street (grid code 156, ``ms -= 1``), ENTERS a location if ``p`` is a
   door-table cell (``ms -= 5``, ``po`` unchanged — entering is the action, not a
   move), or is rejected as a WALL. ``ms <= 0`` ends the turn (``mf-prg.bas:2005``).
-* **Police interrupt** — ``mf-prg.bas:2041``: the ``rank > 3`` gate (never fires
-  at rank 1). Only the *gate* is implemented; the roadblock body is not built.
-* **Event cells** — the la=13/14 map-triggered cells (cash transport, mayor hit) are
-  detected and skipped; their flows are not built.
+* **The map step's rules** — the roadblock (``:2041``) and the event cells
+  (``la=13/14``, ``:2045/2046``) are game rules: the engine turn runner
+  (:mod:`engine.turns`) asks the config's hooks for them. :func:`try_move` reports an
+  event cell as ``kind="special"`` and leaves it to that hook.
 
 **The ``ln`` seam (formalized here).** When a move enters a location with resolved
 ``(la, ln)``, a :class:`~engine.effects.SetEntryContext` effect sets the active
@@ -33,8 +33,7 @@ never statically imports anything under ``data/``.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
 
 from engine.actions import EngineResult
 from engine.effects import (
@@ -66,7 +65,7 @@ __all__ = [
     "try_move",
     "advance_turn",
     "start_free_turn",
-    "police_interrupt_would_fire",
+    "DIRECTION_DELTAS",
 ]
 
 # --- Movement deltas on the 40-wide grid (mf-prg.bas:2015-2018) ------------
@@ -75,6 +74,10 @@ LEFT = -1
 RIGHT = 1
 UP = -GRID_WIDTH
 DOWN = GRID_WIDTH
+
+#: The map-move prompt's direction answers (:data:`engine.interactions.MAP_DIRECTIONS`)
+#: -> their deltas on the grid.
+DIRECTION_DELTAS = {"up": UP, "down": DOWN, "left": LEFT, "right": RIGHT}
 
 #: The walkable-street grid code. Only cells with this code may be STEPPED on
 #: (mf-prg.bas:2035/2040). Door cells decode to other codes (e.g. 83, 144), so the
@@ -99,6 +102,8 @@ class City:
     ``doors`` maps a cell index to its ``(la, ln)`` — the RESOLVED door mechanic
     (``syslc(p)``): a move whose TARGET cell is a door entry ENTERS that location,
     it is NOT adjacency. ``special_cells`` maps a cell to its event ``la`` (13/14).
+    ``location_keys`` maps a door's ``la`` to the key of the location shell it opens
+    (a door with no named location is absent).
     """
 
     grid: list[list[int]]
@@ -106,6 +111,7 @@ class City:
     special_cells: dict[int, int]
     cols: int = GRID_WIDTH
     color_grid: list[list[int]] | None = None
+    location_keys: dict[int, str] = field(default_factory=dict)
 
     def code(self, cell: int) -> int:
         """The grid code at absolute cell index ``cell`` (row-major, 40 wide)."""
@@ -122,7 +128,7 @@ class City:
         return self.doors.get(cell)
 
     def is_special(self, cell: int) -> bool:
-        """Whether ``cell`` is an la=13/14 event cell (detected; the flows are not built)."""
+        """Whether ``cell`` is an la=13/14 event cell (the config's special-cell hook)."""
         return cell in self.special_cells
 
 
@@ -130,8 +136,8 @@ def load_city(raw: dict) -> City:
     """Parse a ``city.yaml`` dict (from ``yaml.safe_load``) into a :class:`City`.
 
     Reads ``grid`` (25×40 int codes), ``color_grid`` (25×40 C64 color indices),
-    ``doors`` (list of ``{cell, la, ln, ...}``), and ``special_cells`` (list of
-    ``{cell, la, ...}``). City data is CONFIG-owned; the engine takes it as plain
+    ``doors`` (list of ``{cell, la, ln, location?, ...}``; ``location`` names the shell
+    a door opens), and ``special_cells`` (list of ``{cell, la, ...}``). City data is CONFIG-owned; the engine takes it as plain
     data, never importing it.
     """
     grid = [list(row) for row in raw["grid"]]
@@ -140,13 +146,23 @@ def load_city(raw: dict) -> City:
     if not color_grid or len(color_grid) != len(grid):
         color_grid = [[12] * len(row) for row in grid]
     doors: dict[int, tuple[int, int]] = {}
+    location_keys: dict[int, str] = {}
     for d in raw.get("doors", []) or []:
         doors[d["cell"]] = (d["la"], d["ln"])
+        if d.get("location"):
+            location_keys[d["la"]] = d["location"]
     special: dict[int, int] = {}
     for s in raw.get("special_cells", []) or []:
         special[s["cell"]] = s.get("la", 0)
     cols = (raw.get("dims") or {}).get("cols", GRID_WIDTH)
-    return City(grid=grid, color_grid=color_grid, doors=doors, special_cells=special, cols=cols)
+    return City(
+        grid=grid,
+        color_grid=color_grid,
+        doors=doors,
+        special_cells=special,
+        cols=cols,
+        location_keys=location_keys,
+    )
 
 
 @dataclass
@@ -159,7 +175,8 @@ class MoveResult:
         ``la``/``ln`` carry the resolved location + tile;
       * ``"wall"``     — the target was a wall (no change);
       * ``"oob"``      — the target was out of bounds (no change);
-      * ``"special"``  — the target was an la=13/14 event cell (detected and skipped);
+      * ``"special"``  — the target was an la=13/14 event cell (no change here: the
+        turn runner hands it to the config's special-cell hook);
       * ``"turn_over"``— the turn was already over (``ms <= 0``); no move happened.
 
     ``turn_over`` is ``True`` once the active player's ``ms <= 0`` after the move
@@ -206,8 +223,8 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
        location: commits ``SetEntryContext(la, ln)`` (the ``ln`` seam) +
        ``MsChange(-5)``, emits :class:`~engine.events.EnterLocation`; ``po`` stays put
        (``kind="enter"``, ``la``/``ln`` set), ``status="completed"``.
-    5. Special cell (la=13/14): detected and skipped (the flows are not built) — no events, no
-       effects, ``status="not_implemented"``, ``kind="special"``.
+    5. Special cell (la=13/14): no events, no effects, ``status="not_implemented"``,
+       ``kind="special"`` -- the turn runner asks the config's special-cell hook.
     6. Otherwise a WALL (:2050): reject the move. Emits
        :class:`~engine.events.MoveBlocked` (reason ``"wall"``), no effects,
        ``status="blocked"``, ``kind="wall"``.
@@ -310,7 +327,7 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
             payload=payload,
         )
 
-    # la=13/14 event cells — detected and skipped (no-op); their flows are not built.
+    # la=13/14 event cells — no change here; the turn runner asks the config's hook.
     if city.is_special(target):
         payload = MoveResult(
             kind="special",
@@ -411,21 +428,3 @@ def start_free_turn(state: GameState) -> GameState:
     active = state.players[state.clock.active_player]
     cents = math.floor(round(active.gf * 100, _SCORE_SNAP_DECIMALS))
     return commit(state, [SetScore(cents / 100)]).state
-
-
-def police_interrupt_would_fire(state, ms: int, rng: Any) -> bool:
-    """Whether the roadblock police interrupt would fire (mf-prg.bas:2041).
-
-    The source gate is ``if ms%20==0 and rnd(5)==0 and ra(sp)>3 then <roadblock>``.
-    This returns whether ALL three conditions hold; the roadblock BODY is not built
-    (only the gate is implemented). The ``rank > 3`` term is why a rank-1
-    player is NEVER interrupted.
-
-    ``rng`` supplies ``range(5)`` (``rnd(5)``); ``range(5) == 0`` is the roll hit.
-    """
-    active = state.players[state.clock.active_player]
-    if active.rank <= 3:  # ra(sp) > 3 gate — false at ranks 1..3
-        return False
-    if ms % 20 != 0:
-        return False
-    return rng.range(5) == 0

@@ -53,6 +53,12 @@ __all__ = [
     "LoadSubState",
     "Acknowledge",
     "Heading",
+    "MapMove",
+    "MAP_DIRECTIONS",
+    "MAP_SAVE",
+    "MAP_QUIT",
+    "LocationMenu",
+    "OptionDone",
     "Interaction",
     # Response / control
     "Ack",
@@ -312,6 +318,70 @@ class Heading:
 
     key: str
     params: dict = field(default_factory=dict)
+
+
+#: The map-move prompt's direction answers, and its two command answers.
+MAP_DIRECTIONS = ("up", "down", "left", "right")
+MAP_SAVE = "save"
+MAP_QUIT = "quit"
+
+
+@dataclass(frozen=True)
+class MapMove:
+    """The map-move prompt: the turn runner asks for the next step on the map.
+
+    The runner yields one before every step of the free turn (``mf-prg.bas:2010``).
+    The answer is one of ``directions`` (the runner moves) or one of ``commands``:
+    :data:`MAP_SAVE` and :data:`MAP_QUIT` are offered here because saving is offered
+    only at the turn menu and this prompt. A driver saves the runner's committed
+    state itself; the runner, answered :data:`MAP_SAVE`, asks again with nothing
+    changed. Answered :data:`MAP_QUIT`, the runner stops (a driver may also simply
+    stop driving). Any other answer asks again.
+
+    ``outcome`` is what the previous answer did on the map, so a client can say so:
+    the step's kind (``"step"``, ``"enter"``, ``"wall"``, ``"oob"``, ``"special"``, see
+    :class:`engine.movement.MoveResult`), or ``None`` when no move preceded this prompt
+    (the free turn just opened, or the answer was a command or invalid). ``player`` is
+    the player who moves (``None``: the active player).
+    """
+
+    outcome: str | None = None
+    directions: tuple[str, ...] = MAP_DIRECTIONS
+    commands: tuple[str, ...] = (MAP_SAVE, MAP_QUIT)
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class LocationMenu:
+    """The location menu: a choice over a location shell's available options.
+
+    The turn runner yields one after a door entry. ``location`` is the shell's key,
+    ``options`` the ids of the options whose guard passes, in shell order, and ``ln``
+    the tile entered (``mf-prg.bas:2050``). The answer is the chosen option's 0-based
+    index; anything else — no answer, a non-number, an index out of range — leaves
+    the location without running anything. With no ``options`` there is nothing to
+    choose and any answer leaves. ``player`` is the player inside (``None``: active).
+    """
+
+    location: str
+    options: tuple[str, ...]
+    ln: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class OptionDone:
+    """Display-only: a location option chosen at a :class:`LocationMenu` has run.
+
+    ``status`` is its :data:`~engine.actions.EngineStatus`: ``"completed"``, or
+    ``"cancelled"`` when the player backed out and nothing committed. A client shows
+    the result of the action between actions. The response is ignored.
+    """
+
+    location: str
+    option: str
+    status: str
+    player: int | None = None
 
 
 #: What a handler may yield: the interaction catalog above, as one union. The single

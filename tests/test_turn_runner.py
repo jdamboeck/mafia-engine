@@ -2,9 +2,10 @@
 
 The runner owns the turn order the terminal client used to hold: next player, the round
 standings and year-end check on a wrap, upkeep, the config's turn-start hooks, the free
-turn, the turn-over. These tests drive it headlessly, answering what it yields, and
-hold it to the order the client loop had before it (``test_a_two_player_round...``
-replays that loop with the engine's step-by-step helpers).
+turn and its map steps (``:2000-2065``), the turn-over. These tests drive it
+headlessly, answering what it yields, and hold it to the order the client loop had
+before it (``test_a_two_player_round...`` replays that loop with the engine's
+step-by-step helpers).
 """
 
 from __future__ import annotations
@@ -18,19 +19,24 @@ import pytest
 
 import data.game_configs.mafia_1920s.state as game
 from clients.terminal import CLEAR, CONFIG_DIR, play
-from data.game_configs.mafia_1920s.handlers.turn import truncated_score
+from data.game_configs.mafia_1920s.handlers.turn import roadblock_would_fire, truncated_score
 from data.game_configs.mafia_1920s.state import Job
 from engine.config_loader import load_game_config
-from engine.effects import SetScore
+from engine.effects import MsChange, SetMovementPoints, SetScore
 from engine.interactions import (
+    MAP_QUIT,
+    MAP_SAVE,
     Acknowledge,
     CombatScreen,
     Heading,
+    LocationMenu,
+    MapMove,
+    OptionDone,
     PromptInt,
     ShowMessage,
     run,
 )
-from engine.locations import HANDLERS
+from engine.locations import HANDLERS, Location, Option
 from engine.movement import (
     DOWN,
     LEFT,
@@ -41,13 +47,17 @@ from engine.movement import (
     start_free_turn,
     try_move,
 )
-from engine.persistence import load_game
+from engine.persistence import load_game, save_game
 from engine.rng import Rng
 from engine.turns import (
     GAME_OVER,
+    LOCATION_CLOSED_SCREEN,
     NEXT_PLAYER,
     PAUSED,
+    QUIT,
+    ROADBLOCK_HOOK_KEY,
     SCORE_TRUNCATION_HOOK_KEY,
+    SPECIAL_CELL_HOOK_KEY,
     STANDINGS_SCREEN,
     TURN_OVER_SCREEN,
     TURN_START,
@@ -55,7 +65,6 @@ from engine.turns import (
     UPKEEP_SCREEN,
     WALKING,
     YEAR_END_SCREEN,
-    FreeTurn,
     TurnRunner,
 )
 from engine.upkeep import run_upkeep
@@ -66,14 +75,20 @@ _VEHICLES = _CONFIG.module.load_vehicles(CONFIG_DIR / _CONFIG.config["entities"]
 _TWO = [("alcapone", "the outfit"), ("moran", "north side")]
 
 
-def _city():
+def _city_raw():
     import yaml
 
-    raw = yaml.safe_load((CONFIG_DIR / "content" / "map" / "city.yaml").read_text("utf-8"))
-    return load_city(raw)
+    return yaml.safe_load((CONFIG_DIR / "content" / "map" / "city.yaml").read_text("utf-8"))
 
 
-_CITY = _city()
+_CITY = load_city(_city_raw())
+
+
+def _runner(state, rng, **kw):
+    """A runner over the loaded config's map and shells (``kw`` overrides either)."""
+    kw.setdefault("city", _CONFIG.city)
+    kw.setdefault("shells", _CONFIG.shells)
+    return TurnRunner(state, rng, **kw)
 
 
 def _new_game(players=None, **kw):
@@ -100,6 +115,18 @@ def _walk(state):
     raise AssertionError("the free turn never ended")
 
 
+#: The direction answers in the order :func:`_walk` tries their deltas.
+_WALK_ORDER = (("up", UP), ("left", LEFT), ("down", DOWN), ("right", RIGHT))
+
+
+def _first_step(state) -> str:
+    """The direction :func:`_walk` would take from ``state``: the first that steps."""
+    for name, delta in _WALK_ORDER:
+        if try_move(state, _CITY, delta).payload.kind == "step":
+            return name
+    raise AssertionError("no stepping move")
+
+
 def _answer(interaction):
     """One client for both loops: narration seen, trick 1, a fight surrendered."""
     if isinstance(interaction, PromptInt):
@@ -112,8 +139,9 @@ def _answer(interaction):
 def _drive(runner, gen, *, stop_at_free_turn: int | None = None):
     """Drive ``gen`` answering like a client; return ``(interactions seen, outcome)``.
 
-    A :class:`FreeTurn` is played with :func:`_walk`; the ``stop_at_free_turn``-th one
-    (1-based) stops the drive instead, with outcome ``"stopped"``.
+    A map-move prompt is answered with the step :func:`_walk` would take. The first
+    prompt of the ``stop_at_free_turn``-th free turn (1-based) stops the drive instead,
+    with outcome ``"stopped"``.
     """
     seen: list = []
     free_turns = 0
@@ -121,12 +149,13 @@ def _drive(runner, gen, *, stop_at_free_turn: int | None = None):
         interaction = next(gen)
         while True:
             seen.append(interaction)
-            if isinstance(interaction, FreeTurn):
-                free_turns += 1
-                if free_turns == stop_at_free_turn:
-                    gen.close()
-                    return seen, "stopped"
-                response = _walk(runner.state)
+            if isinstance(interaction, MapMove):
+                if interaction.outcome is None:  # a free turn opens
+                    free_turns += 1
+                    if free_turns == stop_at_free_turn:
+                        gen.close()
+                        return seen, "stopped"
+                response = _first_step(runner.state)
             elif isinstance(interaction, (Acknowledge, Heading)):
                 response = None
             else:
@@ -183,7 +212,7 @@ def test_a_two_player_round_matches_the_client_loop_it_replaced():
     expected = _client_loop_reference(_employed_second_player(), expected_rng)
 
     rng = Rng(1)
-    runner = TurnRunner(_employed_second_player(), rng)
+    runner = _runner(_employed_second_player(), rng)
     seen, outcome = _drive(runner, runner.run(UPKEEP), stop_at_free_turn=2)
 
     assert outcome == "stopped"
@@ -260,22 +289,23 @@ def test_the_year_end_check_does_not_fire_a_month_early():
 def test_the_turn_start_refills_movement_truncates_and_opens_the_free_turn():
     state = _new_game()
     active = replace(state.players[0], ms=0, gf=25.199999)
-    runner = TurnRunner(replace(state, players=(active,)), Rng(42))
+    runner = _runner(replace(state, players=(active,)), Rng(42))
     seen, outcome = _drive(runner, runner.run(TURN_START), stop_at_free_turn=1)
 
     assert outcome == "stopped"
-    assert isinstance(seen[-1], FreeTurn)
+    assert isinstance(seen[-1], MapMove) and seen[-1].player == 0
     assert runner.state.players[0].ms == _VEHICLES[active.vehicle]["tr"]
     assert runner.state.players[0].gf == 25.19
     assert runner.state.clock.turn_phase == WALKING
 
 
 def test_the_turn_over_follows_the_free_turn():
-    runner = TurnRunner(_new_game(_TWO), Rng(42))
+    state = _new_game(_TWO)
+    runner = _runner(state, Rng(42))
     seen, _ = _drive(runner, runner.run(WALKING, until=NEXT_PLAYER))
 
-    assert [type(i) for i in seen] == [FreeTurn, Acknowledge]
-    assert seen[1].key == TURN_OVER_SCREEN and seen[1].player == 0
+    assert [type(i) for i in seen] == [MapMove] * state.players[0].ms + [Acknowledge]
+    assert seen[-1].key == TURN_OVER_SCREEN and seen[-1].player == 0
 
 
 def test_the_config_truncation_hook_and_the_engine_helper_agree():
@@ -317,10 +347,10 @@ def test_a_hook_that_raises_commits_nothing_and_leaves_the_phase():
 # --------------------------------------------------------------------------- #
 def test_a_state_on_the_map_resumes_on_the_map_without_the_turn_start():
     state = replace(_new_game(), clock=replace(_new_game().clock, turn_phase=WALKING))
-    runner = TurnRunner(state, Rng(42))
+    runner = _runner(state, Rng(42))
     gen = runner.run()
 
-    assert isinstance(next(gen), FreeTurn)
+    assert next(gen) == MapMove(player=0)
     gen.close()
     assert runner.state == state, "the resumed turn re-ran something before the map"
 
@@ -374,3 +404,234 @@ def test_a_save_on_the_map_resumes_to_the_same_screen_without_upkeep(monkeypatch
     assert len(screens) == 1, "the resumed game showed more than the map"
     assert "ist an der reihe" not in resumed, "upkeep ran again on resume"
     assert _map_without_note(screens[0], "move: W/A/S/D") == _map_without_note(saved_map, str(save))
+
+
+# --------------------------------------------------------------------------- #
+# The map step, :2000-2065                                                     #
+# --------------------------------------------------------------------------- #
+_DELTA_NAMES = {UP: "up", DOWN: "down", LEFT: "left", RIGHT: "right"}
+
+
+def _approach(cell: int) -> tuple[int, str]:
+    """A street cell next to ``cell`` and the direction that moves from it onto ``cell``."""
+    for delta, name in _DELTA_NAMES.items():
+        start = cell - delta
+        if 0 <= start < 1000 and _CITY.code(start) == 156:
+            return start, name
+    raise AssertionError(f"no street next to {cell}")
+
+
+def _door(location: str, ln: int = 1) -> tuple[int, int]:
+    """``(cell, la)`` of ``location``'s door on tile ``ln``."""
+    door = next(d for d in _city_raw()["doors"] if d.get("location") == location and d["ln"] == ln)
+    return door["cell"], door["la"]
+
+
+def _walking(*, po: int, ms: int, rank: int = 1):
+    """A one-player game on the map at ``po`` with ``ms`` movement points left."""
+    state = _new_game()
+    active = replace(state.players[0], po=po, ms=ms, rank=rank)
+    return replace(state, players=(active,), clock=replace(state.clock, turn_phase=WALKING))
+
+
+def _script(gen, answers):
+    """Drive ``gen`` with ``answers`` for its prompts (display-only ones get ``None``).
+
+    Returns ``(interactions seen, outcome)``; stops at the first turn-over screen with
+    outcome ``"turn_over"``, or when ``answers`` run out with outcome ``"open"``.
+    """
+    answers = list(answers)
+    seen: list = []
+    try:
+        interaction = next(gen)
+        while True:
+            seen.append(interaction)
+            if isinstance(interaction, Acknowledge) and interaction.key == TURN_OVER_SCREEN:
+                gen.close()
+                return seen, "turn_over"
+            if isinstance(interaction, (MapMove, LocationMenu)):
+                if not answers:
+                    gen.close()
+                    return seen, "open"
+                response = answers.pop(0)
+            else:
+                response = _answer(interaction)
+            interaction = gen.send(response)
+    except StopIteration as stop:
+        return seen, stop.value
+
+
+def _types(seen) -> list[type]:
+    return [type(i) for i in seen]
+
+
+def test_walking_until_the_movement_points_run_out_ends_the_turn_with_no_menu():
+    state = _walking(po=_approach(_door("pub")[0])[0], ms=3)
+    runner = _runner(state, Rng(42))
+    seen, outcome = _drive(runner, runner.run(until=NEXT_PLAYER))
+
+    # :2042 goto2005 -> ms<=0 return: three steps, then straight to the turn-over.
+    assert outcome == PAUSED
+    assert _types(seen) == [MapMove] * 3 + [Acknowledge]
+    assert [m.outcome for m in seen[:3]] == [None, "step", "step"]
+    assert seen[-1].key == TURN_OVER_SCREEN
+    assert runner.state.players[0].ms == 0
+
+
+def test_a_location_handler_that_gives_points_back_continues_the_map():
+    door, la = _door("pub")
+    start, into = _approach(door)
+    given: list = []
+
+    def refuel(ctx):
+        ctx.apply(SetMovementPoints(10))
+        given.append(True)
+        yield from ()
+
+    def sit(ctx):
+        yield from ()
+
+    shells = {
+        "pub": Location("pub", [Option("refuel", handler=refuel), Option("sit", handler=sit)])
+    }
+
+    # The door costs the last 5 points; the handler gives 10 back: the map goes on.
+    runner = _runner(_walking(po=start, ms=5), Rng(42), shells=shells)
+    seen, outcome = _script(runner.run(), [into, 0])
+    assert given, "the handler never ran"
+    assert outcome == "open"
+    assert _types(seen) == [MapMove, LocationMenu, OptionDone, MapMove]
+    assert seen[-1].outcome == "enter"
+    assert runner.state.players[0].ms == 10
+
+    # The same visit giving nothing back ends the turn after it, with no map prompt.
+    runner = _runner(_walking(po=start, ms=5), Rng(42), shells=shells)
+    seen, outcome = _script(runner.run(), [into, 1])
+    assert outcome == "turn_over"
+    assert _types(seen) == [MapMove, LocationMenu, OptionDone, Acknowledge]
+
+
+def test_a_config_hook_that_zeroes_the_movement_points_ends_the_turn():
+    def stopped(ctx):
+        active = ctx.state.players[ctx.state.clock.active_player]
+        ctx.apply(MsChange(-active.ms))
+        yield from ()
+
+    state = _walking(po=_approach(_door("pub")[0])[0], ms=10)
+    runner = _runner(state, Rng(42), handlers={**HANDLERS, ROADBLOCK_HOOK_KEY: stopped})
+    seen, outcome = _script(runner.run(), [_first_step(state), "up"])
+
+    assert outcome == "turn_over"
+    assert _types(seen) == [MapMove, Acknowledge]
+    assert runner.state.players[0].ms == 0
+
+
+def test_the_map_prompt_offers_save_and_quit():
+    state = _walking(po=18, ms=10)
+    runner = _runner(state, Rng(42))
+    gen = runner.run()
+
+    prompt = next(gen)
+    assert isinstance(prompt, MapMove)
+    assert MAP_SAVE in prompt.commands and MAP_QUIT in prompt.commands
+    # The driver saves the committed state; the runner asks again, nothing moved.
+    assert gen.send(MAP_SAVE) == MapMove(player=0)
+    assert gen.send("north-by-northwest") == MapMove(player=0)
+    assert runner.state == state
+    with pytest.raises(StopIteration) as stop:
+        gen.send(MAP_QUIT)
+    assert stop.value.value == QUIT
+    assert runner.state.clock.turn_phase == WALKING
+
+
+def test_a_door_to_a_location_without_a_shell_shows_it_closed():
+    door, la = _door("sgl")
+    start, into = _approach(door)
+    runner = _runner(_walking(po=start, ms=20), Rng(42))
+    seen, _ = _script(runner.run(), [into])
+
+    assert seen[1] == Heading(LOCATION_CLOSED_SCREEN, {"location": "sgl"})
+    assert isinstance(seen[2], MapMove) and seen[2].outcome == "enter"
+
+
+def test_the_location_menu_lists_only_the_options_whose_guard_passes():
+    door, _ = _door("pub")
+    start, into = _approach(door)
+    runner = _runner(_walking(po=start, ms=20), Rng(42))
+    seen, _ = _script(runner.run(), [into])
+
+    # pub.recruit is guarded rank > 4; a rank-1 player is not offered it.
+    assert seen[1] == LocationMenu(location="pub", options=("drink", "tip", "job"), ln=1, player=0)
+
+
+def test_the_default_hooks_change_nothing_and_draw_nothing():
+    # 569 (la=13) is a street on the map; its unarmed hook lets the player step on.
+    start, into = _approach(569)
+    # A rank-5 player stepping to ms=20 meets every :2041 condition but the roll: the
+    # unbuilt roadblock must not draw it.
+    rng = Rng(42)
+    runner = _runner(_walking(po=start, ms=21, rank=5), rng)
+    seen, _ = _script(runner.run(), [into])
+
+    assert runner.state.players[0].po == 569
+    assert runner.state.players[0].ms == 20
+    assert seen[-1] == MapMove(outcome="step", player=0)
+    assert rng.log == []
+
+
+def test_the_special_cell_hook_is_asked_before_a_move_onto_an_event_cell():
+    asked: list = []
+
+    def armed(ctx, *, cell, la):
+        asked.append((cell, la))
+        yield from ()
+        return True
+
+    start, into = _approach(861)
+    runner = _runner(
+        _walking(po=start, ms=10),
+        Rng(42),
+        handlers={**HANDLERS, SPECIAL_CELL_HOOK_KEY: armed},
+    )
+    seen, _ = _script(runner.run(), [into])
+
+    assert asked == [(861, 14)]
+    assert runner.state.players[0].po == start, "the player stepped onto an armed cell"
+    assert seen[-1] == MapMove(outcome="special", player=0)
+
+
+def test_the_roadblock_gate_never_fires_at_rank_three_or_below():
+    """:2041 ``ra(sp)>3``: the gate the config keeps for the roadblock it will build."""
+
+    class _AlwaysHit:
+        def range(self, n):
+            return 0  # rnd(5)==0 would satisfy the roll
+
+    for rank in (1, 3):
+        assert roadblock_would_fire(_walking(po=18, ms=20, rank=rank), 20, _AlwaysHit()) is False
+    state = _walking(po=18, ms=20, rank=4)
+    assert roadblock_would_fire(state, 20, _AlwaysHit()) is True
+    assert roadblock_would_fire(state, 19, _AlwaysHit()) is False
+
+
+# --------------------------------------------------------------------------- #
+# The previous tile, ll(sp)                                                    #
+# --------------------------------------------------------------------------- #
+def test_the_previous_tile_is_written_after_a_visit_and_cleared_at_the_turn_start(tmp_path):
+    door, la = _door("pub", ln=2)
+    start, into = _approach(door)
+    runner = _runner(_walking(po=start, ms=20), Rng(42))
+    # :2055 gosub3000:ll(sp)=20*la+ln -- after the visit, whatever was chosen there.
+    seen, _ = _script(runner.run(), [into, None])
+    assert _types(seen) == [MapMove, LocationMenu, MapMove]
+    assert runner.state.players[0].previous_tile == (la, 2)
+
+    # Saved with the game.
+    save = tmp_path / "ll.jsonl"
+    save_game(save, runner.state, effect_log=[], rng_log=[], seed=42)
+    assert load_game(save, _CONFIG.registries).state.players[0].previous_tile == (la, 2)
+
+    # :1012 ll(sp)=0 at the next turn start.
+    runner = _runner(runner.state, Rng(42))
+    seen, _ = _drive(runner, runner.run(TURN_START), stop_at_free_turn=1)
+    assert runner.state.players[0].previous_tile == (0, 0)

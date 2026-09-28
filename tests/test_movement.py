@@ -380,27 +380,6 @@ def test_truncation_keeps_every_two_decimal_score_and_is_idempotent():
 
 
 # --------------------------------------------------------------------------- #
-# Police interrupt: rank gate (rank>3) is FALSE at rank 1 -> never fires,     #
-# regardless of ms / rng.                                                     #
-# --------------------------------------------------------------------------- #
-def test_police_interrupt_never_fires_at_rank_1():
-    from engine.movement import police_interrupt_would_fire
-
-    # rank 1, and even with ms a multiple of 20 and the rng "hit", the gate is
-    # rank>3 which is false at rank 1.
-    st = _state(po=162, ms=20, rank=1)
-
-    class _AlwaysRng:
-        def range(self, n):
-            return 0  # rnd(5)==0 would satisfy the roll gate
-
-    assert police_interrupt_would_fire(st, ms=20, rng=_AlwaysRng()) is False
-    # And it WOULD be eligible at rank 4+ (the gate is correct for later ranks).
-    st4 = _state(po=162, ms=20, rank=4)
-    assert police_interrupt_would_fire(st4, ms=20, rng=_AlwaysRng()) is True
-
-
-# --------------------------------------------------------------------------- #
 # THE HEADLINE: walk to the pub, recruit denied at rank 1 (guard rank>4).     #
 # --------------------------------------------------------------------------- #
 def test_walk_to_pub_recruit_denied_at_rank_1():
