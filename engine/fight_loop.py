@@ -84,9 +84,16 @@ class Driver:
 
 @dataclass(frozen=True)
 class HumanDriver(Driver):
-    """A client-driven side: the loop yields a :class:`CombatScreen` and prompts."""
+    """A client-driven side: the loop yields a :class:`CombatScreen` and prompts.
+
+    ``player`` is the player who controls the side and answers its screens (the
+    screens carry it as :attr:`CombatScreen.player`); ``None`` means the active
+    player. A fight where another player commands a side — the defender in a gang war,
+    a jailed player in the prison brawl — names that player here.
+    """
 
     kind: str = "human"
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -375,6 +382,7 @@ def _fight_steps(
                 losses=fight.losses,
                 prompt="action",
                 message=message,
+                player=getattr(driver, "player", None),
             )
             raw = yield screen
             message = None

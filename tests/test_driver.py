@@ -645,3 +645,85 @@ def test_step_yields_acknowledge_and_heading_and_sends_back_ack():
     with pytest.raises(StopIteration):
         steps.send(CANCEL)
     assert got == [Ack, Ack]
+
+
+# --------------------------------------------------------------------------- #
+# Who answers: every interaction names its player (KTD-8)                     #
+# --------------------------------------------------------------------------- #
+def _two_player_state(active: int) -> GameState:
+    return GameState(
+        players=(Player(name="alcapone"), Player(name="moran")),
+        clock=Clock(active_player=active, player_count=2),
+    )
+
+
+def _named_handler(*, fight_player=None, prompt_player=None):
+    """A prompt, a sub-state prompt, narration and a fight, each yielded unnamed
+    unless a player is given."""
+    from data.game_configs.mafia_1920s.combat_rules import build_rules
+    from engine.fight_loop import AiDriver, HumanDriver
+    from engine.interactions import StartCombat
+    from tests.helpers import combat_fighter
+
+    def handler(ctx):
+        n = yield PromptInt("how_many", min=1, max=5, player=prompt_player)
+        yield LoadSubState("named_pick", {})
+        yield ShowMessage("picked", {"n": n})
+        sides = (
+            (combat_fighter(name="hero", weapon=5, energie=20, position=6 * 40 + 15),),
+            (combat_fighter(name="thug", weapon=6, energie=35, position=6 * 40 + 30),),
+        )
+        yield StartCombat(
+            sides=sides,
+            rules=build_rules(),
+            drivers={1: HumanDriver(player=fight_player), 2: AiDriver()},
+        )
+        return None
+
+    return handler
+
+
+def _stepped(handler, state):
+    """Drive ``step`` over ``handler``; return every interaction it yielded."""
+    from engine.interactions import CombatScreen, step
+    from engine.substates import SUBSTATES, register_substate
+
+    @register_substate("named_pick")
+    def _pick(ctx, params):
+        return (yield PromptChoice("pick_one", options=["a", "b"]))
+
+    seen = []
+    try:
+        steps = step(handler, state)
+        interaction = next(steps)
+        while True:
+            seen.append(interaction)
+            if isinstance(interaction, CombatScreen):
+                answer = ("surrender", None)
+            elif isinstance(interaction, (PromptInt, PromptChoice)):
+                answer = "1"
+            else:
+                answer = None
+            interaction = steps.send(answer)
+    except StopIteration:
+        pass
+    finally:
+        SUBSTATES.pop("named_pick", None)
+    return seen
+
+
+def test_interactions_carry_the_active_player_by_default():
+    from engine.interactions import CombatScreen
+
+    seen = _stepped(_named_handler(), _two_player_state(active=1))
+
+    assert [type(i) for i in seen] == [PromptInt, PromptChoice, ShowMessage, CombatScreen]
+    assert [i.player for i in seen] == [1, 1, 1, 1]
+    assert seen[-1].to_json()["player"] == 1  # the wire payload names the player too
+
+
+def test_an_interaction_naming_another_player_keeps_that_player():
+    seen = _stepped(_named_handler(fight_player=0, prompt_player=0), _two_player_state(active=1))
+
+    # The prompt and the side's screen name player 0; the rest default to the active 1.
+    assert [i.player for i in seen] == [0, 1, 1, 0]

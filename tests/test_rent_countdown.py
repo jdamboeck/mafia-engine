@@ -142,7 +142,7 @@ def test_fine_when_the_last_month_runs_out():
     assert game.rented_months(p) == 1  # put back to 1, never 0
     assert len(p.roster) == 3  # a fine, not an eviction
     assert MoneyChange(-237) in result.effects
-    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_late", {"amount": 237})]
+    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_late", {"amount": 237}, player=0)]
 
 
 @pytest.mark.parametrize("draw, fine", [(0, 200), (99, 299)])
@@ -173,7 +173,7 @@ def test_fine_is_capped_at_the_cash_on_hand():
     p = result.state.players[0]
     assert p.ka == 0
     assert len(p.roster) == 3  # capped to a nonzero fine: no eviction
-    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_late", {"amount": 150})]
+    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_late", {"amount": 150}, player=0)]
 
 
 def test_fine_equal_to_cash_is_not_capped():
@@ -192,7 +192,7 @@ def test_fine_reads_the_cash_after_this_turns_shop_income():
     assert rng.calls == [("range", 3), ("range", 100), ("range", 100)]
     assert p.ka == 0
     assert len(p.roster) == 3
-    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_late", {"amount": 10})]
+    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_late", {"amount": 10}, player=0)]
 
 
 # --------------------------------------------------------------------------- #
@@ -211,7 +211,7 @@ def test_eviction_at_zero_cash_leaves_only_the_boss():
     assert game.tenant(result.state, 2) == 0  # uk(ln) is never cleared by the source
     assert RosterTruncate(size=1) in result.effects
     assert not any(isinstance(e, MoneyChange) for e in result.effects)
-    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_evicted")]
+    assert _rent_messages(shown) == [ShowMessage("upkeep.rent_evicted", player=0)]
 
 
 def test_eviction_recurs_harmlessly_while_broke():
@@ -219,7 +219,7 @@ def test_eviction_recurs_harmlessly_while_broke():
     for _ in range(2):
         result, shown, _ = _run(state, 0)
         state = result.state
-        assert _rent_messages(shown) == [ShowMessage("upkeep.rent_evicted")]
+        assert _rent_messages(shown) == [ShowMessage("upkeep.rent_evicted", player=0)]
     assert [g.name for g in state.players[0].roster] == ["boss"]
     assert game.rented_months(state.players[0]) == 1
 

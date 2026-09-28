@@ -62,7 +62,8 @@ own screens and prompts: :class:`~engine.interactions.Acknowledge` for the upkee
 turn-over, standings and year-end screens, :class:`~engine.interactions.Heading` where
 the job shift opens its screen and for a closed location, and the map step's
 :class:`~engine.interactions.MapMove`, :class:`~engine.interactions.LocationMenu` and
-:class:`~engine.interactions.OptionDone`.
+:class:`~engine.interactions.OptionDone`. Each screen of its own names the active
+player as its ``player``, as ``step`` does for the hooks' and handlers' interactions.
 
 **One commit per step.** Each hook and handler commits on its own (``step`` folds its
 buffer when it completes), each map move commits, and the runner's own writes — the
@@ -310,12 +311,12 @@ class TurnRunner:
             return False
         # gosub4500 runs BEFORE ja=ja+1/12: the standings show the round just played.
         lines = self._display(run_standings, STANDINGS_HANDLER_KEY, played)
-        yield Acknowledge(STANDINGS_SCREEN, {"lines": lines})
+        yield Acknowledge(STANDINGS_SCREEN, {"lines": lines}, player=clock.active_player)
         # ifint(ja)=x9goto40100: the year-end result, on the advanced state.
         if int(clock.year) < clock.end_year:
             return False
         lines = self._display(run_year_end, YEAR_END_HANDLER_KEY, self.state)
-        yield Acknowledge(YEAR_END_SCREEN, {"lines": lines})
+        yield Acknowledge(YEAR_END_SCREEN, {"lines": lines}, player=clock.active_player)
         return True
 
     def _upkeep(self) -> Generator[Any, Any, None]:
@@ -333,7 +334,7 @@ class TurnRunner:
         # :1012 ms=tr(tm(sp)) ... ll(sp)=0
         self._commit(SetMovementPoints(movement_points), SetPreviousTile())
         if (yield from self._hook(JOB_HOOK_KEY)):
-            yield Heading(JOB_SHIFT_SCREEN)
+            yield Heading(JOB_SHIFT_SCREEN, player=self.state.clock.active_player)
             yield from self._hook(JOB_SHIFT_HANDLER_KEY)
             return TURN_OVER
         yield from self._hook(SCORE_TRUNCATION_HOOK_KEY)
@@ -404,7 +405,9 @@ class TurnRunner:
         if key is None:
             pass  # a door to no named location: nothing inside
         elif shell is None:
-            yield Heading(LOCATION_CLOSED_SCREEN, {"location": key})
+            yield Heading(
+                LOCATION_CLOSED_SCREEN, {"location": key}, player=self.state.clock.active_player
+            )
         else:
             yield from self._location_menu(shell, ln)
         self._commit(SetPreviousTile(la=la, ln=ln))

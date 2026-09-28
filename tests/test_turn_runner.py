@@ -550,7 +550,7 @@ def test_a_door_to_a_location_without_a_shell_shows_it_closed():
     runner = _runner(_walking(po=start, ms=20), Rng(42))
     seen, _ = _script(runner.run(), [into])
 
-    assert seen[1] == Heading(LOCATION_CLOSED_SCREEN, {"location": "sgl"})
+    assert seen[1] == Heading(LOCATION_CLOSED_SCREEN, {"location": "sgl"}, player=0)
     assert isinstance(seen[2], MapMove) and seen[2].outcome == "enter"
 
 

@@ -698,6 +698,7 @@ class TerminalSession:
 
     def render(self, interaction):
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``."""
+        self.announce_player(interaction)
         if isinstance(interaction, MapMove):
             return self.map_prompt(interaction)
         if isinstance(interaction, LocationMenu):
@@ -714,6 +715,20 @@ class TerminalSession:
             return self.acknowledge(interaction)
         # A hook's or handler's own interaction: prompts, narration, fights.
         return self.inp(interaction)
+
+    def announce_player(self, interaction) -> None:
+        """Name the answering player when it is not the active one (``session.whose_turn``).
+
+        Every interaction names who answers it (``player``; ``None`` is the active
+        player). A prompt meant for someone else -- a defender, a freed prisoner -- is
+        announced first, so the right player takes the keyboard.
+        """
+        player = getattr(interaction, "player", None)
+        if player is None or self.state is None or player == self.state.clock.active_player:
+            return
+        name = self.state.players[player].name
+        self.out.write(self.text("session.whose_turn", {"name": name}) + "\n")
+        self.out.flush()
 
     def heading(self, screen: Heading) -> None:
         """Open one of the runner's own screens under its heading."""

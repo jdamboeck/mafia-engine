@@ -28,12 +28,19 @@ the handler when the input source supplies the :data:`CANCEL` sentinel at a
 ``cancellable`` prompt. The handler unwinds through its ``try/finally`` (it does not need
 to catch ``Cancelled``); the driver catches ``Cancelled`` as expected control flow and
 discards the effect buffer.
+
+Who answers: every interaction carries ``player``, the index of the player who answers
+it. ``None`` means the active player, and :func:`step` fills a ``None`` in with the
+active player (``state.clock.active_player``) on everything it yields, so what reaches a
+driver always names its player. An interaction answered by someone else — the freed
+player at ``pol``, a defender's side in a gang war — names that player explicitly, and a
+client announces the change of player before the prompt.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, TypeAlias, overload
 
 from engine.actions import EngineResult, HandlerResult
@@ -80,6 +87,9 @@ class ShowMessage:
 
     key: str
     params: dict = field(default_factory=dict)
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -95,6 +105,9 @@ class PromptInt:
     min: int
     max: int
     cancellable: bool = False
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +121,9 @@ class PromptChoice:
     key: str
     options: list
     cancellable: bool = False
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -115,6 +131,9 @@ class Confirm:
     """Yes/no prompt (BASIC sub ``1110``). The Response is a ``bool``."""
 
     key: str
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -187,6 +206,9 @@ class StartCombat:
     scenario: Any = None
     #: An explicit ``{side: Driver}`` map. Overrides ``cpu_sides`` when present.
     drivers: Any = None
+    #: The player whose handler starts the fight (``None``: the active player). Who
+    #: answers each side's screens is the side's driver's (``HumanDriver.player``).
+    player: int | None = None
 
 
 #: The ``CombatScreen.prompt`` of a display-only observation frame.
@@ -245,6 +267,9 @@ class CombatScreen:
     losses: Any = (0, 0)
     prompt: str = "action"
     message: Any = None
+    #: Who answers this screen: the controller of the acting side
+    #: (:attr:`engine.fight_loop.HumanDriver.player`); ``None``: the active player.
+    player: int | None = None
 
     def to_json(self) -> dict:
         """Return the JSON-serializable payload (plain dicts/lists/scalars only).
@@ -263,6 +288,7 @@ class CombatScreen:
             "losses": list(self.losses),
             "prompt": self.prompt,
             "message": json_safe(self.message) if self.message is not None else None,
+            "player": self.player,
             "fighter": self._active_fighter_panel(json_safe),
         }
 
@@ -288,6 +314,9 @@ class LoadSubState:
 
     kind: Any
     params: dict = field(default_factory=dict)
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -318,6 +347,9 @@ class Heading:
 
     key: str
     params: dict = field(default_factory=dict)
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 #: The map-move prompt's direction answers, and its two command answers.
@@ -525,9 +557,14 @@ def step(
 
     A handler that RAISES commits nothing: its buffered effects are never folded, and
     the exception propagates out of ``step`` (a bug keeps its traceback).
+
+    Every interaction ``step`` yields names its player: one whose ``player`` is ``None``
+    is yielded with the active player's index filled in (``state.clock.active_player``;
+    with no state it stays ``None``).
     """
     ctx = Ctx(state=state, rng=rng)
     gen = handler(ctx)
+    active = _active_player(state)
 
     try:
         interaction = next(gen)  # prime the generator to its first yield
@@ -538,16 +575,18 @@ def step(
                 # commits or discards as ONE atomic action. A Cancelled thrown at a
                 # child prompt propagates out of _run_substate up to the `except
                 # Cancelled` below, unwinding the whole action.
-                response = yield from _run_substate(interaction, ctx)
+                response = yield from _addressed(_run_substate(interaction, ctx), active)
             elif isinstance(interaction, StartCombat):
                 # The combat sub-protocol runs HERE for the same reason: it shares
                 # this ctx, so a fight's effects buffer into the parent action and
                 # commit (or discard) with it.
                 from engine.fight_loop import _run_combat
 
-                response = yield from _run_combat(interaction, ctx, observe_ai=observe_ai)
+                response = yield from _addressed(
+                    _run_combat(interaction, ctx, observe_ai=observe_ai), active
+                )
             else:
-                response = yield from _resolve(interaction)
+                response = yield from _addressed(_resolve(interaction), active)
                 if response is _CANCEL_SIGNAL:
                     # A cancellable prompt was cancelled: unwind the handler. The throw
                     # is owned here (not in _resolve) so that a handler which *catches*
@@ -687,6 +726,30 @@ def run(
                 interaction = steps.throw(_InputExhausted(exhausted.value))
                 continue
             interaction = steps.send(response)
+    except StopIteration as stop:
+        return stop.value
+
+
+def _active_player(state: Any) -> int | None:
+    """The active player's index in ``state``, or ``None`` when it has no turn clock."""
+    clock = getattr(state, "clock", None)
+    return getattr(clock, "active_player", None)
+
+
+def _addressed(inner: Generator[Any, Any, Any], active: int | None) -> Generator[Any, Any, Any]:
+    """Relay ``inner``'s interactions, filling each unnamed ``player`` with ``active``.
+
+    Answers are sent back to ``inner`` unchanged and its return value is returned. An
+    exception thrown in (a driver's :class:`_InputExhausted`) ends the relay where it
+    lands; none of the relayed generators catches one, so it reaches :func:`step`
+    exactly as through a plain ``yield from``.
+    """
+    try:
+        interaction = next(inner)
+        while True:
+            if active is not None and getattr(interaction, "player", active) is None:
+                interaction = replace(interaction, player=active)
+            interaction = inner.send((yield interaction))
     except StopIteration as stop:
         return stop.value
 

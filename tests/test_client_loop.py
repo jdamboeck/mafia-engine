@@ -2330,3 +2330,55 @@ class TestC64NumbersOnScreen:
         rows = {line.split()[0]: line for line in standings.splitlines()[:6] if "$" in line}
         assert re.search(r"\$  22(?![.\d])", rows["alcapone"]), rows
         assert re.search(r"\$  -\.9(?!\d)", rows["moran"]), rows
+
+
+# --------------------------------------------------------------------------- #
+# Who answers: a prompt for another player is announced (KTD-8)                #
+# --------------------------------------------------------------------------- #
+
+
+class TestWhoseTurnLine:
+    """A prompt answered by a player other than the active one is announced first.
+
+    No shipped handler asks another player yet (the gang war and ``pol`` come later),
+    so the game's upkeep hook is swapped, for this session only, for one that asks a
+    single question. The swap is made right after ``play()`` loads the config, since
+    loading re-registers the config's own handlers.
+    """
+
+    _TWO = [("alcapone", "the outfit"), ("moran", "north side")]
+    _WHOSE_TURN = "spieler moran\nist an der reihe..."
+
+    def _play_with_upkeep_asking(self, monkeypatch, player):
+        import clients.terminal.session as session_module
+        from engine.interactions import PromptInt
+        from engine.locations import HANDLERS
+        from engine.upkeep import UPKEEP_HANDLER_KEY
+
+        def asking_upkeep(ctx):
+            yield PromptInt("locations.slw.months_prompt", min=0, max=9, player=player)
+            return None
+
+        real_load = session_module.load_game_config
+
+        def load_then_swap(config_dir):
+            cfg = real_load(config_dir)
+            monkeypatch.setitem(HANDLERS, UPKEEP_HANDLER_KEY, asking_upkeep)
+            return cfg
+
+        monkeypatch.setattr(session_module, "load_game_config", load_then_swap)
+        return run_play(monkeypatch, seed=42, stdin_keys=["3"], players=self._TWO)
+
+    def test_a_prompt_for_another_player_names_that_player_first(self, monkeypatch):
+        output = self._play_with_upkeep_asking(monkeypatch, player=1)
+
+        prompt_at = output.index("wieviele monate willst du mieten")
+        assert self._WHOSE_TURN in output[:prompt_at], "no whose-turn line before the prompt"
+
+    def test_a_prompt_for_the_active_player_names_nobody(self, monkeypatch):
+        output = self._play_with_upkeep_asking(monkeypatch, player=None)
+
+        prompt_at = output.index("wieviele monate willst du mieten")
+        # The upkeep banner comes after the upkeep's prompt, so nothing before it names a
+        # player.
+        assert "ist an der reihe" not in output[:prompt_at], "a whose-turn line was printed"

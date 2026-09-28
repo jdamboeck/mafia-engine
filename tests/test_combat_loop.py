@@ -16,6 +16,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -398,7 +399,7 @@ def _combat_state():
     )
 
 
-def _spec(**kw):
+def _spec(**kw) -> dict[str, Any]:
     base = dict(
         sides=_combat_state().sides,
         grid=(),
