@@ -20,6 +20,7 @@ from . import pub  # noqa: F401 — imported for its @register("pub.recruit") si
 from . import sgl  # noqa: F401 — registers sgl.threat / sob_story / protection / fake_police
 from . import slw  # noqa: F401 — imported for its @register("slw.rent") side effect
 from . import sph  # noqa: F401 — imported for its @register("sph") side effect
+from . import sub  # noqa: F401 — registers sub.platform / sub.train
 from . import turn  # noqa: F401 — registers the engine turn runner's hooks (engine.turns)
 from . import upkeep  # noqa: F401 — registers "upkeep.turn_start" (engine.upkeep.run_upkeep)
 from . import waf  # noqa: F401 — registers waf.buy / waf.train + the weapon_spec sub-state
@@ -37,6 +38,7 @@ __all__ = [
     "sgl",
     "slw",
     "sph",
+    "sub",
     "turn",
     "upkeep",
     "waf",

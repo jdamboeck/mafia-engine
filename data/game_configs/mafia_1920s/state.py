@@ -11,7 +11,7 @@ and effect code stays readable:
   from a player; :func:`write` writes one back into a state (effect side);
   :func:`values_of` flattens views into a value map (construction side).
 * **Scalars.** :func:`gang_name`, :func:`next_rank`, :func:`tip_target`,
-  :func:`rented_months` read one key each.
+  :func:`rented_months`, :func:`safe_skill` read one key each.
 * **Globals.** :func:`tenant` reads ``uk(ln)`` (``"tenancy.<ln>"``, ``-1`` = vacant);
   :func:`hired_ids` reads the ``sg()`` set (``"hired.<id>"`` bools).
 
@@ -52,6 +52,7 @@ __all__ = [
     "next_rank",
     "read",
     "rented_months",
+    "safe_skill",
     "set_tenant",
     "tenant",
     "tenancy_values",
@@ -228,6 +229,11 @@ def tip_target(player: Player) -> int:
 def rented_months(player: Player) -> int:
     """``um(sp)``: prepaid rent months (``:10040``, counted down at ``:4046``)."""
     return _player_value(player, "rented_months")
+
+
+def safe_skill(player: Player) -> int:
+    """``s9(sp)``: the safecracker-manual bonus (set at ``:18052``, read at ``:20111``)."""
+    return _player_value(player, "safe_skill")
 
 
 # --------------------------------------------------------------------------- #

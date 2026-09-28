@@ -280,3 +280,29 @@ house_rules:
       so the reply may be meant to be option 3's, or Jack's gang's, or the source may
       simply reuse ``w``; nothing says which.
     switch: false
+
+  - id: pickpocket_scores_even_when_caught
+    citation: ":18039"
+    quote: "x=1:gosub1160"
+    faithful: >-
+      The subway's pickpocketing scores 1 as soon as the thief sets off, before the
+      safecracker roll (:18040) and the catch roll (:18041), so a thief the police
+      catch (:18042 ``goto26020``) keeps the point; a handbag or a fake necklace
+      scores it too.
+    no_intent: >-
+      The point may reward the attempt, or may be meant only for a success; the source
+      pays it on every path and never takes it back, so no single intended behaviour
+      exists.
+    switch: false
+
+  - id: subway_ticket_lost_on_cancel
+    citation: ":18030"
+    quote: "ka(sp)=ka(sp)-50"
+    faithful: >-
+      The train's 50 $ ticket is paid before the thief is picked (:18035
+      ``gosub1130:ify=0thenreturn``), so answering 0 at the picker, or having no gang,
+      leaves the subway with the ticket gone and nothing stolen.
+    no_intent: >-
+      A ticket bought and not used is plausibly lost; the source may have meant the
+      pick to come first, but nothing says so.
+    switch: false

@@ -237,6 +237,21 @@ formula_params:
   sgl_kill_spread: 100
   sgl_settle_score: 1            # x=1:gosub1160 (:17578, and :17592 before it)
 
+  # sub (Subway-Station) — mf-prg.bas:18000-18052 (handlers/sub.py).
+  sub_ticket_price: 50           # ifka(sp)<50goto1125 / ka(sp)=ka(sp)-50 (:18025-18030)
+  sub_score: 1                   # x=1:gosub1160, paid before the outcome (:18039)
+  sub_manual_roll: 15            # ifint(rnd(1)*15)=10goto18052 (:18040)
+  sub_manual_hit: 10
+  sub_manual_tries: 5            # s9(sp)=5, the safecracker bonus (:18052)
+  sub_catch_divisor: 10          # ifint(rnd(1)*(in/10))goto18045: 0 is caught (:18041)
+  # onint(rnd(1)*4)-(w=2)-(la<>9)goto18047,... (:18045): C64 true is -1, so +1 on the
+  # train (w=2) and +1 away from the railway station (la=9)
+  sub_loot_roll: 4
+  sub_loot_option: 2
+  sub_loot_station_la: 9
+  # the loot by index: the theme key suffix and the cash it brings (:18046-18051)
+  sub_loot: [[handbag, 0], [camera, 50], [pearls, 0], [watch, 100], [wallet, 500], [diamond, 800]]
+
   # The map roadblock — mf-prg.bas:2041, :6000-6036 (handlers/roadblock.py).
   # ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3 (:2041)
   roadblock_every: 20

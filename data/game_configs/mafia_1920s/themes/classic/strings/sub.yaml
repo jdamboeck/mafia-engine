@@ -1,0 +1,30 @@
+# sub (Subway-Station, U-Bahn) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code: handlers/sub.py emits these KEYS and the theme resolves them. The menu
+# is the SEQ file src/sub (research-data/pass-2/location-dialogue.yaml, sub), with its
+# 40-column wrap padding; the rest is mf-prg.bas:18015-18052, printed as the listing
+# prints it. A screen that ends in :1100's "taste druecken!" pause gets it from the
+# client.
+locations:
+  sub:
+    entry_prompt: "DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM..."
+    menu:
+      platform: "LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN"
+      train: "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
+      leave: "ZURUECK ANS TAGESLICHT"
+
+    # --- the train's ticket (18015-18030) ---
+    ticket: "ein u-bahn-ticket kostet dich\n{price} $."                     # 18015-18020
+    confirm: "ok (j/n)?"                                                   # 1110
+
+    # --- the pickpocketing (18035-18052) ---
+    thief_prompt: "welchen spieler setzt du als dieb ein:"                 # 18035
+    stealing: "du stiehlst..."                                             # 18039
+    caught: "...nichts! denn du wirst erwischt!"                           # 18042
+    loot_handbag: "...eine handtasche - nichts wertvolles!"                # 18046
+    loot_camera: "...'nen fotoapparat! er bringt 50 $."                    # 18047
+    loot_pearls: "...eine falsche perlenkette!"                            # 18048
+    loot_watch: "...eine armbanduhr fuer 100 $!"                           # 18049
+    loot_wallet: "...'ne brieftasche mit 500 $!"                           # 18050
+    loot_diamond: "...einen diamanten! der ist 800 $ wert!"                # 18051
+    loot_manual: "...eine anleitung -der safeknacker- ??!"                 # 18052

@@ -1012,6 +1012,70 @@ def _engine_car_theft(v: Values) -> Any:
     return "stolen"
 
 
+# --- :18015-18052 sub, the ticket, the manual, the catch and the loot ----------------
+Q_18025 = q(18025, "ka(sp)<50")
+Q_18030 = q(18030, "ka(sp)=ka(sp)-50")
+Q_18040 = q(18040, "int(rnd(1)*15)=10")
+Q_18041 = q(18041, "int(rnd(1)*(in/10))")
+Q_18045 = q(18045, "int(rnd(1)*4)-(w=2)-(la<>9)")
+Q_18047 = q(18047, "ka(sp)=ka(sp)+50")
+Q_18049 = q(18049, "ka(sp)=ka(sp)+100")
+Q_18050 = q(18050, "ka(sp)=ka(sp)+500")
+Q_18051 = q(18051, "ka(sp)=ka(sp)+800")
+#: :18045's ``on ... goto18047,18048,18049,18050,18051``; 0 falls through to :18046, and
+#: :18046 and :18048 pay nothing.
+_SUB_LOOT = {1: Q_18047, 3: Q_18049, 4: Q_18050, 5: Q_18051}
+
+
+def _basic_pickpocket(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ka(1)": v["ka"], "w": v["w"], "la": v["la"], "in": v["in"]}
+    if v["w"] == 2:  # :18010 ``onwgoto18035,18015``
+        if Q_18025.holds(b):
+            return ("broke", b["ka(1)"])
+        b["ka(1)"] = Q_18030.assign(b)
+    b["rnd(1)"] = v["r0"]
+    if Q_18040.holds(b):
+        return ("manual", b["ka(1)"])
+    b["rnd(1)"] = v["r1"]
+    if not Q_18041.holds(b):
+        return ("caught", b["ka(1)"])
+    b["rnd(1)"] = v["r2"]
+    index = int(Q_18045.expr(b))
+    if index in _SUB_LOOT:
+        b["ka(1)"] = _SUB_LOOT[index].assign(b)
+    return (f"loot {index}", b["ka(1)"])
+
+
+_SUB_ITEMS = ("handbag", "camera", "pearls", "watch", "wallet", "diamond")
+
+
+def _engine_pickpocket(v: Values) -> Any:
+    thief = Gangster(name="t", energie=40, kraft=30, intelligenz=v["in"])
+    player = _player(ka=v["ka"], last_la=v["la"], last_location=1, roster=(thief,))
+    key = "sub.train" if v["w"] == 2 else "sub.platform"
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True
+        if isinstance(interaction, PromptChoice):
+            return 2  # surrender at the arrest (:26030 key 3)
+        return 1  # the thief (:1145)
+
+    run = _drive(HANDLERS[key], _state(player), (v["r0"], v["r1"], v["r2"]), answer)
+    keys = [m.key for m in run.shown]
+    player_after = run.state.players[0]
+    ka = player_after.ka
+    if "system.not_enough_money" in keys:
+        return ("broke", ka)
+    if "locations.sub.loot_manual" in keys:
+        assert game.safe_skill(player_after) == 5
+        return ("manual", ka)
+    if "locations.sub.caught" in keys:
+        return ("caught", ka)
+    (item,) = [k.rsplit("_", 1)[1] for k in keys if k.startswith("locations.sub.loot_")]
+    return (f"loot {_SUB_ITEMS.index(item)}", ka)
+
+
 # --- :17210-17592 sgl, Jack's gang, the payout and what follows -----------------------
 Q_17210 = q(17210, "gz(0)=3-2*(gz(sp)>5)")
 Q_17500 = q(17500, "int(rnd(1)*3)=0")
@@ -2041,6 +2105,23 @@ PORTS: list[Port] = [
         _engine_settle,
     ),
     Port(
+        "sub pickpocketing",
+        (Q_18025, Q_18030, Q_18040, Q_18041, Q_18045, Q_18047, Q_18049, Q_18050, Q_18051),
+        "HANDLERS['sub.platform'], HANDLERS['sub.train'] (sub.pickpocket)",
+        # r0=0.7 is the manual (int(0.7*15)=10); in=10 and below is always caught.
+        _grid(
+            w=(1, 2),
+            la=(8, 9),
+            ka=(49, 50, 1000),
+            r0=(0.0, 0.7, 0.9990234375),
+            r1=R,
+            r2=(0.0, 0.25, 0.5, 0.75, 0.9990234375),
+            **{"in": (0, 5, 10, 11, 40, 99)},
+        ),
+        _basic_pickpocket,
+        _engine_pickpocket,
+    ),
+    Port(
         "pol thank-you",
         (Q_21252, Q_21253, Q_21255_KX, Q_21255_KSP),
         "HANDLERS['pol.free'] (the freed player's thanks)",
@@ -2390,8 +2471,9 @@ def test_every_quote_belongs_to_a_port() -> None:
     assert [quote for quote in QUOTES if quote not in used] == []
 
 
-# A quote must start at a statement or condition boundary and end at one.
-_BEFORE = r"(?:^|:|\bif|then)\s*"
+# A quote must start at a statement or condition boundary and end at one. ``on`` opens
+# the selector expression of an ``on ... goto`` (:18045).
+_BEFORE = r"(?:^|:|\bif|then|\bon)\s*"
 _AFTER = r"\s*(?:$|:|then|goto|gosub)"
 
 

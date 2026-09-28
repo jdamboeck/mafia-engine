@@ -650,6 +650,14 @@ _FAITHFUL_ONLY_TESTS = {
         "tests.test_sgl",
         "test_after_a_won_jack_fight_the_killers_weapon_picks_the_reply",
     ),
+    "pickpocket_scores_even_when_caught": (
+        "tests.test_sub",
+        "test_a_caught_pickpocket_still_keeps_the_score",
+    ),
+    "subway_ticket_lost_on_cancel": (
+        "tests.test_sub",
+        "test_cancelling_the_picker_loses_the_ticket",
+    ),
 }
 
 

@@ -17,6 +17,7 @@ map:
     pol: { char: "\u25c6", color: light_blue }  # ◆ diamond
     aut: { char: "\u25cf", color: purple }      # ● filled circle
     sgl: { char: "\u25a3", color: brown }       # ▣ square in a square
+    sub: { char: "\u25a4", color: green }       # ▤ square with horizontal fill
   # Special cells (dynamic event markers)
   special_cells:
     569: { char: "\u25cc", color: blue }   # ◌ transport

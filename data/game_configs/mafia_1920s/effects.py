@@ -67,6 +67,7 @@ __all__ = [
     "PendingRankReset",
     "RankCommit",
     "RentAccrue",
+    "SafeSkillSet",
     "ScoreAndRank",
     "SetTenancy",
     "ShopChange",
@@ -504,3 +505,21 @@ class VehicleSet:
 
     def apply(self, state: GameState) -> GameState:
         return update_player(state, player=self.player, vehicle=self.vehicle)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class SafeSkillSet:
+    """Set the target player's safecracker bonus ``s9(sp)`` to ``tries``.
+
+    The subway's manual writes it (``:18052`` ``s9(sp)=5``): a set, not an add, so a
+    second manual leaves the bonus at 5. The bank's safe reads it (``:20111``).
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    tries: int
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        idx = target_index(state, self.player)
+        return set_player_value(state, "safe_skill", self.tries, player=idx)

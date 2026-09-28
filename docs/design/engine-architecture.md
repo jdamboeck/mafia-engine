@@ -347,7 +347,7 @@ Fields of the mixed classes:
 | `Player.roster` | keep | Genre-level; `roster[0]` is the player's own combatant. |
 | `Player.jobs`, `.debt`, `.business`, `.contraband`, `.wanted` | value map | As their classes above. |
 | `Player.tip_target` | value map | This game's tip (`tp`). |
-| `Player.safe_skill` | value map | Game state; unread today. |
+| `Player.safe_skill` | value map | Game state: `s9(sp)`, the safecracker-manual bonus (`:18052`, read by the bank at `:20111`). |
 | `Player.last_location`, `.last_la` | keep | Location-entry sequencing (`ln`, `la`), written by door entry. |
 | `Player.previous_tile` | keep | `ll(sp)`, the `(la, ln)` of the last visit this turn: map sequencing, written by the runner after each visit (`:2055`) and cleared at the turn start (`:1012`). |
 | previous tile (`ll`, new) | keep | The runner writes it after each location handler and clears it at turn start: map sequencing. It is saved. |
