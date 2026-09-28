@@ -75,6 +75,8 @@ def _rules(**settings: str) -> dict[str, str]:
         "shared_direction_memory": "faithful",
         "stale_bribe_price": "faithful",
         "flight_odds_by_seat": "faithful",
+        "chief_bribe_negative_months": "faithful",
+        "chief_bribe_empty_answer": "faithful",
     }
     rules.update(settings)
     return rules

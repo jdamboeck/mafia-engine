@@ -7,8 +7,8 @@ that looks this generator up and drives it at every player's turn start, before 
 free turn (or a job shift).
 
 The flow runs in this fixed order
-(``banner -> regen -> rank -> debt -> shop income -> rent -> marks fade -> arms deal
--> job-shift/free-turn``):
+(``banner -> regen -> rank -> debt -> shop income -> rent -> chief-bribe months ->
+marks fade -> arms deal -> job-shift/free-turn``):
 
 * **banner** (``4005-4006``) — announce the active player.
 * **per-gangster energy regen** (``4015-4025``) — ``en += int(kraft/10)+1``, capped at
@@ -17,7 +17,7 @@ The flow runs in this fixed order
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-followed by five resolution slots:
+followed by six resolution slots:
 
 * **debt check** (``4040``, ``4300-4370``) — the loan-shark grace countdown and
   its collectors fight, skipped while the player is jailed (``:4040``
@@ -30,6 +30,8 @@ followed by five resolution slots:
   shop's capital.
 * **rent** (``4045-4046``, ``4600-4652``) — the prepaid-months countdown and the
   late-rent consequence. See RENT below.
+* **chief-bribe months** (``4050``) — ``pl(sp)=pl(sp)+(pl(sp)>0)``: the months bought
+  from the police chief (``pol``, ``:21020``) lose one a month while positive, silently.
 * **marks fade** (``4055-4056``) — two separate 1-in-8 rolls, silent: ``:4055``
   ``ag(sp)=ag(sp)and254`` clears the passport, then ``:4056``
   ``ag(sp)=ag(sp)and253`` the counterfeit mark. The source rolls both every turn;
@@ -53,8 +55,6 @@ belongs to the caller (the client's turn loop, which dispatches ``job.shift`` fo
 employed player) — this generator's ``return []`` handing control back is exactly the hand-off
 point.
 
-Line NOT ported here: ``4050`` (bribe-protection aging) — nothing in this config
-triggers it.
 
 RENT — ``:4045-4046`` and ``:4600-4652``
 ----------------------------------------
@@ -122,7 +122,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.effects import EnergyChange, MoneyChange, RosterTruncate
-from ..effects import DebtChange, DebtClear, MarkSet, RankCommit, RentAccrue, TipClear
+from ..effects import (
+    BribeMonthsChange,
+    DebtChange,
+    DebtClear,
+    MarkSet,
+    RankCommit,
+    RentAccrue,
+    TipClear,
+)
 from ..state import (
     business,
     contraband,
@@ -325,6 +333,13 @@ def upkeep_turn_start(ctx):
                 cash -= fine
         # :4620/:4652 ``goto1100`` is the press-a-key pause, whose ``return`` closes
         # gosub4600 — turn start falls through to :4050 and on to the arms deal.
+
+    # --- 4050: the police chief's months age -----------------------------------
+    # :4050 ``pl(sp)=pl(sp)+(pl(sp)>0)``: true is -1, so a positive count loses one and
+    # 0 or a negative one (pol's negative-month payout) stays. Nothing above this slot
+    # touches pl. A jailed player's months age too: upkeep runs before the jail skip.
+    if wanted(active).bribe_months > 0:
+        ctx.apply(BribeMonthsChange(-1))
 
     # --- 4055-4056: the marks fade, 1 in 8 each (see module docstring) --------
     # Nothing above this slot touches the marks.

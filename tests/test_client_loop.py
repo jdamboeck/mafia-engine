@@ -52,6 +52,7 @@ from tests.helpers import (
     deadline,
     make_walk_script,
     next_turn_by_hand,
+    with_values,
 )
 import data.game_configs.mafia_1920s.state as game
 
@@ -789,6 +790,21 @@ class TestBleReachableByWalking:
         output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "2"])
         assert "closed for renovations" not in output
         assert "WO DRUECKT DER SCHUH?" in output
+
+
+class TestPolReachableByWalking:
+    """pol's one door (cell 910) opens the police station's menu, and leave goes back."""
+
+    def test_pol_reachable_by_walking(self, monkeypatch):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
+        state = new_state(42)
+        walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "pol"))
+        # Splash ack, then leave (menu index 3).
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
+        assert "closed for renovations" not in output
+        assert "WAS HABEN SIE HIER ZU SUCHEN?" in output
 
 
 # --------------------------------------------------------------------------- #
@@ -2344,10 +2360,10 @@ class TestC64NumbersOnScreen:
 class TestWhoseTurnLine:
     """A prompt answered by a player other than the active one is announced first.
 
-    No shipped handler asks another player yet (the gang war and ``pol`` come later),
-    so the game's upkeep hook is swapped, for this session only, for one that asks a
-    single question. The swap is made right after ``play()`` loads the config, since
-    loading re-registers the config's own handlers.
+    The mechanism is proved with the game's upkeep hook swapped, for this session only,
+    for one that asks a single question (the swap is made right after ``play()`` loads
+    the config, since loading re-registers the config's own handlers). ``pol``'s freed
+    player answers the first shipped prompt meant for another player.
     """
 
     _TWO = [("alcapone", "the outfit"), ("moran", "north side")]
@@ -2378,6 +2394,29 @@ class TestWhoseTurnLine:
 
         prompt_at = output.index("wieviele monate willst du mieten")
         assert self._WHOSE_TURN in output[:prompt_at], "no whose-turn line before the prompt"
+
+    def test_the_freed_player_at_pol_is_named_before_their_thank_you(self, monkeypatch, tmp_path):
+        """:21250-21252: alcapone frees moran at pol; moran types the thank-you."""
+        from dataclasses import replace
+
+        state = new_state(42, self._TWO)
+        alcapone = replace(state.players[0], po=950, ka=10_000, ms=20)  # below the door
+        moran = replace(state.players[1], po=911, ka=800)
+        state = replace(state, players=(alcapone, moran))
+        state = with_values(state, game.Wanted(jail_months=2), idx=1)
+
+        # Up into 910, the splash, "free" (menu index 2), inmate 1, yes, 100 $, quit.
+        output, (after, _rng) = _resume_at(
+            monkeypatch, tmp_path, state, "walking", ["w", "", "2", "1", "j", "100", "q"]
+        )
+
+        screen_at = output.index("ihm zum dank (0 - 800):")
+        whose_at = output.index(self._WHOSE_TURN, screen_at)
+        prompt_at = output.index("?", whose_at)
+        assert screen_at < whose_at < prompt_at
+        assert self._WHOSE_TURN not in output[:screen_at], "announced before the screen"
+        assert game.wanted(after.players[1]).jail_months == 0
+        assert after.players[1].ka == 700
 
     def test_a_prompt_for_the_active_player_names_nobody(self, monkeypatch):
         output = self._play_with_upkeep_asking(monkeypatch, player=None)

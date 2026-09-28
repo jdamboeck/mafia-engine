@@ -808,6 +808,122 @@ def _engine_trial(v: Values) -> Any:
     return (after.ka, game.wanted(after).jail_months)
 
 
+# --- :4050 the police chief's months age ---------------------------------------------
+Q_4050 = q(4050, "pl(sp)=pl(sp)+(pl(sp)>0)")
+
+
+def _basic_bribe_aging(v: Values) -> Any:
+    return Q_4050.assign({"sp": 1, "pl(1)": v["pl"]})
+
+
+def _engine_bribe_aging(v: Values) -> Any:
+    run = _drive(
+        HANDLERS["upkeep.turn_start"], _state(_player(wanted=Wanted(bribe_months=v["pl"])))
+    )
+    return game.wanted(run.state.players[0]).bribe_months
+
+
+# --- :21011-21020 pol, the chief bribe ------------------------------------------------
+Q_21011 = q(21011, "p=1000*x")
+Q_21011_ZERO = q(21011, "x=0")
+Q_21015 = q(21015, "ka(sp)<p")
+Q_21020_KA = q(21020, "ka(sp)=ka(sp)-p")
+Q_21020_PL = q(21020, "pl(sp)=pl(sp)+x+1")
+
+
+def _basic_chief(v: Values) -> Any:
+    b = {"sp": 1, "x": v["x"], "ka(1)": v["ka"], "pl(1)": v["pl"]}
+    b["p"] = Q_21011.assign(b)
+    if Q_21011_ZERO.holds(b) or Q_21015.holds(b):
+        return (b["ka(1)"], b["pl(1)"])
+    return (Q_21020_KA.assign(b), Q_21020_PL.assign(b))
+
+
+def _engine_chief(v: Values) -> Any:
+    def answer(interaction: Any) -> Any:
+        # This stepper hands the answer straight to the handler, so it plays the
+        # driver's range check: an answer outside the prompt's bounds is asked again.
+        if not interaction.min <= v["x"] <= interaction.max:
+            raise _AskedAgain
+        return v["x"]
+
+    player = _player(ka=v["ka"], po=909, wanted=Wanted(bribe_months=v["pl"]))
+    run = _drive(HANDLERS["pol.bribe"], _state(player), answer=answer)
+    p = run.state.players[0]
+    return (p.ka, game.wanted(p).bribe_months)
+
+
+# --- :21130-21140 pol, the guards' price ----------------------------------------------
+Q_21130 = q(21130, "p=500*int(rnd(1)*5)+3000")
+Q_21135 = q(21135, "ka(sp)<p")
+Q_21140 = q(21140, "ka(sp)=ka(sp)-p")
+
+
+def _jailed_pair(ka: int, freed_ka: int = 0) -> GameState:
+    """Player 0 active at rank 1 (no phantom), player 1 jailed for 2 months."""
+    state = _state(_player(ka=ka))
+    inmate = _player(name="q", ka=freed_ka, wanted=Wanted(jail_months=2))
+    return replace(
+        state, players=(state.players[0], inmate), clock=Clock(active_player=0, player_count=2)
+    )
+
+
+def _basic_release(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ka(1)": v["ka"], "rnd(1)": v["r"]}
+    b["p"] = Q_21130.assign(b)
+    if Q_21135.holds(b):
+        return b["ka(1)"]
+    return Q_21140.assign(b)
+
+
+def _engine_release(v: Values) -> Any:
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True
+        return 1 if interaction.key == "locations.pol.free_prompt" else 0
+
+    run = _drive(HANDLERS["pol.free"], _jailed_pair(v["ka"]), draws=(0.5, v["r"]), answer=answer)
+    assert run.draws_used == 2
+    return run.state.players[0].ka
+
+
+# --- :21252-21255 pol, the freed player's thanks --------------------------------------
+Q_21252 = q(21252, "y>ka(x)")
+Q_21253 = q(21253, "y>ka(x)ory<0")
+Q_21255_KX = q(21255, "ka(x)=ka(x)-y")
+Q_21255_KSP = q(21255, "ka(sp)=ka(sp)+y")
+
+
+def _basic_thanks(v: Values) -> Any:
+    b = {"sp": 1, "x": 2, "y": v["y"], "ka(1)": 1000, "ka(2)": v["kax"]}
+    if Q_21252.holds(b) or Q_21253.holds(b):
+        return "asked again"
+    return (Q_21255_KSP.assign(b), Q_21255_KX.assign(b))
+
+
+def _engine_thanks(v: Values) -> Any:
+    asks = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True
+        if interaction.key == "locations.pol.free_prompt":
+            return 1
+        asks.append(interaction)
+        if len(asks) > 1:
+            raise _AskedAgain
+        return v["y"]
+
+    # The price (3000) is paid first, so the rescuer starts at 4000 and holds 1000.
+    try:
+        run = _drive(
+            HANDLERS["pol.free"], _jailed_pair(4000, v["kax"]), draws=(0.5, 0.0), answer=answer
+        )
+    except _AskedAgain:
+        return "asked again"
+    return (run.state.players[0].ka, run.state.players[1].ka)
+
+
 # --- :13110-13127 waf range training ------------------------------------------------
 Q_13110 = q(13110, "p=800+200*ra(sp)")
 Q_13116 = q(13116, "ka(sp)<p")
@@ -1667,6 +1783,43 @@ PORTS: list[Port] = [
         ),
         _basic_counterfeit,
         _engine_counterfeit,
+    ),
+    Port(
+        "chief-bribe months age",
+        (Q_4050,),
+        "HANDLERS['upkeep.turn_start'] (chief-bribe months)",
+        _grid(pl=(-3, -1, 0, 1, 2, 7)),
+        _basic_bribe_aging,
+        _engine_bribe_aging,
+    ),
+    Port(
+        "pol chief bribe",
+        (Q_21011, Q_21011_ZERO, Q_21015, Q_21020_KA, Q_21020_PL),
+        "HANDLERS['pol.bribe']",
+        # negative counts pay out (faithful); the cash check is strict.
+        _grid(
+            x=(-40, -3, -2, -1, 0, 1, 2, 3, 10, 40),
+            ka=(0, 999, 1000, 2999, 3000, 10**6),
+            pl=(-2, 0, 2),
+        ),
+        _basic_chief,
+        _engine_chief,
+    ),
+    Port(
+        "pol release price",
+        (Q_21130, Q_21135, Q_21140),
+        "HANDLERS['pol.free'] (the guards' price)",
+        _grid(ka=(0, 2999, 3000, 3500, 4999, 5000, 10**6), r=R),
+        _basic_release,
+        _engine_release,
+    ),
+    Port(
+        "pol thank-you",
+        (Q_21252, Q_21253, Q_21255_KX, Q_21255_KSP),
+        "HANDLERS['pol.free'] (the freed player's thanks)",
+        _grid(y=(-5, -1, 0, 1, 499, 500, 501, 10**6), kax=(0, 1, 500)),
+        _basic_thanks,
+        _engine_thanks,
     ),
     Port(
         "arms-deal payout",

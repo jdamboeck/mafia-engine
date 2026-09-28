@@ -186,3 +186,31 @@ house_rules:
       be refused, capped or allowed is not said anywhere else, so no single intended
       behaviour exists.
     switch: false
+
+  - id: chief_bribe_negative_months
+    citation: ":21011"
+    quote: "p=1000*x:ifx=0thenreturn"
+    faithful: >-
+      The police chief takes any month count the C64 INPUT reads, a negative one
+      included (checked in VICE). For x below 0 the price is below 0, so :21015
+      ``ifka(sp)<p`` never refuses, and :21020 ``ka(sp)=ka(sp)-p:pl(sp)=pl(sp)+x+1``
+      pays the player 1000 $ a month and lowers the bribe months, below 0 from x=-2
+      on. A negative count never ages (:4050 ``pl(sp)=pl(sp)+(pl(sp)>0)``), and any
+      count other than 0 arms the arrest's auto-pay (:26021 ``ifpl(sp)and``).
+    intent: >-
+      Months are bought, not sold: a count below 0 is asked again.
+    switch: true
+
+  - id: chief_bribe_empty_answer
+    citation: ":21011"
+    quote: 'wieviele monate:";x'
+    faithful: >-
+      An empty answer keeps x as it was (checked in VICE), and the last line to write
+      x is the map step into the station's door (:2015-2018 ``x=-1``, ``1``, ``-40``,
+      ``40``). From the street left of the door the player buys one month; from the
+      right (911, where the back exit and the jail put him) he is paid 1000 $, and
+      from below 40000 $ with the bribe months lowered by 39.
+    intent: >-
+      An empty answer buys nothing: it leaves quietly, as 0 does (:21011
+      ``ifx=0thenreturn``).
+    switch: true

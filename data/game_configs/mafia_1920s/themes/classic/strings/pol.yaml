@@ -1,0 +1,37 @@
+# pol (Polizei-Praesidium) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code: handlers/pol.py emits these KEYS and the theme resolves them. The menu
+# is the SEQ file src/pol (research-data/pass-2/location-dialogue.yaml, pol), with its
+# 40-column wrap padding and "@" read as ","; the rest is mf-prg.bas:21010-21255,
+# printed as the listing prints it. A number the source prints between strings takes the
+# spaces C64 PRINT puts around it, except before "$", as the other locations' strings
+# do. A screen that ends in :1100's "taste druecken!" pause gets it from the client; the
+# trial after surrender is police.* (police.yaml).
+locations:
+  pol:
+    entry_prompt: "'WAS HABEN SIE HIER ZU SUCHEN? MACHEN   SIE, DASS SIE RAUS KOMMEN!'"
+    menu:
+      surrender: "'ICH BIN EIN GESUCHTER GANGSTER! ICH    MOECHTE MICH STELLEN.'"
+      bribe: "POLIZEICHEF BESTECHEN"
+      free: "VERSUCHEN, INHAFTIERTEN GANGSTER ZU     BEFREIEN"
+      leave: "LIEBER GAR NICHTS TUN"
+
+    # --- the chief bribe (21010-21030) ---
+    chief_offer: "aha! fuer einen monat untaetigkeit"              # 21010
+    chief_prompt: "nehme ich 1000 $. wieviele monate:"            # 21011
+    chief_broke: "sie sind leider nich fluessig!"                 # 21015
+    chief_done: "danke sehr! nehmen sie den hinter-\nausgang!"    # 21025-21030
+
+    # --- freeing an inmate (21100-21255) ---
+    nobody_jailed: "es ist niemand inhaftiert."                   # 21110
+    free_entry: "{index} {name}"                                  # 21116
+    free_entry_phantom: "{index} irgendjemanden"                  # 21105, 21116
+    # 21115, printed above the list; here the prompt of 21120's ``getx$``, under it.
+    free_prompt: "wen willst du befreien:"
+    free_price: "du brauchst {price}$, um die waerter zu\nbestechen."   # 21130-21131
+    confirm: "ok (j/n)?"                                          # 1110
+    freed: "du konntest den gefangenen befreien!"                 # 21200
+    phantom_leaves: "er bedankt sich und verschwindet..."         # 21205
+    # 21250-21252, addressed to the freed player; ``inputx$`` then prints "?".
+    thank_you: "{name}!\ndu bist von {rescuer} aus dem\nknast befreit worden. wieviel zahlst du\nihm zum dank (0 - {cash}):"
+    thank_you_prompt: "?"

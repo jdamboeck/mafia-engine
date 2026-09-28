@@ -12,6 +12,7 @@ from . import ble  # noqa: F401 — registers ble.passport / ble.counterfeit
 from . import game_end  # noqa: F401 — registers game_end.standings / game_end.year_end
 from . import jobs  # noqa: F401 — registers "job.shift" (the employed-turn flow)
 from . import kdh  # noqa: F401 — registers kdh.borrow/repay/trade/capital/collect
+from . import pol  # noqa: F401 — registers pol.surrender / pol.bribe / pol.free
 from . import police  # noqa: F401 — the police capture module the callers share (no handler)
 from . import roadblock  # noqa: F401 — registers the roadblock hook (turn.roadblock)
 from . import pub  # noqa: F401 — imported for its @register("pub.recruit") side effect
@@ -26,6 +27,7 @@ __all__ = [
     "game_end",
     "jobs",
     "kdh",
+    "pol",
     "police",
     "pub",
     "roadblock",

@@ -56,6 +56,7 @@ except ImportError:  # loaded bare (config dir on sys.path), as setup.py allows
 
 __all__ = [
     "BarrelChange",
+    "BribeMonthsChange",
     "DebtChange",
     "DebtClear",
     "GangsterMarkHired",
@@ -213,6 +214,28 @@ class Jail:
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
         new_wanted = replace(wanted(state.players[idx]), jail_months=self.months)
+        return write(state, new_wanted, player=idx)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class BribeMonthsChange:
+    """Add ``amount`` (signed) to the target player's chief-bribe months ``pl(sp)``.
+
+    ``pol``'s chief bribe adds ``x+1`` (``mf-prg.bas:21020``
+    ``pl(sp)=pl(sp)+x+1``), which is negative for a month count below -1, and upkeep
+    takes one a month while it is positive (``:4050`` ``pl(sp)=pl(sp)+(pl(sp)>0)``).
+    The months live in ``wanted.bribe_months``.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    amount: int
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        idx = target_index(state, self.player)
+        current = wanted(state.players[idx])
+        new_wanted = replace(current, bribe_months=current.bribe_months + self.amount)
         return write(state, new_wanted, player=idx)
 
 

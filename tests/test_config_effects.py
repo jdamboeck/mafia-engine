@@ -81,6 +81,8 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
         fx.BarrelChange(amount=5),
         fx.MarkSet(fake_papers=True, counterfeit=True),
         fx.MarkSet(fake_papers=False),
+        fx.BribeMonthsChange(amount=4),
+        fx.BribeMonthsChange(amount=-1),
         fx.TipSet(tip_type=3),
         fx.TipClear(),
         fx.JobSet(type=2, pending_pay=900, months_left=3),

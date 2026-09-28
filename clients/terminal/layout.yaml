@@ -14,6 +14,7 @@ map:
     sph: { char: "\u25aa", color: yellow }      # ▪ small square
     waf: { char: "\u25b4", color: light_red }   # ▴ up triangle
     ble: { char: "\u25be", color: cyan }        # ▾ down triangle
+    pol: { char: "\u25c6", color: light_blue }  # ◆ diamond
   # Special cells (dynamic event markers)
   special_cells:
     569: { char: "\u25cc", color: blue }   # ◌ transport
