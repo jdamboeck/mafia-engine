@@ -27,8 +27,21 @@ use:
   player holding that tip (``tp(sp)=3``/``5``). A no-op: the two flows are not
   built, so the cell is never armed and stays the street it is on the map.
 
+The turn menu's options (``content/menus/turn.yaml``, ``:1015-1050``) are handlers here
+too; each returns what the runner does next:
+
+* ``turn.overview`` — ``:1200-1245`` the overview: two acknowledgement screens, the
+  player's state (with the passport and counterfeit marks, ``:1220-1222``), then the
+  gang (``:1230-1240``, each gangster as ``:1300-1320`` prints it). Returns nothing:
+  back to the menu (``:1045``).
+* ``turn.walk`` — ``:1035 onxgosub1200,2000,27000``, option 2: returns
+  :data:`~engine.turns.MENU_WALK`.
+* ``turn.next_player`` — ``:1031 ifx=4goto1010``: returns
+  :data:`~engine.turns.MENU_END_TURN`.
+
 Handler-API conformance: touches only ``ctx.state`` (read-only), ``ctx.apply(<Effect>)``
-and this config's own helpers. None of them draws from ``ctx.rng`` or asks anything.
+and this config's own helpers. None of them draws from ``ctx.rng``; only the overview
+yields (display-only screens).
 """
 
 from __future__ import annotations
@@ -37,19 +50,22 @@ import math
 from pathlib import Path
 
 from engine.effects import SetScore
+from engine.interactions import Acknowledge
 from engine.locations import register
 from engine.turns import (
     EARLY_WIN_HOOK_KEY,
     JAIL_HOOK_KEY,
     JOB_HOOK_KEY,
+    MENU_END_TURN,
+    MENU_WALK,
     MOVEMENT_POINTS_HOOK_KEY,
     ROADBLOCK_HOOK_KEY,
     SCORE_TRUNCATION_HOOK_KEY,
     SPECIAL_CELL_HOOK_KEY,
 )
 
-from ..setup import load_vehicles
-from ..state import job
+from ..setup import load_ranks, load_vehicles, load_weapons
+from ..state import contraband, job, rented_months, wanted
 
 __all__ = [
     "early_win",
@@ -61,6 +77,13 @@ __all__ = [
     "special_cell",
     "truncated_score",
     "roadblock_would_fire",
+    "overview",
+    "walk",
+    "next_player",
+    "overview_lines",
+    "gang_lines",
+    "OVERVIEW_SCREEN",
+    "GANG_SCREEN",
 ]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
@@ -158,3 +181,105 @@ def special_cell(ctx, *, cell, la):
     """``:2045``/``:2046`` the event cells 569/861: never armed yet (no flow is built)."""
     yield from ()
     return False
+
+
+# --------------------------------------------------------------------------- #
+# The turn menu's options (content/menus/turn.yaml)                           #
+# --------------------------------------------------------------------------- #
+#: Acknowledge: the overview's first screen (``:1200-1225``). ``params``: ``lines``,
+#: ``(key, params)`` pairs, one per printed line.
+OVERVIEW_SCREEN = "turn.overview"
+#: Acknowledge: the overview's gang screen (``:1230-1240``). ``params``: ``lines``.
+GANG_SCREEN = "turn.overview_gang"
+
+#: ``:1221`` the ``gegenstaende`` line by the marks held -- ``(papers, counterfeit)``,
+#: ``ag(sp)`` bits 0 and 1 (``ag$`` = ``papiere``/``falschgeld``, ``:50600``).
+_ITEMS_KEYS = {
+    (True, False): "turn.overview.items_papers",
+    (False, True): "turn.overview.items_counterfeit",
+    (True, True): "turn.overview.items_both",
+}
+
+
+def overview_lines(state) -> list[tuple[str, dict]]:
+    """``:1200-1225``: the active player's state, one ``(key, params)`` per line.
+
+    ``:1208``'s free-memory line is a debug switch (``peek(53247)=1``) and not shown.
+    """
+    active = state.players[state.clock.active_player]
+    ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
+    vehicles = load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
+    held = contraband(active)
+    lines: list[tuple[str, dict]] = [
+        ("turn.overview.title", {"name": active.name}),  # :1200
+        ("turn.overview.score", {"score": active.gf}),  # :1209
+        ("turn.overview.rank", {"rank_name": ranks[active.rank - 1]}),  # :1210
+        (  # :1215
+            "turn.overview.vehicle",
+            {"vehicle": vehicles[active.vehicle]["name"], "movement": active.ms},
+        ),
+        ("turn.overview.alcohol", {"barrels": held.alcohol_barrels}),  # :1219
+    ]
+    marks = (bool(held.fake_papers), bool(held.counterfeit))
+    if any(marks):  # :1220 ifag(sp)=0goto1225
+        lines.append((_ITEMS_KEYS[marks], {}))  # :1221-1222
+    lines.append(("turn.overview.bribes", {"months": wanted(active).bribe_months}))  # :1225
+    lines.append(("turn.overview.rent", {"months": rented_months(active)}))  # :1225
+    return lines
+
+
+def gang_lines(state) -> list[tuple[str, dict]]:
+    """``:1230-1240``: the gang, each gangster as ``:1300-1320`` prints it.
+
+    ``:1300`` reads the stats ``x$=ge$(a,b)``; ``:1315`` prints the four of them, two
+    digits each (``:1385`` pads a one-digit stat with a ``0``); ``:1320`` the weapon's
+    name.
+    """
+    active = state.players[state.clock.active_player]
+    lines: list[tuple[str, dict]] = [("turn.overview.gang_title", {})]
+    if not active.roster:  # :1230 ifgz(sp)=0thenprint"{down}keine!"
+        lines.append(("turn.overview.no_gang", {}))
+        return lines
+    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
+    for member in active.roster:
+        lines.append(
+            (
+                "turn.overview.gangster",
+                {
+                    "name": member.name,
+                    "energie": member.vitality,
+                    "kraft": member.attrs["kraft"],
+                    "intelligenz": member.attrs["intelligenz"],
+                    "brutalitaet": member.attrs["brutalitaet"],
+                    "weapon": weapons[member.weapon]["name"],
+                },
+            )
+        )
+    return lines
+
+
+@register("turn.overview")
+def overview(ctx):
+    """``:1200-1245`` the overview: the player's state, then the gang; nothing changes.
+
+    Each screen ends in ``:1100``'s key press. The source also waits for a key after
+    each gangster (``:1235 poke198,0:wait198,1``) while it fills one screen; here the
+    gang is one screen.
+    """
+    yield Acknowledge(OVERVIEW_SCREEN, {"lines": overview_lines(ctx.state)})
+    yield Acknowledge(GANG_SCREEN, {"lines": gang_lines(ctx.state)})
+    return None
+
+
+@register("turn.walk")
+def walk(ctx):
+    """``:1035 onxgosub1200,2000,27000``, option 2: the player walks the map."""
+    yield from ()
+    return MENU_WALK
+
+
+@register("turn.next_player")
+def next_player(ctx):
+    """``:1031 ifx=4goto1010``: the turn ends, the movement points unspent."""
+    yield from ()
+    return MENU_END_TURN

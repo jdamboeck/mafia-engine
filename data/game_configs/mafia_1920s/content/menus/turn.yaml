@@ -1,0 +1,23 @@
+# The turn menu — a shell (declarative layer), loaded like the location shells.
+#
+# Ports the menu at mf-prg.bas:1015-1050. Each option carries the key that picks it,
+# because the source numbers them 1-4 (:1020-1022) and dispatches on that number
+# (:1030 getx$:x=val(x$), :1031 ifx=4goto1010, :1035 onxgosub1200,2000,27000).
+#
+# Option 3, the gang war (:1021 "3 - bandenkrieg", :1035 -> gosub27000), is not built
+# yet: until it is, the key 3 is ignored like any key no option has (:1030). The
+# F1 graphics toggle (:1032) is not ported (a presentation switch of the C64 loader).
+#
+# Each handler returns what the engine turn runner does next (engine.turns.MENU_WALK,
+# MENU_END_TURN, or nothing: back to the menu while movement points remain, :1045).
+key: turn
+options:
+  - id: overview       # 1 - uebersicht (:1200-1245)
+    key: "1"
+    handler: "turn.overview"
+  - id: walk           # 2 - durch die stadt gehen (:2000)
+    key: "2"
+    handler: "turn.walk"
+  - id: next_player    # 4 - naechster spieler (:1031)
+    key: "4"
+    handler: "turn.next_player"

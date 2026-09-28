@@ -22,13 +22,17 @@ client:
 
   # The map screen's note line and legend.
   map:
-    hint: "move: W/A/S/D into a door to enter. P saves, Q quits."
-    bad_key: "(use W/A/S/D, P or Q)"
+    hint: "move: W/A/S/D into a door to enter. M menu, P saves, Q quits."
+    bad_key: "(use W/A/S/D, M, P or Q)"
     wall: "(a wall)"
     edge: "(edge of the city)"
     resized: " resized"
     # {player} is the player's map glyph.
     legend_you: "{player} you"
+
+  # The turn menu's note line.
+  menu:
+    hint: "P saves, Q quits."
 
   # Location screens. {location} is the location key.
   location:

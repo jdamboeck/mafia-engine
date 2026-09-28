@@ -160,10 +160,10 @@ class TestResizeOnTheMap:
     redraws the map with the resized note and drops that key (it was typed into
     a screen the player could no longer see)."""
 
-    # Title ack, upkeep ack, then the map's first key: one step down (the start
-    # cell has walls left, right and above).
-    _MOVE = ["", "", "s"]
-    _MAP_READ = 3
+    # Title ack, upkeep ack, the turn menu's walk, then the map's first key: one step
+    # down (the start cell has walls left, right and above).
+    _MOVE = ["", "", "2", "s"]
+    _MAP_READ = 4
     _RESIZED_NOTE = " resized"  # client.map.resized in the classic theme
 
     def _play(self, monkeypatch, lines: list[str], resize_at: int | None = None):
@@ -175,7 +175,7 @@ class TestResizeOnTheMap:
         return state, out.getvalue()
 
     def test_resize_redraws_the_map_and_drops_the_key(self, monkeypatch) -> None:
-        start, _ = self._play(monkeypatch, ["", ""])  # quits at the first map prompt
+        start, _ = self._play(monkeypatch, ["", "", "2"])  # quits at the first map prompt
         moved, plain_text = self._play(monkeypatch, self._MOVE)
         check_resize()  # drain: the resize below must be the only one
         resized, text = self._play(monkeypatch, self._MOVE, resize_at=self._MAP_READ)

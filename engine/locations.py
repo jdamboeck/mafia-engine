@@ -15,7 +15,10 @@ options whose guard passes; a denied option's denial key is read from
 **No display text.** This module emits *keys* (``on_denied``), never
 text. Themes resolve keys to strings elsewhere.
 
-An option carries an ``id`` and **exactly one** of:
+The same loader parses the config's other menus (the turn menu,
+``content/menus/``): a menu is a shell too.
+
+An option carries an ``id``, optionally the ``key`` that picks it, and **exactly one** of:
 * ``handler`` — a string id resolved to a callable from :data:`HANDLERS`, or
 * ``resolve.consequences`` — a flat list of pure-data effect dicts (no handler).
 
@@ -75,7 +78,9 @@ class Option:
     Exactly one of ``handler`` (resolved callable) / ``consequences`` (flat list
     of effect dicts) is set; the other is ``None``. ``guard`` is the (validated)
     guard dict or ``None`` (always-available). ``on_denied`` is the message key
-    emitted when the guard fails, or ``None``.
+    emitted when the guard fails, or ``None``. ``key`` is the key that picks the
+    option on a menu that names its keys (the turn menu, whose numbering has a gap);
+    ``None`` on a menu picked by position (a location's).
     """
 
     id: str
@@ -83,6 +88,7 @@ class Option:
     on_denied: str | None = None
     handler: Callable | None = None
     consequences: list[dict] | None = None
+    key: str | None = None
 
 
 @dataclass
@@ -133,12 +139,17 @@ def _parse_option(raw: dict) -> Option:
         if not isinstance(consequences, list):
             raise ValueError(f"option {opt_id!r} consequences must be a list: {consequences!r}")
 
+    key = raw.get("key")
+    if key is not None and (not isinstance(key, str) or not key):
+        raise ValueError(f"option {opt_id!r} 'key' must be a non-empty string: {key!r}")
+
     return Option(
         id=opt_id,
         guard=guard,
         on_denied=raw.get("on_denied"),
         handler=handler,
         consequences=consequences,
+        key=key,
     )
 
 
@@ -155,6 +166,9 @@ def load_location(raw: dict) -> Location:
     if not isinstance(options_raw, list):
         raise ValueError(f"location 'options' must be a list: {options_raw!r}")
     options = [_parse_option(o) for o in options_raw]
+    keys = [o.key for o in options if o.key is not None]
+    if len(keys) != len(set(keys)):
+        raise ValueError(f"shell {raw['key']!r} gives two options one key: {keys!r}")
     return Location(key=raw["key"], options=options)
 
 

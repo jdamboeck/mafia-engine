@@ -34,6 +34,7 @@ from engine.interactions import (
     OptionDone,
     PromptInt,
     ShowMessage,
+    TurnMenu,
     run,
 )
 from engine.locations import HANDLERS, Location, Option
@@ -83,9 +84,10 @@ _CITY = load_city(_city_raw())
 
 
 def _runner(state, rng, **kw):
-    """A runner over the loaded config's map and shells (``kw`` overrides either)."""
+    """A runner over the loaded config's map, shells and turn menu (``kw`` overrides any)."""
     kw.setdefault("city", _CONFIG.city)
     kw.setdefault("shells", _CONFIG.shells)
+    kw.setdefault("turn_menu", _CONFIG.menus["turn"])
     return TurnRunner(state, rng, **kw)
 
 
@@ -137,7 +139,8 @@ def _answer(interaction):
 def _drive(runner, gen, *, stop_at_free_turn: int | None = None):
     """Drive ``gen`` answering like a client; return ``(interactions seen, outcome)``.
 
-    A map-move prompt is answered with the step :func:`_walk` would take. The first
+    The turn menu is answered with its walk key, so every free turn walks its points
+    out. A map-move prompt is answered with the step :func:`_walk` would take. The first
     prompt of the ``stop_at_free_turn``-th free turn (1-based) stops the drive instead,
     with outcome ``"stopped"``.
     """
@@ -154,6 +157,8 @@ def _drive(runner, gen, *, stop_at_free_turn: int | None = None):
                         gen.close()
                         return seen, "stopped"
                 response = _first_step(runner.state)
+            elif isinstance(interaction, TurnMenu):
+                response = "2"  # :1021 "2 - durch die stadt gehen"
             elif isinstance(interaction, (Acknowledge, Heading)):
                 response = None
             else:

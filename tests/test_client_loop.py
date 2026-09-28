@@ -46,7 +46,7 @@ from engine.locations import load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
 from engine.rng import Rng
 from engine.upkeep import run_upkeep
-from tests.helpers import deadline, make_walk_script, next_turn_by_hand
+from tests.helpers import MENU_WALK_KEY, deadline, make_walk_script, next_turn_by_hand
 import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = CONFIG_DIR
@@ -142,6 +142,8 @@ def walk_keys_across_turns(state, city, target_cell: int) -> list[str]:
     ``play()`` loop emits BOTH prompts in sequence and reads one key for each. On a
     round wrap (the new active player is 0 -- every turn-over in a single-player
     session) the standings screen sits between them and reads a key of its own (U7).
+    The new turn then opens at the turn menu, answered with its walk key
+    (:data:`tests.helpers.MENU_WALK_KEY`, ``mf-prg.bas:1030``).
     """
     from engine.movement import try_move
 
@@ -157,6 +159,7 @@ def walk_keys_across_turns(state, city, target_cell: int) -> list[str]:
             if state.clock.active_player == 0:
                 out.append("x")  # ack the round-standings screen (a wrap, U7/KTD-2)
             out.append("x")  # ack the U3 upkeep screen for the newly-active player
+            out.append(MENU_WALK_KEY)  # the turn menu: walk (:1021 "2")
     return out
 
 
@@ -1634,8 +1637,8 @@ def burn_turn_keys(
     direction that STEPS from the current state, so no move enters a location), not
     hardcoded. For each turn it emits the movement keys, the turn-over ack, then --
     exactly as ``play()`` reads them -- the standings ack on a round wrap, then
-    either the result-screen ack (``game_over``) or the next turn's upkeep ack.
-    Stops after ``turns`` turn-overs, or at ``game_over`` when ``turns`` is None.
+    either the result-screen ack (``game_over``) or the next turn's upkeep ack and its
+    turn menu's walk key (:data:`tests.helpers.MENU_WALK_KEY`). Stops after ``turns`` turn-overs, or at ``game_over`` when ``turns`` is None.
 
     Upkeep is not simulated here: for an idle player (no debt, no rent, no job) it
     moves nobody and changes no ``ms`` (checked by
@@ -1677,6 +1680,7 @@ def burn_turn_keys(
             keys.append("x")  # ack the result screen
             break
         keys.append("x")  # ack the next turn's upkeep screen
+        keys.append(MENU_WALK_KEY)  # the next turn's menu: walk (:1021 "2")
     return keys
 
 
@@ -1764,8 +1768,9 @@ class TestRoundStandingsAndEnding:
 
     def test_eof_at_the_standings_screen_ends_the_session(self, monkeypatch):
         keys = burn_turn_keys(42, turns=1)
-        # [..., turn-over ack, standings ack, upkeep ack] -> stop before the standings ack.
-        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=keys[:-2])
+        # [..., turn-over ack, standings ack, upkeep ack, walk] -> stop before the
+        # standings ack.
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=keys[:-3])
         assert "spielstand 1925-1\n" in output
         assert output.rstrip().endswith("bye.") or "bye." in output[output.index("spielstand") :]
         assert "upkeep" not in output[output.index("spielstand") :], (
@@ -1843,8 +1848,9 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
 
 
 def _new_game_lines(keys: list[str]) -> list[str]:
-    """A new game's stdin: the title ack and the first upkeep ack, then ``keys``."""
-    return ["", ""] + keys
+    """A new game's stdin: the title ack, the first upkeep ack and the turn menu's walk
+    key (:data:`tests.helpers.MENU_WALK_KEY`), then ``keys`` on the map."""
+    return ["", "", MENU_WALK_KEY] + keys
 
 
 def _two_steps(seed: int = 42) -> tuple[list[str], list[int]]:
@@ -1994,11 +2000,11 @@ class TestSaveAndLoad:
         with deadline(60, "play() did not return", exc_type=_Deadline):
             play(save=str(save), **self._NEW)
 
-        # One read per line: title, upkeep, k1, p, k2, p, q. The file read before k2
-        # holds the first save; the one read before q holds the second.
+        # One read per line: title, upkeep, walk, k1, p, k2, p, q. The file read before
+        # k2 holds the first save; the one read before q holds the second.
         assert c1 != c2
-        assert stdin.seen[:4] == [None] * 4, "a save existed before the first p"
-        assert stdin.seen[4:] == [c1, c1, c2]
+        assert stdin.seen[:5] == [None] * 5, "a save existed before the first p"
+        assert stdin.seen[5:] == [c1, c1, c2]
         assert list(tmp_path.iterdir()) == [save]
         assert load_game(save, _REGISTRIES).state.players[0].po == c2
         # Confirmed in the map's note line, with the target path.
@@ -2139,7 +2145,9 @@ class TestTurnPhases:
     def test_the_free_turn_truncates_the_score_after_upkeep_shows_it(self, monkeypatch, tmp_path):
         # rank 1 with nr 3 pending: :4030's promotion screen prints gf(sp) (:4215).
         state = self._second_player(gf=25.199999, nr=3)
-        output, (state, _rng) = _resume_at(monkeypatch, tmp_path, state, "next_player", ["x", "q"])
+        output, (state, _rng) = _resume_at(
+            monkeypatch, tmp_path, state, "next_player", ["x", MENU_WALK_KEY, "q"]
+        )
 
         before_map = output.split("move: W/A/S/D")[0]
         assert "25.199999 p." in before_map, "upkeep did not show the untruncated score"
@@ -2153,13 +2161,17 @@ class TestTurnPhases:
         """:4030 `ifra(sp)<>nr(sp)thenra(sp)=nr(sp):gosub4200`: the wanted poster shows
         when upkeep commits a new rank, read through the state, and not otherwise."""
         state = self._second_player(gf=25.0, nr=3)
-        output, (state, _rng) = _resume_at(monkeypatch, tmp_path, state, "next_player", ["x", "q"])
+        output, (state, _rng) = _resume_at(
+            monkeypatch, tmp_path, state, "next_player", ["x", MENU_WALK_KEY, "q"]
+        )
         assert state.players[1].rank == 3
         before_map = output.split("move: W/A/S/D")[0]
         assert "north side\nmoran.\n25 p." in before_map, "no promotion screen"
 
         state = self._second_player(gf=25.0, nr=1)
-        output, _ret = _resume_at(monkeypatch, tmp_path, state, "next_player", ["x", "q"])
+        output, _ret = _resume_at(
+            monkeypatch, tmp_path, state, "next_player", ["x", MENU_WALK_KEY, "q"]
+        )
         before_map = output.split("move: W/A/S/D")[0]
         assert "ist an der reihe" in before_map, "not the upkeep screen"
         assert "north side\nmoran.\n" not in output, "a promotion screen without a promotion"
@@ -2208,7 +2220,10 @@ class TestTurnPhases:
         assert state.players[0].gf != state.players[1].gf, "no float drift: vacuous"
 
         keys = burn_turn_keys(42, state=state, end_year=1928)
-        output, (state, _rng) = _resume_at(monkeypatch, tmp_path, state, "turn_start", keys)
+        # The turn start opens the turn menu first: walk.
+        output, (state, _rng) = _resume_at(
+            monkeypatch, tmp_path, state, "turn_start", [MENU_WALK_KEY] + keys
+        )
 
         assert "diesmal haben mehrere die gleichen" in output, "no tie at the year end"
         assert "hat gewonnen!" not in output

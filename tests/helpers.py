@@ -85,18 +85,26 @@ def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
     return _parsed_source(path)
 
 
-def make_walk_script(keys: list[str]) -> io.StringIO:
-    """Build the piped-stdin body for ``play()``: two blank acks + one key/line.
+#: The turn menu's walk key (``mf-prg.bas:1021`` "2 - durch die stadt gehen").
+MENU_WALK_KEY = "2"
 
-    ``play()`` reads one line for "press a key" on the title screen, THEN (U3, KTD-3)
-    one more for the turn-start upkeep screen's "press any key..." ack — BOTH before
-    the map loop starts — so every scripted stdin must account for both. See
+
+def make_walk_script(keys: list[str]) -> io.StringIO:
+    """Build the piped-stdin body for ``play()``: two blank acks, the walk, one key/line.
+
+    ``play()`` reads one line for "press a key" on the title screen, THEN one more for
+    the turn-start upkeep screen's "press any key..." ack, THEN the turn menu's choice
+    (``mf-prg.bas:1030``): :data:`MENU_WALK_KEY` opens the map. All three come before
+    the map loop starts, so this builder prepends them. See
     ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
-    Every turn rotation triggers a THIRD such ack for the new active
-    player's upkeep — callers scripting a multi-turn session add one blank/any-key
-    line per rotation on top of the two this builder prepends.
+    Every turn rotation brings another upkeep ack and another turn menu for the new
+    active player -- callers scripting a multi-turn session add a blank/any-key line
+    and :data:`MENU_WALK_KEY` per rotation on top of the three this builder prepends.
+    A turn whose movement points run out on the map ends with no menu (``:2005``,
+    ``:1045``); one that leaves the map with points left (the exit key ``m``) meets
+    the menu again.
     """
-    return io.StringIO("\n".join(["", ""] + keys) + "\n")
+    return io.StringIO("\n".join(["", "", MENU_WALK_KEY] + keys) + "\n")
 
 
 class DeadlineExceeded(Exception):

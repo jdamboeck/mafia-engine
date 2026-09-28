@@ -397,8 +397,8 @@ _SMOKE_ARGV = [
     "b:y",
 ]
 _SMOKE_PLAYERS = [("a", "x"), ("b", "y")]
-#: The turn (0-based, over both players) whose map screen starts with the mid-game
-#: ``p``: half of the 72 turns a two-player 1928 game has.
+#: The turn (0-based, over both players) whose turn menu takes the mid-game ``p``:
+#: half of the 72 turns a two-player 1928 game has.
 _SMOKE_SAVE_TURN = 36
 #: The second casino visit happens on the first turn from here on that can reach
 #: sph within one turn's movement -- strictly AFTER the save, so run B draws on
@@ -415,7 +415,7 @@ def _smoke_plan():
     after ``main()``'s title ack (the setup prompts are skipped by the flags); the two
     indices point at the mid-game and final-turn ``p`` keys.
 
-    Per turn: an optional ``p`` on the map, an optional casino visit (walk into the
+    Per turn: an optional ``p`` at the turn menu, its walk key, an optional casino visit (walk into the
     sph door, splash ack, ``play``, poker, wager 100), then stepping moves to the
     turn-over, its ack, the standings ack on a round wrap, and the result-screen ack
     (``game_over``) or the next turn's upkeep ack -- exactly
@@ -426,7 +426,7 @@ def _smoke_plan():
     """
     from engine.effects import MsChange, commit
     from engine.movement import ENTER_COST
-    from tests.helpers import next_turn_by_hand
+    from tests.helpers import MENU_WALK_KEY, next_turn_by_hand
     from tests.test_client_loop import (
         MOVE_KEYS as _MOVE_KEYS,
     )
@@ -469,6 +469,8 @@ def _smoke_plan():
         if turn == 71:  # the last turn of 36 rounds x 2 players
             last_save_at = len(lines)
             lines.append("p")
+        # The saves above fall at the turn menu; then walk (:1021 "2").
+        lines.append(MENU_WALK_KEY)
         turn_over = False
         visit = None
         if visits == 0 or (visits == 1 and turn >= _SMOKE_SECOND_VISIT_FROM):

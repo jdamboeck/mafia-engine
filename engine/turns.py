@@ -19,7 +19,26 @@ the reference title's turn head, ``mf-prg.bas:1010-1013``::
    (:data:`JOB_HOOK_KEY`, then the shift under :data:`JOB_SHIFT_HANDLER_KEY`).
 4. ``:1013`` — score truncation (:data:`SCORE_TRUNCATION_HOOK_KEY`) and the jail skip
    (:data:`JAIL_HOOK_KEY`).
-5. The free turn: the map step (below), then the turn-over screen, then 1 again.
+5. The turn menu (below), then the turn-over screen, then 1 again.
+
+**The turn menu** (``:1015-1050``)::
+
+    1030 getx$:x=val(x$):if(x<1orx>4)andx$<>"{f1}"goto1030
+    1031 ifx=4goto1010
+    1035 onxgosub1200,2000,27000
+    1045 ifms>0goto1015
+    1050 goto1010
+
+The menu is the config's turn-menu shell (:attr:`~engine.config_loader.LoadedConfig.menus`,
+``menus["turn"]``), offered as :class:`~engine.interactions.TurnMenu`: each option has
+the key that picks it, and any other answer is ignored and the menu asked again
+(``:1030``). The chosen option runs like a location option
+(:func:`engine.actions.step_option`); its handler returns what the runner does next:
+:data:`MENU_WALK` opens the map step, :data:`MENU_END_TURN` ends the turn with the
+movement points unspent (``:1031``), anything else comes back (the overview). After
+each action the menu is offered again while movement points remain (``:1045``), and
+the turn ends otherwise (``:1050``). The map's exit command
+(:data:`~engine.interactions.MAP_EXIT`, ``:2019``) returns from the map to it.
 
 **The map step** (``:2000-2065``)::
 
@@ -33,7 +52,8 @@ the reference title's turn head, ``mf-prg.bas:1010-1013``::
     2060 ms=ms-5:ifms>0goto2000
     2065 return
 
-The runner asks for each step with :class:`~engine.interactions.MapMove` and moves
+``2000``'s ``gosub`` is the menu's walk option, and ``:2065 return`` goes back to the
+menu's ``:1045``. The runner asks for each step with :class:`~engine.interactions.MapMove` and moves
 with :func:`engine.movement.try_move`. A move onto an event cell first asks the
 config's special-cell hook (:data:`SPECIAL_CELL_HOOK_KEY`) whether the cell is armed;
 a street step asks its roadblock hook (:data:`ROADBLOCK_HOOK_KEY`); a door runs the location visit: the shell's
@@ -88,10 +108,11 @@ commits nothing, leaves the phase as it was, and its exception propagates: the s
 policy as a location handler (a bug keeps its traceback).
 
 **The turn phase.** The runner records where it re-enters a turn in
-``clock.turn_phase`` (:data:`PHASES`): :data:`UPKEEP` with the rotation, and
-:data:`WALKING` when the free turn opens. :meth:`TurnRunner.run` with no ``entry``
-re-enters the recorded phase, so a game saved on the map resumes on the map without
-re-running upkeep or the turn start.
+``clock.turn_phase`` (:data:`PHASES`): :data:`UPKEEP` with the rotation, :data:`MENU`
+when the turn menu opens and whenever it comes back, and :data:`WALKING` when the
+player walks. :meth:`TurnRunner.run` with no ``entry`` re-enters the recorded phase,
+so a game saved at the menu or on the map (the two prompts that offer saving) resumes
+there, with the same movement points, without re-running upkeep or the turn start.
 
 ``engine/`` imports nothing from ``server``/``clients``/transport.
 """
@@ -117,7 +138,9 @@ from engine.game_end import (
     run_standings,
     run_year_end,
 )
+from engine.actions import HandlerResult
 from engine.interactions import (
+    MAP_EXIT,
     MAP_QUIT,
     Acknowledge,
     Heading,
@@ -125,6 +148,7 @@ from engine.interactions import (
     MapMove,
     OptionDone,
     ShowMessage,
+    TurnMenu,
     step,
 )
 from engine.locations import available_options
@@ -141,6 +165,7 @@ __all__ = [
     "NEXT_PLAYER",
     "UPKEEP",
     "TURN_START",
+    "MENU",
     "WALKING",
     "TURN_OVER",
     "PHASES",
@@ -160,6 +185,9 @@ __all__ = [
     "YEAR_END_SCREEN",
     "JOB_SHIFT_SCREEN",
     "LOCATION_CLOSED_SCREEN",
+    # Turn-menu handler returns
+    "MENU_WALK",
+    "MENU_END_TURN",
     # Outcomes
     "GAME_OVER",
     "PAUSED",
@@ -177,14 +205,25 @@ NEXT_PLAYER = "next_player"
 UPKEEP = "upkeep"
 #: ``:1011`` after upkeep — the early-win check, ``:1012`` and ``:1013``.
 TURN_START = "turn_start"
-#: The free turn is open (the map step).
+#: The free turn is open at the turn menu (``:1015``).
+MENU = "menu"
+#: The player walks the map (the menu's walk option, ``:2000``).
 WALKING = "walking"
 #: The turn is played; the turn-over screen is next.
 TURN_OVER = "turn_over"
 
 #: Every phase, in turn order. ``clock.turn_phase`` holds one; the runner writes
-#: :data:`UPKEEP` and :data:`WALKING`.
-PHASES = (NEXT_PLAYER, UPKEEP, TURN_START, WALKING, TURN_OVER)
+#: :data:`UPKEEP`, :data:`MENU` and :data:`WALKING`.
+PHASES = (NEXT_PLAYER, UPKEEP, TURN_START, MENU, WALKING, TURN_OVER)
+
+# --------------------------------------------------------------------------- #
+# What a turn-menu option's handler returns                                   #
+# --------------------------------------------------------------------------- #
+#: The player walks: the runner opens the map step (option 2 of
+#: ``:1035 onxgosub1200,2000,27000``).
+MENU_WALK = "walk"
+#: The turn ends at once, the movement points unspent (``:1031 ifx=4goto1010``).
+MENU_END_TURN = "end_turn"
 
 # --------------------------------------------------------------------------- #
 # Hook keys: the config's rules, registered in engine.locations.HANDLERS       #
@@ -250,6 +289,8 @@ class TurnRunner:
     loaded config's map and location shells
     (:attr:`~engine.config_loader.LoadedConfig.city`,
     :attr:`~engine.config_loader.LoadedConfig.shells`); the map step needs them.
+    ``turn_menu`` is the config's turn-menu shell (``LoadedConfig.menus["turn"]``); the
+    free turn opens it.
     ``observe_ai`` opts in to the fight observation frames
     (:func:`engine.interactions.step`).
 
@@ -265,6 +306,7 @@ class TurnRunner:
         handlers: dict[str, Any] | None = None,
         city: City | None = None,
         shells: Mapping[str, Location] | None = None,
+        turn_menu: Location | None = None,
         observe_ai: bool = False,
     ) -> None:
         self.state = state
@@ -274,6 +316,7 @@ class TurnRunner:
         self._handlers = handlers
         self._city = city
         self._shells: Mapping[str, Location] = shells if shells is not None else {}
+        self._turn_menu = turn_menu
         self._observe_ai = observe_ai
 
     # ------------------------------------------------------------------ #
@@ -287,8 +330,8 @@ class TurnRunner:
         ``entry`` is a phase in :data:`PHASES`; ``None`` re-enters the phase recorded in
         ``clock.turn_phase`` (a resumed save). A new game enters at :data:`UPKEEP`.
         ``until`` stops the run just before that phase begins. Returns
-        :data:`GAME_OVER`, :data:`PAUSED`, or :data:`QUIT` when the map-move prompt was
-        answered with the quit command. A driver that quits may also simply stop
+        :data:`GAME_OVER`, :data:`PAUSED`, or :data:`QUIT` when the turn menu or the
+        map-move prompt was answered with the quit command. A driver that quits may also simply stop
         driving.
         """
         phase = entry if entry is not None else self.state.clock.turn_phase
@@ -309,10 +352,14 @@ class TurnRunner:
                 phase = yield from self._turn_start()
                 if phase == GAME_OVER:
                     return GAME_OVER
+            elif phase == MENU:
+                phase = yield from self._menu()
+                if phase == QUIT:
+                    return QUIT
             elif phase == WALKING:
                 if (yield from self._walk()) == QUIT:
                     return QUIT
-                phase = TURN_OVER
+                phase = self._after_action()
             else:  # TURN_OVER
                 yield Acknowledge(TURN_OVER_SCREEN, player=self.state.clock.active_player)
                 phase = NEXT_PLAYER
@@ -355,14 +402,66 @@ class TurnRunner:
         yield from self._hook(SCORE_TRUNCATION_HOOK_KEY)
         if (yield from self._hook(JAIL_HOOK_KEY)):
             return TURN_OVER
-        self._commit(SetTurnPhase(WALKING))
-        return WALKING
+        self._commit(SetTurnPhase(MENU))
+        return MENU
+
+    # ------------------------------------------------------------------ #
+    # The turn menu                                                       #
+    # ------------------------------------------------------------------ #
+    def _menu(self) -> Generator[Any, Any, str]:
+        """``:1015-1035``: the turn menu, then the chosen option; returns the next phase.
+
+        Returns :data:`QUIT` when the menu was answered with the quit command.
+        """
+        menu = self._turn_menu
+        if menu is None:
+            raise ValueError(
+                "the free turn needs the config's turn menu: pass TurnRunner(turn_menu=...) "
+                '(LoadedConfig.menus["turn"])'
+            )
+        options = available_options(menu, self.state)
+        keys = tuple(o.key if o.key is not None else str(i + 1) for i, o in enumerate(options))
+        prompt = TurnMenu(
+            options=tuple(o.id for o in options),
+            keys=keys,
+            player=self.state.clock.active_player,
+        )
+        while True:
+            answer = yield prompt
+            if answer == MAP_QUIT:
+                return QUIT
+            if isinstance(answer, str) and answer in keys:
+                break
+            # :1030 any other key is ignored; a save is the driver's, nothing changes.
+        chosen = options[keys.index(answer)]
+        result = yield from step_option(
+            menu, chosen.id, self.state, ln=None, rng=self.rng, observe_ai=self._observe_ai
+        )
+        self.state = result.state
+        returned = result.payload.returned if isinstance(result.payload, HandlerResult) else None
+        if returned == MENU_WALK:
+            self._commit(SetTurnPhase(WALKING))
+            return WALKING
+        if returned == MENU_END_TURN:  # :1031 ifx=4goto1010
+            return TURN_OVER
+        return self._after_action()
+
+    def _after_action(self) -> str:
+        """``:1045 ifms>0goto1015`` / ``:1050 goto1010``: back to the menu, or the turn ends."""
+        if self._movement_points() > 0:
+            self._commit(SetTurnPhase(MENU))
+            return MENU
+        return TURN_OVER
 
     # ------------------------------------------------------------------ #
     # The map step                                                        #
     # ------------------------------------------------------------------ #
     def _walk(self) -> Generator[Any, Any, str | None]:
-        """The free turn on the map, ``:2000-2065``; returns :data:`QUIT` on a quit."""
+        """The map, ``:2000-2065``; returns :data:`QUIT` on a quit.
+
+        It returns (to the menu's ``:1045``) when the movement points run out
+        (``:2005``) or on the exit command (``:2019``).
+        """
         if self._city is None:
             raise ValueError(
                 "the free turn needs the config's city map: pass TurnRunner(city=...) "
@@ -376,6 +475,8 @@ class TurnRunner:
             answer = yield MapMove(outcome=outcome, player=self.state.clock.active_player)
             if answer == MAP_QUIT:
                 return QUIT
+            if answer == MAP_EXIT:  # :2019 ifx$="_"thensysie:return
+                return None
             delta = DIRECTION_DELTAS.get(answer) if isinstance(answer, str) else None
             if delta is None:
                 # Saving is the driver's (it saves the committed state); a save or an

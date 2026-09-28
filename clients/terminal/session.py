@@ -10,16 +10,18 @@ yields (its acknowledgement screens, the map-move prompt, the location menu, its
 hooks' and handlers' prompts, narration and fights) and adopts the runner's state at
 every interaction.
 
-On the map-move prompt W/A/S/D answer a direction; pressing into a door enters the
-location, whose menu the runner offers next.
+Each turn opens the turn menu (``mf-prg.bas:1015-1050``): its number keys pick an
+option (the overview, walking the map, the next player). On the map-move prompt W/A/S/D
+answer a direction; pressing into a door enters the location, whose menu the runner
+offers next; ``m`` leaves the map for the turn menu (the source's exit key, ``:2019``).
 
 A new game shows the title screen, then asks the two setup questions (end year, score
 weight; ``mf-prg.bas:170-176``) unless the caller supplied them. One to four players
 take hot-seat turns.
 
-``p`` on the map saves (to the ``save`` path / the loaded file / ``mafia-save.jsonl``);
-a ``load`` resumes a save (:func:`_load_session`) in the phase it recorded. ``q`` on
-the map or at a turn-over/standings prompt quits. The command line lives in
+``p`` at the turn menu or on the map saves (to the ``save`` path / the loaded file /
+``mafia-save.jsonl``); a ``load`` resumes a save (:func:`_load_session`) in the phase it
+recorded. ``q`` at the turn menu, on the map or at a turn-over/standings prompt quits. The command line lives in
 :mod:`clients.terminal.cli`.
 
 The headless end-to-end proof is ``tests/test_slice_integration.py``, which drives the
@@ -38,12 +40,15 @@ import yaml
 
 from engine.config_loader import load_game_config
 from engine.interactions import (
+    MAP_EXIT,
+    MAP_QUIT,
     MAP_SAVE,
     Acknowledge,
     Heading,
     LocationMenu,
     MapMove,
     OptionDone,
+    TurnMenu,
 )
 from engine.persistence import (
     Registries,
@@ -98,6 +103,9 @@ _MOVE_KEYS = {"w": "up", "s": "down", "a": "left", "d": "right"}
 
 #: A map-move outcome -> the map note that reports it (any other outcome: the hint).
 _OUTCOME_NOTES = {"wall": "client.map.wall", "oob": "client.map.edge"}
+
+#: The map's exit key back to the turn menu (the source's ``_``, ``mf-prg.bas:2019``).
+_EXIT_KEY = "m"
 
 #: The map screen's save key and the save target when neither ``--save`` nor
 #: ``--load`` names one (relative, so it lands in the working directory).
@@ -660,8 +668,9 @@ class TerminalSession:
     def resume_loaded_game(self) -> None:
         """Enter the turns of a loaded game: no title, no setup, no upkeep."""
         # The runner re-enters the phase the save recorded: a save is only ever taken
-        # on the map, so the saved player's free turn resumes, and this turn's upkeep
-        # and turn start (which ran before the save) do not run again.
+        # at the turn menu or on the map, so the saved player's free turn resumes there,
+        # and this turn's upkeep and turn start (which ran before the save) do not run
+        # again.
         self.drive_turns()
 
     def drive_turns(self, entry: str | None = None) -> None:
@@ -677,6 +686,7 @@ class TerminalSession:
             self.rng,
             city=self.cfg.city,
             shells=self.cfg.shells,
+            turn_menu=self.cfg.menus.get("turn"),
             observe_ai=self.inp.observes_ai,
         )
         turns = runner.run(entry)
@@ -695,6 +705,8 @@ class TerminalSession:
     def render(self, interaction):
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``."""
         self.announce_player(interaction)
+        if isinstance(interaction, TurnMenu):
+            return self.turn_menu(interaction)
         if isinstance(interaction, MapMove):
             return self.map_prompt(interaction)
         if isinstance(interaction, LocationMenu):
@@ -764,7 +776,67 @@ class TerminalSession:
                 header, screen.params["lines"], self.resolver, self.colors, self.out
             )
             return None
-        raise AssertionError(f"unknown acknowledgement screen {screen.key!r}")
+        # A handler's own screen (the overview): its lines, then a key.
+        render_screen_clear(self.out)
+        lines = screen.params.get("lines")
+        body = (
+            "\n".join(self.text(key, params) for key, params in lines)
+            if lines is not None
+            else self.text(screen.key, dict(screen.params))
+        )
+        render_body(body, self.out, self.colors)
+        _write_press_any_key(self.resolver, self.out)
+        _read_key()
+        return None
+
+    def turn_menu(self, menu: TurnMenu):
+        """Show the turn menu (``mf-prg.bas:1015-1022``); return the key, or ``_QUIT``.
+
+        The head names the player and gang (``:1015``), the cash and the date
+        (``:1016-1017``); the options are the runner's, each worded by the theme. A
+        pressed key goes to the runner, which ignores one no option has (``:1030``) and
+        asks again. The save key saves and redraws; a resize redraws.
+        """
+        out = self.out
+        assert self.state is not None, "state is set by setup or load before any turn"
+        player = self.state.players[self.state.clock.active_player]
+        clock = self.state.clock
+        note = self.text("client.menu.hint")
+        while True:
+            render_screen_clear(out)
+            render_header(
+                self.text(
+                    "turn.menu.header",
+                    {
+                        "name": player.name,
+                        "gang_name": self.cfg.module.state.gang_name(player),
+                    },
+                ),
+                out,
+                self.colors,
+            )
+            status = self.text(
+                "turn.menu.status",
+                # :1017 1+int((ja-x)*12): the month, 1-based.
+                {"cash": player.ka, "year": clock.year, "month": clock.month + 1},
+            )
+            options = "\n".join(self.text(f"turn.menu.option.{o}") for o in menu.options)
+            render_body(
+                f"{status}\n\n{self.text('turn.menu.prompt')}\n\n{options}", out, self.colors
+            )
+            out.write(f"\n{DIM}{note}{RESET}\n")
+            out.flush()
+            key = _read_key()
+            if check_resize():
+                continue
+            if _is_quit(key) and MAP_QUIT in menu.commands:
+                out.write(self.text("client.bye") + "\n")
+                return _QUIT
+            if key == _SAVE_KEY and MAP_SAVE in menu.commands:
+                self.save()
+                note = self.note
+                continue
+            return key
 
     def map_prompt(self, prompt: MapMove):
         """Answer the runner's map-move prompt: a direction, or ``_QUIT``.
@@ -791,6 +863,8 @@ class TerminalSession:
             if key == _SAVE_KEY and MAP_SAVE in prompt.commands:
                 self.save()
                 continue
+            if key == _EXIT_KEY and MAP_EXIT in prompt.commands:
+                return MAP_EXIT
             direction = _MOVE_KEYS.get(key)
             if direction is None or direction not in prompt.directions:
                 self.note = self.text("client.map.bad_key")
@@ -798,7 +872,7 @@ class TerminalSession:
             return direction
 
     def save(self) -> None:
-        """Save the game from the map (``p``) and set the map note to the outcome."""
+        """Save the game (``p``, at the turn menu or on the map); the note says how it went."""
         # A map-turn save -- the snapshot is authoritative, so
         # the effect log is empty; the RNG log lets a load resume the
         # stream mid-way. Overwrites without asking.
@@ -868,8 +942,9 @@ def play(
     for after the title screen (``mf-prg.bas:170-176``); a supplied value skips its prompt.
 
     ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
-    player's map turn (no title, setup or upkeep); the new-game inputs are ignored.
-    ``p`` on the map saves to ``save``, else the loaded file, else ``mafia-save.jsonl``.
+    player's turn at the menu or on the map, where it was saved (no title, setup or
+    upkeep); the new-game inputs are ignored. ``p`` at the turn menu or on the map saves
+    to ``save``, else the loaded file, else ``mafia-save.jsonl``.
     ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
     ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
     drawn in (default: the ``classic`` theme's); the terminal's colour support is read

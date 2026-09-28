@@ -620,7 +620,7 @@ class TestClientErrorGuard:
     def test_unknown_error_inside_play_keeps_its_traceback(self, monkeypatch, capsys):
         # Standard input that breaks at the first map prompt of a new game: not a
         # failure main() knows, so it must escape with its traceback, not one line.
-        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", ""], RuntimeError("deep bug")))
+        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", "", "2"], RuntimeError("deep bug")))
         with pytest.raises(RuntimeError, match="deep bug") as exc:
             main(["--end-year", "1930", "--score-weight", "1"])
         assert any(entry.name == "readline" for entry in exc.traceback), "not stdin's error"
@@ -628,7 +628,7 @@ class TestClientErrorGuard:
 
     def test_keyboard_interrupt_exits_quietly_with_cursor_restored(self, monkeypatch, capsys):
         # Ctrl-C at the first map prompt of a new game (title and upkeep acked).
-        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", ""], KeyboardInterrupt()))
+        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", "", "2"], KeyboardInterrupt()))
         with pytest.raises(SystemExit) as exc:
             main(["--end-year", "1930", "--score-weight", "1"])
         assert exc.value.code == 130
@@ -757,7 +757,7 @@ class TestWatchAi:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
-        keys = ["", ""] + walk + ["", "2", "j", "w", "x", "x", "x"] + ["p"] * 6
+        keys = ["", "", "2"] + walk + ["", "2", "j", "w", "x", "x", "x"] + ["p"] * 6
         out = io.StringIO()
         monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(keys) + "\n"))
         monkeypatch.setattr(sys, "stdout", out)
@@ -823,7 +823,7 @@ class TestClientTextComesFromTheTheme:
 
     def test_a_theme_path_changes_what_a_quit_prints(self, monkeypatch):
         argv = ["--theme", str(self._TEST_THEME), "--end-year", "1930", "--score-weight", "1"]
-        text = self._main(monkeypatch, argv, ["", "", "q"])
+        text = self._main(monkeypatch, argv, ["", "", "2", "q"])
         assert "ciao." in text and "bye." not in text
         assert "walk on." in text and "move: W/A/S/D" not in text
         # Keys the theme leaves alone still come from classic.
@@ -835,7 +835,7 @@ class TestClientTextComesFromTheTheme:
         # Walk the first turn to its turn-over screen and quit there.
         walk = burn_turn_keys(42, turns=1)[:-3]
         argv = ["--theme", str(self._TEST_THEME), "--seed", "42", "--end-year", "1930"]
-        text = self._main(monkeypatch, [*argv, "--score-weight", "1"], ["", "", *walk, "q"])
+        text = self._main(monkeypatch, [*argv, "--score-weight", "1"], ["", "", "2", *walk, "q"])
         turn_over = text[text.index("  turn_over  ") :]
         assert re.search(r"geld: \d+\$ \| feld \d+ \| schritte 0 \| rang 1", turn_over)
         assert "cash:" not in turn_over and "movement:" not in turn_over
@@ -863,10 +863,10 @@ class TestClientTextComesFromTheTheme:
         by_name = self._main(
             monkeypatch,
             ["--theme", "classic", "--end-year", "1930", "--score-weight", "1"],
-            ["", "", "q"],
+            ["", "", "2", "q"],
         )
         default = self._main(
-            monkeypatch, ["--end-year", "1930", "--score-weight", "1"], ["", "", "q"]
+            monkeypatch, ["--end-year", "1930", "--score-weight", "1"], ["", "", "2", "q"]
         )
         assert by_name == default
         assert "bye." in default
@@ -913,16 +913,18 @@ class TestThemeSelection:
     ):
         (tmp_path / "classic").mkdir()
         monkeypatch.chdir(tmp_path)
-        default = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        default = self._main(monkeypatch, self._NEW_GAME, ["", "", "2", "q"])
         assert default.endswith("bye.\n" + CURSOR_SHOW)
-        by_name = self._main(monkeypatch, ["--theme", "classic", *self._NEW_GAME], ["", "", "q"])
+        by_name = self._main(
+            monkeypatch, ["--theme", "classic", *self._NEW_GAME], ["", "", "2", "q"]
+        )
         assert by_name == default
 
     def test_a_dot_prefixed_value_is_a_path(self, monkeypatch, tmp_path):
         """``.mytheme`` has no separator; the leading dot alone makes it a path."""
         (tmp_path / ".mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
         monkeypatch.chdir(tmp_path)
-        text = self._main(monkeypatch, ["--theme", ".mytheme", *self._NEW_GAME], ["", "", "q"])
+        text = self._main(monkeypatch, ["--theme", ".mytheme", *self._NEW_GAME], ["", "", "2", "q"])
         assert text.endswith("ciao.\n" + CURSOR_SHOW)
 
     @pytest.mark.parametrize("value", ["~", "~/mytheme"])
@@ -933,7 +935,7 @@ class TestThemeSelection:
         home.mkdir()
         (home / "mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
         monkeypatch.setenv("HOME", str(home / "mytheme") if value == "~" else str(home))
-        text = self._main(monkeypatch, ["--theme", value, *self._NEW_GAME], ["", "", "q"])
+        text = self._main(monkeypatch, ["--theme", value, *self._NEW_GAME], ["", "", "2", "q"])
         assert text.endswith("ciao.\n" + CURSOR_SHOW)
 
     def test_a_theme_file_with_a_list_root_is_one_readable_line(self, tmp_path, capsys):
@@ -948,9 +950,9 @@ class TestThemeSelection:
         and ``light_grey`` (the map background, headers); ``dark_grey`` (the map
         border) is left to classic's palette."""
         themed = self._main(
-            monkeypatch, ["--theme", str(self._TEST_THEME), *self._NEW_GAME], ["", "", "q"]
+            monkeypatch, ["--theme", str(self._TEST_THEME), *self._NEW_GAME], ["", "", "2", "q"]
         )
-        classic = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        classic = self._main(monkeypatch, self._NEW_GAME, ["", "", "2", "q"])
         red, grey_bg = "\033[38;2;1;2;3m", "\033[48;2;4;5;6m"
         classic_red, classic_grey_bg = "\033[38;2;158;52;38m", "\033[48;2;178;178;178m"
         border = "\033[38;2;82;82;82m"  # classic's dark_grey, kept by the theme
@@ -971,22 +973,23 @@ class TestThemeSelection:
 
             def readline(self, *args):
                 FlipAtFirstMapKey.reads += 1
-                if FlipAtFirstMapKey.reads == 3:  # 1 title, 2 upkeep, 3 first map key
+                # 1 title, 2 upkeep, 3 the turn menu (walk), 4 first map key
+                if FlipAtFirstMapKey.reads == 4:
                     monkeypatch.setenv("COLORTERM", "truecolor")
                 return super().readline(*args)
 
         out = io.StringIO()
-        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\nx\nx\nq\n"))
+        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\n2\nx\nx\nq\n"))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(20, "main() did not return", exc_type=AssertionError):
             main(self._NEW_GAME)
         first = out.getvalue()
-        assert FlipAtFirstMapKey.reads >= 5, "the script did not reach the later map frames"
+        assert FlipAtFirstMapKey.reads >= 6, "the script did not reach the later map frames"
         _ansi = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
         frames = [line for line in first.split("\n") if _ansi.sub("", line) == self._TOP_BORDER]
         assert len(frames) == 3, "expected three map frames: before and after the flip"
         assert "\033[38;5;" in first
         assert "\033[38;2;" not in first, "colours switched mode mid-session"
 
-        second = self._main(monkeypatch, self._NEW_GAME, ["", "", "q"])
+        second = self._main(monkeypatch, self._NEW_GAME, ["", "", "2", "q"])
         assert "\033[38;2;" in second and "\033[38;5;" not in second

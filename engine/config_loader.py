@@ -15,7 +15,8 @@ same way (:data:`engine.conditions.GUARD_VARIABLES`). ``state_schema.yaml`` besi
 ``config.yaml`` declares the config's value maps (:class:`~engine.state.StateSchema`).
 
 The loaded config also exposes its world: its location shells (every
-``content/locations/*.yaml``, parsed against the registered handlers) and its city map
+``content/locations/*.yaml``, parsed against the registered handlers), its other menus
+(``content/menus/*.yaml``, the same shells: the turn menu) and its city map
 (``content/map/city.yaml``), so the engine turn runner and every client find them on
 the :class:`LoadedConfig`, never by path.
 
@@ -50,6 +51,7 @@ __all__ = [
     "load_state_schema",
     "STATE_SCHEMA_FILE",
     "LOCATIONS_DIR",
+    "MENUS_DIR",
     "CITY_FILE",
 ]
 
@@ -59,6 +61,9 @@ STATE_SCHEMA_FILE = "state_schema.yaml"
 #: Where a config keeps its location shells (one ``<key>.yaml`` each), and its city
 #: map, relative to its directory.
 LOCATIONS_DIR = Path("content") / "locations"
+#: Where a config keeps its other menus (the turn menu, ``turn.yaml``): shells too,
+#: parsed by the same loader.
+MENUS_DIR = Path("content") / "menus"
 CITY_FILE = Path("content") / "map" / "city.yaml"
 
 #: The Engine<->Config API version this engine speaks (docs/design/config-and-content-contract.md).
@@ -141,6 +146,9 @@ class LoadedConfig:
         ``StatChange`` validation reads.
     shells:
         The config's location shells (:data:`LOCATIONS_DIR`), keyed by location key.
+    menus:
+        The config's other menu shells (:data:`MENUS_DIR`), keyed by menu key: the
+        turn menu is ``menus["turn"]``.
     city:
         The config's city map (:data:`CITY_FILE`), or ``None`` when it has none.
     """
@@ -155,6 +163,7 @@ class LoadedConfig:
     guard_variables: dict
     stat_names: set[str]
     shells: dict[str, Location]
+    menus: dict[str, Location]
     city: City | None
 
     @property
@@ -235,7 +244,7 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
     3. Return a :class:`LoadedConfig` exposing the parsed config, the ``new_game``
        callable, the imported module, the populated ``HANDLERS`` and ``EFFECTS``
        registries, the declared state schema (``state_schema.yaml``), the guard
-       variable registry, the declared stat names, the location shells and the city.
+       variable registry, the declared stat names, the location shells, the menus and the city.
     """
     config_dir = Path(config_dir).resolve()
     if not config_dir.is_dir():
@@ -267,5 +276,6 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
         guard_variables=GUARD_VARIABLES,
         stat_names=STAT_NAMES,
         shells=load_shells(config_dir / LOCATIONS_DIR),
+        menus=load_shells(config_dir / MENUS_DIR),
         city=_load_city_file(config_dir / CITY_FILE),
     )

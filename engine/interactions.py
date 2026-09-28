@@ -64,6 +64,8 @@ __all__ = [
     "MAP_DIRECTIONS",
     "MAP_SAVE",
     "MAP_QUIT",
+    "MAP_EXIT",
+    "TurnMenu",
     "LocationMenu",
     "OptionDone",
     "Interaction",
@@ -352,10 +354,12 @@ class Heading:
     player: int | None = None
 
 
-#: The map-move prompt's direction answers, and its two command answers.
+#: The map-move prompt's direction answers, and its command answers: save and quit
+#: (offered at the turn menu too) and the map's exit back to the turn menu.
 MAP_DIRECTIONS = ("up", "down", "left", "right")
 MAP_SAVE = "save"
 MAP_QUIT = "quit"
+MAP_EXIT = "exit"
 
 
 @dataclass(frozen=True)
@@ -368,7 +372,8 @@ class MapMove:
     only at the turn menu and this prompt. A driver saves the runner's committed
     state itself; the runner, answered :data:`MAP_SAVE`, asks again with nothing
     changed. Answered :data:`MAP_QUIT`, the runner stops (a driver may also simply
-    stop driving). Any other answer asks again.
+    stop driving). Answered :data:`MAP_EXIT`, the player leaves the map for the turn
+    menu (``mf-prg.bas:2019 ifx$="_"thensysie:return``). Any other answer asks again.
 
     ``outcome`` is what the previous answer did on the map, so a client can say so:
     the step's kind (``"step"``, ``"enter"``, ``"wall"``, ``"oob"``, ``"special"``, see
@@ -379,6 +384,27 @@ class MapMove:
 
     outcome: str | None = None
     directions: tuple[str, ...] = MAP_DIRECTIONS
+    commands: tuple[str, ...] = (MAP_SAVE, MAP_QUIT, MAP_EXIT)
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class TurnMenu:
+    """The turn menu: the turn runner asks what the active player does next.
+
+    The runner yields one when the free turn opens and again after each action while
+    movement points remain (``mf-prg.bas:1015-1045``). ``options`` are the ids of the
+    turn-menu shell's options whose guard passes, in shell order, and ``keys`` the key
+    that picks each (the same order): the answer is one of ``keys``. Anything else --
+    a key no option has, no answer -- is ignored and the same menu is asked again
+    (``:1030``). ``commands`` are answers too: :data:`MAP_SAVE` (a driver saves the
+    runner's committed state itself; the runner asks again with nothing changed) and
+    :data:`MAP_QUIT` (the runner stops). ``player`` is the player choosing (``None``:
+    the active player).
+    """
+
+    options: tuple[str, ...]
+    keys: tuple[str, ...]
     commands: tuple[str, ...] = (MAP_SAVE, MAP_QUIT)
     player: int | None = None
 
