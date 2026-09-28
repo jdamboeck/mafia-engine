@@ -135,7 +135,21 @@ def test_run_pure_sees_a_type_change_of_a_declared_player_key(key):
 # Guard variables are the config's                                            #
 # --------------------------------------------------------------------------- #
 def _pub():
-    return load_location(yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8")))
+    """The pub shell with its recruit option guarded ``rank > 4 and gang_size < 10``.
+
+    This config's shells guard no option (the source refuses inside the handlers,
+    #122), so the guard-variable registry is exercised on this probe copy.
+    """
+    raw = yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8"))
+    for option in raw["options"]:
+        if option["id"] == "recruit":
+            option["guard"] = {
+                "and": [
+                    {"var": "rank", "op": ">", "value": 4},
+                    {"var": "gang_size", "op": "<", "value": 10},
+                ]
+            }
+    return load_location(raw)
 
 
 def _option_ids(state: GameState) -> list[str]:
@@ -143,7 +157,7 @@ def _option_ids(state: GameState) -> list[str]:
 
 
 def test_a_config_registered_guard_variable_filters_a_menu_option():
-    """pub's recruit guard (``rank > 4``, ``gang_size < 10``) reads the config's ``rank``."""
+    """A recruit guard (``rank > 4``, ``gang_size < 10``) reads the config's ``rank``."""
     rank_4 = with_player(_new_game(), 0, rank=4)
     rank_5 = with_player(_new_game(), 0, rank=5)
     assert "recruit" not in _option_ids(rank_4)
@@ -184,11 +198,25 @@ def test_an_unregistered_guard_variable_in_a_shell_is_refused_naming_it():
 
 
 def test_the_config_registers_every_guard_variable_its_shells_use():
+    paths = [
+        *(_CONFIG_DIR / "content" / "locations").glob("*.yaml"),
+        *(_CONFIG_DIR / "content" / "menus").glob("*.yaml"),
+    ]
+    assert paths, "no shell found: the scan is vacuous"
     used = set()
-    for path in (_CONFIG_DIR / "content" / "locations").glob("*.yaml"):
+    for path in paths:
         used |= set(re.findall(r"var: (\w+)", path.read_text(encoding="utf-8")))
-    assert used, "no guard variable found: the scan is vacuous"
     assert used <= set(_LOADED.guard_variables)
+
+
+def test_no_shell_of_this_config_guards_an_option():
+    """The source's menus are fixed: every option is always shown and refuses inside
+    its handler (``:3030`` prints the file's ``aw`` options with no precondition), so a
+    guard -- which hides an option and renumbers the ones after it -- has no source
+    counterpart here (#122)."""
+    shells = [*_LOADED.shells.values(), *_LOADED.menus.values()]
+    assert shells
+    assert [(s.key, o.id) for s in shells for o in s.options if o.guard is not None] == []
 
 
 def test_the_tenancy_guard_reads_the_global_value_map():

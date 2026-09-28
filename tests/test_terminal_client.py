@@ -55,7 +55,7 @@ from clients.terminal import (  # noqa: E402
     render_message,
 )
 from clients.terminal.palette import ColorSupport, Colors, load_palette  # noqa: E402
-from tests.helpers import deadline, with_player  # noqa: E402
+from tests.helpers import NEW_GAME_ACKS, deadline, with_player  # noqa: E402
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 
@@ -373,20 +373,20 @@ class TestSetupPrompts:
 
     def test_end_year_out_of_range_reasks_once(self, monkeypatch):
         """AE4: 1927 is rejected and re-asked; 1940 is accepted."""
-        state, text = _play_capturing_state(monkeypatch, "\n1927\n1940\n1\n")
+        state, text = _play_capturing_state(monkeypatch, "\n1927\n1940\n1\n\n")
         assert text.count(_END_YEAR_PROMPT) == 2
         assert text.count(_SCORE_WEIGHT_PROMPT) == 1
         assert state is not None
         assert state.clock.end_year == 1940
 
     def test_end_year_non_numeric_reasks(self, monkeypatch):
-        state, text = _play_capturing_state(monkeypatch, "\nabc\n1950\n1\n")
+        state, text = _play_capturing_state(monkeypatch, "\nabc\n1950\n1\n\n")
         assert text.count(_END_YEAR_PROMPT) == 2
         assert state.clock.end_year == 1950
 
     def test_score_weight_out_of_range_reasks_twice(self, monkeypatch):
         """AE7: 0.05 and 2.5 are rejected; 0.5 is accepted as formula_params["score_mult"]."""
-        state, text = _play_capturing_state(monkeypatch, "\n1940\n0.05\n2.5\n0.5\n")
+        state, text = _play_capturing_state(monkeypatch, "\n1940\n0.05\n2.5\n0.5\n\n")
         assert text.count(_END_YEAR_PROMPT) == 1
         assert text.count(_SCORE_WEIGHT_PROMPT) == 3
         assert state.config.formula_params["score_mult"] == 0.5
@@ -396,13 +396,13 @@ class TestSetupPrompts:
         from engine.effects import commit
         from data.game_configs.mafia_1920s.effects import ScoreAndRank
 
-        state, _text = _play_capturing_state(monkeypatch, "\n1940\n0.5\n")
+        state, _text = _play_capturing_state(monkeypatch, "\n1940\n0.5\n\n")
         before = state.players[0].gf
         after = commit(state, [ScoreAndRank(amount=4, rank_divisor=11.1, player=0)]).state
         assert after.players[0].gf - before == 2
 
     def test_supplied_values_skip_the_prompts(self, monkeypatch):
-        state, text = _play_capturing_state(monkeypatch, "\n", end_year=1950, score_weight=1.5)
+        state, text = _play_capturing_state(monkeypatch, "\n\n", end_year=1950, score_weight=1.5)
         assert _END_YEAR_PROMPT not in text
         assert _SCORE_WEIGHT_PROMPT not in text
         assert state.clock.end_year == 1950
@@ -438,16 +438,17 @@ class TestSetupFlags:
         return out.getvalue(), load_game(save, load_game_config(CONFIG_DIR).registries).state
 
     def test_flags_reach_play(self, monkeypatch, tmp_path):
-        # title ack, upkeep ack, p, q -- no setup answers: the flags supply them.
+        # title ack, house-rules offer, upkeep ack, p, q -- no setup answers: the flags
+        # supply them.
         text, state = self._main(
-            monkeypatch, tmp_path, ["--end-year", "1950", "--score-weight", "1.5"], "\n\np\nq\n"
+            monkeypatch, tmp_path, ["--end-year", "1950", "--score-weight", "1.5"], "\n\n\np\nq\n"
         )
         assert _END_YEAR_PROMPT not in text and _SCORE_WEIGHT_PROMPT not in text
         assert state.clock.end_year == 1950
         assert state.config.formula_params["score_mult"] == 1.5
 
     def test_absent_flags_are_asked_at_setup(self, monkeypatch, tmp_path):
-        text, state = self._main(monkeypatch, tmp_path, [], "\n1940\n0.5\n\np\nq\n")
+        text, state = self._main(monkeypatch, tmp_path, [], "\n1940\n0.5\n\n\np\nq\n")
         assert text.count(_END_YEAR_PROMPT) == 1 and text.count(_SCORE_WEIGHT_PROMPT) == 1
         assert state.clock.end_year == 1940
         assert state.config.formula_params["score_mult"] == 0.5
@@ -620,15 +621,17 @@ class TestClientErrorGuard:
     def test_unknown_error_inside_play_keeps_its_traceback(self, monkeypatch, capsys):
         # Standard input that breaks at the first map prompt of a new game: not a
         # failure main() knows, so it must escape with its traceback, not one line.
-        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", "", "2"], RuntimeError("deep bug")))
+        monkeypatch.setattr(
+            sys, "stdin", _FailingStdin([*NEW_GAME_ACKS, "2"], RuntimeError("deep bug"))
+        )
         with pytest.raises(RuntimeError, match="deep bug") as exc:
             main(["--end-year", "1930", "--score-weight", "1"])
         assert any(entry.name == "readline" for entry in exc.traceback), "not stdin's error"
         assert capsys.readouterr().err == ""
 
     def test_keyboard_interrupt_exits_quietly_with_cursor_restored(self, monkeypatch, capsys):
-        # Ctrl-C at the first map prompt of a new game (title and upkeep acked).
-        monkeypatch.setattr(sys, "stdin", _FailingStdin(["", "", "2"], KeyboardInterrupt()))
+        # Ctrl-C at the first map prompt of a new game (title, house rules, upkeep acked).
+        monkeypatch.setattr(sys, "stdin", _FailingStdin([*NEW_GAME_ACKS, "2"], KeyboardInterrupt()))
         with pytest.raises(SystemExit) as exc:
             main(["--end-year", "1930", "--score-weight", "1"])
         assert exc.value.code == 130
@@ -757,7 +760,8 @@ class TestWatchAi:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
-        keys = ["", "", "2"] + walk + ["", "2", "j", "w", "x", "x", "x"] + ["p"] * 6
+        # The pub's menu: 0 drink, 1 recruit, 2 tip, 3 job, 4 leave.
+        keys = [*NEW_GAME_ACKS, "2"] + walk + ["", "3", "j", "w", "x", "x", "x"] + ["p"] * 6
         out = io.StringIO()
         monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(keys) + "\n"))
         monkeypatch.setattr(sys, "stdout", out)
@@ -823,7 +827,7 @@ class TestClientTextComesFromTheTheme:
 
     def test_a_theme_path_changes_what_a_quit_prints(self, monkeypatch):
         argv = ["--theme", str(self._TEST_THEME), "--end-year", "1930", "--score-weight", "1"]
-        text = self._main(monkeypatch, argv, ["", "", "2", "q"])
+        text = self._main(monkeypatch, argv, [*NEW_GAME_ACKS, "2", "q"])
         assert "ciao." in text and "bye." not in text
         assert "walk on." in text and "move: W/A/S/D" not in text
         # Keys the theme leaves alone still come from classic.
@@ -835,7 +839,9 @@ class TestClientTextComesFromTheTheme:
         # Walk the first turn to its turn-over screen and quit there.
         walk = burn_turn_keys(42, turns=1)[:-3]
         argv = ["--theme", str(self._TEST_THEME), "--seed", "42", "--end-year", "1930"]
-        text = self._main(monkeypatch, [*argv, "--score-weight", "1"], ["", "", "2", *walk, "q"])
+        text = self._main(
+            monkeypatch, [*argv, "--score-weight", "1"], [*NEW_GAME_ACKS, "2", *walk, "q"]
+        )
         turn_over = text[text.index("  turn_over  ") :]
         assert re.search(r"geld: \d+\$ \| feld \d+ \| schritte 0 \| rang 1", turn_over)
         assert "cash:" not in turn_over and "movement:" not in turn_over
@@ -950,9 +956,11 @@ class TestThemeSelection:
         and ``light_grey`` (the map background, headers); ``dark_grey`` (the map
         border) is left to classic's palette."""
         themed = self._main(
-            monkeypatch, ["--theme", str(self._TEST_THEME), *self._NEW_GAME], ["", "", "2", "q"]
+            monkeypatch,
+            ["--theme", str(self._TEST_THEME), *self._NEW_GAME],
+            [*NEW_GAME_ACKS, "2", "q"],
         )
-        classic = self._main(monkeypatch, self._NEW_GAME, ["", "", "2", "q"])
+        classic = self._main(monkeypatch, self._NEW_GAME, [*NEW_GAME_ACKS, "2", "q"])
         red, grey_bg = "\033[38;2;1;2;3m", "\033[48;2;4;5;6m"
         classic_red, classic_grey_bg = "\033[38;2;158;52;38m", "\033[48;2;178;178;178m"
         border = "\033[38;2;82;82;82m"  # classic's dark_grey, kept by the theme
@@ -973,23 +981,23 @@ class TestThemeSelection:
 
             def readline(self, *args):
                 FlipAtFirstMapKey.reads += 1
-                # 1 title, 2 upkeep, 3 the turn menu (walk), 4 first map key
-                if FlipAtFirstMapKey.reads == 4:
+                # 1 title, 2 house rules, 3 upkeep, 4 the turn menu (walk), 5 first map key
+                if FlipAtFirstMapKey.reads == 5:
                     monkeypatch.setenv("COLORTERM", "truecolor")
                 return super().readline(*args)
 
         out = io.StringIO()
-        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\n2\nx\nx\nq\n"))
+        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\n\n2\nx\nx\nq\n"))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(20, "main() did not return", exc_type=AssertionError):
             main(self._NEW_GAME)
         first = out.getvalue()
-        assert FlipAtFirstMapKey.reads >= 6, "the script did not reach the later map frames"
+        assert FlipAtFirstMapKey.reads >= 7, "the script did not reach the later map frames"
         _ansi = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
         frames = [line for line in first.split("\n") if _ansi.sub("", line) == self._TOP_BORDER]
         assert len(frames) == 3, "expected three map frames: before and after the flip"
         assert "\033[38;5;" in first
         assert "\033[38;2;" not in first, "colours switched mode mid-session"
 
-        second = self._main(monkeypatch, self._NEW_GAME, ["", "", "2", "q"])
+        second = self._main(monkeypatch, self._NEW_GAME, [*NEW_GAME_ACKS, "2", "q"])
         assert "\033[38;2;" in second and "\033[38;5;" not in second

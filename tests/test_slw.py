@@ -12,7 +12,8 @@ applying effects through the buffer, sitting behind the U6 guard shell. Ports
 * the premium tile (``fnm(1)`` is 150 under C64 true=-1, the dearest rent),
 * the ``x<=0`` quiet-cancel path (:10030 — zero effects committed),
 * the affordability guard (:10035 — no deduction on insufficient cash),
-* the two SHELL guards (room-free for rent, you-are-the-tenant for pay-rent).
+* the two refusals inside the handlers (room taken, ``:10010``; not the tenant,
+  ``:10100``) behind a menu that never changes.
 """
 
 from __future__ import annotations
@@ -158,50 +159,60 @@ def test_insufficient_cash_emits_not_enough_money():
 
 
 # --------------------------------------------------------------------------- #
-# Shell guard: room occupied by someone else -> rent option denied            #
+# The menu is fixed; each option refuses inside its handler (:10010, :10100)  #
 # --------------------------------------------------------------------------- #
-def test_room_occupied_rent_denied_by_shell():
+def test_menu_offers_all_three_options_whoever_holds_the_room():
+    """The source prints the location's ``aw`` options from its file (``:3030``) with no
+    precondition, so the menu never changes and no option moves up a place."""
     loc = _load_shell()
-    st = _state(ln=2, active=0, players=1, tenancy={2: 2})  # tile 2 taken by player 2
-    avail = available_options(loc, st, ln=2)
-    ids = [o.id for o in avail]
-    assert "rent" not in ids  # guard uk(ln)=0 fails -> excluded
-    rent_opt = next(o for o in loc.options if o.id == "rent")
-    assert rent_opt.on_denied == "locations.slw.no_room"
+    for tenancy, active in (({}, 0), ({2: 0}, 0), ({2: 1}, 0), ({2: 1}, 1)):
+        st = _state(ln=2, active=active, players=2, tenancy=tenancy)
+        assert [o.id for o in available_options(loc, st, ln=2)] == ["rent", "pay_rent", "leave"]
 
 
-# --------------------------------------------------------------------------- #
-# Shell guard: not resident -> pay_rent option denied                         #
-# --------------------------------------------------------------------------- #
-def test_not_resident_pay_rent_denied_by_shell():
-    loc = _load_shell()
-    st = _state(ln=2, active=0, players=1, tenancy={2: 99})  # tile taken by someone else
-    avail = available_options(loc, st, ln=2)
-    ids = [o.id for o in avail]
-    assert "pay_rent" not in ids  # guard uk(ln)=sp fails -> excluded
-    pay_opt = next(o for o in loc.options if o.id == "pay_rent")
-    assert pay_opt.on_denied == "locations.slw.not_resident"
+def test_rent_refused_when_the_room_is_taken():
+    # :10010 ``ifuk(ln)<>0thenprint"'nichts mehr frei!'":goto1100`` -- no rent quote.
+    st = _state(ln=2, active=0, players=2, tenancy={2: 1})
+    src = _scripted()
+    result = run_pure(HANDLERS["slw.rent"], src, state=st, rng=None)
+
+    assert result.effects == []
+    assert src.message_keys() == ["locations.slw.no_room"]
 
 
-def test_shell_guards_pass_when_appropriate():
-    loc = _load_shell()
-    # Use active player index 1 so sp=1 (!=0), cleanly separating the "free room"
-    # (uk=0) guard from the "you are the tenant" (uk=sp) guard. (For sp=0 the two
-    # guards intentionally coincide on a free room — a faithful property of the
-    # original guards uk(ln)=0 and uk(ln)=sp.)
+def test_player_zero_cannot_rent_their_own_room_again():
+    """The first player's own room is not vacant (#122).
 
-    # Free room -> rent available, pay_rent not (player 1 is not the tenant).
-    free = _state(ln=2, active=1, players=2, tenancy={})
-    ids_free = [o.id for o in available_options(loc, free, ln=2)]
-    assert "rent" in ids_free
-    assert "pay_rent" not in ids_free
-    assert "leave" in ids_free  # guardless
+    The source's players are 1-based, so ``uk(ln)=0`` means vacant and the first
+    player's room holds 1. This port's first player is index 0; the room they hold
+    is still taken, so renting it refuses like any taken room (``:10010``).
+    """
+    st = _state(ln=2, active=0, players=1, tenancy={2: 0})
+    src = _scripted()
+    result = run_pure(HANDLERS["slw.rent"], src, state=st, rng=None)
 
-    # You (player 1) are the tenant -> pay_rent available, rent not.
-    mine = _state(ln=2, active=1, players=2, tenancy={2: 1})
-    ids_mine = [o.id for o in available_options(loc, mine, ln=2)]
-    assert "pay_rent" in ids_mine
-    assert "rent" not in ids_mine
+    assert result.effects == []
+    assert src.message_keys() == ["locations.slw.no_room"]
+
+
+def test_pay_rent_refused_when_not_the_tenant():
+    # :10100 ``ifuk(ln)<>spthenprint"du wohnst hier nicht!":nm=1:goto1100``.
+    for tenancy in ({}, {2: 1}):
+        st = _state(ln=2, active=0, players=2, tenancy=tenancy)
+        src = _scripted()
+        result = run_pure(HANDLERS["slw.pay_rent"], src, state=st, rng=None)
+
+        assert result.effects == []
+        assert src.message_keys() == ["locations.slw.not_resident"]
+
+
+def test_player_zero_pays_rent_on_their_own_room():
+    # :10105 ``goto10020`` -- the tenant re-enters the rent block and adds months.
+    st = _state(ka=5000, ln=2, active=0, players=1, tenancy={2: 0})
+    result = run_pure(HANDLERS["slw.pay_rent"], _scripted(3), state=st, rng=None)
+
+    assert result.effects == [MoneyChange(-150), SetTenancy(2), RentAccrue(3)]
+    assert game.tenant(result.state, 2) == 0
 
 
 # --------------------------------------------------------------------------- #

@@ -45,7 +45,7 @@ import yaml
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, RosterAppend
 from data.game_configs.mafia_1920s.effects import GangsterMarkHired
-from engine.locations import HANDLERS
+from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import StubRng, run_pure, scripted as _scripted
@@ -54,6 +54,8 @@ import data.game_configs.mafia_1920s.state as game
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
 
+_PUB_SHELL = _CONFIG_DIR / "content" / "locations" / "pub.yaml"
+_RANKS = yaml.safe_load((_CONFIG_DIR / "entities" / "ranks.yaml").read_text())["ranks"]
 _GANGSTERS = yaml.safe_load((_CONFIG_DIR / "entities" / "gangsters.yaml").read_text())["gangsters"]
 
 
@@ -113,6 +115,31 @@ def test_rank_too_low_denies_before_any_rng():
     assert result.status == "completed"
     assert result.effects == []
     assert rng.calls == []
+
+
+def test_rank_too_low_prints_the_rank_name():
+    """``:12101`` ``print"als "ra$(ra(sp))" kannst du noch"`` -- the rank's NAME."""
+    st = _state(rank=4)
+    src = _scripted()
+    run_pure(HANDLERS["pub.recruit"], src, state=st, rng=_StubRng())
+    (message,) = src.messages()
+    assert message.key == "locations.pub.rank_too_low"
+    assert message.params == {"rank": _RANKS[3]}
+
+
+def test_pub_menu_offers_all_five_options_at_any_rank():
+    """The pub always shows its five options (``aw=5``, ``:3030`` prints them all).
+
+    ``:12005`` ``onwgoto12010,12100,12200,12300`` dispatches every one; the recruit
+    refusals happen inside ``:12100-12105``, so a low rank or a full gang never hides
+    the option or moves the later ones up a place (#122).
+    """
+    shell = load_location(yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8")))
+    for rank in (1, 4, 5, 10):
+        roster = tuple(Gangster(name=f"g{i}") for i in range(10))
+        for st in (_state(rank=rank), _state(rank=rank, roster=roster)):
+            ids = [o.id for o in available_options(shell, st, ln=1)]
+            assert ids == ["drink", "recruit", "tip", "job", "leave"]
 
 
 def test_rank_exactly_5_passes_the_rank_guard():

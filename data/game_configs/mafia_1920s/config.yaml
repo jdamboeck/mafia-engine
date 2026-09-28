@@ -14,7 +14,7 @@ name: "mafia_1920s"
 
 # This config's own content version. A save records it and is refused under another,
 # so bump it when a content change would make an existing save load wrongly.
-content_version: 1
+content_version: 2
 description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 
 # Entity tables live in sibling files under entities/.

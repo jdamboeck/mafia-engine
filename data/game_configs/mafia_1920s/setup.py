@@ -32,7 +32,7 @@ from engine.config_loader import load_config
 from engine.effects import MoneyChange
 from engine.interactions import ShowMessage
 from engine.rng import Rng
-from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, Clock, Config, GameState, Player
+from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, INTENT, Clock, Config, GameState, Player
 
 try:
     from .effects import DebtClear, ScoreAndRank
@@ -477,6 +477,10 @@ def _roll_stat(rng: Rng, roll: dict) -> int:
     return rng.range(roll["choices"]) * roll["step"] + roll["base"]
 
 
+#: The house rule that picks the first gangster's intelligence (``content/house_rules.yaml``).
+INTELLIGENCE_OR_30 = "intelligence_or_30"
+
+
 def _house_rules_map(cfg_dir: Path, choices: Mapping[str, str]) -> dict[str, str]:
     """Every switch of the catalogue in ``cfg_dir`` at faithful, then ``choices``."""
     rules = switchable(load_house_rules(cfg_dir / HOUSE_RULES_FILE))
@@ -549,13 +553,17 @@ def new_game(
     start_ms = vehicles[start_vehicle]["tr"]  # ms = tr(vehicle); on foot tr(0)=25
 
     rng = Rng(seed)
+    chosen_rules = _house_rules_map(cfg_dir, house_rules or {})
+    # House rule intelligence_or_30: faithful stores the roll OR 30, intent the roll.
+    intelligence_as_rolled = chosen_rules.get(INTELLIGENCE_OR_30) == INTENT
 
     game_players: list[Player] = []
     for name, gang_name in players:
         # Roll the starting gangster's stats — ALL via rng.
         kraft = _roll_stat(rng, setup["stat_roll"])
         raw_intel = _roll_stat(rng, setup["stat_roll"])
-        intelligenz = raw_intel | setup["intelligenz_or"]  # OR-30 quirk, :311 `in=xor30`
+        # :311 `in=xor30` — the roll OR 30 (faithful), or the roll :350 printed (intent).
+        intelligenz = raw_intel if intelligence_as_rolled else raw_intel | setup["intelligenz_or"]
         brutalitaet = _roll_stat(rng, setup["stat_roll"])
         cash = _roll_stat(rng, setup["cash_roll"])
 
@@ -596,7 +604,7 @@ def new_game(
         # Passed as plain YAML dicts: Config deep-freezes them on construction. The
         # x8 score weight is a setup input, so it joins the static params here.
         formula_params={**cfg["formula_params"], "score_mult": score_weight},
-        house_rules=_house_rules_map(cfg_dir, house_rules or {}),
+        house_rules=chosen_rules,
     )
 
     return GameState(

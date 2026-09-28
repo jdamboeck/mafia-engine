@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -161,13 +162,22 @@ def _load_reason(exc: BaseException, resolver: Resolver) -> str:
         return reason(f"other_{exc.field}", found=exc.found, expected=exc.expected)
     if isinstance(exc, MissingHouseRulesError):
         return reason("no_house_rules")
+    if isinstance(exc, _HouseRulesMismatch):
+        return reason("other_house_rules", detail=exc)
     if isinstance(exc, KeyError):
         return reason("missing_field", detail=exc)
     return reason("corrupt", error_type=type(exc).__name__, detail=exc)
 
 
+class _HouseRulesMismatch(Exception):
+    """A save's house-rules map does not hold exactly the catalogue's switches."""
+
+
 def _load_session(
-    path: str | Path, resolver: Resolver, registries: Registries
+    path: str | Path,
+    resolver: Resolver,
+    registries: Registries,
+    check_house_rules: Callable[[dict], object] | None = None,
 ) -> tuple[int, GameState, Rng]:
     """Resume a save: its seed, its state and the session RNG rebuilt mid-stream.
 
@@ -177,9 +187,16 @@ def _load_session(
     :meth:`Rng.replayed` raise ``ValueError`` -- a load failure like any other.
     Every failure becomes :class:`LoadError` with the theme's ``client.load.error`` line.
     ``registries`` is the loaded config's: effects and value maps load through it.
+    ``check_house_rules`` is the config's check of a stored house-rules map (it raises
+    ``ValueError`` naming the rule): a save made under another catalogue is refused.
     """
     try:
         loaded = load_game(path, registries)
+        if check_house_rules is not None:
+            try:
+                check_house_rules(dict(loaded.state.config.house_rules))
+            except ValueError as exc:
+                raise _HouseRulesMismatch(str(exc)) from exc
         return loaded.seed, replay(loaded, registries), Rng.replayed(loaded.seed, loaded.rng_log)
     except Exception as exc:
         message = resolver.resolve(
@@ -419,52 +436,6 @@ def _render_location_menu(
             return int(raw)
 
 
-def _render_upkeep_screen(
-    state, previous_rank: int, resolver: Resolver, colors: Colors, out, stdin=None
-) -> None:
-    """Show the upkeep screen the turn runner acknowledges after upkeep ran.
-
-    The turn banner always shows; the rank-promotion "wanted poster" shows only when
-    upkeep changed the player's committed rank (``previous_rank``, from the runner's
-    :class:`~engine.interactions.Acknowledge`, against ``state`` after upkeep: the
-    handler's own ``rank != nr`` gate decided it, so the client stays a thin renderer).
-
-    Blocks for one line (mirrors the turn-over prompt's "press any key..." pattern) so
-    a human has time to read it; EOF is treated as an ack, not a quit, since upkeep
-    offers no cancel path -- the turn must proceed regardless.
-    """
-    if stdin is None:
-        stdin = sys.stdin
-
-    idx = state.clock.active_player
-    active = state.players[idx]
-
-    render_screen_clear(out)
-    render_header(resolver.resolve("client.header.upkeep"), out, colors)
-    render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out, colors)
-
-    if active.rank != previous_rank:
-        cfg = load_game_config(_CONFIG_DIR)
-        ranks = cfg.module.load_ranks(_CONFIG_DIR / cfg.config["entities"]["ranks"])
-        out.write("\n")
-        render_body(
-            resolver.resolve(
-                "upkeep.rank_promotion",
-                {
-                    "gang_name": cfg.module.state.gang_name(active),
-                    "name": active.name,
-                    "score": active.gf,
-                    "rank_name": ranks[active.rank - 1],
-                },
-            ),
-            out,
-            colors,
-        )
-
-    _write_press_any_key(resolver, out)
-    _read_line_visible(stdin, out)
-
-
 def _render_lines_screen(header: str, lines, resolver: Resolver, colors: Colors, out) -> bool:
     """Show a display-only flow (standings or year-end) as ONE screen and wait for a key.
 
@@ -636,8 +607,12 @@ class TerminalSession:
         )
         if load is not None:
             # raises LoadError; main() reports it
+            rules = self.cfg.module.house_rules
             self.seed, self.state, self.rng = _load_session(
-                load, self.resolver, self.cfg.registries
+                load,
+                self.resolver,
+                self.cfg.registries,
+                lambda stored: rules.check_stored_map(stored, rules.CATALOGUE),
             )
         else:
             self.seed = seed if seed is not None else _DEFAULT_SEED
@@ -799,7 +774,12 @@ class TerminalSession:
     def heading(self, screen: Heading) -> None:
         """Open one of the runner's own screens under its heading."""
         out = self.out
-        if screen.key == JOB_SHIFT_SCREEN:
+        if screen.key == UPKEEP_SCREEN:
+            # Upkeep's messages follow under this heading, each printed once; the
+            # Acknowledge that closes the screen only waits for the key.
+            render_screen_clear(out)
+            render_header(self.text("client.header.upkeep"), out, self.colors)
+        elif screen.key == JOB_SHIFT_SCREEN:
             render_screen_clear(out)
             render_header(self.text("client.header.job"), out, self.colors)
         elif screen.key == LOCATION_CLOSED_SCREEN:
@@ -813,9 +793,10 @@ class TerminalSession:
     def acknowledge(self, screen: Acknowledge):
         """Show one of the runner's acknowledgement screens; ``_QUIT`` on a quit key."""
         if screen.key == UPKEEP_SCREEN:
-            _render_upkeep_screen(
-                self.state, screen.params["previous_rank"], self.resolver, self.colors, self.out
-            )
+            # The upkeep screen's body is already printed (see heading()): wait for the
+            # key. EOF is an ack, not a quit -- upkeep offers no cancel path.
+            _write_press_any_key(self.resolver, self.out)
+            _read_line_visible(sys.stdin, self.out)
             return None
         if screen.key == TURN_OVER_SCREEN:
             return None if self.turn_over() else _QUIT

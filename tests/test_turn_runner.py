@@ -51,6 +51,7 @@ from engine.rng import Rng
 from engine.turns import (
     GAME_OVER,
     LOCATION_CLOSED_SCREEN,
+    MENU,
     NEXT_PLAYER,
     PAUSED,
     QUIT,
@@ -240,11 +241,17 @@ def test_wrapping_the_last_player_shows_the_standings_before_player_ones_upkeep(
 
     assert outcome == PAUSED
     order = [
-        i.key
+        (type(i).__name__, i.key)
         for i in seen
-        if isinstance(i, Acknowledge) or (isinstance(i, ShowMessage) and i.key.startswith("upkeep"))
+        if isinstance(i, (Acknowledge, Heading))
+        or (isinstance(i, ShowMessage) and i.key.startswith("upkeep"))
     ]
-    assert order == [STANDINGS_SCREEN, "upkeep.turn_banner", UPKEEP_SCREEN]
+    assert order == [
+        ("Acknowledge", STANDINGS_SCREEN),
+        ("Heading", UPKEEP_SCREEN),
+        ("ShowMessage", "upkeep.turn_banner"),
+        ("Acknowledge", UPKEEP_SCREEN),
+    ]
     # :1010 gosub4500 runs before ja=ja+1/12: the standings date is the round played.
     standings = next(i for i in seen if isinstance(i, Acknowledge) and i.key == STANDINGS_SCREEN)
     assert standings.params["lines"][0] == (
@@ -391,14 +398,36 @@ def test_a_state_on_the_map_resumes_on_the_map_without_the_turn_start():
     assert runner.state == state, "the resumed turn re-ran something before the map"
 
 
+def test_the_turn_start_sets_the_pending_rank_to_the_committed_rank():
+    """:1012 ``ms=tr(tm(sp)):nr(sp)=ra(sp):ll(sp)=0`` (#122).
+
+    In play :4030 has just made ``ra`` and ``nr`` equal, and nothing between it and
+    :1012 awards score (:1160 is the only writer of ``nr`` besides these two lines), so
+    the assignment changes nothing there. It is ported so a state that reaches the
+    turn start with them apart (a hand-built or edited one) is set straight as the
+    source sets it, before the free turn or a job shift.
+    """
+    state = _new_game()
+    active = replace(state.players[0], rank=2, values={**state.players[0].values, "nr": 5})
+    state = replace(state, players=(active,))
+    runner = TurnRunner(state, Rng(42))
+    _drive(runner, runner.run(TURN_START, until=MENU))
+
+    assert game.next_rank(runner.state.players[0]) == 2
+    assert runner.state.players[0].rank == 2
+
+
 def test_a_state_at_the_turn_start_resumes_with_upkeep():
     state = replace(_new_game(), clock=replace(_new_game().clock, turn_phase=UPKEEP))
     runner = TurnRunner(state, Rng(42))
     gen = runner.run()
 
     first = next(gen)
+    second = next(gen)
     gen.close()
-    assert isinstance(first, ShowMessage) and first.key == "upkeep.turn_banner"
+    # The upkeep screen opens, then upkeep prints its banner on it.
+    assert first == Heading(UPKEEP_SCREEN, player=0)
+    assert isinstance(second, ShowMessage) and second.key == "upkeep.turn_banner"
 
 
 # --------------------------------------------------------------------------- #
@@ -600,14 +629,36 @@ def test_a_door_to_a_location_without_a_shell_shows_it_closed():
 
 
 def test_the_location_menu_lists_only_the_options_whose_guard_passes():
+    # This config's shells guard no option (the source refuses inside the handlers),
+    # so the engine's guard filter is shown on a pub shell whose recruit option is
+    # guarded rank > 4: a rank-1 player is not offered it.
+    door, _ = _door("pub")
+    pub = _CONFIG.shells["pub"]
+    guarded = replace(
+        pub,
+        options=tuple(
+            replace(o, guard={"var": "rank", "op": ">", "value": 4}) if o.id == "recruit" else o
+            for o in pub.options
+        ),
+    )
+    start, into = _approach(door)
+    runner = _runner(_walking(po=start, ms=20), Rng(42), shells={**_CONFIG.shells, "pub": guarded})
+    seen, _ = _script(runner.run(), [into])
+
+    assert seen[1] == LocationMenu(
+        location="pub", options=("drink", "tip", "job", "leave"), ln=1, player=0
+    )
+
+
+def test_the_pub_menu_offers_recruit_at_rank_one():
+    # The real shell: all five options at any rank (#122); recruit refuses inside.
     door, _ = _door("pub")
     start, into = _approach(door)
     runner = _runner(_walking(po=start, ms=20), Rng(42))
     seen, _ = _script(runner.run(), [into])
 
-    # pub.recruit is guarded rank > 4; a rank-1 player is not offered it.
     assert seen[1] == LocationMenu(
-        location="pub", options=("drink", "tip", "job", "leave"), ln=1, player=0
+        location="pub", options=("drink", "recruit", "tip", "job", "leave"), ln=1, player=0
     )
 
 

@@ -9,14 +9,14 @@ walkable street cells (code 156), the RESOLVED door-entry mechanic (a move whose
 TARGET cell is a door-table entry ENTERS that location — NOT adjacency), the
 turn-loop rotation + ``ms`` replenishment from the vehicle table, the ``ln`` seam
 that sets the active player's ``last_location`` on entry (formalizing what U7
-stubbed), the pub recruit denial reached by WALKING at rank 1, and the police
+stubbed), the pub recruit refusal reached by WALKING at rank 1, and the police
 interrupt gated off at rank 1.
 
 Ports (all oracle-gated):
   * turn loop        — mf-prg.bas:1010-1013 (sp wrap, ms = tr(tm(sp)))
   * movement         — mf-prg.bas:2000-2065 (deltas, 156-step, door-entry, walls)
   * police interrupt — mf-prg.bas:2041 (rank>3 gate; never fires at rank 1)
-  * pub recruit      — mf-prg.bas:12100/12105 (ra>4 AND gz<10)
+  * pub recruit      — mf-prg.bas:12100/12105 (ra>4 AND gz<10), checked in the handler
 """
 
 from __future__ import annotations
@@ -43,7 +43,8 @@ from engine.movement import (
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.config_loader import load_game_config
-from tests.helpers import next_turn_by_hand
+from engine.actions import run_option
+from tests.helpers import next_turn_by_hand, scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -321,9 +322,9 @@ def test_twelve_full_rounds_advance_the_year_exactly_once():
 
 
 # --------------------------------------------------------------------------- #
-# THE HEADLINE: walk to the pub, recruit denied at rank 1 (guard rank>4).     #
+# THE HEADLINE: walk to the pub, recruit refused at rank 1 (:12100-12102).   #
 # --------------------------------------------------------------------------- #
-def test_walk_to_pub_recruit_denied_at_rank_1():
+def test_walk_to_pub_recruit_refused_at_rank_1():
     # Load the pub shell (its handler must be registered -> load the config).
     from engine.config_loader import load_game_config
 
@@ -342,29 +343,26 @@ def test_walk_to_pub_recruit_denied_at_rank_1():
     assert state.players[0].po == 473  # did not stand on the door
     assert state.players[0].last_location == 1  # ln seam set
 
-    # available_options at rank 1 EXCLUDES recruit (guard rank>4 fails).
-    avail = available_options(pub, state, ln=res.payload.ln)
-    ids = [o.id for o in avail]
-    assert "recruit" not in ids
-    recruit = next(o for o in pub.options if o.id == "recruit")
-    assert recruit.on_denied == "locations.pub.rank_too_low"
-    # No effects committed — denial is a shell exclusion, nothing mutated.
-    assert state.players[0].ka == 5000
+    # The menu is fixed (#122): recruit is offered at rank 1 and refuses inside its
+    # handler (:12100-12102), naming the rank.
+    ids = [o.id for o in available_options(pub, state, ln=res.payload.ln)]
+    assert ids == ["drink", "recruit", "tip", "job", "leave"]
+    src = scripted()
+    result = run_option(pub, "recruit", state, ln=res.payload.ln, input_source=src)
+    assert src.message_keys() == ["locations.pub.rank_too_low"]
+    # No effects committed — the refusal changes nothing.
+    assert result.effects == []
+    assert result.state.players[0].ka == 5000
 
 
-def test_pub_recruit_available_when_rank_high_and_room():
+def test_pub_recruit_offered_whatever_the_rank_and_gang_size():
     from engine.config_loader import load_game_config
 
     load_game_config(_CONFIG_DIR)
     pub = load_location(yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8")))
-    # rank 5 (>4) AND gang size 1 (<10) -> recruit available.
-    st = _state(rank=5, roster=1)
-    ids = [o.id for o in available_options(pub, st, ln=1)]
-    assert "recruit" in ids
-    # Full gang (10) -> denied even at high rank.
-    full = _state(rank=5, roster=10)
-    ids_full = [o.id for o in available_options(pub, full, ln=1)]
-    assert "recruit" not in ids_full
+    for st in (_state(rank=5, roster=1), _state(rank=5, roster=10), _state(rank=1, roster=10)):
+        ids = [o.id for o in available_options(pub, st, ln=1)]
+        assert ids == ["drink", "recruit", "tip", "job", "leave"]
 
 
 # --------------------------------------------------------------------------- #

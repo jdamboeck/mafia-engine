@@ -94,7 +94,7 @@ handler with ``yield from`` :func:`engine.interactions.step`, so their prompts,
 sub-states and fights reach the driver through the same stream, and it yields its
 own screens and prompts: :class:`~engine.interactions.Acknowledge` for the upkeep,
 turn-over, standings and year-end screens, :class:`~engine.interactions.Heading` where
-the job shift opens its screen and for a closed location, and the map step's
+upkeep and the job shift open their screens and for a closed location, and the map step's
 :class:`~engine.interactions.MapMove`, :class:`~engine.interactions.LocationMenu` and
 :class:`~engine.interactions.OptionDone`. Each screen of its own names the active
 player as its ``player``, as ``step`` does for the hooks' and handlers' interactions.
@@ -257,7 +257,9 @@ SPECIAL_CELL_HOOK_KEY = "turn.special_cell"
 # --------------------------------------------------------------------------- #
 # Screens the runner yields itself                                             #
 # --------------------------------------------------------------------------- #
-#: Acknowledge: the upkeep screen. ``params``: ``previous_rank`` (the rank before upkeep).
+#: The upkeep screen: a :class:`~engine.interactions.Heading` opens it before upkeep
+#: runs, upkeep's own messages (the banner, a promotion, a debt warning ...) are its
+#: body, printed once, and an :class:`~engine.interactions.Acknowledge` closes it.
 UPKEEP_SCREEN = "turn.upkeep"
 #: Acknowledge: the turn-over summary of the player whose turn just ended.
 TURN_OVER_SCREEN = "turn.turn_over"
@@ -382,11 +384,16 @@ class TurnRunner:
         return True
 
     def _upkeep(self) -> Generator[Any, Any, None]:
-        """``:1011`` gosub4000: upkeep, then its screen."""
+        """``:1011`` gosub4000: upkeep on its own screen, closed by a key.
+
+        The screen opens before upkeep runs, so upkeep's messages are its body and each
+        is shown once, in the order upkeep prints it (``:4005`` banner, ``:4200-4220``
+        promotion, ``:4300``-``:4420`` debt and shop, ``:4600`` rent, ``:31000`` arms deal).
+        """
         idx = self.state.clock.active_player
-        previous_rank = self.state.players[idx].rank
+        yield Heading(UPKEEP_SCREEN, player=idx)
         yield from self._hook(UPKEEP_HANDLER_KEY)
-        yield Acknowledge(UPKEEP_SCREEN, {"previous_rank": previous_rank}, player=idx)
+        yield Acknowledge(UPKEEP_SCREEN, player=idx)
 
     def _turn_start(self) -> Generator[Any, Any, str]:
         """``:1011``'s early-win check, ``:1012`` and ``:1013``; returns the next phase."""

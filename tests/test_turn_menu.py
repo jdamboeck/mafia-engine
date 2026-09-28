@@ -24,6 +24,7 @@ from pathlib import Path
 import data.game_configs.mafia_1920s.state as game
 from clients.terminal import CLEAR, CONFIG_DIR, play
 from data.game_configs.mafia_1920s.gangster import Gangster
+from data.game_configs.mafia_1920s.handlers.turn import GANG_SCREEN
 from data.game_configs.mafia_1920s.state import Contraband, Wanted
 from engine.config_loader import load_game_config
 from engine.interactions import (
@@ -37,7 +38,7 @@ from engine.interactions import (
 from engine.persistence import load_game, save_game
 from engine.rng import Rng
 from engine.turns import MENU, QUIT, TURN_OVER_SCREEN, TURN_START, WALKING, TurnRunner
-from tests.helpers import deadline
+from tests.helpers import NEW_GAME_ACKS, deadline
 
 _CONFIG = load_game_config(CONFIG_DIR)
 _VEHICLES = _CONFIG.module.load_vehicles(CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
@@ -235,10 +236,10 @@ def test_a_save_at_the_menu_resumes_to_the_menu_with_the_same_movement_points(
 ):
     save = tmp_path / "game.jsonl"
     step = {"up": "w", "left": "a", "down": "s", "right": "d"}[_street_step(_new_game())]
-    # Title, upkeep, walk, a step, back to the menu, save, quit.
+    # Title, house rules, upkeep, walk, a step, back to the menu, save, quit.
     first = _play(
         monkeypatch,
-        ["", "", "2", step, "m", "p", "q"],
+        [*NEW_GAME_ACKS, "2", step, "m", "p", "q"],
         seed=42,
         end_year=1930,
         score_weight=1.0,
@@ -259,7 +260,9 @@ def test_a_save_at_the_menu_resumes_to_the_menu_with_the_same_movement_points(
 
 
 def test_the_map_exit_key_returns_to_the_menu_in_the_client(monkeypatch):
-    output = _play(monkeypatch, ["", "", "2", "m", "q"], seed=42, end_year=1930, score_weight=1.0)
+    output = _play(
+        monkeypatch, [*NEW_GAME_ACKS, "2", "m", "q"], seed=42, end_year=1930, score_weight=1.0
+    )
     screens = output.split(CLEAR)
     assert "║" in screens[-2], "the map was not shown"
     assert "was willst du tun:" in screens[-1], "the exit key did not return to the menu"
@@ -291,9 +294,10 @@ def test_the_overview_shows_the_players_state_and_both_marks(monkeypatch, tmp_pa
     state = _marked_player_state()
     save_game(save, state, registries=_CONFIG.registries, effect_log=[], rng_log=[], seed=42)
 
-    output = _play(monkeypatch, ["1", "", "", "q"], load=str(save))
+    # The summary's key, then one per gangster and the gang page's closing key (:1235).
+    output = _play(monkeypatch, ["1", "", "", "", "", "q"], load=str(save))
     screens = output.split(CLEAR)[1:]
-    menu, summary, gang = screens[0], screens[1], screens[2]
+    menu, summary, gang = screens[0], screens[1], screens[4]
     boss = state.players[0].roster[0]
 
     # :1015-1017 the menu's head: name, gang, cash and the date.
@@ -314,7 +318,7 @@ def test_the_overview_shows_the_players_state_and_both_marks(monkeypatch, tmp_pa
     assert "e05 k41 i07 b12" in gang
     assert "w:revolver" in gang
     # :1045 back to the menu, nothing spent.
-    assert "was willst du tun:" in screens[3]
+    assert "was willst du tun:" in screens[5]
 
 
 def test_the_overview_shows_no_items_line_without_marks():
@@ -327,6 +331,38 @@ def test_the_overview_shows_no_items_line_without_marks():
     assert not any("items" in key for key in keys), keys  # :1220 ifag(sp)=0goto1225
     assert isinstance(seen[-1], TurnMenu)
     assert runner.state.players[0] == state.players[0]
+
+
+def test_the_gang_page_waits_after_each_gangster_then_once_more():
+    """:1235 ``fori=1togz(sp):print:a=sp:b=i:gosub1300:poke198,0:wait198,1`` waits for a
+    key after each gangster, then :1245 ``goto1100`` for the closing key (#122).
+
+    Each gang screen shows the gangsters printed so far, so ``gz`` gangsters take
+    ``gz`` + 1 keys; the last screen is the whole gang.
+    """
+    runner = _runner(_marked_player_state())
+    seen, _ = _script(runner.run(), ["1"])
+
+    gang = [i for i in seen if isinstance(i, Acknowledge) and i.key == GANG_SCREEN]
+    shown = [
+        [p["name"] for k, p in s.params["lines"] if k == "turn.overview.gangster"] for s in gang
+    ]
+    boss = runner.state.players[0].roster[0].name
+    assert shown == [[boss], [boss, "bugs"], [boss, "bugs"]]
+    assert isinstance(seen[-1], TurnMenu)
+
+
+def test_an_empty_gang_page_waits_once():
+    # :1230 ``ifgz(sp)=0thenprint"{down}keine!":goto1100`` -- one key.
+    state = replace(_new_game(), clock=replace(_new_game().clock, turn_phase=MENU))
+    active = replace(state.players[0], roster=())
+    runner = _runner(replace(state, players=(active,)))
+    seen, _ = _script(runner.run(), ["1"])
+
+    gang = [i for i in seen if isinstance(i, Acknowledge) and i.key == GANG_SCREEN]
+    assert [[k for k, _ in s.params["lines"]] for s in gang] == [
+        ["turn.overview.gang_title", "turn.overview.no_gang"]
+    ]
 
 
 def test_walking_opens_the_map_in_the_walking_phase():

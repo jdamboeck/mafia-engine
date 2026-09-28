@@ -89,13 +89,20 @@ def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
 MENU_WALK_KEY = "2"
 
 
-def make_walk_script(keys: list[str]) -> io.StringIO:
-    """Build the piped-stdin body for ``play()``: two blank acks, the walk, one key/line.
+#: A new game's stdin up to its first turn menu, for a ``play()`` given the end year and
+#: the score weight: the title screen's key, Enter at the house-rules offer (every rule
+#: faithful), and the first upkeep screen's key.
+NEW_GAME_ACKS = ["", "", ""]
 
-    ``play()`` reads one line for "press a key" on the title screen, THEN one more for
-    the turn-start upkeep screen's "press any key..." ack, THEN the turn menu's choice
-    (``mf-prg.bas:1030``): :data:`MENU_WALK_KEY` opens the map. All three come before
-    the map loop starts, so this builder prepends them. See
+
+def make_walk_script(keys: list[str]) -> io.StringIO:
+    """Build the piped-stdin body for ``play()``: the new game's acks, the walk, one key/line.
+
+    ``play()`` reads one line for "press a key" on the title screen, one for the
+    house-rules offer (Enter keeps every rule faithful), THEN one more for the
+    turn-start upkeep screen's "press any key..." ack (:data:`NEW_GAME_ACKS`), THEN the
+    turn menu's choice (``mf-prg.bas:1030``): :data:`MENU_WALK_KEY` opens the map. All
+    of them come before the map loop starts, so this builder prepends them. See
     ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
     Every turn rotation brings another upkeep ack and another turn menu for the new
     active player -- callers scripting a multi-turn session add a blank/any-key line
@@ -104,7 +111,7 @@ def make_walk_script(keys: list[str]) -> io.StringIO:
     ``:1045``); one that leaves the map with points left (the exit key ``m``) meets
     the menu again.
     """
-    return io.StringIO("\n".join(["", "", MENU_WALK_KEY] + keys) + "\n")
+    return io.StringIO("\n".join([*NEW_GAME_ACKS, MENU_WALK_KEY] + keys) + "\n")
 
 
 class DeadlineExceeded(Exception):

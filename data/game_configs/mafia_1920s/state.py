@@ -325,8 +325,9 @@ def _tenancy(state: GameState, ln: int | None) -> int:
     """``uk(ln)`` for the current tile: the tenant's index, 0 when vacant.
 
     A vacant tile reads 0, as ``uk(ln)=0`` does in the source; with 0-based player
-    indices that is also player 0's own tile (the slw shell's ``tenancy = 0`` and
-    ``tenancy = sp`` guards both pass for player 0's room). A tenancy guard is
+    indices that is also player 0's own tile, so a ``tenancy = 0`` guard cannot tell
+    the two apart. This config's slw options therefore guard nothing and check the
+    tenancy inside their handlers (``handlers/slw.py``, #122). A tenancy guard is
     meaningless without a tile, so ``ln is None`` raises ``ValueError``.
     """
     if ln is None:

@@ -84,8 +84,8 @@ _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "m
 #
 #   encounter: kdh_ambush          # names content/encounters/<key>.yaml (the enemy side)
 #   seed: 42                       # optional default seed (--seed overrides)
-#   house_rules: {}                # the house-rules map it runs under (required; {} =
-#                                  # all faithful while the catalogue has no switch)
+#   house_rules: {...}             # the house-rules map it runs under (required; every
+#                                  # switch of the catalogue, faithful or intent)
 #   player:                        # side 1 — invented fighters, no roster needed
 #     - {name: hero, weapon: 5, energie: 20, kraft: 34, brutalitaet: 28}
 

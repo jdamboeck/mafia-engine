@@ -72,6 +72,7 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
         fx.SetTenancy(ln=3),
         fx.RentAccrue(months=2),
         fx.RankCommit(new_rank=2),
+        fx.PendingRankReset(),
         fx.Jail(months=4),
         fx.DebtChange(amount=500, months=6),
         fx.DebtChange(amount=-100),

@@ -72,7 +72,7 @@ from engine.locations import register
 from ..gangster import Gangster
 from ..state import contraband, hired_ids, tenant
 
-from ..setup import load_gangster_candidates, load_vehicles, score_and_rank
+from ..setup import load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -319,9 +319,8 @@ def pub_tip(ctx):
 def pub_recruit(ctx):
     """Recruit gangsters from the 30-candidate pool — ports ``mf-prg.bas:12100-12175``.
 
-    Guards, in order (the shell ALSO gates entry on rank>4 and gang_size<10 for the
-    menu-availability UX (the shell owns entry guards), but every guard is re-checked here so the handler
-    is correct standalone and each denial's message/order is independently provable):
+    Guards, in order (the shell offers the option unconditionally, as the source's
+    menu does, so every refusal happens here):
 
     1. ``:12100-12102`` — rank guard ``ra(sp) > 4``.
     2. ``:12103-12104`` — housing guard: the player must hold at least one of the 5
@@ -346,9 +345,10 @@ def pub_recruit(ctx):
     active = ctx.state.players[sp]
     ln = active.last_location  # ln seam (see module docstring)
 
-    # :12100-12102 — rank guard.
+    # :12100-12102 — rank guard; :12101 prints the rank's name, ``ra$(ra(sp))``.
     if active.rank <= 4:
-        yield ShowMessage("locations.pub.rank_too_low", {"rank": active.rank})
+        ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
+        yield ShowMessage("locations.pub.rank_too_low", {"rank": ranks[active.rank - 1]})
         return []
 
     # :12103-12104 — housing guard: at least one of 5 apartment slots (uk(i)=sp).
@@ -477,9 +477,11 @@ def pub_job(ctx):
     active = ctx.state.players[sp]
     params = ctx.state.config.formula_params
 
-    # :12300 — rank guard, INVERTED vs. recruit's (rank <= 3 gets the offer).
+    # :12300 — rank guard, INVERTED vs. recruit's (rank <= 3 gets the offer); :12301
+    # prints the rank's name, ``ra$(ra(sp))``.
     if active.rank > _JOB_MAX_RANK:
-        yield ShowMessage("locations.pub.job_rank_too_high", {"rank": active.rank})
+        ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
+        yield ShowMessage("locations.pub.job_rank_too_high", {"rank": ranks[active.rank - 1]})
         return []
 
     # :12302 — 1-in-5 nobody has work.

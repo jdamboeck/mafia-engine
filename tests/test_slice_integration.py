@@ -8,9 +8,9 @@ the whole spine with **no terminal client** in sight.
       -> walk the real city map into slw (by movement, not teleport)
       -> RENT a room at a positive-rent tile (-100 cash, tenancy + months set)
       -> the negative-rent QUIRK: renting fnm(1) == -50 CREDITS the player (+100)
-      -> guard denials reached on the map: rent-occupied + pay-rent-not-resident
+      -> refusals inside the handlers: rent-occupied + pay-rent-not-resident
       -> the 0-month quiet cancel (zero effects, cash untouched)
-      -> walk to the pub -> recruit DENIED at rank 1 (the slice's headline)
+      -> walk to the pub -> recruit REFUSED at rank 1 (the slice's headline)
       -> determinism: the same seed reproduces the whole final state.
 
 HEADLESSNESS IS THE POINT. This file imports **nothing** from ``clients/`` (U10, the
@@ -32,9 +32,8 @@ The composition it proves (the "how you play a turn" the orchestrator owns):
   the state unchanged); on a driver-cancel it returns the ORIGINAL, unchanged state. Effects persist
   across the trajectory ONLY by adopting ``state = result.state`` after each driven
   handler.
-* The shell (``available_options``) owns guard denial (KTD-8): a denied option is
-  EXCLUDED and its handler never runs / commits zero effects; the caller reads the
-  excluded option's ``on_denied`` key.
+* The menus are fixed, as the source's are: every option is offered and a refusal
+  happens inside its handler, which commits zero effects (#122).
 """
 
 from __future__ import annotations
@@ -101,6 +100,10 @@ class _Recorder:
     @property
     def types(self) -> list[type]:
         return [type(i) for i in self.seen]
+
+    @property
+    def keys(self) -> list[str]:
+        return [i.key for i in self.seen]
 
 
 def _load_city():
@@ -225,26 +228,28 @@ def _play_trajectory():
     obs["premium_rent_delta"] = neg_state.players[0].ka - ka_before_neg
 
     # ================================================================= #
-    # B. Guard denials (zero effects; handler NEVER entered — KTD-8).     #
-    #    Read the EXCLUDED option's on_denied key straight off the shell.  #
+    # B. Refusals inside the handlers (zero effects). The menu is fixed:  #
+    #    both options are offered and refuse as :10010/:10100 print.      #
     # ================================================================= #
-    # Rent-occupied: tile 2 taken by a DIFFERENT player -> rent excluded.
+    # Rent-occupied: tile 2 taken by a DIFFERENT player -> :10010 refuses.
     occupied = _fresh_state()
     occupied = with_player(occupied, 0, last_location=2)
     # tile 2 owned by player 1 (not the active 0)
     occupied = with_tenancy(occupied, {2: 1})
-    avail_occ = {o.id for o in available_options(slw, occupied, ln=2)}
-    assert "rent" not in avail_occ  # guard tenancy==0 fails -> excluded
-    assert _opt(slw, "rent").on_denied == "locations.slw.no_room"
+    occ_rec = _Recorder()
+    occ_result = _drive_option(slw, "rent", occupied, ln=2, recorder=occ_rec)
+    assert occ_result.effects == []
+    assert occ_rec.keys == ["locations.slw.no_room"]
 
-    # Pay-rent-not-resident: tile owned by a NON-active player -> pay_rent excluded.
+    # Pay-rent-not-resident: tile owned by a NON-active player -> :10100 refuses.
     not_resident = _fresh_state()
     not_resident = with_player(not_resident, 0, last_location=2)
     # someone who isn't the active player
     not_resident = with_tenancy(not_resident, {2: 99})
-    avail_nr = {o.id for o in available_options(slw, not_resident, ln=2)}
-    assert "pay_rent" not in avail_nr  # guard tenancy==sp fails -> excluded
-    assert _opt(slw, "pay_rent").on_denied == "locations.slw.not_resident"
+    nr_rec = _Recorder()
+    nr_result = _drive_option(slw, "pay_rent", not_resident, ln=2, recorder=nr_rec)
+    assert nr_result.effects == []
+    assert nr_rec.keys == ["locations.slw.not_resident"]
 
     # ================================================================= #
     # C. 0-month quiet cancel (:10030) — ZERO effects, cash UNCHANGED.    #
@@ -260,7 +265,7 @@ def _play_trajectory():
     assert game.tenant(cancel_result.state, 2) is None  # no tenancy set
 
     # ================================================================= #
-    # D. Walk to the pub -> recruit DENIED at rank 1 (the HEADLINE).      #
+    # D. Walk to the pub -> recruit REFUSED at rank 1 (the HEADLINE).     #
     #    Real walk: po=474 --LEFT--> 473 --UP--> door 433 (la=2, ln=1).   #
     # ================================================================= #
     p = state.players[0]
@@ -281,10 +286,11 @@ def _play_trajectory():
     obs["po_after_pub_walk"] = p.po
     obs["ms_after_pub_walk"] = p.ms
 
-    avail_pub = {o.id for o in available_options(pub, state, ln=1)}
-    assert "recruit" not in avail_pub  # guard rank>4 fails at rank 1 -> EXCLUDED
-    assert _opt(pub, "recruit").on_denied == "locations.pub.rank_too_low"
-    # No handler ran, so no effects were committed on the denial (nothing to adopt).
+    recruit_rec = _Recorder()
+    recruit_result = _drive_option(pub, "recruit", state, ln=1, recorder=recruit_rec)
+    # :12100-12102 -- rank 1 is refused inside the handler; nothing committed.
+    assert recruit_rec.keys == ["locations.pub.rank_too_low"]
+    assert recruit_result.effects == []
 
     # --- final-state fingerprint (for determinism) ------------------------- #
     p = state.players[0]
@@ -412,7 +418,8 @@ def _smoke_plan():
     ``play()`` key for key.
 
     Returns ``(lines, mid_save_at, last_save_at)``: ``lines`` is the exact stdin body
-    after ``main()``'s title ack (the setup prompts are skipped by the flags); the two
+    after ``main()``'s title ack and the house-rules offer (:data:`_BEFORE_UPKEEP`; the
+    setup prompts are skipped by the flags); the two
     indices point at the mid-game and final-turn ``p`` keys.
 
     Per turn: an optional ``p`` at the turn menu, its walk key, an optional casino visit (walk into the
@@ -458,7 +465,7 @@ def _smoke_plan():
                 return None  # the walk needs more than this turn's movement
         return None
 
-    lines: list[str] = [""]  # the first turn's upkeep ack (the title ack is prepended)
+    lines: list[str] = [""]  # the first turn's upkeep ack (_BEFORE_UPKEEP is prepended)
     mid_save_at = last_save_at = None
     visits = 0
     turn = 0
@@ -547,13 +554,18 @@ _TIE = "diesmal haben mehrere"
 _DEALT = "du begibst dich an den spieltisch"
 
 
+#: A new game's keys before its first upkeep: the title ack, and Enter at the
+#: house-rules offer (every rule faithful).
+_BEFORE_UPKEEP = ["", ""]
+
+
 @pytest.fixture(scope="module")
 def smoke_run_a(tmp_path_factory):
     """Run A, once per module: the uninterrupted game through ``main()``, every key.
     Its final-turn ``p`` leaves the last save in ``a.jsonl``."""
     lines, mid, _last = _smoke_plan()
     a_save = tmp_path_factory.mktemp("smoke_a") / "a.jsonl"
-    out = _drive_main([*_SMOKE_ARGV, "--save", str(a_save)], [""] + lines)
+    out = _drive_main([*_SMOKE_ARGV, "--save", str(a_save)], _BEFORE_UPKEEP + lines)
     return {"lines": lines, "mid": mid, "out": out, "save": a_save}
 
 
@@ -597,7 +609,9 @@ class TestClientSmokeSetupToEnding:
         lines, mid = smoke_run_a["lines"], smoke_run_a["mid"]
         b_save = tmp_path / "b.jsonl"
         # Run B, first half: the same keys up to and including the mid-game p, then q.
-        out_b1 = _drive_main([*_SMOKE_ARGV, "--save", str(b_save)], [""] + lines[: mid + 1] + ["q"])
+        out_b1 = _drive_main(
+            [*_SMOKE_ARGV, "--save", str(b_save)], _BEFORE_UPKEEP + lines[: mid + 1] + ["q"]
+        )
         mid_save = load_game(b_save, _CONFIG.registries)
         # Run B, second half: --load, then the SAME remaining keys (a load shows no
         # title and no upkeep). Its final-turn p overwrites the loaded file.

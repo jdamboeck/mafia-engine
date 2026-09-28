@@ -1,8 +1,9 @@
 """This game's house rules: the quirk catalogue, its schema check, and the switch reader.
 
 The catalogue (``content/house_rules.yaml``) records each rule quirk of the original:
-its id, the BASIC line it cites, the faithful behaviour and -- where the intent is
-clear -- the intended one, and whether setup offers a switch for it
+its id, the BASIC line it cites and a verbatim fragment of that line, the faithful
+behaviour and -- where the intent is clear -- the intended one, and whether setup
+offers a switch for it
 (docs/design/config-and-content-contract.md § House rules). The file is checked when
 the config loads (:data:`CATALOGUE`), so a bad entry fails the load, not a game.
 
@@ -39,20 +40,22 @@ CATALOGUE_FILE = Path("content") / "house_rules.yaml"
 _ID = re.compile(r"[a-z][a-z0-9_]*")
 #: A citation of ``mf-prg.bas``: one line (``:26020``) or a line range (``:1015-1050``).
 _CITATION = re.compile(r":\d+(-\d+)?")
-_FIELDS = {"id", "citation", "faithful", "intent", "no_intent", "switch"}
+_FIELDS = {"id", "citation", "quote", "faithful", "intent", "no_intent", "switch"}
 
 
 @dataclass(frozen=True)
 class HouseRule:
     """One catalogue entry.
 
-    ``intent`` is the intended behaviour, or ``None`` when the intent is not clear --
-    then ``no_intent`` says why. Only an entry with an intent text may have a
-    ``switch``.
+    ``quote`` is a verbatim fragment of the cited line; the citation checker
+    (``tests/test_citations.py``) holds it to that line. ``intent`` is the intended
+    behaviour, or ``None`` when the intent is not clear -- then ``no_intent`` says why.
+    Only an entry with an intent text may have a ``switch``.
     """
 
     id: str
     citation: str
+    quote: str
     faithful: str
     intent: str | None
     no_intent: str | None
@@ -84,6 +87,7 @@ def _check_entry(entry: Any, index: int) -> HouseRule:
         raise ConfigValidationError(
             f"{where} field 'citation' must cite a BASIC line like ':26020', got {citation!r}"
         )
+    quote = _text(entry, "quote", where)
     faithful = _text(entry, "faithful", where)
     switch = entry.get("switch")
     if not isinstance(switch, bool):
@@ -98,6 +102,7 @@ def _check_entry(entry: Any, index: int) -> HouseRule:
     return HouseRule(
         id=rule_id,
         citation=citation,
+        quote=quote,
         faithful=faithful,
         intent=_text(entry, "intent", where) if "intent" in entry else None,
         no_intent=_text(entry, "no_intent", where) if "no_intent" in entry else None,

@@ -62,6 +62,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+import yaml
 
 from tests.helpers import load_source, parse_source
 
@@ -453,13 +454,45 @@ def tree_files(repo: Path = _REPO) -> Iterator[Path]:
                 yield path
 
 
+#: A config's house-rules catalogue: its entries cite as data, not prose.
+CATALOGUE_NAME = "house_rules.yaml"
+_CATALOGUE_ID = re.compile(r"\s*-\s*id:\s*(?P<id>\S+)\s*$")
+
+
+def catalogue_quotes(path: str, text: str) -> list[Quote]:
+    """Each house-rules catalogue entry's ``quote`` held to its ``citation`` (R22).
+
+    A catalogue (``content/house_rules.yaml``) names the line in an entry's
+    ``citation`` field and the verbatim fragment in its ``quote`` field -- data, which
+    the prose scan cannot pair -- so this reads them as one :class:`Quote` per entry,
+    recorded at the entry's ``id`` line. An entry whose citation does not parse is a
+    quote of line 0, which no source has: it fails as a missing line.
+    """
+    data = yaml.safe_load(text) or {}
+    id_lines = {
+        match.group("id"): lineno
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        if (match := _CATALOGUE_ID.fullmatch(line))
+    }
+    quotes: list[Quote] = []
+    for entry in data.get("house_rules") or []:
+        match = _CITATION.fullmatch(str(entry.get("citation", "")))
+        cited = _citation_from(match.group("nums")) if match else Citation((0,), ())
+        lineno = id_lines.get(str(entry.get("id")), 0)
+        quotes.append(Quote(path, lineno, cited, str(entry.get("quote", ""))))
+    return quotes
+
+
 def tree_quotes(repo: Path = _REPO) -> list[Quote]:
     quotes: list[Quote] = []
     for path in tree_files(repo):
         if path == Path(__file__).resolve():
             continue  # this module's synthetic misquotes are test data
         rel = path.relative_to(repo).as_posix()
-        quotes.extend(quotes_in_file(rel, path.read_text(encoding="utf-8")))
+        text = path.read_text(encoding="utf-8")
+        quotes.extend(quotes_in_file(rel, text))
+        if path.name == CATALOGUE_NAME and path.parent.name == "content":
+            quotes.extend(catalogue_quotes(rel, text))
     return quotes
 
 
@@ -746,6 +779,49 @@ def test_allow_list_suppresses_only_its_entry() -> None:
     report = check_quotes(quotes, _SYNTHETIC, {("m.py", "deffnm"): "paraphrase"})
     assert report.allowed_used == {("m.py", "deffnm")}
     assert len(report.errors) == 1 and "deffnx" in report.errors[0]
+
+
+_CATALOGUE = """\
+house_rules:
+  - id: toggle
+    citation: ":30108"
+    quote: "s=1-(s=1)"
+  - id: misquoted
+    citation: ":30108"
+    quote: "s=2-(s=1)"
+  - id: rent
+    citation: ":115-116"
+    quote: "deffnm"
+  - id: nowhere
+    citation: "30108"
+    quote: "s=1-(s=1)"
+"""
+
+
+def test_a_catalogue_entry_is_held_to_its_cited_line() -> None:
+    quotes = catalogue_quotes("c/content/house_rules.yaml", _CATALOGUE)
+    assert [(q.lineno, q.citation.label(), q.fragment) for q in quotes] == [
+        (2, "30108", "s=1-(s=1)"),
+        (5, "30108", "s=2-(s=1)"),
+        (8, "115-116", "deffnm"),
+        (11, "0", "s=1-(s=1)"),
+    ]
+    errors = check_quotes(quotes, _SYNTHETIC, {}).errors
+    assert len(errors) == 2
+    assert errors[0].startswith("c/content/house_rules.yaml:5: `s=2-(s=1)`")
+    assert "no such line" in errors[1] and "c/content/house_rules.yaml:11" in errors[1]
+
+
+def test_the_tree_scan_reads_the_real_catalogue() -> None:
+    catalogue = "data/game_configs/mafia_1920s/content/house_rules.yaml"
+    held = [q for q in tree_quotes() if q.path == catalogue]
+    entries = yaml.safe_load((_REPO / catalogue).read_text(encoding="utf-8"))["house_rules"]
+    assert entries, "the real catalogue is empty: the scan is vacuous"
+    for entry in entries:
+        assert any(
+            q.fragment == entry["quote"] and q.citation.label() == entry["citation"].lstrip(":")
+            for q in held
+        ), entry["id"]
 
 
 def test_skips_with_a_reason_when_the_source_is_absent(tmp_path: Path) -> None:

@@ -153,7 +153,8 @@ def test_b_at_activation_5_renders_activation_4_matching_forward_replay(recordin
     # forward from the decision log and checks the board after EVERY activation against
     # its snapshot, so a clean replay proves each seek target (index 4 included) is
     # exactly the forward-replay board.
-    assert replay(recording, rules=build_rules({})) == ReplayReport(diverged=False)
+    # The scenario runs under its all-faithful map; replay under the same one.
+    assert replay(recording, rules=fightlab._all_faithful_rules()) == ReplayReport(diverged=False)
 
 
 # --------------------------------------------------------------------------- #
@@ -410,7 +411,7 @@ def test_unknown_weapon_id_fails_at_load_naming_the_id(tmp_path):
     bad = tmp_path / "bad.yaml"
     bad.write_text(
         "encounter: kdh_ambush\n"
-        "house_rules: {}\n"
+        "house_rules: {intelligence_or_30: faithful, shared_direction_memory: faithful}\n"
         "player:\n"
         "  - {name: hero, weapon: 999, energie: 20, kraft: 34, brutalitaet: 28}\n",
         encoding="utf-8",

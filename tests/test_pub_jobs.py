@@ -35,6 +35,7 @@ from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.state import Job
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.setup as game_setup
 import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -90,6 +91,16 @@ def test_rank_4_or_above_denied_no_rng_draw():
         assert result.status == "completed"
         assert result.effects == []
         assert rng.calls == []
+
+
+def test_rank_too_high_prints_the_rank_name():
+    """``:12301`` ``print"als '"ra$(ra(sp))"' findest du was"`` -- the rank's NAME."""
+    ranks = game_setup.load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
+    src = _scripted()
+    run_pure(HANDLERS["pub.job"], src, state=_state(rank=6), rng=_StubRng())
+    (message,) = src.messages()
+    assert message.key == "locations.pub.job_rank_too_high"
+    assert message.params == {"rank": ranks[5]}
 
 
 def test_rank_3_or_below_passes_the_guard():

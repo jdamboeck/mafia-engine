@@ -158,8 +158,15 @@ def test_location_entry_result_events_effects_and_entry_context():
 #    DeniedResult payload / zero effects / SAME state object.                  #
 # --------------------------------------------------------------------------- #
 def test_guard_denial_through_run_option_is_blocked_and_pure():
-    pub = _load_shell(_PUB_SHELL)
-    state = _fresh_state()  # fresh game -> rank 1; pub.recruit guard needs rank>4.
+    # This config's shells guard no option (#122), so the engine's denial path runs
+    # on a copy of the pub shell whose recruit option is guarded rank > 4.
+    raw = yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8"))
+    for option in raw["options"]:
+        if option["id"] == "recruit":
+            option["guard"] = {"var": "rank", "op": ">", "value": 4}
+            option["on_denied"] = "locations.pub.rank_too_low"
+    pub = load_location(raw)
+    state = _fresh_state()  # fresh game -> rank 1; the probe guard needs rank>4.
     assert state.players[0].rank == 1
 
     result = run_option(pub, "recruit", state, ln=1, input_source=None)

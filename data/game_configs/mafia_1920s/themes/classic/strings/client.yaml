@@ -83,6 +83,7 @@ client:
       other_config_id: "the save belongs to another game ({found}, not {expected})"
       other_content_version: "the save was made for another content version of this game ({found}, not {expected})"
       no_house_rules: "the save stores no house rules"
+      other_house_rules: "the save's house rules do not match this game's: {detail}"
       missing_field: "save is missing the field {detail}"
       corrupt: "corrupt save ({error_type}: {detail})"
 

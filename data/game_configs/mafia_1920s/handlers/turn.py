@@ -10,7 +10,8 @@ use:
   two win flags come from the cash-transport and mayor flows (``la=13``/``14``), which
   are not built, so the check can never pass yet.
 * :data:`~engine.turns.MOVEMENT_POINTS_HOOK_KEY` — ``:1012`` ``ms=tr(tm(sp))``: the
-  active player's vehicle's ``tr``. Returns the value; the runner writes it.
+  active player's vehicle's ``tr``. Returns the value; the runner writes it. The same
+  line's ``nr(sp)=ra(sp)`` is applied here too.
 * :data:`~engine.turns.JOB_HOOK_KEY` — ``:1012`` ``ifjo(sp)thengosub25000:goto1010``:
   whether the active player holds a job (the runner then runs ``job.shift``).
 * :data:`~engine.turns.SCORE_TRUNCATION_HOOK_KEY` — ``:1013``
@@ -30,10 +31,10 @@ use:
 The turn menu's options (``content/menus/turn.yaml``, ``:1015-1050``) are handlers here
 too; each returns what the runner does next:
 
-* ``turn.overview`` — ``:1200-1245`` the overview: two acknowledgement screens, the
-  player's state (with the passport and counterfeit marks, ``:1220-1222``), then the
-  gang (``:1230-1240``, each gangster as ``:1300-1320`` prints it). Returns nothing:
-  back to the menu (``:1045``).
+* ``turn.overview`` — ``:1200-1245`` the overview: the player's state (with the
+  passport and counterfeit marks, ``:1220-1222``), then the gang (``:1230-1240``, each
+  gangster as ``:1300-1320`` prints it, a key after each and one more at the end).
+  Returns nothing: back to the menu (``:1045``).
 * ``turn.walk`` — ``:1035 onxgosub1200,2000,27000``, option 2: returns
   :data:`~engine.turns.MENU_WALK`.
 * ``turn.next_player`` — ``:1031 ifx=4goto1010``: returns
@@ -64,8 +65,9 @@ from engine.turns import (
     SPECIAL_CELL_HOOK_KEY,
 )
 
+from ..effects import PendingRankReset
 from ..setup import load_ranks, load_vehicles, load_weapons
-from ..state import contraband, job, rented_months, wanted
+from ..state import contraband, job, next_rank, rented_months, wanted
 
 __all__ = [
     "early_win",
@@ -117,9 +119,16 @@ def early_win(ctx):
 
 @register(MOVEMENT_POINTS_HOOK_KEY)
 def movement_points(ctx):
-    """``:1012`` ``ms=tr(tm(sp))``: the active player's vehicle's movement points."""
+    """``:1012`` ``ms=tr(tm(sp)):nr(sp)=ra(sp)``: the movement points, and the pending rank.
+
+    Returns the active player's vehicle's ``tr`` (the runner writes ``ms``). The same
+    line sets the pending rank ``nr`` back to the committed rank ``ra``; ``:4030`` has
+    just made them equal, so the effect is applied only when they differ.
+    """
     yield from ()
     active = ctx.state.players[ctx.state.clock.active_player]
+    if next_rank(active) != active.rank:  # :1012 nr(sp)=ra(sp)
+        ctx.apply(PendingRankReset())
     return load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")[active.vehicle]["tr"]
 
 
@@ -262,12 +271,18 @@ def gang_lines(state) -> list[tuple[str, dict]]:
 def overview(ctx):
     """``:1200-1245`` the overview: the player's state, then the gang; nothing changes.
 
-    Each screen ends in ``:1100``'s key press. The source also waits for a key after
-    each gangster (``:1235 poke198,0:wait198,1``) while it fills one screen; here the
-    gang is one screen.
+    The state screen ends in ``:1100``'s key press (``:1230 gosub1100``). The gang page
+    waits for a key after each gangster (``:1235 poke198,0:wait198,1``) while it fills
+    one screen, then once more (``:1245 goto1100``); an empty gang prints ``keine!``
+    and waits once (``:1230``). Each gang :class:`Acknowledge` therefore carries the
+    gangsters printed so far, and the last one the whole gang again.
     """
     yield Acknowledge(OVERVIEW_SCREEN, {"lines": overview_lines(ctx.state)})
-    yield Acknowledge(GANG_SCREEN, {"lines": gang_lines(ctx.state)})
+    lines = gang_lines(ctx.state)
+    gangsters = len(ctx.state.players[ctx.state.clock.active_player].roster)
+    for shown in range(1, gangsters + 1):  # :1235-1240, a key after each gangster
+        yield Acknowledge(GANG_SCREEN, {"lines": lines[: 1 + shown]})
+    yield Acknowledge(GANG_SCREEN, {"lines": lines})  # :1245 goto1100 / :1230 keine!
     return None
 
 

@@ -7,10 +7,13 @@ entries with a switch -- every one starting at faithful -- and the chosen map li
 (the engine refuses any effect whose result changes ``state.config``). A save with no map
 is refused, never default-filled (KTD-5).
 
-The real catalogue holds no switchable entry yet (U11 adds the real ones), so the tests
-that need switches run a COPY of the config whose catalogue is the fixture below. Its
-entries are made up for the test and name no game quirk. Client tests drive ``main()``
-only.
+The framework tests run a COPY of the config whose catalogue is the fixture below, so
+they do not move when the real catalogue does. Its entries are made up for the test and
+name no game quirk. Client tests drive ``main()`` only.
+
+The real catalogue (U11, R22) is tested at the end: each switch in both settings, each
+faithful-only entry by the test that holds its faithful behaviour, and every entry's
+quote held to its cited line by the citation checker.
 """
 
 from __future__ import annotations
@@ -40,6 +43,7 @@ _FIXTURE_CATALOGUE = {
         {
             "id": "alpha",
             "citation": ":311",
+            "quote": "in=xor30",
             "faithful": "fixture: the faithful alpha behaviour",
             "intent": "fixture: the intended alpha behaviour",
             "switch": True,
@@ -47,6 +51,7 @@ _FIXTURE_CATALOGUE = {
         {
             "id": "beta",
             "citation": ":4355",
+            "quote": "ifs=1thenreturn",
             "faithful": "fixture: the faithful beta behaviour",
             "intent": "fixture: the intended beta behaviour",
             "switch": True,
@@ -54,6 +59,7 @@ _FIXTURE_CATALOGUE = {
         {
             "id": "gamma",
             "citation": ":25560",
+            "quote": "x=3+3*(jo(sp)=2)",
             "faithful": "fixture: the faithful gamma behaviour",
             "no_intent": "fixture: the intent is not clear",
             "switch": False,
@@ -177,13 +183,16 @@ def test_round_trip_setup_save_load_keeps_the_map(monkeypatch, tmp_path, fixture
     assert dict(rules) == {"alpha": "faithful", "beta": "intent"}
 
 
-def test_the_real_catalogue_has_no_switch_so_setup_offers_no_step(monkeypatch, tmp_path):
-    # Until U11 catalogues the real quirks nothing is switchable: the step is not
-    # shown, and the save still carries the (empty) map.
+def test_the_real_catalogue_offers_its_switches_at_setup(monkeypatch, tmp_path):
+    # The real catalogue has switches (U11): the step is shown, Enter keeps every rule
+    # faithful, and the save carries the full map.
     save = tmp_path / "s.jsonl"
-    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\n\np\nq\n")
-    assert _OFFER not in text
-    assert dict(_saved_state(save, _CONFIG_DIR).config.house_rules) == {}
+    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\n\n\np\nq\n")
+    assert _OFFER in text
+    assert dict(_saved_state(save, _CONFIG_DIR).config.house_rules) == {
+        "intelligence_or_30": "faithful",
+        "shared_direction_memory": "faithful",
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -211,6 +220,48 @@ def test_a_save_with_no_map_is_refused_with_one_line(capsys, tmp_path):
     assert err == f"cannot load {path}: the save stores no house rules\n"
 
 
+@pytest.mark.parametrize(
+    ("house_rules", "named"),
+    [
+        ({"intelligence_or_30": "faithful"}, "shared_direction_memory"),
+        (
+            {
+                "intelligence_or_30": "faithful",
+                "shared_direction_memory": "faithful",
+                "retired_rule": "intent",
+            },
+            "retired_rule",
+        ),
+        ({}, "intelligence_or_30"),
+    ],
+)
+def test_a_save_whose_switches_differ_from_the_catalogue_is_refused_with_one_line(
+    capsys, tmp_path, house_rules, named
+):
+    """A save made under another catalogue (a switch added or retired since) would
+    play some rule under a setting nobody chose, so it is refused, naming the rule."""
+    from clients.terminal import main
+
+    cfg = load_game_config(_CONFIG_DIR)
+    state = cfg.module.new_game(
+        seed=42, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+    )
+    path = tmp_path / "other-catalogue.jsonl"
+    save_game(path, state, registries=cfg.registries, effect_log=[], rng_log=[], seed=42)
+    header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    header["snapshot"]["config"]["house_rules"] = house_rules
+    path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--load", str(path)])
+    err = capsys.readouterr().err
+    assert exc.value.code == 1
+    assert "Traceback" not in err
+    assert err.startswith(f"cannot load {path}: the save's house rules do not match this game's: ")
+    assert named in err
+    assert len(err.strip().splitlines()) == 1
+
+
 # --------------------------------------------------------------------------- #
 # The catalogue's schema check                                                #
 # --------------------------------------------------------------------------- #
@@ -233,6 +284,8 @@ def test_a_switch_without_intent_text_fails_the_schema_check_at_config_load(tmp_
         (_entry(intent=""), "intent"),
         (_entry(citation="311"), "citation"),
         (_entry(citation=None), "citation"),
+        (_entry(quote=""), "quote"),
+        ({k: v for k, v in _entry().items() if k != "quote"}, "quote"),
         (_entry(faithful=""), "faithful"),
         (_entry(switch="yes"), "switch"),
         (_entry(id="Not An Id"), "id"),
@@ -518,3 +571,134 @@ def test_the_fight_lab_refuses_a_recording_made_under_another_map_in_one_line(ca
         "house rule 'alpha' differs: the recording was made with 'intent', "
         "the supplied rules have it unset\n"
     )
+
+
+# --------------------------------------------------------------------------- #
+# U11: the real catalogue                                                     #
+# --------------------------------------------------------------------------- #
+def test_the_code_reads_exactly_the_catalogues_switches(mafia_module):
+    """Every switch is read by the code that plays it, and the code reads no other."""
+    from data.game_configs.mafia_1920s.combat_rules import SHARED_DIRECTION_MEMORY
+    from data.game_configs.mafia_1920s.setup import INTELLIGENCE_OR_30
+
+    rules = mafia_module.house_rules
+    assert {rule.id for rule in rules.switchable(rules.CATALOGUE)} == {
+        INTELLIGENCE_OR_30,
+        SHARED_DIRECTION_MEMORY,
+    }
+
+
+#: Each faithful-only entry's faithful behaviour, held by the test named here.
+_FAITHFUL_ONLY_TESTS = {
+    "collectors_win_keeps_debt": (
+        "tests.test_debt_default",
+        "test_win_changes_nothing_and_the_fight_recurs_next_turn",
+    ),
+    "croupier_completion_score_zero": (
+        "tests.test_pub_jobs",
+        "test_croupier_completion_score_is_zero",
+    ),
+    "eviction_keeps_the_room": (
+        "tests.test_rent_countdown",
+        "test_eviction_at_zero_cash_leaves_only_the_boss",
+    ),
+    "recruit_cap_checked_after_the_offer": (
+        "tests.test_pub_recruit",
+        "test_ninth_hire_succeeds_tenth_is_offered_then_denied_mid_batch",
+    ),
+    "direction_memory_seeded_left": (
+        "tests.test_combat_ai",
+        "test_the_minus_one_seed_blocks_a_rightward_first_step",
+    ),
+}
+
+
+def test_every_faithful_only_entry_has_a_test_of_its_faithful_behaviour(mafia_module):
+    import importlib
+
+    catalogue = mafia_module.house_rules.CATALOGUE
+    assert set(_FAITHFUL_ONLY_TESTS) == {rule.id for rule in catalogue if not rule.switch}
+    for rule_id, (module, name) in _FAITHFUL_ONLY_TESTS.items():
+        assert callable(getattr(importlib.import_module(module), name, None)), rule_id
+
+
+def _first_gangster(seed: int, setting: str):
+    from data.game_configs.mafia_1920s.setup import new_game
+
+    state = new_game(
+        seed=seed,
+        end_year=1930,
+        score_weight=1.0,
+        players=[("a", "b")],
+        house_rules={"intelligence_or_30": setting},
+    )
+    return state.players[0]
+
+
+def _intelligence_roll(seed: int) -> int:
+    """The second setup draw (:311, after :310's kraft) as :350 rolls and prints it."""
+    from engine.rng import Rng
+
+    rng = Rng(seed)
+    rng.range(9)  # :310 kraft
+    return rng.range(9) * 5 + 10  # :350 ``x=int(rnd(1)*9)*5+10``
+
+
+_SEEDS = range(12)
+
+
+def test_intelligence_faithful_is_the_roll_or_30():
+    # :311 ``in=xor30`` -- the roll OR 30 (bitwise): 30, 31, 62 or 63.
+    values = [_first_gangster(seed, "faithful").roster[0].attrs["intelligenz"] for seed in _SEEDS]
+    assert values == [_intelligence_roll(seed) | 30 for seed in _SEEDS]
+    assert set(values) <= {30, 31, 62, 63}
+    assert any(value != _intelligence_roll(seed) for seed, value in zip(_SEEDS, values))
+
+
+def test_intelligence_intent_is_the_roll_the_setup_screen_prints():
+    for seed in _SEEDS:
+        intended = _first_gangster(seed, "intent")
+        faithful = _first_gangster(seed, "faithful")
+        assert intended.roster[0].attrs["intelligenz"] == _intelligence_roll(seed)
+        # The same draws: only the stored intelligence differs.
+        assert intended.ka == faithful.ka
+        for stat in ("kraft", "brutalitaet"):
+            assert intended.roster[0].attrs[stat] == faithful.roster[0].attrs[stat]
+    assert {_first_gangster(s, "intent").roster[0].attrs["intelligenz"] for s in _SEEDS} - {
+        30,
+        31,
+        62,
+        63,
+    }, "every intended roll is also a faithful value: the test is vacuous"
+
+
+def _second_side_decision(setting: str):
+    """Both sides AI-driven: side 1's fighter 1 steps right, then side 2's fighter 1
+    (its target to the left, on its row) decides its move."""
+    from data.game_configs.mafia_1920s.combat_rules import build_rules
+    from tests.helpers import build_fight, combat_fighter
+
+    rules = build_rules({"intelligence_or_30": "faithful", "shared_direction_memory": setting})
+    fight = build_fight(
+        side1=(combat_fighter(name="a", weapon=1, energie=20, position=255),),
+        side2=(combat_fighter(name="b", weapon=1, energie=20, position=262),),
+        dir_memory={0: -1},  # :30020 ``ri(i)=-1`` for the side-2 fighter
+        rules=rules,
+        active=(1, 1),
+    )
+    # :30492 ``ri(f)=p`` -- side 1's AI-driven step is recorded.
+    assert fight.apply_action("move", 1, record_dir_memory=True) is True
+    fight.advance_activation()
+    assert (fight.active_side, fight.active_fighter) == (2, 1)
+    return fight.ai_decide(fight.view())
+
+
+def test_shared_direction_memory_faithful_one_memory_per_fighter_number():
+    # Side 1's step right is side 2's fighter 1's memory too: its approach left is the
+    # reverse of it (:30450), so it sidesteps right (:30456) instead.
+    assert _second_side_decision("faithful") == ("move", 1)
+
+
+def test_shared_direction_memory_intent_each_side_its_own():
+    # Side 2's fighter 1 remembers only its own seed: it approaches left (:30450).
+    assert _second_side_decision("intent") == ("move", -1)

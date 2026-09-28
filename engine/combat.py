@@ -226,6 +226,13 @@ class RulesBundle:
         :data:`~engine.state.FAITHFUL` / :data:`~engine.state.INTENT`), frozen. Plain
         data the engine never reads by id: a recording stores it and a replay compares
         it (:mod:`engine.recording`), so a fight never replays under other choices.
+    ``direction_memory_per_side``
+        Whose direction memory an AI fighter reads and writes. ``False`` (the default)
+        keys it by the fighter's number alone, as the reference title's ``ri(f)`` does
+        (``mf-prg.bas:30492``): when both sides are AI-driven, fighter ``f`` of one
+        side and fighter ``f`` of the other share one memory. ``True`` gives each
+        side's fighters their own. A neutral mechanism setting: the game sets it,
+        from whatever rule it likes; the engine never reads a house rule by its id.
     There is deliberately **no** ``vitality`` entry: the depleting
     resource is the engine's :attr:`~engine.state.Fighter.vitality` SLOT, which the
     engine reads and writes directly. A bundle field naming which attrs key held it
@@ -243,6 +250,7 @@ class RulesBundle:
     hit_draws: Any = None
     damage_draws: Any = None
     house_rules: Mapping[str, str] = field(default_factory=lambda: _EMPTY_ROLES)
+    direction_memory_per_side: bool = False
 
     def __post_init__(self) -> None:
         for rule_id, setting in self.house_rules.items():
@@ -848,7 +856,7 @@ class CombatFight:
         if action == "move":
             committed = self.try_move(argument)
             if committed and record_dir_memory:
-                self.dir_memory[self.active_fighter - 1] = argument  # 30492: ri(f)=p
+                self.dir_memory[self._dir_memory_key()] = argument  # 30492: ri(f)=p
             return committed
         return "__unknown__"
 
@@ -945,7 +953,21 @@ class CombatFight:
         so a freshly-spawned enemy will not open the fight by stepping right. That is the
         original's behaviour, faithfully kept.
         """
-        return self.dir_memory.get(self.active_fighter - 1, -1) != -step
+        return self.dir_memory.get(self._dir_memory_key(), -1) != -step
+
+    def _dir_memory_key(self) -> int:
+        """The active fighter's key in :attr:`dir_memory`.
+
+        The fighter's 0-based number, as ``ri(f)`` indexes it (side 2 -- the only CPU
+        side the source has -- is seeded under these keys, ``mf-prg.bas:30020``). With
+        the bundle's ``direction_memory_per_side`` a side-1 fighter keeps its own
+        memory under a negative key (``-1 - index``), unseeded, so it reads the same
+        ``-1`` a seeded fighter starts with.
+        """
+        index = self.active_fighter - 1
+        if self._rules.direction_memory_per_side and self.active_side == 1:
+            return -1 - index
+        return index
 
     def surrender(self) -> int:
         """The active side gives up; return the winning (opposing) side.

@@ -6,6 +6,8 @@
 #
 #   - id: lower_case_id        # unique; the key in state.config.house_rules
 #     citation: ":26020"       # the BASIC line (or range ":1015-1050") it ports
+#     quote: "..."             # a verbatim fragment of that line; the citation checker
+#                              # (tests/test_citations.py) holds it to the line
 #     faithful: "..."          # what the original does
 #     intent: "..."            # what it evidently meant to do  -- or, instead:
 #     no_intent: "..."         # why no intended behaviour is recorded
@@ -13,4 +15,105 @@
 #
 # A switchable entry also needs its one-line setup description in the theme, under
 # house_rules.<id> (themes/classic/strings/house_rules.yaml).
-house_rules: []
+#
+# Deliberate departures of the port are not entries (the port does not play them
+# faithfully, so there is nothing to switch); each is a note at the code that departs:
+#   - kdh's debtor fight pins its backdrop to "ks": mf-prg.bas:15312 sets no kf$ and
+#     would inherit the last fight's (handlers/kdh.py).
+#   - the hit test draws both miss factors of mf-prg.bas:30247 even when the first
+#     already missed, so the RNG log has one shape per shot (combat_rules.py).
+#   - the debug free-memory line of mf-prg.bas:1208 is not shown (handlers/turn.py).
+house_rules:
+  - id: intelligence_or_30
+    citation: ":311"
+    quote: "in=xor30"
+    faithful: >-
+      The first gangster's rolled intelligence is stored OR 30 (bitwise), so it is
+      30, 31, 62 or 63, while the setup screen prints the roll itself: :350
+      ``x=int(rnd(1)*9)*5+10``, 10 to 50 in steps of 5.
+    intent: >-
+      Intelligence is the roll the setup screen prints, as strength (:310 ``kr=x``)
+      and brutality (:312 ``bt=x``) are.
+    switch: true
+
+  - id: shared_direction_memory
+    citation: ":30492"
+    quote: "ri(f)=p"
+    faithful: >-
+      The fight AI's direction memory is indexed by the fighter's number alone. The
+      original's only computer side is side 2 (:5010 ``ks(1)=sp:ks(2)=0``), so this
+      never shows there; when both sides are
+      computer-driven (the fight lab), fighter f of one side and fighter f of the
+      other share one memory, and each one's last step forbids the other's reverse
+      step.
+    intent: >-
+      Each fighter of each side remembers only its own last step, as the one
+      computer side does in the original.
+    switch: true
+
+  - id: collectors_win_keeps_debt
+    citation: ":4355"
+    quote: "ifs=1thenreturn"
+    faithful: >-
+      Beating the loan shark's collectors ends upkeep's debt step with no seizure and
+      no relief: the debt and its expired grace counter stay (:4305
+      ``kz(sp)=kz(sp)+(kz(sp)>0):ifkz(sp)=0goto4350`` keeps a counter at 0 and fights
+      again), so the collectors come back every turn until the debt is repaid or a
+      fight is lost.
+    no_intent: >-
+      The return on a win is written out, and the loss branch states its own outcome
+      (:4370 ``ka(sp)=0:kr(sp)=0:kz(sp)=0``); nothing in the source says whether a win should clear the debt,
+      restart the grace months or leave both, so no single intended behaviour exists.
+    switch: false
+
+  - id: croupier_completion_score_zero
+    citation: ":25560"
+    quote: "x=3+3*(jo(sp)=2)"
+    faithful: >-
+      A finished job scores 3, the croupier's 0: a true comparison is -1 on the C64,
+      so the croupier's term is -3.
+    no_intent: >-
+      The author writes true = -1 arithmetic on purpose elsewhere (:13126 adds 5 with
+      ``in=in+3-2*(ln=1)``, :13065 raises the score with ``gf(sp)-x8*1*(gf(sp)<100)``),
+      so 0 reads as meant -- the croupier is the job already paid per shift (:25125
+      ``p=int(rnd(1)*100*x)+300``) -- not as a slip for 6.
+    switch: false
+
+  - id: eviction_keeps_the_room
+    citation: ":4651"
+    quote: "gz(sp)=1"
+    faithful: >-
+      Eviction for unpaid rent only cuts the gang to the boss. The room stays the
+      player's (only :10040 ``uk(ln)=sp`` writes a tenancy) and the rent counter stays
+      at 1 (:4046 ``ifum(sp)=0thenum(sp)=1:gosub4600``), so the player still counts as
+      housed for recruiting (:12103 ``ifuk(i)=spgoto12105``) and is fined again every
+      turn.
+    no_intent: >-
+      The message says the flat is terminated, but vacating would have to choose which
+      of the player's rooms go and whether the monthly fine stops; the source settles
+      neither, so no single intended behaviour exists.
+    switch: false
+
+  - id: recruit_cap_checked_after_the_offer
+    citation: ":12145"
+    quote: "ifgz(sp)=10goto12005"
+    faithful: >-
+      Once a hire in a pub batch fills the gang to 10, the next candidate is still
+      drawn, introduced and offered; a yes the player can pay for then meets the cap
+      through :12005 and :12105 ``ifgz(sp)=10thenprint``, the gang-full message.
+    no_intent: >-
+      The extra offer takes no cash and hires no one, so the two orders differ only
+      in the screens shown and one candidate draw; there is nothing to switch.
+    switch: false
+
+  - id: direction_memory_seeded_left
+    citation: ":30020"
+    quote: "ri(i)=-1"
+    faithful: >-
+      Each computer fighter starts a fight remembering a step to the left, so its first
+      move can never be a step to the right (:30456 ``ifri(f)<>-1thenp=1``).
+    no_intent: >-
+      -1 may be a "no step yet" mark that happens to be a real step, or a deliberate
+      nudge for a side that starts on the right and closes in leftwards; the source
+      does not say which.
+    switch: false

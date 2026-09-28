@@ -62,6 +62,7 @@ __all__ = [
     "Jail",
     "JobClear",
     "JobSet",
+    "PendingRankReset",
     "RankCommit",
     "RentAccrue",
     "ScoreAndRank",
@@ -172,6 +173,25 @@ class RankCommit:
         idx = target_index(state, self.player)
         # ra(sp) = nr(sp) (mf-prg.bas:4030) — the caller decides WHEN (rank != nr).
         return update_player(state, player=idx, rank=self.new_rank)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class PendingRankReset:
+    """Set the target player's pending rank ``nr`` to its committed rank: ``nr(sp)=ra(sp)``.
+
+    Ports the turn start's ``mf-prg.bas:1012``
+    ``ms=tr(tm(sp)):nr(sp)=ra(sp):ll(sp)=0``. :class:`RankCommit` (``:4030``) runs
+    just before it in the same turn start and leaves the two equal, so in play this
+    changes nothing; the turn hook applies it only when they differ.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        idx = target_index(state, self.player)
+        return set_player_value(state, "nr", state.players[idx].rank, player=idx)
 
 
 @register_effect()

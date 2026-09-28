@@ -1,3 +1,5 @@
 # house rules — the one-line description setup shows for each switchable entry of
 # content/house_rules.yaml, keyed by its id:  house_rules.<id>: "..."
-house_rules: {}
+house_rules:
+  intelligence_or_30: "first gangster's intelligence: 30, 31, 62 or 63 (the roll OR 30) / the roll shown at setup"
+  shared_direction_memory: "fight AI vs AI: both sides' fighter N share one step memory / each fighter keeps its own"

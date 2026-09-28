@@ -46,7 +46,13 @@ from engine.locations import load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
 from engine.rng import Rng
 from engine.upkeep import run_upkeep
-from tests.helpers import MENU_WALK_KEY, deadline, make_walk_script, next_turn_by_hand
+from tests.helpers import (
+    MENU_WALK_KEY,
+    NEW_GAME_ACKS,
+    deadline,
+    make_walk_script,
+    next_turn_by_hand,
+)
 import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = CONFIG_DIR
@@ -564,14 +570,14 @@ class TestJobShiftThroughClient:
         state = new_state(5)
         pub_cell = find_door_cell(city_raw, "pub", ln=2)
         walk = walk_keys_to_cell(state, city, pub_cell)
-        # Splash ack; menu choice 2 (job); accept ("j"); one more move key forces
+        # Splash ack; menu choice 3 (job, after drink/recruit/tip); accept ("j"); one more move key forces
         # turn_over immediately (ms already 0 from the accept) -- ack turn_over,
         # ack the round standings (single player: every turn-over wraps, U7), ack the
         # next player's upkeep screen. seed=5's bouncer job then rolls a
         # shift-fight this turn (verified by direct trace); a scripted stdin that
         # runs out mid-fight surrenders via CANCEL (KTD-2), which is enough to
         # prove the "job" screen -- not the map -- is what renders next.
-        keys = walk + ["", "2", "j", "w", "x", "x", "x"]
+        keys = walk + ["", "3", "j", "w", "x", "x", "x"]
         output = run_play(monkeypatch, seed=5, stdin_keys=keys)
 
         # The job-shift screen rendered (its own header), not a second map draw
@@ -1848,9 +1854,10 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
 
 
 def _new_game_lines(keys: list[str]) -> list[str]:
-    """A new game's stdin: the title ack, the first upkeep ack and the turn menu's walk
-    key (:data:`tests.helpers.MENU_WALK_KEY`), then ``keys`` on the map."""
-    return ["", "", MENU_WALK_KEY] + keys
+    """A new game's stdin: the title ack, the house-rules offer, the first upkeep ack
+    (:data:`tests.helpers.NEW_GAME_ACKS`) and the turn menu's walk key
+    (:data:`tests.helpers.MENU_WALK_KEY`), then ``keys`` on the map."""
+    return [*NEW_GAME_ACKS, MENU_WALK_KEY] + keys
 
 
 def _two_steps(seed: int = 42) -> tuple[list[str], list[int]]:
@@ -1926,12 +1933,12 @@ class TestSaveAndLoad:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
-        # Splash ack, menu 2 (job), accept; then "p" meets the turn-over screen (any
+        # Splash ack, menu 3 (job), accept; then "p" meets the turn-over screen (any
         # key goes on), and "q" quits at the standings.
         save = tmp_path / "job.jsonl"
         out, (state, _) = _run_session(
             monkeypatch,
-            _new_game_lines(walk + ["", "2", "j", "p", "q"]),
+            _new_game_lines(walk + ["", "3", "j", "p", "q"]),
             save=str(save),
             seed=5,
             end_year=1930,
@@ -2000,11 +2007,11 @@ class TestSaveAndLoad:
         with deadline(60, "play() did not return", exc_type=_Deadline):
             play(save=str(save), **self._NEW)
 
-        # One read per line: title, upkeep, walk, k1, p, k2, p, q. The file read before
-        # k2 holds the first save; the one read before q holds the second.
+        # One read per line: title, house rules, upkeep, walk, k1, p, k2, p, q. The file
+        # read before k2 holds the first save; the one read before q holds the second.
         assert c1 != c2
-        assert stdin.seen[:5] == [None] * 5, "a save existed before the first p"
-        assert stdin.seen[5:] == [c1, c1, c2]
+        assert stdin.seen[:6] == [None] * 6, "a save existed before the first p"
+        assert stdin.seen[6:] == [c1, c1, c2]
         assert list(tmp_path.iterdir()) == [save]
         assert load_game(save, _REGISTRIES).state.players[0].po == c2
         # Confirmed in the map's note line, with the target path.
@@ -2175,6 +2182,32 @@ class TestTurnPhases:
         before_map = output.split("move: W/A/S/D")[0]
         assert "ist an der reihe" in before_map, "not the upkeep screen"
         assert "north side\nmoran.\n" not in output, "a promotion screen without a promotion"
+
+    def test_upkeep_prints_the_promotion_once_and_keeps_it_on_screen(self, monkeypatch, tmp_path):
+        """:4200-4220 print the wanted poster once and wait for a key (#122).
+
+        Upkeep's own messages -- the banner, the poster, a debt warning -- are the
+        upkeep screen: printed once under its heading, with no screen clear between
+        them and the key that ends it.
+        """
+        from data.game_configs.mafia_1920s.state import Debt
+
+        state = self._second_player(Debt(amount=1000, months=4), gf=25.0, nr=3)
+        output, _ret = _resume_at(
+            monkeypatch, tmp_path, state, "next_player", ["x", MENU_WALK_KEY, "q"]
+        )
+        before_map = output.split("move: W/A/S/D")[0]
+        poster = "north side\nmoran.\n25 p."
+        assert before_map.count(poster) == 1, "the promotion printed more than once"
+        assert before_map.count("ist an der reihe") == 1, "the banner printed more than once"
+        from engine.strings import Resolver
+
+        press = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve("client.press_any_key")
+        upkeep_screen = before_map[before_map.index("ist an der reihe") :]
+        upkeep_screen = upkeep_screen[: upkeep_screen.index(press)]
+        assert CLEAR not in upkeep_screen, "a screen clear wiped upkeep's messages"
+        assert poster in upkeep_screen
+        assert "1000$ schulden" in upkeep_screen, "the debt warning is not on the upkeep screen"
 
     def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch, tmp_path):
         from data.game_configs.mafia_1920s.state import Job

@@ -20,6 +20,11 @@ from collections.abc import Mapping
 from typing import Any
 
 from engine.combat import RulesBundle
+from engine.state import INTENT
+
+#: The house rule that picks whose direction memory an AI fighter keeps
+#: (``content/house_rules.yaml``).
+SHARED_DIRECTION_MEMORY = "shared_direction_memory"
 
 __all__ = [
     "HIT_ROLES",
@@ -29,6 +34,7 @@ __all__ = [
     "damage_draws",
     "damage_roll",
     "build_rules",
+    "SHARED_DIRECTION_MEMORY",
 ]
 
 # The depleting resource is the engine's ``vitality`` SLOT: the engine
@@ -156,6 +162,11 @@ def build_rules(house_rules: Mapping[str, str]) -> RulesBundle:
 
     Takes no equipment lookup: the formulas read stats off the attacker's own
     ``equipment``, so the bundle carries only formulas, roles and the map.
+
+    The house rule ``shared_direction_memory`` sets the engine's neutral
+    ``direction_memory_per_side``: faithful (or absent) shares ``ri(f)`` between the
+    two sides' fighter ``f`` (``mf-prg.bas:30492`` ``ri(f)=p``), intent gives each side
+    its own.
     """
     return RulesBundle(
         hit_roles=HIT_ROLES,
@@ -165,6 +176,7 @@ def build_rules(house_rules: Mapping[str, str]) -> RulesBundle:
         hit_draws=hit_draws,
         damage_draws=damage_draws,
         house_rules=house_rules,
+        direction_memory_per_side=house_rules.get(SHARED_DIRECTION_MEMORY) == INTENT,
     )
 
 
