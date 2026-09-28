@@ -487,7 +487,9 @@ class TestClientErrorGuard:
         state = cfg.module.new_game(
             seed=42, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
         )
-        save_game(path, state, effect_log=[], rng_log=list(rng_log), seed=42)
+        save_game(
+            path, state, registries=cfg.registries, effect_log=[], rng_log=list(rng_log), seed=42
+        )
         return path
 
     @staticmethod
@@ -542,6 +544,45 @@ class TestClientErrorGuard:
         code, err = self._fail(capsys, ["--load", str(path)])
         self._assert_one_readable_line(code, err, path)
         assert "999" in err
+
+    @staticmethod
+    def _rewrite_header(path: Path, **changes) -> None:
+        import json
+
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines[0] = json.dumps({**json.loads(lines[0]), **changes})
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    def test_ae6_a_version_1_save_says_it_was_made_by_an_older_version(self, capsys, tmp_path):
+        """AE6: a save written before the version bump is one line naming it older,
+        exit status 1, no traceback."""
+        path = self._valid_save(tmp_path / "v1.jsonl")
+        self._rewrite_header(path, version=1)
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        assert code == 1
+        assert err == (
+            f"cannot load {path}: the save was made by an older version of the game "
+            "(save version 1; this version reads 2)\n"
+        )
+
+    @pytest.mark.parametrize(
+        ("field", "value", "reason"),
+        [
+            ("config_id", "chicago_1930s", "the save belongs to another game"),
+            ("content_version", 99, "the save was made for another content version"),
+        ],
+    )
+    def test_a_save_from_another_config_or_content_version(
+        self, capsys, tmp_path, field, value, reason
+    ):
+        path = self._valid_save(tmp_path / "other.jsonl")
+        self._rewrite_header(path, **{field: value})
+        code, err = self._fail(capsys, ["--load", str(path)])
+        self._assert_one_readable_line(code, err, path)
+        assert code == 1
+        assert err.split(f"{path}: ", 1)[1].startswith(reason), err
+        assert str(value) in err
 
     def test_snapshot_missing_a_field(self, capsys, tmp_path):
         import json

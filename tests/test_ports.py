@@ -71,7 +71,7 @@ from engine.interactions import (
     StartCombat,
 )
 from engine.locations import HANDLERS
-from engine.movement import start_free_turn
+from engine.turns import SCORE_TRUNCATION_HOOK_KEY
 from engine.rng import Rng
 from engine.state import Clock, CombatState, Config, GameState, Player
 from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job
@@ -348,7 +348,8 @@ def _basic_truncate(v: Values) -> Any:
 
 
 def _engine_truncate(v: Values) -> Any:
-    return start_free_turn(_state(_player(gf=v["gf"]))).players[0].gf
+    run = _drive(HANDLERS[SCORE_TRUNCATION_HOOK_KEY], _state(_player(gf=v["gf"])))
+    return run.state.players[0].gf
 
 
 # --- :4015/:4020 energy regen -------------------------------------------------------
@@ -1254,10 +1255,10 @@ PORTS: list[Port] = [
     Port(
         "per-turn score truncation",
         (Q_1013,),
-        "movement.start_free_turn",
+        f"HANDLERS[{SCORE_TRUNCATION_HOOK_KEY!r}]",
         # Values whose gf*100 is exact or far from a whole number, where IEEE and C64
-        # floats agree. Near a whole cent the engine snaps the float drift first (see
-        # movement._SCORE_SNAP_DECIMALS), which this float evaluator does not model.
+        # floats agree. Near a whole cent the config snaps the float drift first (see
+        # handlers/turn.py _SCORE_SNAP_DECIMALS), which this float evaluator does not model.
         _grid(
             gf=(0, 0.0078125, 0.125, 0.5, 11.1, 25.1953125, 25.5, 33.337, 51.25, 88.8)
             + (99.9990234375, 100, 101.5, -0.0078125, -0.125, -2.9990234375, -3.5, -12.345)

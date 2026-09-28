@@ -42,9 +42,7 @@ from engine.movement import (
     LEFT,
     RIGHT,
     UP,
-    advance_turn,
     load_city,
-    start_free_turn,
     try_move,
 )
 from engine.persistence import load_game, save_game
@@ -68,7 +66,7 @@ from engine.turns import (
     TurnRunner,
 )
 from engine.upkeep import run_upkeep
-from tests.helpers import deadline, make_walk_script
+from tests.helpers import deadline, make_walk_script, next_turn_by_hand
 
 _CONFIG = load_game_config(CONFIG_DIR)  # registers the config's handlers and hooks
 _VEHICLES = _CONFIG.module.load_vehicles(CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
@@ -177,8 +175,9 @@ def _client_loop_reference(state, rng):
 
     Replays ``clients/terminal/session.py``'s loop as it stood before the engine owned
     turn order: the first upkeep; then per turn a job shift (employed) or ``:1013``
-    truncation and the map; ``advance_turn``; the standings on a wrap (display only);
-    upkeep. Stops where player 0's second free turn opens.
+    truncation (the config's hook) and the map; the rotation and the movement-point
+    refill (:func:`tests.helpers.next_turn_by_hand`); the standings on a wrap (display
+    only); upkeep. Stops where player 0's second free turn opens.
     """
     state = run_upkeep(state, input_source=_answer, rng=rng).state
     free_turns = 0
@@ -187,12 +186,12 @@ def _client_loop_reference(state, rng):
         if game.job(active).type:
             state = run(HANDLERS["job.shift"], _answer, state=state, rng=rng).state
         else:
-            state = start_free_turn(state)
+            state = run(HANDLERS[SCORE_TRUNCATION_HOOK_KEY], _answer, state=state, rng=rng).state
             free_turns += 1
             if free_turns == 2:
                 return state
             state = _walk(state)
-        state, over = advance_turn(state, _VEHICLES)
+        state, over = next_turn_by_hand(state, rng)
         assert not over
         state = run_upkeep(state, input_source=_answer, rng=rng).state
 
@@ -308,17 +307,49 @@ def test_the_turn_over_follows_the_free_turn():
     assert seen[-1].key == TURN_OVER_SCREEN and seen[-1].player == 0
 
 
-def test_the_config_truncation_hook_and_the_engine_helper_agree():
-    """``engine.movement.start_free_turn`` stays for callers that step by hand; the
-    runner uses the config's :1013 hook. Both must cut every score alike."""
-    state = _new_game()
-    for gf in (0, 0.0078125, 0.125, 0.29, 11.1, 25.199999, 25.2, 99.9990234375, -0.125, -12.345):
-        engine_gf = (
-            start_free_turn(replace(state, players=(replace(state.players[0], gf=gf),)))
-            .players[0]
-            .gf
-        )
-        assert truncated_score(gf) == engine_gf, gf
+# :1013 `gf(sp)=int(gf(sp)*100)/100`: the config's hook cuts the ACTIVE player's
+# score to two decimals.
+def _with_scores(scores, *, active):
+    state = _new_game([("p%d" % i, "g%d" % i) for i in range(len(scores))])
+    players = tuple(replace(p, gf=gf) for p, gf in zip(state.players, scores))
+    return replace(state, players=players, clock=replace(state.clock, active_player=active))
+
+
+def _truncate(state):
+    return run(HANDLERS[SCORE_TRUNCATION_HOOK_KEY], _answer, state=state).state
+
+
+@pytest.mark.parametrize(
+    ("gf", "expected"),
+    [
+        (25.199999, 25.19),  # a real sub-cent part is cut, not rounded
+        (51.2, 51.2),
+        (-3.5, -3.5),
+        (-0.125, -0.13),  # C64 int() is floor: a negative score goes toward -inf
+        (0.29, 0.29),  # IEEE 0.29*100 is 28.999999999999996: still a fixed point
+        (0.57, 0.57),
+        (1.13, 1.13),
+        (1.2 * 21, 25.2),  # 25.199999999999992: float drift below the cent
+        (8.4 * 3, 25.2),  # 25.200000000000003: float drift above the cent
+        (0.0, 0.0),
+        (100.0, 100.0),
+    ],
+)
+def test_the_truncation_hook_cuts_the_active_players_score(gf, expected):
+    state = _with_scores((0.125, gf), active=1)
+    new = _truncate(state)
+    assert new.players[1].gf == expected
+    assert new.players[0].gf == 0.125, "only the active player's score is truncated"
+    assert state.players[1].gf == gf, "the input state is untouched (pure)"
+
+
+def test_truncation_keeps_every_two_decimal_score_and_is_idempotent():
+    """Every whole-cent score is a fixed point, and truncating twice equals once."""
+    moved = [k / 100 for k in range(-10000, 10001) if truncated_score(k / 100) != k / 100]
+    assert moved == [], f"{len(moved)} whole-cent scores changed, e.g. {moved[:5]}"
+    for gf in (25.199999, 1.2 * 21, 0.1 * 3, -0.125, 33.337, 0.7 * 36, 99.99999999):
+        once = _truncate(_with_scores((gf,), active=0))
+        assert _truncate(once) == once, gf
 
 
 # --------------------------------------------------------------------------- #
@@ -628,7 +659,7 @@ def test_the_previous_tile_is_written_after_a_visit_and_cleared_at_the_turn_star
 
     # Saved with the game.
     save = tmp_path / "ll.jsonl"
-    save_game(save, runner.state, effect_log=[], rng_log=[], seed=42)
+    save_game(save, runner.state, registries=_CONFIG.registries, effect_log=[], rng_log=[], seed=42)
     assert load_game(save, _CONFIG.registries).state.players[0].previous_tile == (la, 2)
 
     # :1012 ll(sp)=0 at the next turn start.

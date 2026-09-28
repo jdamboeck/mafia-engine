@@ -88,7 +88,7 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
         "the round-trip log must hold one of every config effect"
     )
     path = tmp_path / "game.jsonl"
-    save_game(path, state, effect_log=log, rng_log=[], seed=7)
+    save_game(path, state, registries=loaded.registries, effect_log=log, rng_log=[], seed=7)
 
     # A fresh load re-executes the config: the classes are rebuilt, the tags are not.
     registries = load_game_config(_CONFIG_DIR).registries

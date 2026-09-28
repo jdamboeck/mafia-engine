@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from dataclasses import MISSING, fields
 
-from engine.effects import CONSEQUENCES, legacy_fields
+from engine.effects import CONSEQUENCES
 
 __all__ = ["effect_from_dict", "effects_from_dicts"]
 
@@ -55,9 +55,7 @@ def effect_from_dict(raw: dict) -> object:
     The ``type`` key selects the effect class (see :data:`engine.effects.CONSEQUENCES`); the remaining
     keys become constructor keyword arguments. Strict: raises ``ValueError`` for an unknown
     or missing ``type``, a missing required field, or an unknown extra field. Absent
-    optional fields fall back to the dataclass default; a field added to an effect after
-    its type became declarable falls back to its pre-field meaning
-    (:func:`~engine.effects.legacy_fields`). Never mutates ``raw`` and never
+    optional fields fall back to the dataclass default. Never mutates ``raw`` and never
     touches game state.
     """
     if "type" not in raw:
@@ -75,9 +73,7 @@ def effect_from_dict(raw: dict) -> object:
 
     required, optional = _field_sets(effect_cls)
     allowed = required | optional
-    # A field added or replaced after this consequence type was first declarable: an
-    # entry written before keeps the meaning it had then (``engine.effects.legacy_fields``).
-    given = legacy_fields(effect_cls, {k: v for k, v in raw.items() if k != "type"})
+    given = {k: v for k, v in raw.items() if k != "type"}
     given_keys = set(given)
 
     unknown = given_keys - allowed

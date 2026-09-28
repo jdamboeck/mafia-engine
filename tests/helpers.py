@@ -92,7 +92,7 @@ def make_walk_script(keys: list[str]) -> io.StringIO:
     one more for the turn-start upkeep screen's "press any key..." ack — BOTH before
     the map loop starts — so every scripted stdin must account for both. See
     ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
-    Every ``advance_turn`` rotation triggers a THIRD such ack for the new active
+    Every turn rotation triggers a THIRD such ack for the new active
     player's upkeep — callers scripting a multi-turn session add one blank/any-key
     line per rotation on top of the two this builder prepends.
     """
@@ -194,6 +194,30 @@ def is_effect(effect: Any, *classes: type) -> bool:
     """
     tag = effect_tag(effect)
     return tag is not None and tag in {effect_tag(c) for c in classes}
+
+
+def next_turn_by_hand(state, rng=None) -> tuple[Any, bool]:
+    """``:1010``/``:1012`` stepped by hand, for tests that plan keys over many turns.
+
+    Commits the engine's own rotation (:class:`~engine.effects.AdvanceTurn`: the next
+    player, and a month on a wrap), then refills the new active player's movement
+    points from the loaded config's movement-points hook -- the two steps the engine
+    turn runner (:mod:`engine.turns`) takes. Upkeep, the standings and the other turn
+    hooks do not run. The config must be loaded (its hooks registered). Returns
+    ``(state, game_over)``, ``game_over`` once the calendar reaches the end year.
+    """
+    from engine.effects import AdvanceTurn, SetMovementPoints
+    from engine.locations import HANDLERS
+    from engine.turns import MOVEMENT_POINTS_HOOK_KEY
+
+    def _no_input(interaction):
+        raise AssertionError(f"the movement-points hook asked {interaction!r}")
+
+    state = commit(state, [AdvanceTurn()]).state
+    hook = HANDLERS[MOVEMENT_POINTS_HOOK_KEY]
+    points = run(hook, _no_input, state=state, rng=rng).payload.returned
+    state = commit(state, [SetMovementPoints(points)]).state
+    return state, int(state.clock.year) >= state.clock.end_year
 
 
 def with_player(state, idx: int = 0, **field_changes):

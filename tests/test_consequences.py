@@ -42,20 +42,14 @@ def test_score_change_converts():
     assert effect_from_dict(raw) == ScoreChange(amount=3, floor=None, cap=50)
 
 
-def test_score_change_without_a_bound_keeps_its_pre_field_clamped_meaning():
-    """A ``score_change`` consequence authored before any bound field existed has none;
-    it meant the [0, 100]-clamped delta (:1160/:1161), and still does."""
-    restored = effect_from_dict({"type": "score_change", "amount": 3})
-    assert restored == ScoreChange(amount=3, floor=0.0, cap=100.0)
-
-
-def test_score_change_with_the_replaced_clamp_flag_keeps_its_meaning():
-    """``clamp: bool`` came before the ``floor``/``cap`` pair: true meant [0, 100],
-    false meant no bound."""
-    clamped = effect_from_dict({"type": "score_change", "amount": 3, "clamp": True})
-    assert clamped == ScoreChange(amount=3, floor=0.0, cap=100.0)
-    unbounded = effect_from_dict({"type": "score_change", "amount": 3, "clamp": False})
-    assert unbounded == ScoreChange(amount=3, floor=None, cap=None)
+def test_score_change_without_its_bound_is_refused():
+    """The bound is the game's choice, never backfilled: a ``score_change`` without
+    ``floor``/``cap`` is missing required fields, and the replaced ``clamp`` flag is
+    an unknown field."""
+    with pytest.raises(ValueError, match="missing required field"):
+        effect_from_dict({"type": "score_change", "amount": 3})
+    with pytest.raises(ValueError, match="clamp"):
+        effect_from_dict({"type": "score_change", "amount": 3, "clamp": True})
 
 
 def test_stat_change_capped_converts():
@@ -159,7 +153,7 @@ def test_effects_from_dicts_preserves_order():
     raws = [
         {"type": "ms_change", "amount": 1},
         {"type": "money_change", "amount": 2},
-        {"type": "score_change", "amount": 3},
+        {"type": "score_change", "amount": 3, "floor": 0.0, "cap": 100.0},
     ]
     assert effects_from_dicts(raws) == [
         MsChange(amount=1),

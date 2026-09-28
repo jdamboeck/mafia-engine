@@ -68,7 +68,7 @@ def test_value_map_write_raises():
 
 
 def test_clock_field_write_raises():
-    """The turn/calendar state is off-limits too (advance_turn returns a new state)."""
+    """The turn/calendar state is off-limits too (only the turn runner's effects move it)."""
     state = _state()
     with pytest.raises(FrozenInstanceError):
         state.clock.active_player = 1

@@ -1,7 +1,8 @@
 # counter_game — a test-only game config that exercises the effect and state
 # registries (tests/test_effect_registry.py). It is not a playable game.
-engine_api: 1
+engine_api: 2
 name: "counter_game"
+content_version: 1
 
 entities: {}
 formula_params: {}

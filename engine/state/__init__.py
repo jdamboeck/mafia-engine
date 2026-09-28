@@ -389,10 +389,9 @@ class Clock:
     #: Where the engine turn runner (``engine.turns``) re-enters this turn: one of
     #: ``engine.turns.PHASES``. The runner writes it at its resumable points: the
     #: turn start (``"upkeep"``, with the rotation) and the open free turn
-    #: (``"walking"``). ``"walking"`` is also the default, because it is where every
-    #: state the runner has not driven resumes: a save taken before this field existed
-    #: (saves were only ever taken on the map) and a freshly set-up game, which a
-    #: client enters at the turn start explicitly.
+    #: (``"walking"``). ``"walking"`` is also the default, for a state the runner has
+    #: not driven yet: a freshly set-up game, which a client enters at the turn start
+    #: explicitly, and a hand-built state resumed on the map. Every save writes it.
     turn_phase: str = "walking"
 
 

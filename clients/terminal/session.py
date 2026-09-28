@@ -36,7 +36,6 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.game_end import run_standings
 from engine.interactions import (
     MAP_SAVE,
     Acknowledge,
@@ -44,23 +43,25 @@ from engine.interactions import (
     LocationMenu,
     MapMove,
     OptionDone,
-    ShowMessage,
 )
-from engine.persistence import Registries, SchemaVersionError, load_game, replay, save_game
+from engine.persistence import (
+    Registries,
+    SaveConfigError,
+    SchemaVersionError,
+    load_game,
+    replay,
+    save_game,
+)
 from engine.rng import Rng
 from engine.state import GameState
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
     LOCATION_CLOSED_SCREEN,
-    NEXT_PLAYER,
-    PAUSED,
     STANDINGS_SCREEN,
     TURN_OVER_SCREEN,
-    TURN_START,
     UPKEEP,
     UPKEEP_SCREEN,
-    WALKING,
     YEAR_END_SCREEN,
     TurnRunner,
 )
@@ -142,7 +143,11 @@ def _load_reason(exc: BaseException, resolver: Resolver) -> str:
     if isinstance(exc, UnicodeDecodeError):
         return reason("not_text")
     if isinstance(exc, SchemaVersionError):
+        if exc.older:
+            return reason("older_version", found=exc.found, supported=exc.supported)
         return reason("bad_version", detail=exc)
+    if isinstance(exc, SaveConfigError):
+        return reason(f"other_{exc.field}", found=exc.found, expected=exc.expected)
     if isinstance(exc, KeyError):
         return reason("missing_field", detail=exc)
     return reason("corrupt", error_type=type(exc).__name__, detail=exc)
@@ -552,7 +557,6 @@ class TerminalSession:
         self.city = self.cfg.city
 
         cfg = self.cfg
-        self.vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         self.weapon_names = [
             w["name"]
             for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
@@ -653,26 +657,12 @@ class TerminalSession:
         # and turn start (which ran before the save) do not run again.
         self.drive_turns()
 
-    def run_turns(self, *, resuming_free_turn: bool) -> None:
-        """Play turns from this turn's start after upkeep (or its open free turn).
-
-        This and :meth:`next_turn` only name where the runner is entered; the order
-        from there is the runner's.
-        """
-        self.drive_turns(WALKING if resuming_free_turn else TURN_START)
-
-    def next_turn(self) -> bool:
-        """Advance to the next player's turn, through its upkeep; ``False`` ends the session."""
-        return self.drive_turns(NEXT_PLAYER, until=TURN_START)
-
-    def drive_turns(self, entry: str | None = None, *, until: str | None = None) -> bool:
-        """Drive the engine turn runner from ``entry``, rendering what it yields.
+    def drive_turns(self, entry: str | None = None) -> None:
+        """Drive the engine turn runner from ``entry`` until the game ends or a quit.
 
         The runner (:class:`engine.turns.TurnRunner`) owns the order of the turn; this
         only renders its screens and answers its prompts, adopting the runner's state
         at every interaction. ``entry=None`` re-enters the phase the state recorded.
-        Returns ``True`` when the runner reached ``until``, ``False`` when the game
-        ended or the player quit.
         """
         assert self.state is not None, "state is set by setup or load before any turn"
         runner = TurnRunner(
@@ -682,7 +672,7 @@ class TerminalSession:
             shells=self.cfg.shells,
             observe_ai=self.inp.observes_ai,
         )
-        turns = runner.run(entry, until=until)
+        turns = runner.run(entry)
         try:
             interaction = next(turns)
             while True:
@@ -690,11 +680,10 @@ class TerminalSession:
                 response = self.render(interaction)
                 if response is _QUIT:
                     turns.close()
-                    return False
+                    return
                 interaction = turns.send(response)
-        except StopIteration as stop:
+        except StopIteration:
             self.state = runner.state
-            return stop.value == PAUSED
 
     def render(self, interaction):
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``."""
@@ -811,7 +800,12 @@ class TerminalSession:
         assert self.state is not None, "state is set by setup or load before any turn"
         try:
             save_game(
-                self.save_path, self.state, effect_log=[], rng_log=self.rng.log, seed=self.seed
+                self.save_path,
+                self.state,
+                registries=self.cfg.registries,
+                effect_log=[],
+                rng_log=self.rng.log,
+                seed=self.seed,
             )
         except OSError as exc:
             reason = exc.strerror or str(exc)
@@ -843,22 +837,6 @@ class TerminalSession:
         _write_press_any_key(self.resolver, out)
         if _is_quit(_read_key()):
             out.write(self.text("client.bye") + "\n")
-            return False
-        return True
-
-    def round_end(self, played) -> bool:
-        """Show the standings for ``played``, the round just finished; ``False`` on a quit."""
-        lines: list[tuple[str, dict]] = []
-
-        def collect(interaction):
-            if not isinstance(interaction, ShowMessage):
-                raise AssertionError(f"the standings asked a question: {interaction!r}")
-            lines.append((interaction.key, interaction.params))
-
-        run_standings(played, input_source=collect, rng=self.rng)
-        header = self.text("client.header.standings")
-        if not _render_lines_screen(header, lines, self.resolver, self.colors, self.out):
-            self.out.write(self.text("client.bye") + "\n")
             return False
         return True
 

@@ -59,6 +59,9 @@ client:
       not_json: "not valid JSON ({detail})"
       not_text: "not a text file"
       bad_version: "unsupported save version ({detail})"
+      older_version: "the save was made by an older version of the game (save version {found}; this version reads {supported})"
+      other_config_id: "the save belongs to another game ({found}, not {expected})"
+      other_content_version: "the save was made for another content version of this game ({found}, not {expected})"
       missing_field: "save is missing the field {detail}"
       corrupt: "corrupt save ({error_type}: {detail})"
 

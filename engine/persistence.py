@@ -7,9 +7,11 @@ purely additively — it changes nothing in the frozen ``engine.state``/``engine
 
 Store shape (append-only JSONL, one JSON object per line)
 --------------------------------------------------------
-- **line 0 — header**: ``{"kind":"header", "version", "seed", "snapshot", "pending_action"?}``
-  where ``snapshot`` is a serialized per-turn ``GameState`` and ``pending_action`` (optional)
-  is the mid-handler locus ``{location_key, option_id, ln, responses_so_far}``.
+- **line 0 — header**: ``{"kind":"header", "version", "config_id", "content_version", "seed",
+  "snapshot", "pending_action"?}`` where ``config_id``/``content_version`` name the config
+  (and its content version) the save was written under, ``snapshot`` is a serialized
+  per-turn ``GameState`` and ``pending_action`` (optional) is the mid-handler locus
+  ``{location_key, option_id, ln, responses_so_far}``.
 - **line 1..n — effect / rng records**: ``{"kind":"effect"|"rng", "version", ...}`` in commit
   order. **Semantic events are never written** — they are audit/UI records, not replay input
   (binding replay-semantics note in docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md).
@@ -31,8 +33,12 @@ save and rebuilt as read-only on load, so a restored state is as immutable as a 
 **Loading needs the loaded config.** The engine cannot name what a config declares, so
 :func:`load_game` and :func:`replay` take the config's :class:`Registries`: the effect
 registry (effects are rebuilt by tag) and the state schema (value maps are rebuilt, with a
-missing key default-filled and an unknown key refused). Recordings (``engine.recording``)
-hold no effects or player state and do not take them.
+missing key default-filled and an unknown key refused). :func:`save_game` takes them too,
+for the config's id and content version it stamps in the header; a save loaded under
+another config or content version is refused (:class:`SaveConfigError`), as is a save of
+another :data:`SCHEMA_VERSION` (:class:`SchemaVersionError`) -- nothing upgrades an old
+save. Recordings (``engine.recording``) hold no effects or player state and do not take
+them.
 """
 
 from __future__ import annotations
@@ -48,7 +54,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from engine import effects as _effects
 from engine.effects import SCHEMA_VERSION, commit, effect_tag
 from engine.state import (
     Clock,
@@ -65,6 +70,7 @@ from engine.state import (
 __all__ = [
     "SCHEMA_VERSION",
     "SchemaVersionError",
+    "SaveConfigError",
     "UnknownEffectError",
     "Registries",
     "SaveData",
@@ -78,7 +84,37 @@ __all__ = [
 
 
 class SchemaVersionError(Exception):
-    """Raised on load when a record carries a schema ``version`` this build cannot read."""
+    """Raised on load when a record carries a schema ``version`` this build cannot read.
+
+    ``found`` is the record's version as saved (any JSON value, or ``None`` when it has
+    none) and ``supported`` this build's :data:`SCHEMA_VERSION`. :attr:`older` tells a
+    save written by an older build from a newer or malformed one.
+    """
+
+    def __init__(self, found: Any, supported: int = SCHEMA_VERSION) -> None:
+        self.found = found
+        self.supported = supported
+        super().__init__(f"record schema version {found!r} != supported {supported}")
+
+    @property
+    def older(self) -> bool:
+        """Whether the record was written by an older build (a lower integer version)."""
+        found = self.found
+        return isinstance(found, int) and not isinstance(found, bool) and found < self.supported
+
+
+class SaveConfigError(Exception):
+    """Raised on load when a save was written under another config or content version.
+
+    ``field`` is ``"config_id"`` or ``"content_version"``; ``found`` is the save's value
+    and ``expected`` the loaded config's.
+    """
+
+    def __init__(self, field: str, found: Any, expected: Any) -> None:
+        self.field = field
+        self.found = found
+        self.expected = expected
+        super().__init__(f"save {field} {found!r} != the loaded config's {expected!r}")
 
 
 class UnknownEffectError(TypeError):
@@ -90,12 +126,16 @@ class Registries:
     """What save loading and replay need from the loaded config.
 
     ``effects`` is the effect registry (tag -> class, :data:`engine.effects.EFFECTS`);
-    ``state_schema`` declares the per-player and global value maps. Both come from
+    ``state_schema`` declares the per-player and global value maps; ``config_id`` and
+    ``content_version`` are the config's ``name`` and ``content_version`` from its
+    ``config.yaml``, which a save's header records and a load checks. All come from
     :class:`~engine.config_loader.LoadedConfig` (``loaded.registries``).
     """
 
     effects: Mapping[str, type]
     state_schema: StateSchema
+    config_id: str
+    content_version: int
 
 
 # --------------------------------------------------------------------------- #
@@ -155,11 +195,7 @@ def _effect_from_dict(raw: dict, effects: Mapping[str, type]) -> Any:
         raise UnknownEffectError(
             f"the save names effect {tag!r}, which the loaded config does not register"
         )
-    cls = effects[tag]
-    # A field added or replaced after this record was written: upgrade to what the
-    # record meant then.
-    kwargs = _effects.legacy_fields(cls, {k: v for k, v in raw.items() if k != "_type"})
-    return _rebuild(cls, kwargs)
+    return _rebuild(effects[tag], {k: v for k, v in raw.items() if k != "_type"})
 
 
 # --------------------------------------------------------------------------- #
@@ -202,30 +238,20 @@ def _is_int_literal(s: str) -> bool:
     return body.isascii() and body.isdigit()
 
 
-#: The roster-member blueprint fields the engine names; every other saved key is a
-#: game stat that folds into ``attrs``. ``vitality`` is a slot,
-#: not an attr — this game's ``energie`` was mapped onto it at construction.
-_ROSTER_BLUEPRINT_FIELDS = ("name", "weapon", "vitality")
-
-
 def _roster_member_from_dict(raw: dict) -> Combatant:
     """Rebuild a saved roster member as a bare :class:`~engine.state.Combatant`.
 
     The engine does not know the config's ``Gangster`` type (layer rule), so it never
-    reconstructs the named-field form. ``name``/``weapon`` are read by name; every
-    other saved key is a game stat and is folded into ``attrs`` — which is exactly
+    reconstructs the named-field form: a member is saved as its blueprint slots
+    (``name``, ``weapon``, ``vitality``) and its game stats under ``attrs`` -- exactly
     where the engine reads stats from, so the round-trip is lossless. A config that
     needs the named-field form reads it through ``attrs``.
     """
-    blueprint = {k: raw[k] for k in _ROSTER_BLUEPRINT_FIELDS if k in raw}
-    stats = {k: v for k, v in raw.items() if k not in _ROSTER_BLUEPRINT_FIELDS and k != "attrs"}
-    # Prefer an explicit saved attrs; fall back to the named stat keys.
-    attrs = raw.get("attrs") or stats
-    return Combatant(**blueprint, attrs=dict(attrs))
+    return Combatant(**raw)
 
 
 def _player_from_dict(raw: dict, schema: StateSchema | None, index: int) -> Player:
-    values = raw.get("values") or {}
+    values = raw["values"]
     if schema is None:
         # No schema: the exact inverse of json_safe (see state_from_dict).
         values = MappingProxyType(dict(values))
@@ -280,7 +306,7 @@ def state_from_dict(raw: dict, schema: StateSchema | None = None) -> GameState:
     keys) — :func:`load_game` always passes the loaded config's. Without one they come
     back exactly as saved, which is what the exact-inverse use needs.
     """
-    global_values = raw.get("values") or {}
+    global_values = raw["values"]
     if schema is None:
         global_values = MappingProxyType(dict(global_values))
     else:
@@ -314,15 +340,25 @@ class SaveData:
 # --------------------------------------------------------------------------- #
 def _check_version(rec: dict) -> None:
     if rec.get("version") != SCHEMA_VERSION:
-        raise SchemaVersionError(
-            f"record schema version {rec.get('version')!r} != supported {SCHEMA_VERSION}"
-        )
+        raise SchemaVersionError(rec.get("version"))
+
+
+def _check_config(header: dict, registries: Registries) -> None:
+    """Refuse a save written under another config, or another content version of it."""
+    for field, expected in (
+        ("config_id", registries.config_id),
+        ("content_version", registries.content_version),
+    ):
+        found = header.get(field)
+        if found != expected:
+            raise SaveConfigError(field, found, expected)
 
 
 def save_game(
     path: str | Path,
     state: GameState,
     *,
+    registries: Registries,
     effect_log: list,
     rng_log: list,
     seed: int,
@@ -330,14 +366,18 @@ def save_game(
 ) -> None:
     """Write the append-only JSONL save: header (snapshot) then effect/RNG records.
 
-    ``effect_log`` is the ordered committed-effect stream; ``rng_log`` is the ordered
-    RNG draw records (``engine.rng.Rng.log`` tuples). Semantic events, if a caller has
-    any, are intentionally not accepted here — they are never part of replay.
+    ``registries`` is the loaded config's (``loaded.registries``): the header records
+    its config id and content version, which :func:`load_game` checks. ``effect_log``
+    is the ordered committed-effect stream; ``rng_log`` is the ordered RNG draw records
+    (``engine.rng.Rng.log`` tuples). Semantic events, if a caller has any, are
+    intentionally not accepted here — they are never part of replay.
     """
     path = Path(path)
     header = {
         "kind": "header",
         "version": SCHEMA_VERSION,
+        "config_id": registries.config_id,
+        "content_version": registries.content_version,
         "seed": seed,
         "snapshot": _state_to_dict(state),
     }
@@ -384,6 +424,8 @@ def load_game(path: str | Path, registries: Registries) -> SaveData:
     ``registries`` is the loaded config's (``loaded.registries``): effects are rebuilt
     by tag through its effect registry — an unregistered tag raises
     :class:`UnknownEffectError` naming it — and the value maps through its state schema.
+    A record of another :data:`SCHEMA_VERSION` raises :class:`SchemaVersionError`, and
+    a save written under another config id or content version :class:`SaveConfigError`.
     """
     path = Path(path)
     records = [
@@ -396,6 +438,7 @@ def load_game(path: str | Path, registries: Registries) -> SaveData:
         _check_version(rec)
 
     header = records[0]
+    _check_config(header, registries)
     state = state_from_dict(header["snapshot"], registries.state_schema)
     effect_log = [
         _effect_from_dict(rec["effect"], registries.effects)

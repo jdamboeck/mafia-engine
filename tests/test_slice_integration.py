@@ -424,7 +424,7 @@ def _smoke_plan():
     idle player's upkeep asks nothing (``test_idle_upkeep_never_asks_across_the_game``),
     so the walk needs no RNG to stay in step with the real run.
     """
-    from engine.movement import advance_turn
+    from tests.helpers import next_turn_by_hand
     from tests.test_client_loop import (
         MOVE_KEYS as _MOVE_KEYS,
     )
@@ -434,7 +434,6 @@ def _smoke_plan():
         walk_keys_to_cell,
     )
 
-    vehicles = _CONFIG.module.load_vehicles(_CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
     city_raw = load_city_raw()
     city = load_city(city_raw)
     sph_door = find_door_cell(city_raw, "sph")
@@ -487,7 +486,7 @@ def _smoke_plan():
             steps += 1
             assert steps < 200, "turn never ended"
         lines.append("x")  # the turn-over ack
-        state, game_over = advance_turn(state, vehicles)
+        state, game_over = next_turn_by_hand(state)
         turn += 1
         if state.clock.active_player == 0:
             lines.append("x")  # the round-standings ack

@@ -116,7 +116,7 @@ The no-`not` rule keeps guards simple; rewrite guards positively instead. This D
 
 ## YAML consequences
 
-Simple options may resolve through pure-data consequences. A consequence's `type` is any registered effect tag. The engine registers its generic effects, for example:
+Simple options may resolve through pure-data consequences. A consequence's `type` is the consequence name an effect registered alongside its tag. The tag is the effect's class name (`ScoreChange`), and it is what a save writes; the consequence name is the snake_case name a shell writes (`score_change`). The engine registers consequence names for its generic effects, for example:
 
 - `money_change`;
 - `score_change`;
@@ -127,7 +127,7 @@ Simple options may resolve through pure-data consequences. A consequence's `type
 - `stat_change_capped`;
 - `assign_weapon`.
 
-The config registers its game effects the same way (for example `score_and_rank`), and its shells may use those tags too. There is no separate consequence table: the effect registry is the only list.
+The config registers its game effects the same way (for example `score_and_rank`), and its shells may use those names too. There is no separate consequence list to keep: an effect becomes a consequence by naming one when it registers.
 
 Anything involving input loops, RNG branches, minigames, combat, computed outcomes, or multi-step dialogue belongs in a Python handler.
 

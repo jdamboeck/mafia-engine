@@ -84,7 +84,9 @@ def test_every_player_key_survives_a_save_round_trip(key, tmp_path):
     state = with_player(state, 1, values={**state.players[1].values, key: value})
 
     path = tmp_path / "game.jsonl"
-    persistence.save_game(path, state, effect_log=[], rng_log=[], seed=7)
+    persistence.save_game(
+        path, state, registries=_LOADED.registries, effect_log=[], rng_log=[], seed=7
+    )
     loaded = persistence.load_game(path, _LOADED.registries).state
 
     assert type(loaded.players[1].values[key]) is spec.type
@@ -100,7 +102,9 @@ def test_every_global_key_survives_a_save_round_trip(key, tmp_path):
     state = dataclasses.replace(state, values={**state.values, key: value})
 
     path = tmp_path / "game.jsonl"
-    persistence.save_game(path, state, effect_log=[], rng_log=[], seed=7)
+    persistence.save_game(
+        path, state, registries=_LOADED.registries, effect_log=[], rng_log=[], seed=7
+    )
     loaded = persistence.load_game(path, _LOADED.registries).state
 
     assert type(loaded.values[key]) is spec.type

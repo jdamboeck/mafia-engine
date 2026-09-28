@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 from dataclasses import replace
@@ -38,21 +37,22 @@ from engine.movement import (
     RIGHT,
     UP,
     DOWN,
-    advance_turn,
     load_city,
-    start_free_turn,
     try_move,
 )
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
+from engine.config_loader import load_game_config
+from tests.helpers import next_turn_by_hand
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
 _PUB_SHELL = _CONFIG_DIR / "content" / "locations" / "pub.yaml"
 _PUB_STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "pub.yaml"
 
-# On-foot vehicle table (index 0 -> tr=25), enough for the turn loop.
-_VEHICLES = [{"name": "fuesse", "tank": 50, "tr": 25}]
+# Registers the config's turn hooks: the rotation below refills ``ms`` through its
+# movement-points hook (on foot, vehicle 0: tr=25).
+_CONFIG = load_game_config(_CONFIG_DIR)
 
 
 def _city():
@@ -260,46 +260,35 @@ def test_handler_forced_ms_zero_ends_turn():
 
 
 # --------------------------------------------------------------------------- #
-# Turn rotation: advance rotates active_player, wraps, replenishes ms = tr,   #
-# and a full round advances the MONTH by 1 (year only every 12 rounds, KTD-4).#
+# Turn rotation: the engine's rotation (AdvanceTurn) moves active_player,      #
+# wraps, and a full round advances the MONTH by 1 (year only every 12 rounds,  #
+# KTD-4); the config's movement-points hook replenishes ms = tr.               #
 # --------------------------------------------------------------------------- #
 def test_turn_rotation_and_ms_replenish():
     st = _state(ms=3, active=0, players=2, vehicle=0)  # player 0 spent down to ms=3
     year0 = st.clock.year
     month0 = st.clock.month
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     # Rotated to player 1; player 1's ms replenished to tr(0) = 25.
     assert st.clock.active_player == 1
     assert st.players[1].ms == 25
     assert st.clock.year == year0  # no wrap yet
     assert st.clock.month == month0  # no wrap yet
     # Advance again -> wraps to player 0, a full round -> month + 1 (year unchanged).
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     assert st.clock.active_player == 0
     assert st.players[0].ms == 25  # replenished on wrap
     assert st.clock.year == year0  # a single round is a MONTH, not a year (KTD-4)
     assert st.clock.month == month0 + 1
 
 
-def test_advance_turn_is_pure_and_returns_game_over_signal():
-    """R4: advance_turn no longer mutates in place — it returns the new state."""
-    st = _state(ms=3, active=0, players=2, vehicle=0)
-    new_st, over = advance_turn(st, _VEHICLES)
-
-    assert new_st is not st
-    assert st.clock.active_player == 0  # INPUT untouched (purity)
-    assert st.players[0].ms == 3
-    assert new_st.clock.active_player == 1  # rotation lives on the returned state
-    assert over is False  # 1925 < end_year 1978
-
-
-def test_advance_turn_reports_game_over_at_end_year():
-    """The game-over hook still fires when a wrap reaches end_year (12th month wrap)."""
+def test_a_wrap_reaching_the_end_year_reports_game_over():
+    """The game-over check fires when a wrap reaches end_year (12th month wrap)."""
     st = _state(ms=0, active=0, players=1, vehicle=0)
     # month=11 (the 12th round of the year): the NEXT wrap rolls year 1929 -> 1930.
     st = replace(st, clock=replace(st.clock, year=1929, month=11, end_year=1930))
 
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     assert st.clock.year == 1930
     assert st.clock.month == 0  # wrapped
     assert over is True
@@ -309,7 +298,7 @@ def test_single_player_wraps_every_turn():
     st = _state(ms=0, active=0, players=1, vehicle=0)
     year0 = st.clock.year
     month0 = st.clock.month
-    st, _over = advance_turn(st, _VEHICLES)
+    st, _over = next_turn_by_hand(st)
     assert st.clock.active_player == 0  # wrapped to itself
     assert st.players[0].ms == 25  # replenished
     assert st.clock.year == year0  # a one-player round is one MONTH, not a year
@@ -322,61 +311,14 @@ def test_twelve_full_rounds_advance_the_year_exactly_once():
     st = _state(ms=0, active=0, players=1, vehicle=0)
     year0 = st.clock.year
     for expected_month in range(1, 12):
-        st, over = advance_turn(st, _VEHICLES)
+        st, over = next_turn_by_hand(st)
         assert st.clock.year == year0  # no year rollover yet
         assert st.clock.month == expected_month
         assert over is False
     # The 12th wrap rolls the year and resets month to 0.
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     assert st.clock.year == year0 + 1
     assert st.clock.month == 0
-
-
-# --------------------------------------------------------------------------- #
-# :1013 score truncation: `gf(sp)=int(gf(sp)*100)/100` at the head of a free   #
-# turn, for the NEW active player only.                                       #
-# --------------------------------------------------------------------------- #
-def _with_scores(scores, *, active):
-    st = _state(players=len(scores), active=active)
-    players = tuple(replace(p, gf=gf) for p, gf in zip(st.players, scores))
-    return replace(st, players=players)
-
-
-@pytest.mark.parametrize(
-    ("gf", "expected"),
-    [
-        (25.199999, 25.19),  # a real sub-cent part is cut, not rounded
-        (51.2, 51.2),
-        (-3.5, -3.5),
-        (-0.125, -0.13),  # C64 int() is floor: a negative score goes toward -inf
-        (0.29, 0.29),  # IEEE 0.29*100 is 28.999999999999996: still a fixed point
-        (0.57, 0.57),
-        (1.13, 1.13),
-        (1.2 * 21, 25.2),  # 25.199999999999992: float drift below the cent
-        (8.4 * 3, 25.2),  # 25.200000000000003: float drift above the cent
-        (0.0, 0.0),
-        (100.0, 100.0),
-    ],
-)
-def test_start_free_turn_truncates_the_active_players_score(gf, expected):
-    st = _with_scores((0.125, gf), active=1)
-    new = start_free_turn(st)
-    assert new.players[1].gf == expected
-    assert new.players[0].gf == 0.125, "only the active player's score is truncated"
-    assert st.players[1].gf == gf, "the input state is untouched (pure)"
-
-
-def test_truncation_keeps_every_two_decimal_score_and_is_idempotent():
-    """Every whole-cent score is a fixed point, and truncating twice equals once."""
-    moved = [
-        k / 100
-        for k in range(-10000, 10001)
-        if start_free_turn(_with_scores((k / 100,), active=0)).players[0].gf != k / 100
-    ]
-    assert moved == [], f"{len(moved)} whole-cent scores changed, e.g. {moved[:5]}"
-    for gf in (25.199999, 1.2 * 21, 0.1 * 3, -0.125, 33.337, 0.7 * 36, 99.99999999):
-        once = start_free_turn(_with_scores((gf,), active=0))
-        assert start_free_turn(once) == once, gf
 
 
 # --------------------------------------------------------------------------- #

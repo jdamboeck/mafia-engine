@@ -40,7 +40,7 @@ from engine.locations import HANDLERS, Location, load_shells
 from engine.movement import City, load_city
 from engine.persistence import Registries
 from engine.state import StateSchema
-from engine.types import validate_config
+from engine.types import GameConfigSchema, validate_config
 
 __all__ = [
     "ENGINE_API",
@@ -62,15 +62,15 @@ LOCATIONS_DIR = Path("content") / "locations"
 CITY_FILE = Path("content") / "map" / "city.yaml"
 
 #: The Engine<->Config API version this engine speaks (docs/design/config-and-content-contract.md).
-ENGINE_API = 1
+ENGINE_API = GameConfigSchema.ENGINE_API
 
 
 def load_config(path: str | Path) -> dict:
     """Load and validate a game ``config.yaml`` (generic, no game specifics).
 
     Enforces the Engine<->Config contract (docs/design/config-and-content-contract.md) via
-    :func:`engine.types.validate_config`: the config MUST declare ``engine_api: 1``
-    and carry every required top-level key. Any violation raises ``ValueError``
+    :func:`engine.types.validate_config`: the config MUST declare
+    ``engine_api:`` :data:`ENGINE_API` and carry every required top-level key. Any violation raises ``ValueError``
     (a :class:`~engine.types.ConfigValidationError`).
     """
     path = Path(path)
@@ -160,7 +160,12 @@ class LoadedConfig:
     @property
     def registries(self) -> Registries:
         """What save loading and replay take (:func:`engine.persistence.load_game`)."""
-        return Registries(effects=self.effects, state_schema=self.state_schema)
+        return Registries(
+            effects=self.effects,
+            state_schema=self.state_schema,
+            config_id=self.config["name"],
+            content_version=self.config["content_version"],
+        )
 
 
 def _config_module_name(config_dir: Path) -> str:
@@ -221,7 +226,7 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
 
     Steps:
 
-    1. Read ``config_dir/config.yaml`` and validate it (``engine_api == 1`` plus the
+    1. Read ``config_dir/config.yaml`` and validate it (``engine_api ==`` :data:`ENGINE_API` plus the
        :class:`~engine.types.GameConfigSchema` required keys) — reject with a clear
        ``ValueError`` on any violation.
     2. Import the config's package **by path** (``config_dir/__init__.py``). This

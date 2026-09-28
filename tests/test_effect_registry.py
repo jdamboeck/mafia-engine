@@ -44,8 +44,10 @@ def counter(restore_effects):
     return load_game_config(COUNTER_DIR)
 
 
-def _save(path: Path, state: GameState, effects: list | None = None) -> None:
-    persistence.save_game(path, state, effect_log=effects or [], rng_log=[], seed=1)
+def _save(path: Path, config, state: GameState, effects: list | None = None) -> None:
+    persistence.save_game(
+        path, state, registries=config.registries, effect_log=effects or [], rng_log=[], seed=1
+    )
 
 
 def _rewrite_snapshot(path: Path, edit) -> None:
@@ -67,7 +69,7 @@ def test_a_config_effect_applies_saves_and_reloads_to_an_equal_state(counter, tm
     assert live.players[0].values["counter"] == 3
 
     path = tmp_path / "game.jsonl"
-    _save(path, state, [bump])
+    _save(path, counter, state, [bump])
     loaded = persistence.load_game(path, counter.registries)
 
     assert loaded.state == state
@@ -77,7 +79,7 @@ def test_a_config_effect_applies_saves_and_reloads_to_an_equal_state(counter, tm
 
 def test_an_unregistered_tag_in_a_save_is_refused_naming_the_tag(counter, tmp_path):
     path = tmp_path / "game.jsonl"
-    _save(path, counter.new_game(), [MoneyChange(amount=5)])
+    _save(path, counter, counter.new_game(), [MoneyChange(amount=5)])
     header, effect_line = path.read_text(encoding="utf-8").splitlines()
     record = json.loads(effect_line)
     record["effect"]["_type"] = "NoSuchEffect"
@@ -107,7 +109,7 @@ def test_loading_a_save_without_the_registries_is_a_type_error(counter, tmp_path
     """The registries are a required parameter: pyright flags the call below (hence the
     named ignore), and at runtime it is a ``TypeError`` at the call site."""
     path = tmp_path / "game.jsonl"
-    _save(path, counter.new_game())
+    _save(path, counter, counter.new_game())
     with pytest.raises(TypeError, match="registries"):
         persistence.load_game(path)  # pyright: ignore[reportCallIssue]  # the point of the test
     loaded = persistence.load_game(path, counter.registries)
@@ -124,7 +126,7 @@ def test_a_config_loaded_twice_loads_a_save_from_its_first_load(tmp_path, restor
     bump = first.module.CounterBump(amount=4)
     live = commit(state, [bump]).state
     path = tmp_path / "game.jsonl"
-    _save(path, state, [bump])
+    _save(path, first, state, [bump])
 
     second = load_game_config(COUNTER_DIR)
     assert second.module.CounterBump is not first.module.CounterBump
@@ -178,11 +180,11 @@ def test_run_pure_catches_a_type_change_inside_the_value_map():
 def test_a_save_missing_a_declared_key_loads_with_the_declared_default(counter, tmp_path):
     state = commit(counter.new_game(), [counter.module.CounterBump(amount=7)]).state
     path = tmp_path / "game.jsonl"
-    _save(path, state)
+    _save(path, counter, state)
 
     def drop(snapshot):
         del snapshot["players"][0]["values"]["counter"]
-        del snapshot["values"]  # a whole map missing, as in a save from before maps existed
+        del snapshot["values"]["round_bonus"]
 
     _rewrite_snapshot(path, drop)
     loaded = persistence.load_game(path, counter.registries).state
@@ -195,7 +197,7 @@ def test_a_save_missing_a_declared_key_loads_with_the_declared_default(counter, 
 @pytest.mark.parametrize("where", ["player", "global"])
 def test_a_save_with_an_unknown_key_is_refused_naming_it(counter, tmp_path, where):
     path = tmp_path / "game.jsonl"
-    _save(path, counter.new_game())
+    _save(path, counter, counter.new_game())
 
     def add(snapshot):
         target = snapshot["players"][0] if where == "player" else snapshot
@@ -208,7 +210,7 @@ def test_a_save_with_an_unknown_key_is_refused_naming_it(counter, tmp_path, wher
 
 def test_a_save_with_a_wrongly_typed_value_is_refused_naming_it(counter, tmp_path):
     path = tmp_path / "game.jsonl"
-    _save(path, counter.new_game())
+    _save(path, counter, counter.new_game())
 
     def retype(snapshot):
         snapshot["players"][0]["values"]["counter"] = "three"

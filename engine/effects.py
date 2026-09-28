@@ -42,10 +42,12 @@ from typing import Any, TypeVar
 
 from engine.state import Combatant, Fighter, GameState, tuple_replace
 
-#: Schema version stamped on every effect. Bump when an effect's fields change
-#: in a way that a replay of an OLD log would need to know about; each effect references
-#: this module-level constant via its class-level ``SCHEMA_VERSION`` attribute.
-SCHEMA_VERSION = 1
+#: Schema version stamped on every effect, save record and combat recording. Bump when
+#: a shape changes in a way that a replay of an OLD log would need to know about; each
+#: effect references this module-level constant via its class-level ``SCHEMA_VERSION``
+#: attribute. A save of another version is refused on load
+#: (:class:`engine.persistence.SchemaVersionError`); nothing upgrades an old record.
+SCHEMA_VERSION = 2
 
 #: The ``attrs`` keys a :class:`StatChange` may target: the loaded config's declared
 #: stat names. The engine names none; the config fills this with
@@ -180,10 +182,6 @@ class ScoreChange:
 
     NOTE: any score *weighting* is the caller's concern; this raw effect just applies
     the delta.
-
-    A record written before these fields existed is upgraded on the LOAD paths
-    (persistence and the consequence parser) by :func:`legacy_fields`, never by a
-    constructor default.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -620,44 +618,6 @@ class SetTurnPhase:
 
     def apply(self, state: GameState) -> GameState:
         return replace(state, clock=replace(state.clock, turn_phase=self.phase))
-
-
-#: What a field that was ADDED to an effect meant before it existed, for LOADING data
-#: written before then (saved effect logs, YAML consequences). Keyed by effect class,
-#: then field name. Only :func:`legacy_fields` (called by the load paths,
-#: ``engine.persistence`` and ``engine.consequences``) reads this; a constructor never
-#: falls back to it, so new code must pass the field.
-#:
-#: ``ScoreChange.floor``/``cap``: a ``ScoreChange`` written before any bound field
-#: existed always clamped to [0, 100] (``mf-prg.bas:1160``/``:1161``). This load shim
-#: is the only place the engine still spells that bound; it goes with the table at the
-#: save-format version bump.
-LEGACY_FIELD_DEFAULTS: dict[type, dict[str, Any]] = {
-    ScoreChange: {"floor": 0.0, "cap": 100.0},
-}
-
-
-def legacy_fields(cls: type, raw: Mapping[str, Any]) -> dict[str, Any]:
-    """``raw``'s fields for ``cls``, upgraded from a record written under an older shape.
-
-    Two upgrades, both for data written before a field changed:
-
-    - ``ScoreChange``'s ``clamp: bool`` was replaced by the caller-supplied
-      ``floor``/``cap`` pair; ``clamp=True`` meant [0, 100] and ``clamp=False`` meant no
-      bound.
-    - a field in :data:`LEGACY_FIELD_DEFAULTS` that the record omits takes its
-      pre-field meaning.
-
-    Returns a new dict; ``raw`` is never mutated.
-    """
-    given = dict(raw)
-    if cls is ScoreChange and "clamp" in given:
-        clamped = given.pop("clamp")
-        given.setdefault("floor", 0.0 if clamped else None)
-        given.setdefault("cap", 100.0 if clamped else None)
-    for name, legacy in LEGACY_FIELD_DEFAULTS.get(cls, {}).items():
-        given.setdefault(name, legacy)
-    return given
 
 
 # --------------------------------------------------------------------------- #

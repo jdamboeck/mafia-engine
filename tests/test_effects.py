@@ -107,8 +107,8 @@ def _with_second_gangster(state, gangster):
 # --------------------------------------------------------------------------- #
 def test_effects_are_frozen_and_versioned():
     e = MoneyChange(-500)
-    assert e.SCHEMA_VERSION == 1
-    assert SCHEMA_VERSION == 1
+    assert e.SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 2
     with pytest.raises(dataclasses.FrozenInstanceError):
         e.amount = 1  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 

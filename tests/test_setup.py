@@ -115,16 +115,23 @@ def test_cheat_branch_absent_cash_band():
 # --- engine_api ------------------------------------------------------------
 
 
-def test_load_config_accepts_v1():
+def test_load_config_accepts_v2():
     cfg = load_config(CONFIG_PATH)
-    assert cfg["engine_api"] == 1
+    assert cfg["engine_api"] == 2
 
 
-def test_load_config_rejects_wrong_version(tmp_path):
+def test_a_config_declaring_engine_api_1_is_refused_with_a_clear_message(tmp_path):
+    """KTD-5: the engine speaks engine_api 2 only; the real config, set back to 1, is
+    refused naming both versions -- before any other check."""
+    text = CONFIG_PATH.read_text(encoding="utf-8")
+    assert "\nengine_api: 2\n" in text
     p = tmp_path / "config.yaml"
-    p.write_text("engine_api: 2\n")
-    with pytest.raises((ValueError, RuntimeError)):
+    p.write_text(text.replace("\nengine_api: 2\n", "\nengine_api: 1\n"), encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
         load_config(p)
+    message = str(exc.value)
+    assert "unsupported engine_api 1" in message
+    assert "only accepts engine_api == 2" in message
 
 
 def test_load_config_rejects_missing_version(tmp_path):
@@ -235,16 +242,15 @@ def test_new_game_starts_january_1925():
 
 
 def test_ae5_end_year_1928_game_over_on_36th_round():
-    """AE5: from Jan 1925 with end year 1928 and one player, each advance_turn is a
-    full round (one month); game_over fires first on the 36th call (Jan 1928)."""
-    from engine.movement import advance_turn
+    """AE5: from Jan 1925 with end year 1928 and one player, each turn is a full round
+    (one month); game_over fires first on the 36th turn (Jan 1928)."""
+    from tests.helpers import next_turn_by_hand
 
-    vehicles = load_vehicles(VEHICLES_PATH)
     st = new_game(seed=1, end_year=1928, score_weight=1.0, players=[("Al", "Capones")])
     for call in range(1, 36):
-        st, over = advance_turn(st, vehicles)
+        st, over = next_turn_by_hand(st)
         assert over is False, f"game_over too early, on call {call}"
-    st, over = advance_turn(st, vehicles)
+    st, over = next_turn_by_hand(st)
     assert over is True
     assert (st.clock.year, st.clock.month) == (1928, 0)
 

@@ -181,11 +181,15 @@ class GameConfigSchema:
     """
 
     #: engine_api the engine speaks. A config MUST declare this exact value.
-    ENGINE_API: int = 1
+    ENGINE_API: int = 2
 
     #: Required top-level keys and their required Python types (after YAML parse).
+    #: ``name`` is the config's id and ``content_version`` its own content version:
+    #: a save records both and is refused under another (``engine.persistence``).
     REQUIRED_KEYS: dict[str, type] = {
         "engine_api": int,
+        "name": str,
+        "content_version": int,
         "entities": dict,
         "formula_params": dict,
         "setup": dict,
@@ -196,7 +200,7 @@ class GameConfigSchema:
 def validate_config(cfg: Any) -> dict:
     """Validate a parsed ``config.yaml`` dict against :class:`GameConfigSchema`.
 
-    Checks ``engine_api == 1`` and that every required key is present and of the
+    Checks ``engine_api`` equals :attr:`GameConfigSchema.ENGINE_API` and that every required key is present and of the
     required type. Raises :class:`ConfigValidationError` (a ``ValueError``) with a
     clear message on any violation; returns the dict on success.
     """
@@ -211,8 +215,9 @@ def validate_config(cfg: Any) -> dict:
         )
     if api != GameConfigSchema.ENGINE_API:
         raise ConfigValidationError(
-            f"unsupported engine_api {api!r}; this engine only accepts "
-            f"engine_api == {GameConfigSchema.ENGINE_API}."
+            f"unsupported engine_api {api!r}: the config targets engine API {api!r}, but "
+            f"this engine only accepts engine_api == {GameConfigSchema.ENGINE_API}; "
+            "port the config to this engine API and declare its version."
         )
 
     for key, key_type in GameConfigSchema.REQUIRED_KEYS.items():

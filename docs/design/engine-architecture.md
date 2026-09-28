@@ -122,7 +122,7 @@ An effect is a frozen dataclass with an `apply(state) -> state` method, register
 
 There are two kinds of effect:
 
-- **Generic engine effects** live in `engine/effects.py`. They change what the engine itself owns: cash, score, movement points, position, entry context, the roster, a combatant's attributes, vitality and equipment, combat fighters, and the turn. Examples: `money_change`, `score_change`, `ms_change`, `set_position`, `teleport`, `stat_change`, `energy_change`, `spawn_fighter`, `roster_append`.
+- **Generic engine effects** live in `engine/effects.py`. They change what the engine itself owns: cash, score, movement points, position, entry context, the roster, a combatant's attributes, vitality and equipment, combat fighters, and the turn. Examples, by tag: `MoneyChange`, `ScoreChange`, `MsChange`, `SetPosition`, `Teleport`, `StatChange`, `EnergyChange`, `SpawnFighter`, `RosterAppend`. An effect's tag is its class name; it is what a save writes.
 - **Game effects** live in the config (`data/game_configs/<game>/effects.py`). They change the config's declared state: debt, jobs, jail, tips, tenancy, contraband, the hired-candidate set. The config registers them when its package is imported, the same way `@register` fills the handler registry.
 
 A game effect's `apply` composes the engine's public state-update helpers (for example, set one player's value). It never rebuilds the state graph by hand. The helpers are part of the handler API.

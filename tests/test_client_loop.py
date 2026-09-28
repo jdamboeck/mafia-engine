@@ -39,14 +39,14 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, TerminalSession, main, play
+from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, main, play
 from clients.terminal.palette import ColorSupport, Colors, load_palette
 from engine.config_loader import load_game_config
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
 from engine.rng import Rng
 from engine.upkeep import run_upkeep
-from tests.helpers import deadline, make_walk_script
+from tests.helpers import deadline, make_walk_script, next_turn_by_hand
 import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = CONFIG_DIR
@@ -127,23 +127,23 @@ def walk_keys_to_cell(state, city, target_cell: int) -> list[str]:
     return [_DELTA_TO_KEY[d] for d in path_deltas]
 
 
-def walk_keys_across_turns(state, city, vehicles, target_cell: int) -> list[str]:
+def walk_keys_across_turns(state, city, target_cell: int) -> list[str]:
     """Like :func:`walk_keys_to_cell`, but simulates the ``play()`` map loop faithfully
     enough to cross a turn-over if the walk needs more ``ms`` than one turn provides.
 
-    Only meaningful for a SINGLE-player session (``advance_turn`` wraps back to the
-    same player and replenishes ``ms``); a target unreachable within one turn's
+    Only meaningful for a SINGLE-player session (the rotation wraps back to the
+    same player and replenishes ``ms``, :func:`tests.helpers.next_turn_by_hand`); a target unreachable within one turn's
     movement budget (e.g. waf's ``ln=1`` grenade-roll door, 39 steps from the default
     start) still needs a real key sequence a piped-stdin script can drive. Returns the
     full key stream INCLUDING the turn-over "press any key..." acknowledgment (any
     non-quit key) AND the U3 turn-start upkeep screen's own "press any key..." ack that
-    immediately follows it (KTD-3: upkeep runs right after ``advance_turn`` rotates,
+    immediately follows it (KTD-3: upkeep runs right after the rotation,
     before the map loop's next render) — wherever ``ms`` would hit 0 mid-walk, the real
     ``play()`` loop emits BOTH prompts in sequence and reads one key for each. On a
     round wrap (the new active player is 0 -- every turn-over in a single-player
     session) the standings screen sits between them and reads a key of its own (U7).
     """
-    from engine.movement import advance_turn, try_move
+    from engine.movement import try_move
 
     full_path = walk_keys_to_cell(state, city, target_cell)
     out: list[str] = []
@@ -153,7 +153,7 @@ def walk_keys_across_turns(state, city, vehicles, target_cell: int) -> list[str]
         out.append(key)
         if getattr(result.payload, "turn_over", False):
             out.append("x")  # ack the turn-over prompt (any non-quit key advances)
-            state, _game_over = advance_turn(state, vehicles)
+            state, _game_over = next_turn_by_hand(state)
             if state.clock.active_player == 0:
                 out.append("x")  # ack the round-standings screen (a wrap, U7/KTD-2)
             out.append("x")  # ack the U3 upkeep screen for the newly-active player
@@ -288,11 +288,10 @@ class TestWafBuyThroughClient:
         default start), so this drives a cross-turn walk via the harness."""
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=1)
-        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        walk = walk_keys_across_turns(state, city, cell)
         # buy(0) -> weapon idx 5 (revolver, in [3,7] stock range, no stat gates, 4000$
         # affordable against the 5500$ starting cash) -> gangster 0.
         keys = walk + ["", "0", "5", "0"]
@@ -342,13 +341,12 @@ class TestSlwRentThroughClient:
     def test_rent_deducts_and_sets_tenancy(self, monkeypatch):
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         # ln=2 has a positive base rent (50$/month) per config.yaml's fnm overrides
         # (ln=1 is the negative-rent quirk tile, ln=3/4 are rent-free).
         cell = find_door_cell(city_raw, "slw", ln=2)
-        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        walk = walk_keys_across_turns(state, city, cell)
         # rent(0) -> 3 months.
         keys = walk + ["", "0", "3"]
 
@@ -370,11 +368,10 @@ class TestPubDrinkThroughClient:
     def test_buy_one_barrel_at_ln4_completes(self, monkeypatch):
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         cell = find_door_cell(city_raw, "pub", ln=4)
-        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        walk = walk_keys_across_turns(state, city, cell)
         # menu index 0 = "drink" (recruit is guard-excluded at rank 1, tip is index 1);
         # buy 1 barrel.
         keys = walk + ["", "0", "1"]
@@ -386,11 +383,10 @@ class TestPubDrinkThroughClient:
     def test_same_seed_twice_is_deterministic(self, monkeypatch):
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         cell = find_door_cell(city_raw, "pub", ln=4)
-        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        walk = walk_keys_across_turns(state, city, cell)
         keys = walk + ["", "0", "1"]
 
         out1 = run_play(monkeypatch, seed=42, stdin_keys=keys)
@@ -749,11 +745,10 @@ class TestUnimplementedDoorGracefulDenial:
     def test_walking_into_an_unimplemented_door_denies_gracefully(self, monkeypatch):
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         sgl_cell = find_door_cell(city_raw, "sgl")
-        walk = walk_keys_across_turns(state, city, vehicles, sgl_cell)
+        walk = walk_keys_across_turns(state, city, sgl_cell)
         # No follow-up keys needed: denial is immediate and returns straight to the map.
         output = run_play(monkeypatch, seed=42, stdin_keys=walk)
         # Assert the denial text itself, NOT `or "sgl" in output`: the map's status-bar
@@ -788,11 +783,10 @@ class TestKdhLocationThroughClient:
     def test_kdh_reachable_by_walking(self, monkeypatch):
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         kdh_cell = find_door_cell(city_raw, "kdh")
-        walk = walk_keys_across_turns(state, city, vehicles, kdh_cell)
+        walk = walk_keys_across_turns(state, city, kdh_cell)
         # Splash ack, then immediately leave (menu index 5 = "leave").
         keys = walk + ["", "5"]
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
@@ -937,7 +931,7 @@ class TestKdhLocationThroughClient:
 
 class TestTwoPlayerAlternation:
     """``play()`` accepts a ``players`` roster (this unit's client knob) so the harness
-    can construct multi-player sessions; ``advance_turn`` rotates ``clock.active_player``
+    can construct multi-player sessions; the turn runner rotates ``clock.active_player``
     through them in order. This drives two players each one step, then confirms the
     SECOND player (not the first) is active after the first's turn winds down."""
 
@@ -970,7 +964,7 @@ class TestTwoPlayerAlternation:
                 break
         assert state.clock.active_player == 0  # still player 0 until the ack below
 
-        keys.append("x")  # ack turn-over -> advance_turn rotates to player 1
+        keys.append("x")  # ack turn-over -> the rotation reaches player 1
         keys.append("x")  # ack player 1's U3 upkeep screen (KTD-3, right after rotation)
         output = run_play(monkeypatch, seed=7, stdin_keys=keys, players=players)
         assert "moran" in output
@@ -1282,11 +1276,10 @@ class TestWholeSessionDeterminism:
         players' turns roll over (upkeep runs for each rotation)."""
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(seed, players=players)
         cell = find_door_cell(city_raw, "pub", ln=4)
-        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        walk = walk_keys_across_turns(state, city, cell)
         # splash ack, drink(0), buy 1 barrel -- then walk the rest of the turn out so
         # the rotation to player 1 (and its upkeep screen) is part of the transcript.
         return walk + ["", "0", "1"] + ["w"] * 12 + ["x", "x"] + ["s"] * 3
@@ -1339,12 +1332,11 @@ class TestTurnOverScreenRendersNoRawDataclassRepr:
 
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         # Walk until the movement budget runs out -- that IS the turn-over screen.
         cell = find_door_cell(city_raw, "kdh", ln=1)
-        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        walk = walk_keys_across_turns(state, city, cell)
         output = run_play(monkeypatch, seed=42, stdin_keys=walk)
 
         assert "turn_over" in output, "the turn-over screen never rendered"
@@ -1375,13 +1367,12 @@ class TestTurnOverScreenRendersCorrectValues:
 
         city_raw = load_city_raw()
         city = load_city(city_raw)
-        cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
+        load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
 
         # Walk until the movement budget runs out -- that IS the turn-over screen.
         cell = find_door_cell(city_raw, "kdh", ln=1)
-        walk = walk_keys_across_turns(state, city, vehicles, cell)
+        walk = walk_keys_across_turns(state, city, cell)
         output = run_play(monkeypatch, seed=42, stdin_keys=walk)
         assert "turn_over" in output, "the turn-over screen never rendered"
 
@@ -1636,8 +1627,8 @@ def burn_turn_keys(
 ) -> list[str]:
     """The key stream that walks every turn to its turn-over, mirroring ``play()``.
 
-    ``state`` starts the walk from a given position (a session driven through
-    :meth:`TerminalSession.run_turns`) instead of a new game from ``seed``.
+    ``state`` starts the walk from a given position (a saved state resumed with
+    ``play(load=...)``) instead of a new game from ``seed``.
 
     Per the piped-stdin learning, the walk is asked of the engine (the first
     direction that STEPS from the current state, so no move enters a location), not
@@ -1650,10 +1641,9 @@ def burn_turn_keys(
     moves nobody and changes no ``ms`` (checked by
     ``TestRoundStandingsAndEnding.test_idle_upkeep_never_asks_across_the_game``).
     """
-    from engine.movement import advance_turn, try_move
+    from engine.movement import try_move
 
     cfg = load_game_config(_CONFIG_DIR)
-    vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
     city = load_city(load_city_raw())
     if state is None:
         state = cfg.module.new_game(
@@ -1679,7 +1669,7 @@ def burn_turn_keys(
         else:
             raise AssertionError("turn never ended within 200 steps")
         keys.append("x")  # ack the turn-over screen
-        state, game_over = advance_turn(state, vehicles)
+        state, game_over = next_turn_by_hand(state)
         done += 1
         if state.clock.active_player == 0:
             keys.append("x")  # ack the round-standings screen (wrap)
@@ -1811,11 +1801,9 @@ class TestRoundStandingsAndEnding:
         idle player's upkeep yields only its turn banner -- no prompt, no fight -- and
         moves no position/``ms``/cash, so one ack per turn start is the whole script."""
         from engine.interactions import ShowMessage
-        from engine.movement import advance_turn
         from engine.rng import Rng
 
         cfg = load_game_config(_CONFIG_DIR)
-        vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         state = cfg.module.new_game(
             seed=42, end_year=1928, score_weight=1.0, players=[("alcapone", "the outfit")]
         )
@@ -1833,7 +1821,7 @@ class TestRoundStandingsAndEnding:
             state = run_upkeep(state, input_source=source, rng=rng).state
             after = state.players[0]
             assert (after.po, after.ms, after.ka) == (before.po, before.ms, before.ka)
-            state, game_over = advance_turn(state, vehicles)
+            state, game_over = next_turn_by_hand(state)
             turns += 1
         assert turns == 36
         assert keys == ["upkeep.turn_banner"] * 36
@@ -2083,7 +2071,7 @@ class TestLoadFlagConflicts:
         # A loadable save, so a main() that let the clash through would resume it and
         # draw the map -- the empty stdout below then fails the test.
         save = tmp_path / "x.jsonl"
-        save_game(save, new_state(42), effect_log=[], rng_log=[], seed=42)
+        save_game(save, new_state(42), registries=_REGISTRIES, effect_log=[], rng_log=[], seed=42)
         monkeypatch.setattr(sys, "stdin", io.StringIO("q\n"))
         with pytest.raises(SystemExit) as exc:
             main(["--load", str(save), *extra])
@@ -2099,7 +2087,7 @@ class TestLoadFlagConflicts:
         from engine.persistence import load_game, save_game
 
         loaded, written = tmp_path / "x.jsonl", tmp_path / "y.jsonl"
-        save_game(loaded, new_state(7), effect_log=[], rng_log=[], seed=7)
+        save_game(loaded, new_state(7), registries=_REGISTRIES, effect_log=[], rng_log=[], seed=7)
         monkeypatch.setattr(sys, "stdin", io.StringIO("p\nq\n"))
         main(["--load", str(loaded), "--save", str(written)])
 
@@ -2114,61 +2102,45 @@ class TestLoadFlagConflicts:
 
 
 # --------------------------------------------------------------------------- #
-# The TerminalSession phases, driven directly                                  #
+# The turn phases, entered through a loaded save                               #
 # --------------------------------------------------------------------------- #
-def _session(monkeypatch, lines: list[str], **kwargs):
-    """A :class:`TerminalSession` over EXACT stdin ``lines``; returns it and its stdout.
+def _resume_at(monkeypatch, tmp_path, state, phase: str, lines: list[str], *, seed: int = 42):
+    """Save ``state`` (RNG ``seed``) to re-enter the turn runner at ``phase`` and resume
+    it with ``play(load=...)`` over EXACT stdin ``lines``; returns
+    ``(stdout, (state, rng))``.
 
-    The fake stdin goes in first: the session keeps the ``sys.stdin`` it was built with.
+    A save re-enters the phase its ``clock.turn_phase`` records, so a test can start
+    ``play()`` at any point of a turn from a state it built.
     """
-    out = io.StringIO()
-    monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
-    monkeypatch.setattr(sys, "stdout", out)
-    defaults = {
-        "seed": None,
-        "players": None,
-        "end_year": None,
-        "score_weight": None,
-        "load": None,
-        "save": None,
-        "watch_ai": False,
-    }
-    return TerminalSession(**{**defaults, **kwargs}), out
+    from dataclasses import replace
+
+    from engine.persistence import save_game
+
+    save = tmp_path / f"{phase}.jsonl"
+    state = replace(state, clock=replace(state.clock, turn_phase=phase))
+    save_game(save, state, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=seed)
+    return _run_session(monkeypatch, lines, load=str(save))
 
 
-class TestTerminalSession:
-    def test_a_session_from_a_loaded_save_starts_on_the_map_without_upkeep(
-        self, monkeypatch, tmp_path
-    ):
-        from engine.persistence import save_game
+class TestTurnPhases:
+    def test_a_loaded_save_starts_on_the_map_without_upkeep(self, monkeypatch, tmp_path):
+        output, (state, _rng) = _resume_at(monkeypatch, tmp_path, new_state(42), "walking", ["q"])
 
-        save = tmp_path / "s.jsonl"
-        save_game(save, new_state(42), effect_log=[], rng_log=[], seed=42)
-
-        session, out = _session(monkeypatch, ["q"], load=str(save))
-        with deadline(20, "session did not end", exc_type=_Deadline):
-            state, _rng = session.run()
-
-        screens = out.getvalue().split(CLEAR)[1:]
+        screens = output.split(CLEAR)[1:]
         assert len(screens) == 1, "the session showed more than the map"
         assert "║" in screens[0] and "move: W/A/S/D" in screens[0], "the screen is not the map"
-        assert "ist an der reihe" not in out.getvalue(), "the upkeep banner was printed"
+        assert "ist an der reihe" not in output, "the upkeep banner was printed"
         assert state == new_state(42)
-        assert "bye.\n" in out.getvalue()
+        assert "bye.\n" in output
 
-    def test_round_end_renders_the_standings_of_the_pre_advance_state(self, monkeypatch):
-        from engine.movement import advance_turn
-
-        session, out = _session(monkeypatch, ["x"], seed=42, end_year=1930, score_weight=1.0)
-        played = new_state(42)
-        session.state, game_over = advance_turn(played, session.vehicles)
-        assert session.state.clock.active_player == 0 and not game_over, "not a round wrap"
-
-        assert session.round_end(played) is True
-        output = out.getvalue()
+    def test_the_round_standings_show_the_round_just_played(self, monkeypatch, tmp_path):
+        # One player: the rotation wraps, so the standings show before the upkeep.
+        output, (state, _rng) = _resume_at(
+            monkeypatch, tmp_path, new_state(42), "next_player", ["x", "x", "q"]
+        )
+        assert (state.clock.month, state.clock.active_player) == (1, 0), "not a round wrap"
         assert "spielstand 1925-1\n" in output
         assert "spielstand 1925-2" not in output
-        assert "bye." not in output
 
     # :1013 `gf(sp)=int(gf(sp)*100)/100`, placed after :1011's upkeep and :1012's job
     # dispatch, before the free turn. Player 1 is the one the rotation reaches.
@@ -2183,58 +2155,50 @@ class TestTerminalSession:
         players = (state.players[0], replace(moran, values=values, **fields))
         return replace(state, players=players)
 
-    def test_the_free_turn_truncates_the_score_after_upkeep_shows_it(self, monkeypatch):
+    def test_the_free_turn_truncates_the_score_after_upkeep_shows_it(self, monkeypatch, tmp_path):
         # rank 1 with nr 3 pending: :4030's promotion screen prints gf(sp) (:4215).
-        session, out = _session(monkeypatch, ["x", "q"], seed=42, end_year=1930, score_weight=1.0)
-        session.state = self._second_player(gf=25.199999, nr=3)
+        state = self._second_player(gf=25.199999, nr=3)
+        output, (state, _rng) = _resume_at(monkeypatch, tmp_path, state, "next_player", ["x", "q"])
 
-        assert session.next_turn() is True
-        assert session.state.players[1].gf == 25.199999, "truncated before or during upkeep"
-        assert "25.199999 p." in out.getvalue(), "upkeep did not show the untruncated score"
-        with deadline(20, "session did not end", exc_type=_Deadline):
-            session.run_turns(resuming_free_turn=False)
+        before_map = output.split("move: W/A/S/D")[0]
+        assert "25.199999 p." in before_map, "upkeep did not show the untruncated score"
+        assert "move: W/A/S/D" in output, "the free turn never opened"
+        assert state.players[1].gf == 25.19
+        assert state.players[0].gf == 0, "a player not on turn was touched"
 
-        assert "move: W/A/S/D" in out.getvalue(), "the free turn never opened"
-        assert session.state.players[1].gf == 25.19
-        assert session.state.players[0].gf == 0, "a player not on turn was touched"
-
-    def test_upkeep_shows_the_promotion_only_when_the_committed_rank_moves(self, monkeypatch):
+    def test_upkeep_shows_the_promotion_only_when_the_committed_rank_moves(
+        self, monkeypatch, tmp_path
+    ):
         """:4030 `ifra(sp)<>nr(sp)thenra(sp)=nr(sp):gosub4200`: the wanted poster shows
         when upkeep commits a new rank, read through the state, and not otherwise."""
-        session, out = _session(monkeypatch, ["x", "q"], seed=42, end_year=1930, score_weight=1.0)
-        session.state = self._second_player(gf=25.0, nr=3)
-        assert session.next_turn() is True
-        assert session.state.players[1].rank == 3
-        upkeep_screen = out.getvalue().split(CLEAR)[-1]
-        assert "north side\nmoran.\n25 p." in upkeep_screen, "no promotion screen"
+        state = self._second_player(gf=25.0, nr=3)
+        output, (state, _rng) = _resume_at(monkeypatch, tmp_path, state, "next_player", ["x", "q"])
+        assert state.players[1].rank == 3
+        before_map = output.split("move: W/A/S/D")[0]
+        assert "north side\nmoran.\n25 p." in before_map, "no promotion screen"
 
-        session, out = _session(monkeypatch, ["x", "q"], seed=42, end_year=1930, score_weight=1.0)
-        session.state = self._second_player(gf=25.0, nr=1)
-        assert session.next_turn() is True
-        upkeep_screen = out.getvalue().split(CLEAR)[-1]
-        assert "ist an der reihe" in upkeep_screen, "not the upkeep screen"
-        assert "moran." not in upkeep_screen, "a promotion screen without a promotion"
+        state = self._second_player(gf=25.0, nr=1)
+        output, _ret = _resume_at(monkeypatch, tmp_path, state, "next_player", ["x", "q"])
+        before_map = output.split("move: W/A/S/D")[0]
+        assert "ist an der reihe" in before_map, "not the upkeep screen"
+        assert "north side\nmoran.\n" not in output, "a promotion screen without a promotion"
 
-    def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch):
+    def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch, tmp_path):
         from data.game_configs.mafia_1920s.state import Job
 
         # Croupier, trick 1, then quit at the turn-over. seed=1 is not caught, and with
         # months_left=2 a successful shift only ticks the contract: no score moves.
-        session, out = _session(monkeypatch, ["x", "1", "q"], seed=1, end_year=1930)
-        session.state = self._second_player(
-            Job(type=2, pending_pay=1200, months_left=2), gf=25.199999
+        state = self._second_player(Job(type=2, pending_pay=1200, months_left=2), gf=25.199999)
+        output, (state, _rng) = _resume_at(
+            monkeypatch, tmp_path, state, "next_player", ["x", "1", "q"], seed=1
         )
 
-        assert session.next_turn() is True
-        with deadline(20, "session did not end", exc_type=_Deadline):
-            session.run_turns(resuming_free_turn=False)
+        assert "welchen trick" in output, "the job shift did not run"
+        assert "move: W/A/S/D" not in output, "the employed player reached the map"
+        assert game.job(state.players[1]).months_left == 1, "the shift did not complete"
+        assert state.players[1].gf == 25.199999
 
-        assert "welchen trick" in out.getvalue(), "the job shift did not run"
-        assert "move: W/A/S/D" not in out.getvalue(), "the employed player reached the map"
-        assert game.job(session.state.players[1]).months_left == 1, "the shift did not complete"
-        assert session.state.players[1].gf == 25.199999
-
-    def test_the_same_score_by_different_steps_ties_at_the_year_end(self, monkeypatch):
+    def test_the_same_score_by_different_steps_ties_at_the_year_end(self, monkeypatch, tmp_path):
         """:40105/:40106 compare gf with `>` and `=`: 36 points at x8=0.7 must tie.
 
         Twelve awards of 3 and four awards of 9 (:1160 `gf(sp)=gf(sp)+(x*x8)`) are both
@@ -2263,15 +2227,11 @@ class TestTerminalSession:
         assert state.players[0].gf != state.players[1].gf, "no float drift: vacuous"
 
         keys = burn_turn_keys(42, state=state, end_year=1928)
-        session, out = _session(monkeypatch, keys, seed=42, end_year=1928, score_weight=0.7)
-        session.state = state
-        with deadline(60, "session did not end", exc_type=_Deadline):
-            session.run_turns(resuming_free_turn=False)
+        output, (state, _rng) = _resume_at(monkeypatch, tmp_path, state, "turn_start", keys)
 
-        output = out.getvalue()
         assert "diesmal haben mehrere die gleichen" in output, "no tie at the year end"
         assert "hat gewonnen!" not in output
-        assert session.state.players[0].gf == session.state.players[1].gf == 25.2
+        assert state.players[0].gf == state.players[1].gf == 25.2
 
 
 # --------------------------------------------------------------------------- #
@@ -2290,7 +2250,7 @@ class TestC64NumbersOnScreen:
         from engine.persistence import save_game
 
         save = tmp_path / "c64.jsonl"
-        save_game(save, state, effect_log=[], rng_log=[], seed=42)
+        save_game(save, state, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=42)
         keys = burn_turn_keys(42, self._TWO, turns=1, state=state) + ["q"]
         output, _ret = _run_session(monkeypatch, keys, load=str(save))
         return output
