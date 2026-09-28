@@ -80,7 +80,8 @@ DIRECTION_DELTAS = {"up": UP, "down": DOWN, "left": LEFT, "right": RIGHT}
 STREET_CODE = 156
 
 #: Movement-point costs: 1 per street step (:2040), charged by :func:`try_move`; 5 for a
-#: location visit (:2060), charged by the turn runner after the visit.
+#: location visit (:2060), charged by the turn runner after the visit -- and after a
+#: street step its roadblock hook reports as stopped (``:2041 gosub6000:goto2060``).
 STEP_COST = 1
 ENTER_COST = 5
 

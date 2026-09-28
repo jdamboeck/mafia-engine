@@ -19,7 +19,7 @@ import pytest
 
 import data.game_configs.mafia_1920s.state as game
 from clients.terminal import CLEAR, CONFIG_DIR, play
-from data.game_configs.mafia_1920s.handlers.turn import roadblock_would_fire, truncated_score
+from data.game_configs.mafia_1920s.handlers.turn import truncated_score
 from data.game_configs.mafia_1920s.state import Job
 from engine.config_loader import load_game_config
 from engine.effects import MsChange, SetMovementPoints, SetScore
@@ -665,10 +665,10 @@ def test_the_pub_menu_offers_recruit_at_rank_one():
 def test_the_default_hooks_change_nothing_and_draw_nothing():
     # 569 (la=13) is a street on the map; its unarmed hook lets the player step on.
     start, into = _approach(569)
-    # A rank-5 player stepping to ms=20 meets every :2041 condition but the roll: the
-    # unbuilt roadblock must not draw it.
+    # A rank-3 player stepping to ms=20: :2041's ``ra(sp)>3`` fails, so the roadblock
+    # (tests/test_roadblock.py) draws no roll.
     rng = Rng(42)
-    runner = _runner(_walking(po=start, ms=21, rank=5), rng)
+    runner = _runner(_walking(po=start, ms=21, rank=3), rng)
     seen, _ = _script(runner.run(), [into])
 
     assert runner.state.players[0].po == 569
@@ -696,20 +696,6 @@ def test_the_special_cell_hook_is_asked_before_a_move_onto_an_event_cell():
     assert asked == [(861, 14)]
     assert runner.state.players[0].po == start, "the player stepped onto an armed cell"
     assert seen[-1] == MapMove(outcome="special", player=0)
-
-
-def test_the_roadblock_gate_never_fires_at_rank_three_or_below():
-    """:2041 ``ra(sp)>3``: the gate the config keeps for the roadblock it will build."""
-
-    class _AlwaysHit:
-        def range(self, n):
-            return 0  # rnd(5)==0 would satisfy the roll
-
-    for rank in (1, 3):
-        assert roadblock_would_fire(_walking(po=18, ms=20, rank=rank), 20, _AlwaysHit()) is False
-    state = _walking(po=18, ms=20, rank=4)
-    assert roadblock_would_fire(state, 20, _AlwaysHit()) is True
-    assert roadblock_would_fire(state, 19, _AlwaysHit()) is False
 
 
 # --------------------------------------------------------------------------- #

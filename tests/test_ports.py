@@ -71,7 +71,7 @@ from engine.interactions import (
     StartCombat,
 )
 from engine.locations import HANDLERS
-from engine.turns import SCORE_TRUNCATION_HOOK_KEY
+from engine.turns import ROADBLOCK_HOOK_KEY, SCORE_TRUNCATION_HOOK_KEY
 from engine.rng import Rng
 from engine.state import Clock, CombatState, Config, GameState, Player
 from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job, Wanted
@@ -691,6 +691,74 @@ def _engine_flight(v: Values) -> Any:
     handler = lambda ctx: police.caught(ctx, police.Arrest(p=0))  # noqa: E731
     run = _drive(handler, state, (0.0, v["r"]), _capture_answer(1))
     return "caught" if run.state.players[v["sp"] - 1].po == 911 else "escaped"
+
+
+# --- :2041, :6015-6036 the map roadblock ---------------------------------------------------
+Q_110_BR = q(110, "br=52224")
+Q_2030 = q(2030, "p=br+po(sp)+x")
+Q_2041 = q(2041, "ms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3")
+Q_6015 = q(6015, "int(rnd(1)*3)=0")
+Q_6016 = q(6016, "(ag(sp)and2)<>0")
+Q_6017 = q(6017, "ta(sp)")
+Q_6018 = q(6018, "(ag(sp)and1)<>0")
+Q_6036 = q(6036, "ta(sp)=0")
+#: The capture after a stop: chief-bribe months, the :26021 roll skipping the menu, and
+#: :26038's roll letting the player go, so the cash shows the ``p`` capture was handed.
+_ROADBLOCK_CAPTURE_R = 0.5
+
+
+def _basic_roadblock(v: Values) -> Any:
+    """(outcome, ta, ka) after a street step from ``po`` by ``x``."""
+    b: dict[str, Any] = {"sp": 1, "ms": v["ms"], "ra(1)": v["ra"], "rnd(1)": v["r0"]}
+    b.update({"ag(1)": v["ag"], "ta(1)": v["ta"], "ka(1)": 10**6, "po(1)": v["po"], "x": v["x"]})
+    if not Q_2041.holds(b):
+        return ("none", b["ta(1)"], b["ka(1)"])
+    b["rnd(1)"] = v["r1"]
+    if Q_6015.holds(b) or (
+        not Q_6016.holds(b) and not Q_6017.holds(b) and Q_6018.holds(b)
+    ):  # :6015 / :6018 goto6025
+        return ("pass", b["ta(1)"], b["ka(1)"])
+    if not Q_6016.holds(b) and Q_6017.holds(b):
+        b["ta(1)"] = Q_6036.assign(b)
+    b["br"] = Q_110_BR.assign(b)
+    b["p"] = Q_2030.assign(b)
+    ka, _ = _basic_payment(b, _ROADBLOCK_CAPTURE_R)
+    return ("caught", b["ta(1)"], ka)
+
+
+def _engine_roadblock(v: Values) -> Any:
+    marks = Contraband(
+        fake_papers=v["ag"] & 1, counterfeit=(v["ag"] & 2) // 2, alcohol_barrels=v["ta"]
+    )
+    player = _player(
+        ka=10**6,
+        rank=v["ra"],
+        ms=v["ms"],
+        po=v["po"] + v["x"],  # the runner has made the step (:2040)
+        contraband=marks,
+        wanted=Wanted(bribe_months=1),
+    )
+    # The port draws the :2041 roll only when the rank and the points allow a stop (a
+    # roll that cannot change the outcome is not drawn); the stop draws :6015's, and a
+    # capture the two above.
+    draws: list[float] = []
+    if v["ra"] > 3 and v["ms"] % 20 == 0:
+        draws = [v["r0"], v["r1"], _ROADBLOCK_CAPTURE_R, _ROADBLOCK_CAPTURE_R]
+    screens: list[Any] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptChoice):
+            raise AssertionError("the capture menu showed")
+        screens.append(interaction)
+        return None
+
+    run = _drive(HANDLERS[ROADBLOCK_HOOK_KEY], _state(player), draws, answer)
+    after = run.state.players[0]
+    if not screens:
+        outcome = "none"
+    else:
+        outcome = "pass" if screens[0].params["lines"][-1][0] == "roadblock.nothing" else "caught"
+    return (outcome, game.contraband(after).alcohol_barrels, after.ka)
 
 
 # --- :26045-26065 the trial: the months and the lawyer -----------------------------------
@@ -1811,6 +1879,23 @@ PORTS: list[Port] = [
         _grid(sp=(1, 2, 3, 4), r=R + (0.18, 0.19, 0.27, 0.28, 0.31, 0.32)),
         _basic_flight,
         _engine_flight,
+    ),
+    Port(
+        "the map roadblock",
+        (Q_2041, Q_6015, Q_6016, Q_6017, Q_6018, Q_6036, Q_110_BR, Q_2030),
+        "HANDLERS['turn.roadblock']",
+        _grid(
+            ra=(3, 4, 10),
+            ms=(0, 19, 20, 40),
+            r0=(0.0, 0.1990234375, 0.2),
+            r1=(0.0, 0.3330078125, 0.333984375, 0.9990234375),
+            ag=range(4),
+            ta=(0, 3),
+            po=(500,),
+            x=(1, -40),
+        ),
+        _basic_roadblock,
+        _engine_roadblock,
     ),
     Port(
         "trial and lawyer",

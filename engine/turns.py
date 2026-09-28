@@ -56,7 +56,9 @@ the turn ends otherwise (``:1050``). The map's exit command
 menu's ``:1045``. The runner asks for each step with :class:`~engine.interactions.MapMove` and moves
 with :func:`engine.movement.try_move`. A move onto an event cell first asks the
 config's special-cell hook (:data:`SPECIAL_CELL_HOOK_KEY`) whether the cell is armed;
-a street step asks its roadblock hook (:data:`ROADBLOCK_HOOK_KEY`); a door runs the location visit: the shell's
+a street step asks its roadblock hook (:data:`ROADBLOCK_HOOK_KEY`), and a stop it
+reports costs the door's 5 points (``:2041 gosub6000:goto2060``); a door runs the
+location visit: the shell's
 :class:`~engine.interactions.LocationMenu`, the chosen option
 (:func:`engine.actions.step_option`) and its :class:`~engine.interactions.OptionDone`,
 then the previous tile. A door to a location with no shell shows
@@ -243,9 +245,11 @@ SCORE_TRUNCATION_HOOK_KEY = "turn.score_truncation"
 #: ``:1013`` returns truthy when the active player spends this turn in jail (the
 #: config shows the jail screen and counts the sentence down).
 JAIL_HOOK_KEY = "turn.jail"
-#: ``:2041`` the roadblock, asked after every street step (the config decides whether
-#: the police stop the player, and runs the stop). Its return value is ignored; the
-#: runner re-reads movement points after it.
+#: ``:2041`` the roadblock, asked after every street step, with the step and its point
+#: committed (the config decides whether the player is stopped, and runs the stop). It
+#: returns truthy when it stopped the step: the step then ends with the door's charge
+#: (``:2060 ms=ms-5``, :data:`~engine.movement.ENTER_COST`), once, on the points the
+#: hook left; falsy, and the map goes on. The runner re-reads movement points after it.
 ROADBLOCK_HOOK_KEY = "turn.roadblock"
 #: ``:2045``/``:2046`` an event cell (``la`` 13/14): asked before every move onto one,
 #: with the keyword arguments ``cell`` and ``la``. It returns truthy when the cell is
@@ -505,7 +509,10 @@ class TurnRunner:
             move = result.payload
             outcome = move.kind
             if move.kind == "step":  # :2041 the roadblock
-                yield from self._hook(ROADBLOCK_HOOK_KEY)
+                if (yield from self._hook(ROADBLOCK_HOOK_KEY)):
+                    # :2041 ``gosub6000:goto2060``: a stop ends the step with the door's
+                    # charge, on the points the hook left.
+                    self._commit(MsChange(-ENTER_COST))
             elif move.kind == "enter":  # :2050-2060 a door
                 assert move.la is not None and move.ln is not None
                 yield from self._visit(move.la, move.ln)

@@ -50,7 +50,7 @@ The engine owns the order of a turn. The config owns every rule in it. The runne
 3. `:1012`: movement points and the job skip.
 4. `:1013`: score truncation and the jail skip.
 5. The turn menu.
-6. The map step (`:2035-2060`): the map-move prompt; the special-cell hook before a move onto an event cell (569/861), since an armed cell is not a street; the step and the roadblock hook; or the door entry, the location menu and its option, then the previous tile.
+6. The map step (`:2035-2060`): the map-move prompt; the special-cell hook before a move onto an event cell (569/861), since an armed cell is not a street; the step and the roadblock hook (a stop it reports costs the door's 5 points, `:2041 gosub6000:goto2060`); or the door entry, the location menu and its option, then the previous tile.
 
 The config supplies each rule as a handler under a fixed key, the way `upkeep.turn_start` works today. Score truncation, the job skip, the jail skip, the roadblock and the special cells are game rules, so they are hooks. The runner only calls them in order.
 
