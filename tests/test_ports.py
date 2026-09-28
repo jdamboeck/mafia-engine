@@ -74,7 +74,8 @@ from engine.locations import HANDLERS
 from engine.turns import SCORE_TRUNCATION_HOOK_KEY
 from engine.rng import Rng
 from engine.state import Clock, CombatState, Config, GameState, Player
-from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job
+from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job, Wanted
+from data.game_configs.mafia_1920s.handlers import police
 from tests.basic_eval import eval_assignment, eval_expr
 from tests.helpers import is_effect, load_source, with_tenancy
 import data.game_configs.mafia_1920s.state as game
@@ -255,7 +256,7 @@ def _state(player: Player, *, score_mult: float = 1.0) -> GameState:
 
 
 #: The game-state arguments ``_player`` takes: entity views, and scalar value-map keys.
-_VIEW_ARGS = ("debt", "business", "contraband", "jobs")
+_VIEW_ARGS = ("debt", "business", "contraband", "jobs", "wanted")
 _SCALAR_ARGS = ("tip_target", "rented_months", "nr")
 
 
@@ -571,6 +572,172 @@ def _engine_counterfeit(v: Values) -> Any:
     except _AskedAgain:
         return "asked again"
     return (run.state.players[0].ka, _ag(run.state.players[0]))
+
+
+# --- :26000-26010 the police squad ----------------------------------------------------
+Q_26000 = q(26000, "gz(0)=5+int(rnd(1)*ra(sp)/2)")
+Q_26010_W = q(26010, "w=5-2*(ra(sp)>5)")
+Q_26010_E = q(26010, "e=20+2*(ra(sp)-1)-int(rnd(1)*21)")
+
+
+def _basic_squad(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ra(1)": v["ra"], "rnd(1)": v["r0"]}
+    count = Q_26000.assign(b)
+    weapon = Q_26010_W.assign(b)
+    b["rnd(1)"] = v["r1"]
+    return (count, weapon, Q_26010_E.assign(b))
+
+
+def _engine_squad(v: Values) -> Any:
+    state = _state(_player(rank=v["ra"]))
+    rng = StubRng((v["r0"], v["r1"]))
+    gen = police.police_fight(Ctx(state=state, rng=rng), police.Arrest())
+    start = next(gen)
+    gen.close()
+    assert isinstance(start, StartCombat) and start.scenario is not None
+    assert start.scenario.sides is not None
+    squad = start.scenario.sides[1]
+    ((weapon, energy),) = {(f.weapon, f.vitality) for f in squad}  # one w, one e
+    return (len(squad), weapon, energy)
+
+
+# --- :26021-26039 the arrest: the chief-bribe auto-pay and the bribe ----------------------
+Q_26021 = q(26021, "pl(sp)andint(rnd(1)*2)<>0")
+Q_26035 = q(26035, "p=500+500*ra(sp)")
+Q_26037 = q(26037, "ka(sp)<p")
+Q_26038_KA = q(26038, "ka(sp)=ka(sp)-p")
+Q_26038 = q(26038, "int(rnd(1)*5)=0")
+
+
+def _basic_payment(b: dict[str, Any], r: float) -> Any:
+    """:26037-26039 from the price ``b["p"]``: (cash, trial or free)."""
+    if Q_26037.holds(b):
+        return (b["ka(1)"], "trial")
+    b["ka(1)"] = Q_26038_KA.assign(b)
+    b["rnd(1)"] = r
+    return (b["ka(1)"], "trial" if Q_26038.holds(b) else "free")
+
+
+def _arrest_outcome(run: _Run) -> Any:
+    player = run.state.players[0]
+    return (player.ka, "trial" if player.po == 911 else "free")
+
+
+class _MenuShown(Exception):
+    """The capture menu was asked: :26021 did not skip it."""
+
+
+def _capture_answer(menu: int | None) -> Callable[[Any], Any]:
+    """Answers the capture's prompts: ``menu`` at the menu (``None``: raise), yes to the
+    bribe, no to the trial's lawyer."""
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptChoice):
+            if menu is None:
+                raise _MenuShown
+            return menu
+        return interaction.key == "police.confirm"
+
+    return answer
+
+
+def _basic_autopay(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "pl(1)": v["pl"], "rnd(1)": v["r0"], "ka(1)": v["ka"]}
+    if not Q_26021.holds(b):
+        return "menu"
+    b["p"] = v["p"]
+    return _basic_payment(b, v["r1"])
+
+
+def _engine_autopay(v: Values) -> Any:
+    player = _player(ka=v["ka"], wanted=Wanted(bribe_months=v["pl"]), po=400)
+    handler = lambda ctx: police.caught(ctx, police.Arrest(p=v["p"]))  # noqa: E731
+    try:
+        run = _drive(handler, _state(player), (v["r0"], v["r1"]), _capture_answer(None))
+    except _MenuShown:
+        return "menu"
+    return _arrest_outcome(run)
+
+
+def _basic_bribe(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ra(1)": v["ra"], "ka(1)": v["ka"]}
+    b["p"] = Q_26035.assign(b)
+    return _basic_payment(b, v["r"])
+
+
+def _engine_bribe(v: Values) -> Any:
+    player = _player(ka=v["ka"], rank=v["ra"], po=400)
+    handler = lambda ctx: police.caught(ctx, police.Arrest(p=0))  # noqa: E731
+    return _arrest_outcome(_drive(handler, _state(player), (0.0, v["r"]), _capture_answer(0)))
+
+
+# --- :26040 the flight -----------------------------------------------------------------
+Q_26040 = q(26040, "int(rnd(1)*tr(sp)/11)=0")
+
+
+def _basic_flight(v: Values) -> Any:
+    sp = v["sp"]
+    b = {"sp": sp, f"tr({sp})": _VEHICLES[sp]["tr"], "rnd(1)": v["r"]}
+    return "caught" if Q_26040.holds(b) else "escaped"
+
+
+def _engine_flight(v: Values) -> Any:
+    players = tuple(_player(po=400) for _ in range(v["sp"]))
+    state = replace(
+        _state(players[0]),
+        players=players,
+        clock=Clock(active_player=v["sp"] - 1, player_count=v["sp"]),
+    )
+    handler = lambda ctx: police.caught(ctx, police.Arrest(p=0))  # noqa: E731
+    run = _drive(handler, state, (0.0, v["r"]), _capture_answer(1))
+    return "caught" if run.state.players[v["sp"] - 1].po == 911 else "escaped"
+
+
+# --- :26045-26065 the trial: the months and the lawyer -----------------------------------
+Q_26045 = q(26045, "gs(sp)=int(ra(sp)/2+.5)")
+Q_26050 = q(26050, "ra(sp)<5")
+Q_26061 = q(26061, "x>ka(sp)orx<0")
+Q_26062_KA = q(26062, "ka(sp)=ka(sp)-x")
+Q_26062_Y = q(26062, "y=int(rnd(1)*(x/1000+1))+1")
+Q_26065 = q(26065, "gs(sp)=gs(sp)-y")
+Q_26065_FLOOR = q(26065, "gs(sp)<0")
+
+
+def _basic_trial(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ra(1)": v["ra"], "ka(1)": v["ka"], "x": v["x"]}
+    b["gs(1)"] = Q_26045.assign(b)
+    if Q_26050.holds(b) or b["x"] == 0:  # :26060 ``ifx=0goto26075``
+        return (b["ka(1)"], b["gs(1)"])
+    if Q_26061.holds(b):
+        return "asked again"
+    b["ka(1)"] = Q_26062_KA.assign(b)
+    b["rnd(1)"] = v["r"]
+    b["y"] = Q_26062_Y.assign(b)
+    b["gs(1)"] = Q_26065.assign(b)
+    if Q_26065_FLOOR.holds(b):
+        b["gs(1)"] = 0
+    return (b["ka(1)"], b["gs(1)"])
+
+
+def _engine_trial(v: Values) -> Any:
+    asked: list[Any] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            asked.append(interaction)
+            if len(asked) > 1:
+                raise _AskedAgain
+            return v["x"]
+        return True  # :26055 yes, a lawyer
+
+    player = _player(ka=v["ka"], rank=v["ra"], po=400)
+    handler = lambda ctx: police.sentence(ctx, police.Arrest())  # noqa: E731
+    try:
+        run = _drive(handler, _state(player), (v["r"],), answer)
+    except _AskedAgain:
+        return "asked again"
+    after = run.state.players[0]
+    return (after.ka, game.wanted(after).jail_months)
 
 
 # --- :13110-13127 waf range training ------------------------------------------------
@@ -1601,6 +1768,62 @@ PORTS: list[Port] = [
         _NEW_GAME_GRID,
         _basic_new_game,
         _engine_new_game,
+    ),
+    Port(
+        "police squad",
+        (Q_26000, Q_26010_W, Q_26010_E),
+        "police.police_fight",
+        # an odd rank gives int(rnd(1)*ra/2) a half-width top bucket
+        _grid(ra=range(1, 11), r0=R, r1=(0.0, 0.5, 0.9990234375)),
+        _basic_squad,
+        _engine_squad,
+    ),
+    Port(
+        "police chief-bribe auto-pay",
+        (Q_26021, Q_26037, Q_26038_KA, Q_26038),
+        "police.caught (auto-pay)",
+        _grid(
+            pl=(0, 1, 3),
+            p=(0, 520, 52724),
+            ka=(0, 519, 520, 10**6),
+            r0=(0.0, 0.4990234375, 0.5, 0.9990234375),
+            r1=(0.0, 0.1990234375, 0.2, 0.9990234375),
+        ),
+        _basic_autopay,
+        _engine_autopay,
+    ),
+    Port(
+        "police bribe",
+        (Q_26035, Q_26037, Q_26038_KA, Q_26038),
+        "police.caught (bribe)",
+        _grid(
+            ra=range(1, 11),
+            ka=(0, 999, 1000, 3000, 5499, 5500, 10**6),
+            r=(0.0, 0.1990234375, 0.2, 0.9990234375),
+        ),
+        _basic_bribe,
+        _engine_bribe,
+    ),
+    Port(
+        "police flight",
+        (Q_26040,),
+        "police.caught (flight)",
+        _grid(sp=(1, 2, 3, 4), r=R + (0.18, 0.19, 0.27, 0.28, 0.31, 0.32)),
+        _basic_flight,
+        _engine_flight,
+    ),
+    Port(
+        "trial and lawyer",
+        (Q_26045, Q_26050, Q_26061, Q_26062_KA, Q_26062_Y, Q_26065, Q_26065_FLOOR),
+        "police.sentence",
+        _grid(
+            ra=(1, 2, 3, 4, 5, 6, 9, 10),
+            x=(-5, 0, 1, 999, 1000, 1500, 2999, 3000, 9999, 20000),
+            ka=(0, 1000, 10**6),
+            r=R,
+        ),
+        _basic_trial,
+        _engine_trial,
     ),
     Port(
         "combat side anchors",

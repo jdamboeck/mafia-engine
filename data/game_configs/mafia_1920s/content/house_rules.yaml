@@ -29,6 +29,15 @@
 #     an empty answer, is asked again.
 #   - upkeep rolls the 1-in-8 mark decay of mf-prg.bas:4055-4056 only for a mark the
 #     player holds; the source rolls both every turn (handlers/upkeep.py).
+#   - after a lost police fight, the chief-bribe auto-pay (mf-prg.bas:26021) charges 0:
+#     the source's p there is whatever the fight left in it (the cell where the last
+#     player fighter fell, 0..520, or the last step if the player quit), which the
+#     port's fight does not report (handlers/police.py).
+#   - the lawyer's fee prompt reads whole numbers only: the C64 INPUT at
+#     mf-prg.bas:26060 takes a fraction, and reads text as 0 (no lawyer); both are
+#     asked again here. An empty answer keeps x$, which is "j" from the lawyer
+#     question at first (0, no lawyer) and the refused answer after a refusal (asked
+#     again), as the port does (checked in VICE; handlers/police.py).
 house_rules:
   - id: intelligence_or_30
     citation: ":311"
@@ -135,4 +144,45 @@ house_rules:
       The option asks for a new passport ("einen neuen pass"), so selling one to a
       holder may be meant, and the source keeps no age or count a new one could reset;
       nothing says whether Eddie should refuse instead.
+    switch: false
+
+  - id: stale_bribe_price
+    citation: ":26021"
+    quote: "ifpl(sp)andint(rnd(1)*2)<>0goto26037"
+    faithful: >-
+      With police-chief bribe months left, one arrest in two skips the menu and goes
+      straight to the payment line (:26037 ``ifka(sp)<pthengosub1125:goto26045``)
+      with whatever ``p`` last held, and no price is shown. After a map step that is
+      the step's screen address (:2030 ``p=br+po(sp)+x``, 52224 plus the cell), which
+      almost no player can pay, so the arrest ends in a sentence; after a fight it is
+      a combat cell (0 to 520), mostly paid and let go.
+    intent: >-
+      The skipped menu charges the ordinary police bribe (:26035
+      ``p=500+500*ra(sp)``): the chief's protection pays the price without asking.
+    switch: true
+
+  - id: flight_odds_by_seat
+    citation: ":26040"
+    quote: "ifint(rnd(1)*tr(sp)/11)=0"
+    faithful: >-
+      The flight's odds read the vehicle range table at the player's seat number
+      rather than at the player's vehicle, so they depend on who plays first: caught
+      11 times in 35 in seat 1, 11 in 40 in seats 2 and 3, 11 in 60 in seat 4,
+      whatever the player drives.
+    intent: >-
+      The odds read the range of the player's own vehicle, as the turn's movement
+      points do (:1012 ``ms=tr(tm(sp))``): a faster car gets away more often.
+    switch: true
+
+  - id: lawyer_fee_uncapped
+    citation: ":26061"
+    quote: "ifx>ka(sp)orx<0then"
+    faithful: >-
+      The lawyer prompt says 0-10000$, but only a fee above the player's cash or below
+      0 is asked again; any larger fee is taken, and each 1000 $ adds one to the months
+      the lawyer can cut (:26062 ``y=int(rnd(1)*(x/1000+1))+1``).
+    no_intent: >-
+      The 10000 appears only in the prompt text (:26060); whether a larger fee should
+      be refused, capped or allowed is not said anywhere else, so no single intended
+      behaviour exists.
     switch: false

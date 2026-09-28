@@ -50,18 +50,14 @@ from pathlib import Path
 from engine.effects import MoneyChange
 from ..effects import JobClear, JobSet
 from ..state import job
-from engine.interactions import PromptInt, ShowMessage, StartCombat
+from engine.interactions import PromptInt, ShowMessage
 from engine.locations import register
-from engine.scenario import Scenario
 from engine.turns import JOB_SHIFT_HANDLER_KEY as ENGINE_JOB_SHIFT_KEY
 
-from ..combat_rules import build_rules, enemy_attrs, equipper
 from ..setup import (
-    load_combat_backdrop,
     load_encounter,
-    narrate_combat_outcome,
+    run_encounter,
     score_and_rank,
-    weapon_stats_by_id,
 )
 
 # Job type ids -- shared with pub.py's take-job handler (mf-prg.bas:12305's ON-GOTO
@@ -90,20 +86,6 @@ _CROUPIER_ENCOUNTER = load_encounter(_ENCOUNTERS_DIR / "job_croupier.yaml")
 _KILLER_ENCOUNTER = load_encounter(_ENCOUNTERS_DIR / "job_killer.yaml")
 
 
-def _weapon_stats() -> dict:
-    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
-
-    Fresh per call (the config is frozen per game, so re-reading is harmless),
-    mirroring ``waf.py``'s ``_weapons()``/``pub.py``'s ``_vehicles()`` pattern.
-    """
-    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
-
-
-def _backdrop(name: str) -> tuple[int, ...]:
-    """Load one of the three combat backdrops by name (``ks``/``kp``/``km``)."""
-    return load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{name}.yaml")
-
-
 def _completion_score(job_type: int) -> float:
     """The job-completion score bonus -- ports ``mf-prg.bas:25560``: ``x=3+3*(jo(sp)=2)``.
 
@@ -119,49 +101,16 @@ def _completion_score(job_type: int) -> float:
     return 0.0 if job_type == JOB_CROUPIER else 3.0
 
 
-def _fight(ctx, *, spec, backdrop: str):
-    """Run one shift fight against a single declared enemy; return the winning side.
+def _fight(ctx, encounter, *, variant: int = 0):
+    """Run one shift fight (a declared encounter's variant); return the winning side.
 
-    ``spec`` is the selected :class:`~..setup.EnemySpec` (a variant of a declared
-    encounter); ``backdrop`` is the encounter's grid name. Builds ``StartCombat``
-    from the active player's CURRENT roster (read fresh off ``ctx.state`` -- no earlier
-    effect in a shift run touches the roster) and the declared enemy setup. Side 1 is
-    always the acting player (the ``_run_combat`` convention), so a loss/win here also
-    rides the fight's roster energy deltas into ``ctx`` via the driver's ``_run_combat``
-    (no extra code needed here for that).
-
-    The fight's PAYOUT is not declarable (it belongs to the shift's win/loss branch in
-    :func:`job_shift`), so the encounter carries no ``on_win``/``on_loss`` and this
-    helper applies no consequence — it just runs the fight and returns the winner.
+    The shared fight helper assembles it from the active player's current roster (no
+    earlier effect in a shift run touches the roster) and shows the outcome screen.
+    Side 1 is always the acting player. The fight's PAYOUT is not declarable (it
+    belongs to the shift's win/loss branch in :func:`job_shift`), so the encounters
+    carry no ``on_win``/``on_loss`` and this applies no consequence.
     """
-    sp = ctx.state.clock.active_player
-    active = ctx.state.players[sp]
-    # Setup is the declared encounter's; the enemy stats (mf-prg.bas:30245) and
-    # equipment stay handler-supplied. Scenario.from_encounter reads count/weapon/
-    # vitality/name off the spec and delegates to from_roster.
-    scenario = Scenario.from_encounter(
-        spec,
-        active.roster,
-        build_rules(ctx.state.config.house_rules),
-        # The fixed CPU-enemy stats (mf-prg.bas:30245) are config data.
-        enemy_attrs=enemy_attrs(ctx.state.config.formula_params),
-        grid=_backdrop(backdrop),
-        equip=equipper(_weapon_stats()),
-    )
-    result = yield StartCombat(scenario=scenario)
-    # Outcome narration (the invoking handler's job -- _run_combat yields no
-    # final screen). Shared with kdh.py/upkeep.py's own fights (narrate_combat_outcome
-    # -- ShowMessage's (key, params) shape means the generic client renderer resolves
-    # these with no special-case wiring, exactly like every other ported string). The
-    # per-side death tallies come off the CombatResult, so the count is real even
-    # though every shift fight happens to be 1v1 (enemy_count=1, gz(0)=1).
-    yield from narrate_combat_outcome(
-        winner=result.winner,
-        player_name=active.name,
-        enemy_name=spec.name,
-        player_losses=result.losses[0],
-        enemy_losses=result.losses[1],
-    )
+    result = yield from run_encounter(ctx, encounter, variant=variant)
     return result.winner
 
 
@@ -193,8 +142,7 @@ def job_shift(ctx):
             yield ShowMessage("job.shift_bouncer_trouble")
             # :25035 -- the 1-of-3 variant SELECTION stays in Python; the definitions
             # live in the declared encounter.
-            spec = _BOUNCER_ENCOUNTER.variants[ctx.rng.range(3)]
-            winner = yield from _fight(ctx, spec=spec, backdrop=_BOUNCER_ENCOUNTER.grid)
+            winner = yield from _fight(ctx, _BOUNCER_ENCOUNTER, variant=ctx.rng.range(3))
             won = winner == 1
 
     elif job_type == JOB_CROUPIER:
@@ -204,9 +152,7 @@ def job_shift(ctx):
         if ctx.rng.range(6 - trick) == 0:  # :25120 `int(rnd(1)*(6-x))=0`
             # :25130 -- caught; a fight starts.
             yield ShowMessage("job.shift_croupier_caught")
-            winner = yield from _fight(
-                ctx, spec=_CROUPIER_ENCOUNTER.variants[0], backdrop=_CROUPIER_ENCOUNTER.grid
-            )
+            winner = yield from _fight(ctx, _CROUPIER_ENCOUNTER)
             won = winner == 1
         else:
             # :25125-25126 -- success; immediate bonus, no fight. p=int(rnd(1)*100*x)+300
@@ -220,9 +166,7 @@ def job_shift(ctx):
     elif job_type == JOB_KILLER:
         # :25200-25210 -- always fight the victim.
         yield ShowMessage("job.shift_killer_intro")
-        winner = yield from _fight(
-            ctx, spec=_KILLER_ENCOUNTER.variants[0], backdrop=_KILLER_ENCOUNTER.grid
-        )
+        winner = yield from _fight(ctx, _KILLER_ENCOUNTER)
         won = winner == 1
 
     # :25500-25560 -- common outcome resolution.

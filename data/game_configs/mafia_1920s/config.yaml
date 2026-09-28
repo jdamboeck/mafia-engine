@@ -14,7 +14,7 @@ name: "mafia_1920s"
 
 # This config's own content version. A save records it and is refused under another,
 # so bump it when a content change would make an existing save load wrongly.
-content_version: 3
+content_version: 4
 description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 
 # Entity tables live in sibling files under entities/.
@@ -156,6 +156,25 @@ formula_params:
   # the marks fade at upkeep: ifint(rnd(1)*8)=0 clears each one (:4055 passport,
   # :4056 counterfeit)
   marks_decay_roll: 8
+
+  # Police capture and trial — mf-prg.bas:26000-26080 (handlers/police.py). The police
+  # fight's base count/weapon/energy are content/encounters/police_fight.yaml's.
+  police_count_rank_divisor: 2   # gz(0)=5+int(rnd(1)*ra(sp)/2) (:26000)
+  police_weapon_senior: 7        # w=5-2*(ra(sp)>5): gewehr above rank 5 (:26010)
+  police_weapon_senior_rank: 5
+  police_energy_per_rank: 2      # e=20+2*(ra(sp)-1)-int(rnd(1)*21) (:26010)
+  police_energy_spread: 21
+  police_menu_skip_roll: 2       # ifpl(sp)andint(rnd(1)*2)<>0goto26037 (:26021)
+  police_bribe_base: 500         # p=500+500*ra(sp) (:26035)
+  police_bribe_per_rank: 500
+  police_bribe_fail_roll: 5      # ifint(rnd(1)*5)=0goto26045 (:26038)
+  police_flight_divisor: 11      # ifint(rnd(1)*tr(sp)/11)=0 -> caught (:26040)
+  police_lawyer_rank: 5          # ifra(sp)<5goto26075: no lawyer below rank 5 (:26050)
+  police_lawyer_step: 1000       # y=int(rnd(1)*(x/1000+1))+1 (:26062)
+  police_jail_cell: 911          # po(sp)=911 (:26080)
+  police_score_free: 2           # x=2:gosub1160 (:26015, :26036, :26041, :26045)
+  police_score_caught: -5        # x=-5:gosub1160 (:26040)
+  police_score_sentenced: -10    # x=-10:gosub1160 (:26080)
 
 # New-game setup constants (mf-prg.bas:220,300-315,350). These mirror the
 # BASIC setup; this config's setup.py is the authoritative porting site. Kept here so

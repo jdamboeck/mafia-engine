@@ -192,6 +192,8 @@ def test_the_real_catalogue_offers_its_switches_at_setup(monkeypatch, tmp_path):
     assert dict(_saved_state(save, _CONFIG_DIR).config.house_rules) == {
         "intelligence_or_30": "faithful",
         "shared_direction_memory": "faithful",
+        "stale_bribe_price": "faithful",
+        "flight_odds_by_seat": "faithful",
     }
 
 
@@ -579,12 +581,18 @@ def test_the_fight_lab_refuses_a_recording_made_under_another_map_in_one_line(ca
 def test_the_code_reads_exactly_the_catalogues_switches(mafia_module):
     """Every switch is read by the code that plays it, and the code reads no other."""
     from data.game_configs.mafia_1920s.combat_rules import SHARED_DIRECTION_MEMORY
+    from data.game_configs.mafia_1920s.handlers.police import (
+        FLIGHT_ODDS_BY_SEAT,
+        STALE_BRIBE_PRICE,
+    )
     from data.game_configs.mafia_1920s.setup import INTELLIGENCE_OR_30
 
     rules = mafia_module.house_rules
     assert {rule.id for rule in rules.switchable(rules.CATALOGUE)} == {
         INTELLIGENCE_OR_30,
         SHARED_DIRECTION_MEMORY,
+        STALE_BRIBE_PRICE,
+        FLIGHT_ODDS_BY_SEAT,
     }
 
 
@@ -613,6 +621,10 @@ _FAITHFUL_ONLY_TESTS = {
     "passport_rebuy_charged": (
         "tests.test_ble",
         "test_passport_bought_again_while_held_is_charged_again",
+    ),
+    "lawyer_fee_uncapped": (
+        "tests.test_police_capture",
+        "test_the_lawyer_prompt_asks_again_only_above_the_cash_or_below_zero",
     ),
 }
 

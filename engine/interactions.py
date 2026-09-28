@@ -110,6 +110,12 @@ class PromptInt:
     #: Who answers this interaction (a player index); ``None``: the active player.
     #: :func:`step` fills a ``None`` in with the active player when it yields.
     player: int | None = None
+    #: The value an empty answer stands for, returned without the range check (a
+    #: source prompt that keeps its variable's value on an empty answer, where that
+    #: value is known); ``None``: an empty answer is asked again. A cancellable
+    #: prompt's client reads an empty answer as cancel, so pair it with
+    #: ``cancellable=False``.
+    blank: int | None = None
 
 
 @dataclass(frozen=True)
@@ -833,6 +839,8 @@ def _resolve(interaction: Any) -> Generator[Any, Any, Any]:
                 if interaction.cancellable:
                     return _CANCEL_SIGNAL
                 continue  # invalid at a non-cancellable prompt → re-prompt
+            if interaction.blank is not None and isinstance(raw, str) and not raw.strip():
+                return interaction.blank  # an empty answer stands for ``blank``
             value = _coerce_int(raw)
             if value is None:
                 continue  # non-numeric → re-prompt

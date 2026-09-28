@@ -20,6 +20,8 @@ seed: 42                # default RNG seed; --seed on the command line overrides
 house_rules:
   intelligence_or_30: faithful
   shared_direction_memory: faithful
+  stale_bribe_price: faithful
+  flight_odds_by_seat: faithful
 
 player:
   - name: hero

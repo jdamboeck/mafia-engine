@@ -131,18 +131,11 @@ from ..state import (
     rented_months,
     tip_target,
 )
-from engine.interactions import ShowMessage, StartCombat
+from engine.interactions import ShowMessage
 from engine.locations import register
-from engine.scenario import Scenario
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
-from ..combat_rules import build_rules, enemy_attrs, equipper
-from ..setup import (
-    load_combat_backdrop,
-    load_encounter,
-    narrate_combat_outcome,
-    weapon_stats_by_id,
-)
+from ..setup import load_encounter, run_encounter
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
@@ -158,19 +151,6 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1]
 _COLLECTORS_ENCOUNTER = load_encounter(
     _CONFIG_DIR / "content" / "encounters" / "kdh_collectors.yaml"
 )
-
-
-def _weapon_stats() -> dict:
-    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
-
-    Matches ``kdh.py``/``jobs.py``'s fresh-per-call loader (a handler reads its
-    OWN config's entity data, never the engine's).
-    """
-    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
-
-
-def _backdrop(name: str) -> tuple[int, ...]:
-    return load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{name}.yaml")
 
 
 def _rank_names() -> list[str]:
@@ -266,35 +246,13 @@ def upkeep_turn_start(ctx):
             # declared-but-stubbed and nothing can imprison a player, so the
             # not-jailed precondition is always true and is not re-encoded here.
             yield ShowMessage("upkeep.debt_collectors_intro")
-            debt_params = ctx.state.config.formula_params
             # The collectors' SETUP is the declared encounter (:4355 —
-            # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"); the enemy stats and
-            # equipment stay handler-supplied. The SEIZURE consequence below is NOT
-            # declarable (it reads live `active.ka`), so the encounter carries no
-            # on_win/on_loss and stays in Python.
-            enc = _COLLECTORS_ENCOUNTER
-            scenario = Scenario.from_encounter(
-                enc.variants[0],
-                active.roster,
-                build_rules(ctx.state.config.house_rules),
-                enemy_attrs=enemy_attrs(debt_params),
-                grid=_backdrop(enc.grid),
-                equip=equipper(_weapon_stats()),
-            )
-            result = yield StartCombat(scenario=scenario)
-
-            # Outcome narration (the invoking handler's job — _run_combat yields no
-            # final screen). Shared with jobs.py/kdh.py's own fights. This is the one
-            # fight with 5 enemies (gz(0)=5, :4355), so the losses block reads its
-            # per-side tallies off the CombatResult (v(1)/v(2)) — a 1v1-shortcut count
-            # would be wrong here.
-            yield from narrate_combat_outcome(
-                winner=result.winner,
-                player_name=active.name,
-                enemy_name=enc.variants[0].name,
-                player_losses=result.losses[0],
-                enemy_losses=result.losses[1],
-            )
+            # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"), run by the shared fight
+            # helper, which also shows the outcome screen with the per-side losses (this
+            # is the one fight with 5 enemies, so a 1v1 count would be wrong). The
+            # SEIZURE below is NOT declarable (it reads live `active.ka`), so the
+            # encounter carries no on_win/on_loss and stays in Python.
+            result = yield from run_encounter(ctx, _COLLECTORS_ENCOUNTER)
 
             if result.winner == 2:
                 # :4365-4370 — lost: `ka(sp)=0:kr(sp)=0:kz(sp)=0`. The seizure takes

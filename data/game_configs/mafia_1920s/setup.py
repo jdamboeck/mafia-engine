@@ -23,24 +23,27 @@ handler imports ``fnm`` from HERE (its own config), not from the engine.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
 
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
-from engine.interactions import ShowMessage
+from engine.interactions import ShowMessage, StartCombat
 from engine.rng import Rng
+from engine.scenario import Scenario
 from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, INTENT, Clock, Config, GameState, Player
 
 try:
+    from .combat_rules import build_rules, enemy_attrs, equipper
     from .effects import DebtClear, ScoreAndRank
     from .gangster import GANGSTER_ATTR_NAMES, Gangster
     from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
     from .house_rules import load_house_rules, switchable
     from .state import SCHEMA
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
+    from combat_rules import build_rules, enemy_attrs, equipper
     from effects import DebtClear, ScoreAndRank
     from gangster import GANGSTER_ATTR_NAMES, Gangster
     from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
@@ -60,13 +63,15 @@ __all__ = [
     "EnemySpec",
     "Encounter",
     "apply_outcome",
+    "run_encounter",
     "fnm",
     "score_and_rank",
     "narrate_combat_outcome",
 ]
 
 # Default config location: this config's own directory.
-_DEFAULT_CONFIG = Path(__file__).resolve().parent / "config.yaml"
+_CONFIG_DIR = Path(__file__).resolve().parent
+_DEFAULT_CONFIG = _CONFIG_DIR / "config.yaml"
 
 
 # --- entity loaders --------------------------------------------------------
@@ -395,6 +400,71 @@ def apply_outcome(ctx, encounter: Encounter, result):
             yield ShowMessage(step["message"], msg_params)
         elif name == "clear":
             ctx.apply(_CLEAR_EFFECTS[step["clear"]]())
+
+
+# --- the fight helper --------------------------------------------------------
+
+
+def run_encounter(
+    ctx,
+    encounter: Encounter,
+    *,
+    variant: int = 0,
+    count: int | None = None,
+    weapon: int | None = None,
+    vitality: int | None = None,
+    grid: str | None = None,
+    roster=None,
+):
+    """Run one declared fight for the active player and narrate its outcome.
+
+    A generator (``result = yield from run_encounter(ctx, encounter)``) returning the
+    fight's :class:`~engine.combat.CombatResult`. It is the one place a handler's fight
+    is assembled: ``encounter.variants[variant]`` against the active player's roster,
+    on this game's rules bundle (``build_rules`` under the game's house rules), with
+    the fixed CPU stats (``enemy_attrs``, ``mf-prg.bas:30245``), the encounter's
+    backdrop and this config's weapon table. The outcome screen (``:30500-30515``)
+    follows every fight, as the source prints it for every caller.
+
+    Runtime overrides, for a fight whose setup depends on the game:
+
+    * ``count``/``weapon``/``vitality`` replace the variant's ``gz(0)``/``w``/``e``
+      (the police roll all three from the rank, ``:26000-26010``);
+    * ``grid`` replaces the backdrop: the caller's ``kf$`` when the caller sets it;
+    * ``roster`` replaces the player side, e.g. the gang a caller has already cut
+      before the fight (the entry record of the police capture).
+    """
+    active = ctx.state.players[ctx.state.clock.active_player]
+    spec = encounter.variants[variant]
+    overrides = {
+        name: value
+        for name, value in (("count", count), ("weapon", weapon), ("vitality", vitality))
+        if value is not None
+    }
+    if overrides:
+        spec = replace(spec, **overrides)
+    params = ctx.state.config.formula_params
+    scenario = Scenario.from_encounter(
+        spec,
+        active.roster if roster is None else roster,
+        build_rules(ctx.state.config.house_rules),
+        enemy_attrs=enemy_attrs(params),
+        grid=load_combat_backdrop(
+            _CONFIG_DIR / "content" / "combat" / f"{grid or encounter.grid}.yaml"
+        ),
+        equip=equipper(weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")),
+    )
+    result = yield StartCombat(scenario=scenario)
+    # The outcome screen is the caller's to show (_run_combat yields no final screen);
+    # the losses come off the CombatResult, which is right for a many-fighter side.
+    yield from narrate_combat_outcome(
+        winner=result.winner,
+        player_name=active.name,
+        enemy_name=spec.name,
+        player_losses=result.losses[0],
+        enemy_losses=result.losses[1],
+    )
+    return result
 
 
 # --- fnm rent formula ------------------------------------------------------

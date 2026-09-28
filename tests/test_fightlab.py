@@ -411,7 +411,8 @@ def test_unknown_weapon_id_fails_at_load_naming_the_id(tmp_path):
     bad = tmp_path / "bad.yaml"
     bad.write_text(
         "encounter: kdh_ambush\n"
-        "house_rules: {intelligence_or_30: faithful, shared_direction_memory: faithful}\n"
+        "house_rules: {intelligence_or_30: faithful, shared_direction_memory: faithful,\n"
+        "  stale_bribe_price: faithful, flight_odds_by_seat: faithful}\n"
         "player:\n"
         "  - {name: hero, weapon: 999, energie: 20, kraft: 34, brutalitaet: 28}\n",
         encoding="utf-8",

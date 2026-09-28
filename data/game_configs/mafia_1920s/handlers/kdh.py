@@ -59,17 +59,13 @@ from pathlib import Path
 from engine.effects import MoneyChange
 from ..effects import DebtChange, DebtClear, ShopChange
 from ..state import business, debt
-from engine.interactions import Confirm, PromptInt, ShowMessage, StartCombat
+from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
-from engine.scenario import Scenario
 
-from ..combat_rules import build_rules, enemy_attrs, equipper
 from ..setup import (
     apply_outcome,
-    load_combat_backdrop,
     load_encounter,
-    narrate_combat_outcome,
-    weapon_stats_by_id,
+    run_encounter,
 )
 
 __all__ = ["kdh_borrow", "kdh_repay", "kdh_trade", "kdh_capital", "kdh_collect"]
@@ -82,19 +78,6 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1]
 #: back off the loaded encounter for the outcome narration; nothing about the fight
 #: is assembled inline.
 _AMBUSH_ENCOUNTER = load_encounter(_CONFIG_DIR / "content" / "encounters" / "kdh_ambush.yaml")
-
-
-def _weapon_stats() -> dict:
-    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
-
-    Matches ``jobs.py``'s/``upkeep.py``'s/``waf.py``'s own fresh-per-call loader
-    (a handler reads its OWN config's entity data, never the engine's).
-    """
-    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
-
-
-def _backdrop(name: str) -> tuple[int, ...]:
-    return load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{name}.yaml")
 
 
 # --------------------------------------------------------------------------- #
@@ -349,30 +332,11 @@ def kdh_collect(ctx):
         yield ShowMessage("locations.kdh.debts_paid_on_time")
         return []
 
-    # :15310-15312 — the ambush fight, built from the declared encounter.
+    # :15310-15312 — the ambush fight, the declared encounter run by the shared fight
+    # helper (which also shows the outcome screen, :30500-30515).
     yield ShowMessage("locations.kdh.ambush_intro")
     enc = _AMBUSH_ENCOUNTER
-    spec = enc.variants[0]  # single-enemy encounter: one variant.
-    scenario = Scenario.from_encounter(
-        spec,
-        active.roster,
-        build_rules(ctx.state.config.house_rules),
-        enemy_attrs=enemy_attrs(params),
-        grid=_backdrop(enc.grid),
-        equip=equipper(_weapon_stats()),
-    )
-    result = yield StartCombat(scenario=scenario)
-
-    # Outcome narration (the invoking handler's job — _run_combat yields no final
-    # screen). Shared with jobs.py/upkeep.py's own fights; per-side death tallies
-    # come off the CombatResult.
-    yield from narrate_combat_outcome(
-        winner=result.winner,
-        player_name=active.name,
-        enemy_name=spec.name,
-        player_losses=result.losses[0],
-        enemy_losses=result.losses[1],
-    )
+    result = yield from run_encounter(ctx, enc)
 
     # :15315 (loss — on_loss: [], nothing) / :15320-15321 (win — loot + score +
     # message). The whole declarable consequence rides the encounter's on_win/on_loss.
