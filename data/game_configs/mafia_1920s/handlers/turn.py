@@ -16,8 +16,9 @@ use:
   whether the active player holds a job (the runner then runs ``job.shift``).
 * :data:`~engine.turns.SCORE_TRUNCATION_HOOK_KEY` — ``:1013``
   ``gf(sp)=int(gf(sp)*100)/100``.
-* :data:`~engine.turns.JAIL_HOOK_KEY` — ``:1013`` ``ifgs(sp)thengosub1500:goto1010``.
-  A no-op: nothing can jail a player yet, so no turn is spent in jail.
+* :data:`~engine.turns.JAIL_HOOK_KEY` — ``:1013`` ``ifgs(sp)thengosub1500:goto1010``:
+  a jailed player's turn shows the jail screen (:data:`JAIL_SCREEN`, ``:1500-1515``),
+  counts the sentence down by one, and ends.
 * :data:`~engine.turns.ROADBLOCK_HOOK_KEY` — ``:2041``
   ``ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3thengosub6000:goto2060``. A no-op:
   the roadblock (``gosub6000``) is not built, so its gate
@@ -42,7 +43,7 @@ too; each returns what the runner does next:
 
 Handler-API conformance: touches only ``ctx.state`` (read-only), ``ctx.apply(<Effect>)``
 and this config's own helpers. None of them draws from ``ctx.rng``; only the overview
-yields (display-only screens).
+and the jail skip yield (display-only screens).
 """
 
 from __future__ import annotations
@@ -65,7 +66,7 @@ from engine.turns import (
     SPECIAL_CELL_HOOK_KEY,
 )
 
-from ..effects import PendingRankReset
+from ..effects import Jail, PendingRankReset
 from ..setup import load_ranks, load_vehicles, load_weapons
 from ..state import contraband, job, next_rank, rented_months, wanted
 
@@ -83,6 +84,7 @@ __all__ = [
     "walk",
     "next_player",
     "overview_lines",
+    "JAIL_SCREEN",
     "gang_lines",
     "OVERVIEW_SCREEN",
     "GANG_SCREEN",
@@ -155,11 +157,28 @@ def score_truncation(ctx):
     return []
 
 
+#: Acknowledge: the jail screen (``:1510-1515``). ``params``: ``months``, the months
+#: left before this turn's decrement (``gs(sp)+1`` after ``:1500``'s ``gs(sp)-1``).
+JAIL_SCREEN = "turn.jail"
+
+
 @register(JAIL_HOOK_KEY)
 def jail(ctx):
-    """``:1013`` ``ifgs(sp)``: a jailed player's turn. Never, yet (no jail is built)."""
-    yield from ()
-    return False
+    """``:1013`` ``ifgs(sp)thengosub1500:goto1010``: a jailed player's turn is skipped.
+
+    ``:1500`` ``gs(sp)=gs(sp)-1`` counts the sentence down, then ``:1510-1515`` show
+    ``gs(sp)+1`` -- the months as they stood before the decrement -- and wait for a key
+    (``goto1100``). Returns truthy for a jailed player: the turn ends with no menu and
+    no map. It runs after upkeep (``:1011``) and the score truncation, so both still
+    happen on a skipped turn, and after ``:1012``'s job dispatch (a convict holds no
+    job, ``:26080``). A sentence of N months skips exactly N turns.
+    """
+    months = wanted(ctx.state.players[ctx.state.clock.active_player]).jail_months
+    if not months:
+        return False
+    ctx.apply(Jail(months=months - 1))  # :1500 gs(sp)=gs(sp)-1
+    yield Acknowledge(JAIL_SCREEN, {"months": months})  # :1510 gs(sp)+1
+    return True
 
 
 def roadblock_would_fire(state, ms: int, rng) -> bool:

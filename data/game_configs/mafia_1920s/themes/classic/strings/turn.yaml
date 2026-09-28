@@ -20,6 +20,11 @@ turn:
       walk: "2 - durch die stadt gehen"
       next_player: "4 - naechster spieler"
 
+  # :1510-1515 print"{clr}{down}{gry3}du sitzt im knast."gs(sp)+1"monat(e) hast" /
+  # print"{down}du noch vor dir..." -- {months} is gs(sp)+1, the months before :1500's
+  # decrement; the :1100 "taste druecken!" pause is the client's.
+  jail: "du sitzt im knast. {months} monat(e) hast\ndu noch vor dir..."
+
   overview:
     # :1200 print"{clr}{down}{rvon}uebersicht fuer "sp$(sp)":"
     title: "uebersicht fuer {name}:"

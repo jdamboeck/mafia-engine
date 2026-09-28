@@ -202,8 +202,8 @@ class Jail:
 
     Jail months are this game's state (``wanted.jail_months``, the source's ``gs(sp)``).
     The arrest sets the sentence outright (``mf-prg.bas:26045``,
-    ``gs(sp)=int(ra(sp)/2+.5)``), so this is an absolute set, not a delta. No handler
-    applies it yet.
+    ``gs(sp)=int(ra(sp)/2+.5)``), so this is an absolute set, not a delta. The jail
+    skip counts it down one month per skipped turn (``:1500``).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION

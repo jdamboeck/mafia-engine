@@ -20,7 +20,8 @@ The flow runs in this fixed order
 followed by five resolution slots:
 
 * **debt check** (``4040``, ``4300-4370``) — the loan-shark grace countdown and
-  its collectors fight. Ports ``:4305``'s tick, ``:4306-4309``'s warning,
+  its collectors fight, skipped while the player is jailed (``:4040``
+  ``ifkr(sp)andgs(sp)=0``: the countdown waits out the sentence). Ports ``:4305``'s tick, ``:4306-4309``'s warning,
   ``:4350-4355``'s fight, and ``:4365-4370``'s seizure. See COUNTER DIRECTION below.
 * **shop income** (``4041-4420``) — the passive kdh-shop payout roll. Ports
   ``mf-prg.bas:4041``'s guard (``kg(sp)<>0andkk(sp)<>0`` — must own a shop AND have
@@ -130,6 +131,7 @@ from ..state import (
     next_rank,
     rented_months,
     tip_target,
+    wanted,
 )
 from engine.interactions import ShowMessage
 from engine.locations import register
@@ -219,10 +221,15 @@ def upkeep_turn_start(ctx):
     # run touches debt (regen writes energy, the rank commit writes rank). Below this
     # point, `months`/`debt_amount` are tracked LOCALLY — ctx.apply only BUFFERS, so
     # re-reading ctx.state mid-flow would see pre-tick values.
+    #
+    # :4040 ``ifkr(sp)andgs(sp)=0thengosub4300`` -- the whole block waits while the
+    # player is jailed: no tick (the countdown is frozen), no warning, no collectors.
+    # Everything else in upkeep still runs for a jailed player (:1011 precedes :1013).
     current_debt = debt(active)
     debt_amount = current_debt.amount
     months = current_debt.months
-    if debt_amount != 0 or months != 0:
+    jailed = wanted(active).jail_months != 0
+    if not jailed and (debt_amount != 0 or months != 0):
         # :4305's `+(kz(sp)>0)` — decrement ONLY while positive, so 0 is a fixed
         # point. That fixed point is exactly what makes a won fight recur every turn
         # (source-confirmed): the counter never leaves 0, so every later turn re-enters :4350.
@@ -241,10 +248,6 @@ def upkeep_turn_start(ctx):
         elif debt_amount != 0:
             # :4350-4370 — the grace period has expired. Guarded on a NONZERO debt so
             # a fully repaid player (:15075 leaves kr=0 AND kz=0) is never ambushed.
-            #
-            # The jail gate (:4040) is a read that trivially passes: jail is
-            # declared-but-stubbed and nothing can imprison a player, so the
-            # not-jailed precondition is always true and is not re-encoded here.
             yield ShowMessage("upkeep.debt_collectors_intro")
             # The collectors' SETUP is the declared encounter (:4355 —
             # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"), run by the shared fight
