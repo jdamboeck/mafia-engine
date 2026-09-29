@@ -4,10 +4,10 @@ Proof-first: written and observed RED (BarrelChange NotImplementedError from the
 groundwork stub, and no ``pub.drink`` handler at all) before implementation.
 
 Ports the alcohol block ``mf-prg.bas:12010-12075`` verbatim:
-- only pub tile ln=4 serves (ln=5 is confirmed dead code this slice — see pub.py's
-  module docstring: it is set only by the out-of-scope bhf handler); every other tile
+- pub tiles ln=4 and ln=5 serve (``:12010 ifln=4orln=5goto12020``; ln=5 is the railway
+  station's pub, opened by bhf's ``:19010 ln=5:la=2:goto3000``); every other tile
   falls into a 50%-refusal-or-sell-offer branch.
-- BUY (ln=4): stock 100-299 barrels, price 5-9$/barrel, capacity-capped by
+- BUY (ln=4, ln=5): stock 100-299 barrels, price 5-9$/barrel, capacity-capped by
   vehicle.tank - carried barrels (on foot tank=50); afford check runs before any
   write; settle is +barrels/-cash/+2 score-and-rank.
 - SELL (elsewhere, after the 50% "he wants to buy" roll): price 10-29$/barrel,
@@ -17,6 +17,8 @@ Ports the alcohol block ``mf-prg.bas:12010-12075`` verbatim:
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
@@ -62,9 +64,11 @@ def _state(*, ka=100000, ln=4, vehicle=0, barrels=0, score_mult=1.0, gf=0.0):
 # --------------------------------------------------------------------------- #
 # Branch matrix: tile-4 buy vs elsewhere 50/50 sell-or-refuse                  #
 # --------------------------------------------------------------------------- #
-def test_tile_4_always_enters_the_buy_path_no_rng_branch_roll():
-    # ln=4 skips the 50% refusal roll entirely -- stock/price are the FIRST rng draws.
-    st = _state(ln=4, ka=100000)
+@pytest.mark.parametrize("ln", [4, 5])
+def test_tiles_4_and_5_always_enter_the_buy_path_no_rng_branch_roll(ln):
+    # :12010 ifln=4orln=5goto12020 skips the 50% refusal roll entirely -- stock/price
+    # are the FIRST rng draws.
+    st = _state(ln=ln, ka=100000)
     rng = _StubRng(150, 7, 0)  # stock=150, price=7, quantity 0 -> quiet abort
     result = run_pure(HANDLERS["pub.drink"], _scripted(0), state=st, rng=rng)
     assert result.status == "completed"
@@ -72,6 +76,28 @@ def test_tile_4_always_enters_the_buy_path_no_rng_branch_roll():
     # First two draws are the hit() stock/price rolls, not a range(2) branch roll.
     assert rng.calls[0][0] == "hit"
     assert rng.calls[1][0] == "hit"
+
+
+def test_the_station_pub_sells_alcohol_on_tile_5():
+    """bhf's pub is the pub menu on tile 5 (``:19010``): :12020-12035 buy, +2 score."""
+    st = _state(ln=5, ka=100000)
+    rng = _StubRng(60, 5, 10)  # stock=60, price=5, buy 10 -> cost 50
+    result = run_pure(HANDLERS["pub.drink"], _scripted(10), state=st, rng=rng)
+    assert result.effects == [
+        BarrelChange(10),
+        MoneyChange(-50),
+        ScoreAndRank(amount=2, rank_divisor=11.1),
+    ]
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 10
+
+
+@pytest.mark.parametrize("ln", [1, 2, 3, 6])
+def test_every_other_tile_rolls_the_refusal_first(ln):
+    """:12015 ``ifint(rnd(1)*2)=0goto12050``: not 4 or 5, the 50% roll comes first."""
+    rng = _StubRng(0)
+    result = run_pure(HANDLERS["pub.drink"], _scripted(), state=_state(ln=ln), rng=rng)
+    assert result.effects == []
+    assert rng.calls == [("range", 2)]
 
 
 def test_elsewhere_refusal_branch_shows_message_no_effects():

@@ -658,6 +658,10 @@ _FAITHFUL_ONLY_TESTS = {
         "tests.test_sub",
         "test_cancelling_the_picker_loses_the_ticket",
     ),
+    "mail_train_small_gang_loses_tip": (
+        "tests.test_bhf",
+        "test_a_gang_of_fewer_than_3_is_refused_and_loses_the_tip",
+    ),
 }
 
 

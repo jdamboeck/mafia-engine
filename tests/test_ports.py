@@ -1076,6 +1076,61 @@ def _engine_pickpocket(v: Values) -> Any:
     return (f"loot {_SUB_ITEMS.index(item)}", ka)
 
 
+# --- :19015-19040 bhf, the mail train, and the heist payout :20050-20060 ------------------
+Q_19015 = q(19015, "tp(sp)<>1")
+Q_19016 = q(19016, "gz(sp)<3")
+Q_19016_TP = q(19016, "tp(sp)=0")
+Q_20050_P = q(20050, "p=int(rnd(1)*3000)+4000-500*(la=10andln=1)")
+Q_20050_X = q(20050, "x=tp(sp)")
+Q_20051 = q(20051, "(x=1andla=9)or(x=2andla=10andln=2)or(x=3andla=13)")
+Q_20051_TP = q(20051, "tp(sp)=0")
+Q_20051_P = q(20051, "p=p+3000")
+Q_20060 = q(20060, "ka(sp)=ka(sp)+p")
+
+
+def _basic_mail_train(v: Values) -> Any:
+    """The station (``la=9``, ``ln=1``); the guards' fight is won (:19030)."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": v["tp"], "gz(1)": v["gz"], "ka(1)": 1000}
+    b.update({"la": 9, "ln": 1})
+    if Q_19015.holds(b):
+        return ("no train", b["ka(1)"], b["tp(1)"])
+    if Q_19016.holds(b):
+        return ("too few", b["ka(1)"], Q_19016_TP.assign(b))
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_20050_P.assign(b)
+    b["x"] = Q_20050_X.assign(b)
+    if Q_20051.holds(b):
+        b["tp(1)"] = Q_20051_TP.assign(b)
+        b["p"] = Q_20051_P.assign(b)
+    return ("robbed", Q_20060.assign(b), b["tp(1)"])
+
+
+def _engine_mail_train(v: Values) -> Any:
+    player = _player(
+        ka=1000,
+        last_la=9,
+        last_location=1,
+        tip_target=v["tp"],
+        roster=tuple(_gangster() for _ in range(v["gz"])),
+    )
+    run = _drive(
+        HANDLERS["bhf.mail_train"],
+        _state(player),
+        draws=(v["r"],),
+        fight=CombatResult(winner=1, losses=(0, 3)),
+    )
+    keys = [m.key for m in run.shown]
+    after = run.state.players[0]
+    outcome = (
+        "no train"
+        if "locations.bhf.no_train" in keys
+        else "too few"
+        if "locations.bhf.too_few" in keys
+        else "robbed"
+    )
+    return (outcome, after.ka, game.tip_target(after))
+
+
 # --- :17210-17592 sgl, Jack's gang, the payout and what follows -----------------------
 Q_17210 = q(17210, "gz(0)=3-2*(gz(sp)>5)")
 Q_17500 = q(17500, "int(rnd(1)*3)=0")
@@ -1587,7 +1642,8 @@ def _engine_casino(v: Values) -> Any:
     return run.state.players[0].ka
 
 
-# --- :12020-12035 pub alcohol buy ---------------------------------------------------------
+# --- :12010-12035 pub alcohol buy ---------------------------------------------------------
+Q_12010 = q(12010, "ln=4orln=5")
 Q_12020_X = q(12020, "x=int(rnd(1)*200)+100")
 Q_12020_P = q(12020, "p=int(rnd(1)*5)+5")
 Q_12025_Q = q(12025, "q=tk(tm(sp))-ta(sp)")
@@ -1599,6 +1655,9 @@ Q_12035_KA = q(12035, "ka(sp)=ka(sp)-p*y")
 
 def _basic_alcohol_buy(v: Values) -> Any:
     b: dict[str, Any] = {"sp": 1, "tm(1)": v["vehicle"], "ta(1)": v["ta"], "ka(1)": v["ka"]}
+    b["ln"] = v["ln"]
+    if not Q_12010.holds(b):
+        return "no buy"
     b.update({f"tk({i})": veh["tank"] for i, veh in enumerate(_VEHICLES)})
     b["rnd(1)"] = v["r_x"]
     b["x"] = Q_12020_X.assign(b)
@@ -1616,7 +1675,7 @@ def _basic_alcohol_buy(v: Values) -> Any:
 def _engine_alcohol_buy(v: Values) -> Any:
     player = _player(
         ka=v["ka"],
-        last_location=4,
+        last_location=v["ln"],
         vehicle=v["vehicle"],
         contraband=Contraband(alcohol_barrels=v["ta"]),
     )
@@ -1626,6 +1685,8 @@ def _engine_alcohol_buy(v: Values) -> Any:
         draws=(v["r_x"], v["r_p"]),
         answer=lambda i: min(v["want"], i.max),
     )
+    if "locations.pub.drink_offer" not in [m.key for m in run.shown]:
+        return "no buy"  # :12015's roll instead: refused, or the sell offer
     offered = run.asked[0].max
     p = run.state.players[0]
     return (offered, p.ka, game.contraband(p).alcohol_barrels)
@@ -2122,6 +2183,24 @@ PORTS: list[Port] = [
         _engine_pickpocket,
     ),
     Port(
+        "bhf mail train",
+        (
+            Q_19015,
+            Q_19016,
+            Q_19016_TP,
+            Q_20050_P,
+            Q_20050_X,
+            Q_20051,
+            Q_20051_TP,
+            Q_20051_P,
+            Q_20060,
+        ),
+        "HANDLERS['bhf.mail_train'] (bhf.heist_payout)",
+        _grid(tp=range(6), gz=range(5), r=R),
+        _basic_mail_train,
+        _engine_mail_train,
+    ),
+    Port(
         "pol thank-you",
         (Q_21252, Q_21253, Q_21255_KX, Q_21255_KSP),
         "HANDLERS['pol.free'] (the freed player's thanks)",
@@ -2229,9 +2308,10 @@ PORTS: list[Port] = [
     ),
     Port(
         "pub alcohol buy",
-        (Q_12020_X, Q_12020_P, Q_12025_Q, Q_12025_CAP, Q_12030, Q_12035_TA, Q_12035_KA),
-        "HANDLERS['pub.drink'] (buy, ln=4)",
+        (Q_12010, Q_12020_X, Q_12020_P, Q_12025_Q, Q_12025_CAP, Q_12030, Q_12035_TA, Q_12035_KA),
+        "HANDLERS['pub.drink'] (buy, ln=4 and the station pub's ln=5)",
         _grid(
+            ln=(3, 4, 5, 6),
             vehicle=range(len(_VEHICLES)),
             ta=(0, 30),
             r_x=(0.0, 0.5, 0.9990234375),

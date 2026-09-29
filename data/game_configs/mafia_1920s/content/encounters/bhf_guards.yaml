@@ -1,0 +1,13 @@
+# The mail train's guards (mf-prg.bas:19030), after "drei nette herren" (:19027).
+#
+#   19030 bn$(0)="wachen":gz(0)=3:w=7:e=30:kf$="kpzug":gosub5000:ifs=2goto26020
+#
+# No declarable consequence: a loss goes to the arrest (:26020), a win to the payout
+# (:19040 goto20050), both in handlers/bhf.py.
+key: bhf_guards
+enemies:
+  count: 3              # gz(0)=3 — :19030
+  weapon: 7             # w=7, maschinenpistole — :19030
+  vitality: 30          # e=30 — :19030
+  name: wachen          # bn$(0)="wachen" — :19030
+grid: kpzug             # kf$="kpzug" — :19030

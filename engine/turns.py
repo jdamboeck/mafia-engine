@@ -62,7 +62,14 @@ location visit: the shell's
 :class:`~engine.interactions.LocationMenu`, the chosen option
 (:func:`engine.actions.step_option`) and its :class:`~engine.interactions.OptionDone`,
 then the previous tile. A door to a location with no shell shows
-:data:`LOCATION_CLOSED_SCREEN`. The shells and the city are the loaded config's
+:data:`LOCATION_CLOSED_SCREEN`.
+
+**A handler may move the visit** to another location's menu, as a ``goto3000`` with
+new ``la``/``ln`` does (the station pub, ``:19010 ln=5:la=2:goto3000``): it commits an
+:class:`~engine.effects.SetEntryContext` naming the other location, and the runner
+opens that location's menu inside the same visit, with no second door charge. The
+previous tile is the entry context the visit ends on, since ``:2055`` reads ``la`` and
+``ln`` when ``gosub3000`` returns. The shells and the city are the loaded config's
 (:class:`~engine.config_loader.LoadedConfig`), passed in.
 
 **The location menu** (``:3040``/``:3045``)::
@@ -522,20 +529,38 @@ class TurnRunner:
             # Back to :2005, which re-reads the points from state.
 
     def _visit(self, la: int, ln: int) -> Generator[Any, Any, None]:
-        """``:2055`` ``gosub3000:ll(sp)=20*la+ln``: the location, then the previous tile."""
+        """``:2055`` ``gosub3000:ll(sp)=20*la+ln``: the location, then the previous tile.
+
+        An option that changes the entry context moves the visit to that location's
+        menu (a ``goto3000``, see the module docstring); the previous tile is the
+        location the visit ends in.
+        """
         city = self._city
         assert city is not None
-        key = city.location_keys.get(la)
-        shell = self._shells.get(key) if key is not None else None
-        if key is None:
-            pass  # a door to no named location: nothing inside
-        elif shell is None:
-            yield Heading(
-                LOCATION_CLOSED_SCREEN, {"location": key}, player=self.state.clock.active_player
-            )
-        else:
+        while True:
+            key = city.location_keys.get(la)
+            shell = self._shells.get(key) if key is not None else None
+            if key is None:
+                break  # a door to no named location: nothing inside
+            if shell is None:
+                yield Heading(
+                    LOCATION_CLOSED_SCREEN,
+                    {"location": key},
+                    player=self.state.clock.active_player,
+                )
+                break
+            before = self._entry_context()
             yield from self._location_menu(shell, ln)
+            after = self._entry_context()
+            if after == before:
+                break
+            la, ln = after  # the option went to another menu: goto3000
         self._commit(SetPreviousTile(la=la, ln=ln))
+
+    def _entry_context(self) -> tuple[int, int]:
+        """The active player's entry context ``(la, ln)``."""
+        player = self.state.players[self.state.clock.active_player]
+        return player.last_la, player.last_location
 
     def _location_menu(self, shell: Location, ln: int) -> Generator[Any, Any, None]:
         """The shell's menu until an offered option is chosen; that option runs.

@@ -1,0 +1,24 @@
+# bhf (Bahnhof, railway station) — location shell (declarative layer).
+#
+# Ports the bhf menu from mf-prg.bas:19005 (onwgoto19010,19050,19015). No option
+# carries a shell guard: the mail train's two refusals (:19015-19016) happen inside
+# the handler, after the option was picked, and the second one clears the tip.
+#
+#   pub         — bhf.pub: the station pub, the pub's menu on tile 5 in the same
+#                 visit (:19010 ln=5:la=2:goto3000)
+#   pickpocket  — bhf.pickpocket: the subway's pickpocketing body with w=1
+#                 (:19050 w=1:goto18035)
+#   mail_train  — bhf.mail_train: rob the mail train (:19015-19040, :20050-20060)
+#   leave       — costs 5 movement points (:3045) back to the map.
+key: bhf
+options:
+  - id: pub
+    handler: "bhf.pub"
+  - id: pickpocket
+    handler: "bhf.pickpocket"
+  - id: mail_train
+    handler: "bhf.mail_train"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

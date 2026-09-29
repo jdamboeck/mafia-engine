@@ -252,6 +252,20 @@ formula_params:
   # the loot by index: the theme key suffix and the cash it brings (:18046-18051)
   sub_loot: [[handbag, 0], [camera, 50], [pearls, 0], [watch, 100], [wallet, 500], [diamond, 800]]
 
+  # bhf (Bahnhof, railway station) — mf-prg.bas:19000-19050 (handlers/bhf.py).
+  bhf_pub_la: 2                  # ln=5:la=2:goto3000, the station pub (:19010)
+  bhf_pub_ln: 5
+  bhf_pickpocket_w: 1            # w=1:goto18035 (:19050)
+  bhf_mail_train_tip: 1          # iftp(sp)<>1then... (:19015)
+  bhf_mail_train_gang: 3         # ifgz(sp)<3then... tp(sp)=0 (:19016)
+  # The heist payout (:20050-20060), shared with the bank and the cash transport:
+  # p=int(rnd(1)*3000)+4000-500*(la=10andln=1); a matching tip clears it and adds 3000
+  # (:20051); x=4:gosub1160 (:20060).
+  heist_pay_min: 4000
+  heist_pay_spread: 3000
+  heist_tip_bonus: 3000
+  heist_score: 4
+
   # The map roadblock — mf-prg.bas:2041, :6000-6036 (handlers/roadblock.py).
   # ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3 (:2041)
   roadblock_every: 20

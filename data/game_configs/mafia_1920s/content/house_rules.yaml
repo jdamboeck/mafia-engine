@@ -29,11 +29,11 @@
 #     an empty answer, is asked again.
 #   - upkeep rolls the 1-in-8 mark decay of mf-prg.bas:4055-4056 only for a mark the
 #     player holds; the source rolls both every turn (handlers/upkeep.py).
-#   - after a lost police fight, or a lost fight with the car owner (mf-prg.bas:14125),
-#     the chief-bribe auto-pay (mf-prg.bas:26021) charges 0: the source's p there is
+#   - after a lost police fight, a lost fight with the car owner (mf-prg.bas:14125)
+#     or a lost mail-train fight (mf-prg.bas:19030), the chief-bribe auto-pay (mf-prg.bas:26021) charges 0: the source's p there is
 #     whatever the fight left in it (the cell where the last player fighter fell,
 #     0..520, or the last step if the player quit), which the port's fight does not
-#     report (handlers/police.py, handlers/aut.py).
+#     report (handlers/police.py, handlers/aut.py, handlers/bhf.py).
 #   - the gangster picker's number prompt (mf-prg.bas:1145) reads whole numbers from 0
 #     up: on the C64 a negative number stops the game with an error at :1350's
 #     subscript, a fraction picks the gangster it truncates to, and an empty answer
@@ -305,4 +305,17 @@ house_rules:
     no_intent: >-
       A ticket bought and not used is plausibly lost; the source may have meant the
       pick to come first, but nothing says so.
+    switch: false
+
+  - id: mail_train_small_gang_loses_tip
+    citation: ":19016"
+    quote: "ifgz(sp)<3thenprint\"du hast zu wenig gangster!\":tp(sp)=0"
+    faithful: >-
+      Trying to rob the mail train with fewer than 3 gangsters (the boss counts) is
+      refused, and the pub tip that opened it (:19015 ``iftp(sp)<>1``) is cleared: the
+      player cannot come back with a bigger gang on the same tip.
+    no_intent: >-
+      Losing the tip may be the price of a botched attempt, or the refusal may have
+      been meant to keep it; the source clears it deliberately on this path and nothing
+      says otherwise.
     switch: false

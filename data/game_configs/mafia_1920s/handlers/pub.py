@@ -2,13 +2,10 @@
 
 Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
 
-- ``pub.drink`` (``12010-12075``) — alcohol trade. Only pub tile ``ln=4`` serves; the
-  ``ln=5`` branch (``:12010``'s ``ifln=4orln=5goto12020``) is unreachable and
-  deliberately not ported. Tracing the source: ``ln=5`` is set ONLY by the ``bhf``
-  (train station) handler's option 1 ("visit the station pub", ``mf-prg.bas:19010``:
-  ``ln=5:la=2:goto3000``) — ``bhf`` is not an implemented location in this config, so
-  ``ln=5`` is unreachable via any map entry. Every other pub tile (1/2/3, and any
-  ``ln`` not otherwise reached) falls into the 50%-refusal-or-sell-offer
+- ``pub.drink`` (``12010-12075``) — alcohol trade. Tiles ``ln=4`` and ``ln=5`` sell
+  (``:12010 ifln=4orln=5goto12020``). No map door has ``ln=5``: that tile is the railway
+  station's pub, which ``bhf``'s first option opens (``:19010 ln=5:la=2:goto3000``,
+  ``handlers/bhf.py``). Every other tile falls into the 50%-refusal-or-sell-offer
   branch (``:12015``).
 - ``pub.tip`` (``12200-12252``) — buy a heist rumour. Rank-gated; 2/3 chance the
   informer has nothing; the roll picks one of 5 flavour texts (tip type 1-5, stored on
@@ -93,9 +90,10 @@ _MAX_OFFERS = 3
 #: Pub tile that never has recruits available (mf-prg.bas:12107's `orln=3`).
 _NO_RECRUIT_TILE = 3
 
-#: Alcohol tile: only this ``ln`` serves (mf-prg.bas:12010; ln=5 is dead code, see
-#: module docstring). Every other pub tile falls into the 50% refusal-or-sell branch.
-_ALCOHOL_TILE = 4
+#: Alcohol tiles: these ``ln`` sell (mf-prg.bas:12010 ``ifln=4orln=5goto12020``; 5 is
+#: the station pub, see module docstring). Every other tile falls into the 50%
+#: refusal-or-sell branch.
+_ALCOHOL_TILES = frozenset({4, 5})
 
 #: The five heist-tip flavour text keys, 1-based to match ``tp(sp)`` (mf-prg.bas:12226
 #: ``ontp(sp)goto12230,12235,12240,12245,12250``).
@@ -167,8 +165,8 @@ def pub_drink(ctx):
 
     Steps (faithful to the BASIC line block):
 
-    1. ``:12010`` — only ``ln == _ALCOHOL_TILE`` serves; every other tile falls to (2).
-       BUY path (tile 4): ``:12020-12035``.
+    1. ``:12010`` — ``ln`` 4 or 5 serves; every other tile falls to (2).
+       BUY path (tiles 4 and 5): ``:12020-12035``.
        a. Roll stock ``x`` (100-299 barrels) and price ``p`` (5-9$/barrel).
        b. Cap the offer by the vehicle's free capacity: ``x = min(x, tank - barrels)``.
        c. Prompt a quantity in ``[0, x]``; 0 is a quiet abort (``:12029``).
@@ -186,7 +184,7 @@ def pub_drink(ctx):
     ln = active.last_location  # ln seam (see module docstring)
     params = ctx.state.config.formula_params
 
-    if ln == _ALCOHOL_TILE:
+    if ln in _ALCOHOL_TILES:  # :12010 ``ifln=4orln=5goto12020``
         # --- BUY path: :12020-12035 ---------------------------------------
         # :12020 `x=int(rnd(1)*200)+100` (stock) and `p=int(rnd(1)*5)+5` (price).
         stock = ctx.rng.hit(params["pub_alcohol_stock_min"], params["pub_alcohol_stock_max"])

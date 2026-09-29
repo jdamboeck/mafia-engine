@@ -18,6 +18,7 @@ map:
     aut: { char: "\u25cf", color: purple }      # ● filled circle
     sgl: { char: "\u25a3", color: brown }       # ▣ square in a square
     sub: { char: "\u25a4", color: green }       # ▤ square with horizontal fill
+    bhf: { char: "\u25a6", color: dark_grey }   # ▦ square with crosshatch fill
   # Special cells (dynamic event markers)
   special_cells:
     569: { char: "\u25cc", color: blue }   # ◌ transport
