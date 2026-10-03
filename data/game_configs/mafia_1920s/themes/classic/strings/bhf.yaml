@@ -2,7 +2,7 @@
 #
 # DATA, not code: handlers/bhf.py emits these KEYS and the theme resolves them. The menu
 # is the SEQ file src/bhf (research-data/pass-2/location-dialogue.yaml, bhf); the rest
-# is mf-prg.bas:19015-19027 and the heist payout :20055-20060, printed as the listing
+# is mf-prg.bas:19015-19027, printed as the listing
 # prints it (the corpus misses :19015 and :19016). A number the source prints between
 # strings takes the space C64 PRINT puts before it, but none before "$", as the other
 # locations' strings do. A screen that ends in :1100's "taste druecken!" pause gets it
@@ -22,5 +22,4 @@ locations:
     too_few: "du hast zu wenig gangster!"                                  # 19016
     storm: "du stuermst in den panzerwaggon und\nbeginnst gerade einzusacken, als du auf\ndrei nette herren aufmerksam wirst..."  # 19025-19027
 
-    # --- the heist payout (20055-20060); {$a0} is a shifted space, shown blank ---
-    loot: "du hast es geschafft! deine beute\nbetraegt {p}$!"
+    # The heist payout's screen (:19040 goto20050) is the bank's, strings/ban.yaml.

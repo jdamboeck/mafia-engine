@@ -740,19 +740,28 @@ class TestEofMidHandlerExitsCleanly:
 
 
 class TestUnimplementedDoorGracefulDenial:
-    """The U1 ``_shell_exists`` guard (``clients/terminal/__main__.py``) makes walking
-    into ANY door whose ``content/locations/<key>.yaml`` shell is missing deny
-    gracefully and return to the map, rather than raising ``FileNotFoundError`` straight
-    out of ``play()``. This originally exercised the kdh doors (cells 221/753, U1 audit
-    finding) as the map's door table ran ahead of kdh's shell; U11 landed
-    ``content/locations/kdh.yaml``, so kdh is reachable now (see
-    ``TestKdhLocationThroughClient`` below) and the guard needs a DIFFERENT
-    genuinely-unimplemented location to keep proving the denial path works. ``sgl``
-    and then ``sub`` served until they landed; ``ban`` (the bank — cells
-    95/437/442/657/865 in city.yaml) fits now: wired into the map, no shell yet.
+    """Walking into a door whose location has no shell denies gracefully and returns to
+    the map, rather than raising out of ``play()`` (the runner's closed-door screen,
+    ``engine/turns.py``, rendered by the client). Every location of this config has a
+    shell now (U21 built the last, ``ban``), so the test removes one: ``play()`` loads
+    a config whose shells lack ``ban`` (cells 95/437/442/657/865 in city.yaml), and the
+    bank's door stays on the map with nothing behind it.
     """
 
     def test_walking_into_an_unimplemented_door_denies_gracefully(self, monkeypatch):
+        import dataclasses
+
+        import clients.terminal.session as session
+
+        real = session.load_game_config
+
+        def without_ban(config_dir):
+            cfg = real(config_dir)
+            return dataclasses.replace(
+                cfg, shells={k: v for k, v in cfg.shells.items() if k != "ban"}
+            )
+
+        monkeypatch.setattr(session, "load_game_config", without_ban)
         city_raw = load_city_raw()
         city = load_city(city_raw)
         load_game_config(_CONFIG_DIR)  # registers the turn hooks
@@ -769,12 +778,18 @@ class TestUnimplementedDoorGracefulDenial:
             "the unimplemented-door guard printed no denial message"
         )
 
-    def test_ban_shell_file_does_not_exist_yet(self):
-        """Documents WHY the guard is needed (regression bait for whichever unit lands
-        ban next: this assertion should be the first thing to fail, prompting a swap to
-        another still-unimplemented location rather than deleting the coverage)."""
-        shell_path = _CONFIG_DIR / "content" / "locations" / "ban.yaml"
-        assert not shell_path.exists()
+    def test_with_its_shell_the_bank_door_opens_its_menu(self, monkeypatch):
+        """The same walk without the removal reaches the bank's menu, not the denial:
+        the denial above comes from the removed shell, not the walk."""
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)
+        state = new_state(42)
+        walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "ban"))
+        # Splash ack, then leave (menu index 3).
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
+        assert "closed for renovations" not in output
+        assert "GUTEN TAG, MEIN HERR!" in output
 
 
 class TestBleReachableByWalking:

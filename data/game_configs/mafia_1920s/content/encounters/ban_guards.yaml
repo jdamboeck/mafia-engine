@@ -1,0 +1,21 @@
+# The bank's guards at the door (mf-prg.bas:20009-20015), after "leider hast du die drei
+# wachmaenner am eingang uebersehen..." (:20011-20012).
+#
+#   20012 print"{down}eingang uebersehen...":gosub1100:gz(0)=3-(ln=1)
+#   20015 bn$(0)="wachmaenner":e=30:w=6:kf$="kb":gosub5000:ifs=2goto26020
+#
+# Two variants for the two tile kinds: 3 men, or 4 on tile 1 (C64 true is -1, so
+# 3-(-1) = 4). The caller (handlers/ban.py) picks the variant from the tile. No
+# declarable consequence: a loss goes to the arrest (:26020), a win to the payout
+# (:20050), both in the handler.
+key: ban_guards
+grid: kb                # kf$="kb" — :20015
+variants:
+  - count: 3            # gz(0)=3-(ln=1), tiles 2..5 — :20012
+    weapon: 6           # w=6, gewehr — :20015
+    vitality: 30        # e=30 — :20015
+    name: wachmaenner   # bn$(0)="wachmaenner" — :20015
+  - count: 4            # gz(0)=3-(ln=1), tile 1 — :20012
+    weapon: 6
+    vitality: 30
+    name: wachmaenner

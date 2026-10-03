@@ -662,6 +662,10 @@ _FAITHFUL_ONLY_TESTS = {
         "tests.test_bhf",
         "test_a_gang_of_fewer_than_3_is_refused_and_loses_the_tip",
     ),
+    "bank_guards_text_says_three": (
+        "tests.test_ban",
+        "test_tile_1_sends_four_guards_while_the_text_says_three",
+    ),
 }
 
 

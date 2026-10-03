@@ -258,7 +258,18 @@ formula_params:
   bhf_pickpocket_w: 1            # w=1:goto18035 (:19050)
   bhf_mail_train_tip: 1          # iftp(sp)<>1then... (:19015)
   bhf_mail_train_gang: 3         # ifgz(sp)<3then... tp(sp)=0 (:19016)
-  # The heist payout (:20050-20060), shared with the bank and the cash transport:
+
+  # ban (Bank/Postamt) — mf-prg.bas:20000-20060 (handlers/ban.py). The guards are
+  # content/encounters/ban_guards.yaml.
+  ban_rank_min: 3                # ifra(sp)<3then..."werde erst '"ra$(3)"'!" (:20003)
+  ban_alone_gang: 1              # ifgz(sp)=1then..."du brauchst einen begleiter!" (:20009)
+  ban_fight_roll: 3              # ifint(rnd(1)*3)=0goto20050: no fight (:20010)
+  ban_main_tile: 1               # gz(0)=3-(ln=1): 4 guards (:20012); -500*(la=10andln=1)
+  ban_main_bonus: 500            # is -500*(-1), C64 true: +500 on tile 1 (:20050)
+  ban_tip: 2                     # (x=2andla=10andln=2): the pub's tip 2 pays on tile 2
+  ban_tip_tile: 2                # only (:20051)
+  # The heist payout (:20050-20060), the bank's, shared with the mail train and the cash
+  # transport:
   # p=int(rnd(1)*3000)+4000-500*(la=10andln=1); a matching tip clears it and adds 3000
   # (:20051); x=4:gosub1160 (:20060).
   heist_pay_min: 4000

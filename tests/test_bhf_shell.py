@@ -66,7 +66,8 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
             "beginnst gerade einzusacken, als du auf\n"
             "drei nette herren aufmerksam wirst...",
         ),
-        "locations.bhf.loot": (
+        # :19040 goto20050: the payout's screen is the bank's.
+        "locations.ban.loot": (
             {"p": 8234},
             "du hast es geschafft! deine beute\nbetraegt 8234$!",
         ),

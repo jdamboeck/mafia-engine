@@ -319,3 +319,15 @@ house_rules:
       been meant to keep it; the source clears it deliberately on this path and nothing
       says otherwise.
     switch: false
+
+  - id: bank_guards_text_says_three
+    citation: ":20011-20012"
+    quote: "gz(0)=3-(ln=1)"
+    faithful: >-
+      The hold-up's warning always reads "leider hast du die drei wachmaenner am
+      eingang uebersehen..." (:20011), but on the bank's tile 1 four guards fight:
+      ``gz(0)=3-(ln=1)``, and C64 true is -1.
+    no_intent: >-
+      Either the fourth guard on tile 1 or the fixed "drei" may be the slip; the source
+      sets both on purpose and nothing says which was meant.
+    switch: false

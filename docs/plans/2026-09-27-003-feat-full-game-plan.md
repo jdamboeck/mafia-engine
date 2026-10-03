@@ -1098,7 +1098,7 @@ Option 2 stays closed until U37.
 - The hold-up fight chance is 2/3 under `StubRng`, and the no-fight third pays as the dossier says.
 - The tile 1 and tile 2 rules follow the dossier.
 - The rank refusal comes before the trap.
-- A lost fight leads to capture, and the capture sees the cash the hold-up already took.
+- A lost fight leads to capture, with the cash as it was before the hold-up (amended in U21: `:20015 goto26020` comes before `:20050`'s `ka+=p`, so nothing is taken before the fight).
 
 **Verification:** the handler, shell and port tests pass.
 

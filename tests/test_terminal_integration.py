@@ -169,6 +169,11 @@ class TestSmokeAsciiArt:
         assert art is not None
         assert len(art) > 5
 
+    def test_location_art_ban(self):
+        art = location_art("ban")
+        assert art is not None
+        assert len(art) > 5
+
     def test_location_art_unknown(self):
         assert location_art("nonexistent") is None
 

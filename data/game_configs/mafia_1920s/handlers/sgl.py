@@ -65,7 +65,13 @@ from engine.locations import register
 from ..setup import load_encounter, load_weapons, run_encounter, score_and_rank
 from .police import Arrest, police_fight
 
-__all__ = ["sgl_fake_police", "sgl_protection", "sgl_sob_story", "sgl_threat"]
+__all__ = [
+    "revisit_trap",
+    "sgl_fake_police",
+    "sgl_protection",
+    "sgl_sob_story",
+    "sgl_threat",
+]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 _ENCOUNTERS = _CONFIG_DIR / "content" / "encounters"
@@ -104,12 +110,24 @@ def _prologue(ctx):
     if active.rank <= params["sgl_rank_floor"]:
         yield ShowMessage("locations.sgl.milksop")
         return True
-    # :17007 ``ifll(sp)<>20*la+lngoto17010`` — the previous tile is this tile.
-    if active.previous_tile == (active.last_la, active.last_location):
-        yield ShowMessage("locations.sgl.police_waiting")  # :17008-17009
-        yield from police_fight(ctx, Arrest(), grid=_POLICE_GRID)  # :17009 goto26000
-        return True
-    return False
+    # :17007 ``ifll(sp)<>20*la+lngoto17010``
+    return (yield from revisit_trap(ctx))
+
+
+def revisit_trap(ctx):
+    """The revisit trap, ``:17007-17009``, shared with the bank (``:20004
+    ifll(sp)=20*la+lngoto17008``). Returns whether it sprang (the visit is then over).
+
+    When the previous tile this turn (``ll(sp)``) is this very tile, the police wait
+    outside: ``:17008-17009`` "vor dem laden erwartet dich die poliyei!" (the bank shows
+    the shop's text too), then ``kf$="ks":goto26000``, the police fight.
+    """
+    active = ctx.state.players[ctx.state.clock.active_player]
+    if active.previous_tile != (active.last_la, active.last_location):
+        return False
+    yield ShowMessage("locations.sgl.police_waiting")  # :17008-17009
+    yield from police_fight(ctx, Arrest(), grid=_POLICE_GRID)  # :17009 goto26000
+    return True
 
 
 @register("sgl.threat")

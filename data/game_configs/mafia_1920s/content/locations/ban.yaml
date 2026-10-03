@@ -1,0 +1,22 @@
+# ban (Bank/Postamt) — location shell (declarative layer).
+#
+# Ports the ban menu from mf-prg.bas:20005 (onwgoto20009,20100). No option carries a
+# shell guard: the source shows all three and refuses only after the pick, in its own
+# order — the rank (:20003), then the revisit trap (:20004), then the option. The trap
+# reads the previous tile ll(sp), which is not a single-literal guard.
+#
+#   holdup — ban.holdup: the daytime hold-up (:20009-20015, :20050-20060)
+#   safe   — ban.safe: the night safe-crack (:20100-20150); for now only the rank gate
+#            and the trap, then nothing (handlers/ban.py)
+#   leave  — costs 5 movement points (:3045) back to the map, before any of the above
+#            is reached: leaving never meets the rank gate or the trap.
+key: ban
+options:
+  - id: holdup
+    handler: "ban.holdup"
+  - id: safe
+    handler: "ban.safe"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

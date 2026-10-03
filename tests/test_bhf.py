@@ -203,7 +203,7 @@ def test_a_lost_mail_train_fight_leads_to_capture():
     keys = source.message_keys()
     assert keys[0] == "locations.bhf.storm"
     assert "police.caught" in keys
-    assert "locations.bhf.loot" not in keys
+    assert "locations.ban.loot" not in keys
     assert tip_target(result.state.players[0]) == 0
 
 
@@ -235,7 +235,7 @@ def test_a_won_mail_train_fight_pays_the_dossiers_reward(monkeypatch, roll, p):
         MoneyChange(p),
         ScoreAndRank(amount=4, rank_divisor=11.1),
     ]
-    (loot,) = [m for m in source.messages() if m.key == "locations.bhf.loot"]
+    (loot,) = [m for m in source.messages() if m.key == "locations.ban.loot"]
     assert loot.params == {"p": p}
     player = result.state.players[0]
     assert (player.ka, tip_target(player), player.gf) == (10_000 + p, 0, 50.0 + 4)

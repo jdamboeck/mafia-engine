@@ -30,7 +30,7 @@
   4. Lost, ``ifs=2goto26020``: the arrest, with no police fight. The tip is still 1,
      and only the trial clears it (``:26045``). The ``p`` the fight leaves is not
      reported, so the arrest gets 0, as after a lost police fight (``handlers/police.py``).
-  5. Won, ``:19040 goto20050``: the heist payout, :func:`heist_payout`.
+  5. Won, ``:19040 goto20050``: the bank's heist payout, :func:`.ban.heist_payout`.
 
 Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
 ``ctx.apply`` and this config's own helpers.
@@ -40,17 +40,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import MoneyChange, SetEntryContext
+from engine.effects import SetEntryContext
 from engine.interactions import ShowMessage
 from engine.locations import register
 
 from ..effects import TipClear
-from ..setup import load_encounter, run_encounter, score_and_rank
+from ..setup import load_encounter, run_encounter
 from ..state import tip_target
+from .ban import heist_payout
 from .police import Arrest, caught
 from .sub import pickpocket
 
-__all__ = ["bhf_mail_train", "bhf_pickpocket", "bhf_pub", "heist_payout"]
+__all__ = ["bhf_mail_train", "bhf_pickpocket", "bhf_pub"]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -97,23 +98,3 @@ def bhf_mail_train(ctx):
     # :19040 ``goto20050``. :20051's ``(x=1andla=9)`` holds: the tip is 1, at the station.
     yield from heist_payout(ctx, tip_bonus=True)
     return []
-
-
-def heist_payout(ctx, *, tip_bonus: bool, adjust: int = 0):
-    """The heist payout, ``mf-prg.bas:20050-20060``, shared with the bank and the cash
-    transport.
-
-    ``:20050 p=int(rnd(1)*3000)+4000-500*(la=10andln=1):x=tp(sp)`` — ``adjust`` is the
-    caller's ``-500*(la=10andln=1)`` term (C64 true is -1, so it is +500 on the bank's
-    tile 1, 0 here). ``:20051 if(x=1andla=9)or(x=2andla=10andln=2)or(x=3andla=13)then
-    tp(sp)=0:p=p+3000`` — ``tip_bonus`` is whether the held tip matches the heist.
-    ``:20055-20060`` the loot is shown, ``ka(sp)=ka(sp)+p:x=4:gosub1160``.
-    """
-    params = ctx.state.config.formula_params
-    p = ctx.rng.range(params["heist_pay_spread"]) + params["heist_pay_min"] + adjust
-    if tip_bonus:
-        ctx.apply(TipClear())
-        p += params["heist_tip_bonus"]
-    yield ShowMessage("locations.bhf.loot", {"p": p})
-    ctx.apply(MoneyChange(p))
-    ctx.apply(score_and_rank(params["heist_score"], params))

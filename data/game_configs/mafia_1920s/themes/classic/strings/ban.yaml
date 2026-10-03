@@ -1,0 +1,28 @@
+# ban (Bank/Postamt) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code: handlers/ban.py emits these KEYS and the theme resolves them. The menu
+# is the SEQ file src/ban (research-data/pass-2/location-dialogue.yaml, ban), with its
+# 40-column wrap padding; the rest is mf-prg.bas:20003-20060, printed as the listing
+# prints it (the corpus misses :20003 and :20009). A number the source prints between
+# strings takes the space C64 PRINT puts before it, but none before "$", as the other
+# locations' strings do; a string variable (ra$(3)) prints with no space. A screen that
+# ends in :1100's "taste druecken!" pause gets it from the client. The revisit trap's
+# screen is the shop's (locations.sgl.police_waiting): :20004 jumps into :17008.
+locations:
+  ban:
+    entry_prompt: "'GUTEN TAG, MEIN HERR! WAS IST IHR      BEGEHR?'"
+    menu:
+      holdup: "'QUATSCH NICH' UND LANG DEN ZASTER      'RUEBER, ABER SCHNELL!'"
+      safe: "UNAUFFAELLIG NACH ALARMANLAGEN UM-      SEHEN UND NACHTS EINBRECHEN"
+      leave: "WIEDER GEHEN"
+
+    # --- the prologue (20003) ---
+    rank_too_low: "werde erst '{rank}'!"                                   # 20003
+
+    # --- the hold-up (20009-20012) ---
+    alone: "du brauchst einen begleiter!"                                  # 20009
+    guards: "leider hast du die drei wachmaenner am\neingang uebersehen..."  # 20011-20012
+
+    # --- the heist payout (20055-20060), shared with bhf's mail train (:19040);
+    # {$a0} is a shifted space, shown blank ---
+    loot: "du hast es geschafft! deine beute\nbetraegt {p}$!"

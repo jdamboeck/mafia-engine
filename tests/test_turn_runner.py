@@ -619,9 +619,12 @@ def test_the_map_prompt_offers_save_and_quit():
 
 
 def test_a_door_to_a_location_without_a_shell_shows_it_closed():
+    # Every location of this config has a shell; the bank's is removed here, so its
+    # door leads to a location with nothing behind it.
     door, la = _door("ban")
     start, into = _approach(door)
-    runner = _runner(_walking(po=start, ms=20), Rng(42))
+    shells = {k: v for k, v in _CONFIG.shells.items() if k != "ban"}
+    runner = _runner(_walking(po=start, ms=20), Rng(42), shells=shells)
     seen, _ = _script(runner.run(), [into])
 
     assert seen[1] == Heading(LOCATION_CLOSED_SCREEN, {"location": "ban"}, player=0)

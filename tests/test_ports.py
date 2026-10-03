@@ -1131,6 +1131,68 @@ def _engine_mail_train(v: Values) -> Any:
     return (outcome, after.ka, game.tip_target(after))
 
 
+# --- :20009-20060 ban, the hold-up, through the heist payout -----------------------------
+Q_20009 = q(20009, "gz(sp)=1")
+Q_20010 = q(20010, "int(rnd(1)*3)=0")
+Q_20012 = q(20012, "gz(0)=3-(ln=1)")
+
+
+def _basic_holdup(v: Values) -> Any:
+    """The bank (``la=10``) on tile ``ln``; the guards' fight, if any, is won (:20015)."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": v["tp"], "gz(1)": v["gz"], "ka(1)": 1000}
+    b.update({"la": 10, "ln": v["ln"]})
+    if Q_20009.holds(b):
+        return ("alone", b["ka(1)"], b["tp(1)"])
+    b["rnd(1)"] = v["r0"]
+    fought = not Q_20010.holds(b)
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_20050_P.assign(b)
+    b["x"] = Q_20050_X.assign(b)
+    if Q_20051.holds(b):
+        b["tp(1)"] = Q_20051_TP.assign(b)
+        b["p"] = Q_20051_P.assign(b)
+    return ("robbed", fought, Q_20060.assign(b), b["tp(1)"])
+
+
+def _engine_holdup(v: Values) -> Any:
+    player = _player(
+        ka=1000,
+        rank=3,
+        last_la=10,
+        last_location=v["ln"],
+        tip_target=v["tp"],
+        roster=tuple(_gangster() for _ in range(v["gz"])),
+    )
+    run = _drive(
+        HANDLERS["ban.holdup"],
+        _state(player),
+        draws=(v["r0"], v["r"]),
+        fight=CombatResult(winner=1, losses=(0, 3)),
+    )
+    keys = [m.key for m in run.shown]
+    after = run.state.players[0]
+    if "locations.ban.alone" in keys:
+        return ("alone", after.ka, game.tip_target(after))
+    fought = "locations.ban.guards" in keys
+    return ("robbed", fought, after.ka, game.tip_target(after))
+
+
+def _basic_bank_guards(v: Values) -> Any:
+    return Q_20012.assign({"ln": v["ln"]})
+
+
+def _engine_bank_guards(v: Values) -> Any:
+    player = _player(rank=3, last_la=10, last_location=v["ln"], roster=(_gangster(),) * 2)
+    # :20010's roll 0.5: int(0.5*3)=1, the guards fight.
+    gen = HANDLERS["ban.holdup"](Ctx(state=_state(player), rng=StubRng((0.5,))))
+    interaction = next(gen)
+    while not isinstance(interaction, StartCombat):
+        interaction = gen.send(Ack)
+    gen.close()
+    assert interaction.scenario is not None and interaction.scenario.sides is not None
+    return len(interaction.scenario.sides[1])
+
+
 # --- :17210-17592 sgl, Jack's gang, the payout and what follows -----------------------
 Q_17210 = q(17210, "gz(0)=3-2*(gz(sp)>5)")
 Q_17500 = q(17500, "int(rnd(1)*3)=0")
@@ -2195,10 +2257,26 @@ PORTS: list[Port] = [
             Q_20051_P,
             Q_20060,
         ),
-        "HANDLERS['bhf.mail_train'] (bhf.heist_payout)",
+        "HANDLERS['bhf.mail_train'] (ban.heist_payout)",
         _grid(tp=range(6), gz=range(5), r=R),
         _basic_mail_train,
         _engine_mail_train,
+    ),
+    Port(
+        "ban hold-up",
+        (Q_20009, Q_20010, Q_20050_P, Q_20050_X, Q_20051, Q_20051_TP, Q_20051_P, Q_20060),
+        "HANDLERS['ban.holdup'] (ban.heist_payout)",
+        _grid(ln=range(1, 6), tp=range(6), gz=(1, 2), r0=(0.0, 0.3, 0.5, 0.9990234375), r=R),
+        _basic_holdup,
+        _engine_holdup,
+    ),
+    Port(
+        "ban guards",
+        (Q_20012,),
+        "HANDLERS['ban.holdup'] (the number of guards)",
+        _grid(ln=range(1, 6)),
+        _basic_bank_guards,
+        _engine_bank_guards,
     ),
     Port(
         "pol thank-you",
