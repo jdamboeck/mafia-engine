@@ -27,6 +27,27 @@ line block of `mf-prg.bas` is accounted for in `docs/coverage-ledger.yaml` (243 
 two seeded end-to-end runs (`tests/test_full_game_e2e.py`) reach the early win and serve
 a sentence through `play()`.
 
+## User request: watch the end-to-end runs in the terminal client
+
+The user wants to see the two full-game runs from U30 (#144,
+`tests/test_full_game_e2e.py`) play out in the real terminal client, so they can
+confirm visually what the tests assert. Today they only run headless inside pytest:
+a `ScreenPlayer` stands in for stdin, `TerminalSession.render` is monkeypatched so the
+player can read each screen, and the output goes to a captured buffer.
+
+Shape to settle in the brainstorm:
+- An entry point that drives `play()` on a real terminal with the same screen-reading
+  players (`EarlyWinPlayer`, `JailPlayer`) and the same built start states. That could
+  be a `--demo early-win|jail` client flag, a small `tools/` script, or a fight-lab-style
+  `watch` subcommand.
+- A per-key delay (as the fight lab's `watch --delay` has), so a human can follow the
+  map, the fights and each screen.
+- Keep one source of truth: the test and the demo should share the players and start
+  states, so what the user watches is what the test checks. That probably means moving
+  them out of the test file into an importable module.
+- The demo must not weaken the tests: no fixed key list, and the same seed and
+  assertions.
+
 ## Open amendments (GitHub issues, label `plan:full-game`)
 
 - **#146** — known divergences in landed handlers:
