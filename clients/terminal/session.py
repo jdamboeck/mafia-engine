@@ -15,10 +15,13 @@ option (the overview, walking the map, the next player). On the map-move prompt 
 answer a direction; pressing into a door enters the location, whose menu the runner
 offers next; ``m`` leaves the map for the turn menu (the source's exit key, ``:2019``).
 
-A new game shows the title screen, then asks the two setup questions (end year, score
-weight; ``mf-prg.bas:170-176``) unless the caller supplied them, then offers the
-optional house-rules step (skipped by default; not shown when the config's catalogue
-offers no switch). One to four players take hot-seat turns.
+A new game shows the title screen, then draws the config's setup handler: the end year
+and score weight (``mf-prg.bas:170-176``), the optional house-rules step (skipped by
+default; not shown when the config's catalogue offers no switch), the player count and
+each player's name and gang name (``:205-215``), and each player's eigenschaften screen,
+where the player stops each stat's roll with a key (``:300-360``). What the caller
+supplied is not asked. The session holds no setup rule: it draws the handler's prompts,
+roll frames and screens. One to four players take hot-seat turns.
 
 ``p`` at the turn menu or on the map saves (to the ``save`` path / the loaded file /
 ``mafia-save.jsonl``); a ``load`` resumes a save (:func:`_load_session`) in the phase it
@@ -31,8 +34,10 @@ same protocol without a terminal.
 
 from __future__ import annotations
 
+import functools
 import json
-import math
+import os
+import select
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -52,7 +57,11 @@ from engine.interactions import (
     LocationMenu,
     MapMove,
     OptionDone,
+    PromptText,
+    RollFrame,
+    ShowMessage,
     TurnMenu,
+    step,
 )
 from engine.persistence import (
     MissingHouseRulesError,
@@ -64,11 +73,12 @@ from engine.persistence import (
     save_game,
 )
 from engine.rng import Rng
-from engine.state import FAITHFUL, INTENT, GameState
+from engine.state import GameState
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
     LOCATION_CLOSED_SCREEN,
+    SETUP_HANDLER_KEY,
     STANDINGS_SCREEN,
     TURN_OVER_SCREEN,
     UPKEEP,
@@ -472,87 +482,91 @@ def _write_press_any_key(resolver: Resolver, out) -> None:
     out.flush()
 
 
-def _in_range(value: float, bounds: dict) -> bool:
-    """``bounds`` is one ``input_ranges`` entry (``{min, max}``) from config.yaml."""
-    return bounds["min"] <= value <= bounds["max"]
+#: The eigenschaften screen's heading (``:300``) and its closing key wait (``:316``).
+_EIGENSCHAFTEN_SCREEN = "setup.eigenschaften"
+
+#: The house-rules list prompt: drawn as the list's title, one entry per rule from its
+#: ``params["rules"]``, then the prompt.
+_HOUSE_RULES_LIST = "setup.house_rules.prompt"
+
+#: The setup prompts that open a fresh screen, and whether asking one AGAIN clears too.
+#: The source clears before the end year (``:170``), the score weight (``:175``) and the
+#: player count (``:205``), and re-asks each by ``goto`` back to that ``{clr}`` line;
+#: ``:210`` clears before each player's name, but ``:291`` re-asks a bad name in place,
+#: and the gang name (``:215``) follows on the same screen. The house-rules step is the
+#: port's own; its list is redrawn whole after each switch.
+_SETUP_CLEARS = {
+    "setup.end_year_prompt": True,
+    "setup.score_weight_prompt": True,
+    "setup.house_rules.offer": True,
+    _HOUSE_RULES_LIST: True,
+    "setup.player_count_prompt": True,
+    "setup.player_name_prompt": False,
+}
+
+#: Seconds a setup roll's frame stays on screen while no key stops it. Presentation
+#: only: the source draws as fast as its BASIC runs (``:350-355``).
+ROLL_FRAME_SECONDS = 0.06
+
+#: Back to the start of the line and clear it: a roll's next frame redraws in place.
+_REDRAW_LINE = "\r\033[K"
+
+#: A test seam for the setup rolls' keyboard. When set, it is called once per roll
+#: frame in place of the terminal, and its answer says whether a key stopped the roll
+#: on that frame -- so a test driving ``play()`` over piped input can stop rolls on
+#: later frames. ``None`` (always, outside tests): the terminal decides
+#: (:class:`_RollKeyboard`).
+_roll_key_pressed: Callable[[], bool] | None = None
 
 
-def _parse_setup_number(text: str, *, integer: bool) -> float | None:
-    """Parse one setup answer; ``None`` for non-numeric input (the caller re-asks).
+class _RollKeyboard:
+    """The keyboard while a setup roll runs (``:355 getx$:ifx$=""goto350``).
 
-    The end year is ``int(val(x$))`` in the source (mf-prg.bas:170) -- truncated to an
-    integer; the score weight is ``val(x$)`` (:175), a decimal such as ``0.5``.
+    On a terminal the first frame of a roll puts it in cbreak mode (keys arrive one by
+    one, unechoed; Ctrl-C still interrupts) for the whole roll; each frame then waits
+    up to :data:`ROLL_FRAME_SECONDS` for a key. :meth:`release` restores the terminal
+    and drops any input still pending, so the key that stopped the roll does not also
+    answer the next key wait (as ``:1100``'s ``poke198,0`` empties the key buffer).
+    Standard input that is no terminal (piped, a file) stops every roll on its first
+    frame and reads nothing: the script's lines are for the prompts.
     """
-    try:
-        value = float(text.strip())
-    except ValueError:
-        return None
-    if not math.isfinite(value):
-        return None
-    return int(value) if integer else value
 
+    def __init__(self) -> None:
+        self._raw: tuple[int, Any] | None = None
 
-def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out, stdin):
-    """Ask one setup question until the answer is inside ``bounds``.
+    def pressed(self) -> bool:
+        """Whether a key stopped the roll on the frame just drawn."""
+        if _roll_key_pressed is not None:
+            return _roll_key_pressed()
+        if self._raw is None:
+            try:
+                import termios
+                import tty
 
-    Mirrors the source's re-ask loops (mf-prg.bas:170/172 for the end year, :175/:176
-    for the score weight): out-of-range or non-numeric input asks again. Real EOF (not a
-    blank line) can never be answered, so it raises :class:`EndOfInput` -- ``play()``
-    ends the session on it exactly like at a handler prompt.
-    """
-    while True:
-        render_screen_clear(out)
-        out.write(f"{resolver.resolve(key)} ")
-        out.flush()
-        line = _read_line_visible(stdin, out)
-        if line == "":
-            raise EndOfInput
-        value = _parse_setup_number(line, integer=integer)
-        if value is not None and _in_range(value, bounds):
-            return value
+                fd = sys.stdin.fileno()
+                saved = termios.tcgetattr(fd)  # raises termios.error on a non-TTY
+            except Exception:
+                return True  # not a terminal: stop here, read nothing
+            tty.setcbreak(fd)
+            self._raw = (fd, saved)
+        fd = self._raw[0]
+        ready, _, _ = select.select([fd], [], [], ROLL_FRAME_SECONDS)
+        if not ready:
+            return False
+        if os.read(fd, 1) == b"\x03":
+            raise KeyboardInterrupt
+        return True
 
+    def release(self) -> None:
+        """Restore the terminal after a roll and drop the input still pending."""
+        if self._raw is None:
+            return
+        import termios
 
-def _ask_house_rules(rules, change_key: str, resolver, out, stdin) -> dict[str, str]:
-    """The optional house-rules step: each switchable rule's setting, faithful by default.
-
-    ``rules`` are the catalogue entries that have a switch; with none the step is not
-    shown. Enter at the offer keeps every rule faithful; the change key opens the list,
-    where a rule's number switches it between faithful and intent and Enter starts the
-    game (any other answer shows the list again). Real EOF raises :class:`EndOfInput`.
-    """
-    chosen = {rule.id: FAITHFUL for rule in rules}
-    if not rules:
-        return chosen
-
-    def read() -> str:
-        line = _read_line_visible(stdin, out)
-        if line == "":
-            raise EndOfInput
-        return line.strip()
-
-    render_screen_clear(out)
-    out.write(f"{resolver.resolve('setup.house_rules.offer', {'key': change_key})} ")
-    out.flush()
-    if read().lower() != change_key.lower():
-        return chosen
-    while True:
-        render_screen_clear(out)
-        out.write(resolver.resolve("setup.house_rules.title") + "\n")
-        for number, rule in enumerate(rules, start=1):
-            entry = {
-                "number": number,
-                "setting": resolver.resolve(f"setup.house_rules.setting.{chosen[rule.id]}"),
-                "description": resolver.resolve(f"house_rules.{rule.id}"),
-            }
-            out.write(resolver.resolve("setup.house_rules.entry", entry) + "\n")
-        out.write(f"{resolver.resolve('setup.house_rules.prompt')} ")
-        out.flush()
-        answer = read()
-        if answer == "":
-            return chosen
-        if answer.isdigit() and 1 <= int(answer) <= len(rules):
-            rule_id = rules[int(answer) - 1].id
-            chosen[rule_id] = INTENT if chosen[rule_id] == FAITHFUL else FAITHFUL
+        fd, saved = self._raw
+        self._raw = None
+        termios.tcflush(fd, termios.TCIFLUSH)
+        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
 
 
 #: The turn runner's own acknowledgement screens; every other one is a handler's.
@@ -612,7 +626,6 @@ class TerminalSession:
             for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
         ]
 
-        self.ranges = cfg.config["input_ranges"]
         self.inp = TerminalInput(
             resolver=self.resolver,
             colors=self.colors,
@@ -638,6 +651,11 @@ class TerminalSession:
             save if save is not None else load if load is not None else _DEFAULT_SAVE
         )
         self.note = self.text("client.map.hint")
+        # The setup screens' own drawing state: the last prompt asked (a re-ask may
+        # draw in place), the roll whose frames are on screen, and its keyboard.
+        self._last_prompt: str | None = None
+        self._rolling: str | None = None
+        self._roll_keys = _RollKeyboard()
 
     def text(self, key: str, params: dict | None = None) -> str:
         """Resolve a theme key through this session's resolver."""
@@ -659,65 +677,112 @@ class TerminalSession:
             # committed -- is never adopted; end the session exactly like a quit.
             out.write(self.text("client.bye") + "\n")
         finally:
+            self._roll_keys.release()
             show_cursor(out)
         return self.state, self.rng
 
     def start_new_game(self) -> None:
-        """Title screen, setup prompts, the new game and its first upkeep, then the turns.
+        """Title screen, the setup, the new game and its first upkeep, then the turns.
 
         The source's order (``:30`` ``gosub100:gosub170:gosub200:goto1000``): the title,
-        the end year and score weight, the players, then the turns.
+        then the setup -- the config's setup handler (:data:`~engine.turns.SETUP_HANDLER_KEY`)
+        asks the end year, the score weight, the house rules, the player count and each
+        player's names, and runs each player's eigenschaften screen. What the caller
+        supplied is passed in and not asked. Setup draws from its own ``Rng(seed)``, not
+        the session RNG, and the game is built from the record it returns.
         """
-        out, resolver = self.out, self.resolver
+        out = self.out
         # Title screen; it waits for a key (:154 `getx$:ifx$=""goto154`).
         out.write(CLEAR)
         out.write(title_screen(self.colors))
         out.flush()
         _read_line_visible(sys.stdin, out)
 
-        # Setup (mf-prg.bas:170-176): ask only for what the caller did not supply.
-        end_year, score_weight = self.end_year, self.score_weight
-        if end_year is None:
-            end_year = _prompt_setup_value(
-                "setup.end_year_prompt",
-                self.ranges["end_year"],
-                integer=True,
-                resolver=resolver,
-                out=out,
-                stdin=sys.stdin,
-            )
-        if score_weight is None:
-            score_weight = _prompt_setup_value(
-                "setup.score_weight_prompt",
-                self.ranges["score_weight"],
-                integer=False,
-                resolver=resolver,
-                out=out,
-                stdin=sys.stdin,
-            )
-        # The optional house-rules step: every game, solo or not, goes through it.
-        module = self.cfg.module
-        house_rules = _ask_house_rules(
-            module.house_rules.switchable(module.house_rules.CATALOGUE),
-            module.house_rules.CHANGE_KEY,
-            resolver,
-            out,
-            sys.stdin,
+        given = {
+            "end_year": self.end_year,
+            "score_weight": self.score_weight,
+            "players": self.players,
+        }
+        handler = functools.partial(
+            self.cfg.handlers[SETUP_HANDLER_KEY],
+            **{name: value for name, value in given.items() if value is not None},
         )
-        # new_game validates both against input_ranges and stores the weight as
-        # formula_params["score_mult"] and the house rules as the frozen map --
-        # nothing here sets the config directly.
-        self.state = module.new_game(
-            seed=self.seed,
-            end_year=end_year,
-            score_weight=score_weight,
-            players=self.players or [("alcapone", "the outfit")],
-            house_rules=house_rules,
-        )
+        setup = step(handler, None, Rng(self.seed))
+        try:
+            interaction = next(setup)
+            while True:
+                interaction = setup.send(self.render_setup(interaction))
+        except StopIteration as done:
+            record = done.value.payload.returned
+        self.state = self.cfg.module.new_game(record)
 
         # The engine turn runner owns the order of every turn from here on; a new
         # game enters it at the first player's turn start, upkeep first.
         self.drive_turns(UPKEEP)
+
+    def render_setup(self, interaction):
+        """Show one interaction of the setup handler; return its answer."""
+        if isinstance(interaction, PromptText):
+            return self.setup_prompt(interaction)
+        if isinstance(interaction, RollFrame):
+            return self.setup_roll(interaction)
+        if isinstance(interaction, Heading):
+            return self.heading(interaction)
+        if isinstance(interaction, Acknowledge):
+            return self.acknowledge(interaction)
+        if isinstance(interaction, ShowMessage):
+            # :313/:316 print"{down}..."; each line under a blank one.
+            self.out.write(f"\n{self.text(interaction.key, dict(interaction.params))}\n")
+            self.out.flush()
+            return None
+        raise AssertionError(f"unknown setup interaction {interaction!r}")
+
+    def setup_prompt(self, prompt: PromptText) -> str:
+        """Ask one setup question and return the line typed (the handler judges it).
+
+        Real EOF can never be answered, so it raises :class:`EndOfInput`: the session
+        ends on it like on a quit.
+        """
+        out = self.out
+        reask_clears = _SETUP_CLEARS.get(prompt.key)
+        if reask_clears is not None and (reask_clears or prompt.key != self._last_prompt):
+            render_screen_clear(out)
+        if prompt.key == _HOUSE_RULES_LIST:
+            out.write(self.text("setup.house_rules.title") + "\n")
+            for rule in prompt.params["rules"]:
+                entry = {
+                    "number": rule["number"],
+                    "setting": self.text(f"setup.house_rules.setting.{rule['setting']}"),
+                    "description": self.text(f"house_rules.{rule['id']}"),
+                }
+                out.write(self.text("setup.house_rules.entry", entry) + "\n")
+        out.write(f"{self.text(prompt.key, dict(prompt.params))} ")
+        out.flush()
+        self._last_prompt = prompt.key
+        line = _read_line_visible(sys.stdin, out)
+        if line == "":
+            raise EndOfInput
+        return line.rstrip("\r\n")
+
+    def setup_roll(self, frame: RollFrame) -> bool:
+        """Draw one frame of a setup roll in place; return whether a key stopped it.
+
+        :310-312 print each stat's label on a line of its own; :350 redraws the value
+        after it until a key is pressed (:355), and the value then on screen is kept.
+        """
+        out = self.out
+        if frame.key != self._rolling:
+            self._rolling = frame.key
+            out.write("\n")  # the label's {down}
+        out.write(_REDRAW_LINE + self.text(frame.key, dict(frame.params)))
+        out.flush()
+        stopped = self._roll_keys.pressed()
+        if stopped:
+            self._roll_keys.release()
+            self._rolling = None
+            out.write("\n")
+            out.flush()
+        return stopped
 
     def resume_loaded_game(self) -> None:
         """Enter the turns of a loaded game: no title, no setup, no upkeep."""
@@ -816,6 +881,11 @@ class TerminalSession:
         elif screen.key == JOB_SHIFT_SCREEN:
             render_screen_clear(out)
             render_header(self.text("client.header.job"), out, self.colors)
+        elif screen.key == _EIGENSCHAFTEN_SCREEN:
+            # :300 print"{clr}{down}eigenschaften:"
+            render_screen_clear(out)
+            out.write(f"\n{self.text(screen.key)}\n")
+            out.flush()
         elif screen.key == LOCATION_CLOSED_SCREEN:
             # No state change, and no move spent beyond the door step's charge.
             render_screen_clear(out)
@@ -834,6 +904,11 @@ class TerminalSession:
             # key. EOF is an ack, not a quit -- upkeep offers no cancel path.
             _write_press_any_key(self.resolver, self.out)
             _read_line_visible(sys.stdin, self.out)
+            return None
+        if screen.key == _EIGENSCHAFTEN_SCREEN:
+            # :316 goto1100: the key wait under the stats, which stay on screen.
+            _write_press_any_key(self.resolver, self.out)
+            _read_key()
             return None
         if screen.key == TURN_OVER_SCREEN:
             return None if self.turn_over() else _QUIT
@@ -1014,10 +1089,12 @@ def play(
 ) -> tuple:
     """Play the default config over real stdin/stdout; return the final ``(state, rng)``.
 
-    ``seed`` seeds the ONE session :class:`~engine.rng.Rng` (default 42). ``players`` is
-    ``[(name, gang_name), ...]``, 1..4 hot-seat players (default: one "alcapone" /
-    "the outfit"). ``end_year`` / ``score_weight`` (x9, x8) left ``None`` are prompted
-    for after the title screen (``mf-prg.bas:170-176``); a supplied value skips its prompt.
+    ``seed`` seeds the ONE session :class:`~engine.rng.Rng` (default 42); the setup
+    rolls draw from a separate ``Rng(seed)``. ``players`` is ``[(name, gang_name), ...]``,
+    1..4 hot-seat players; left ``None``, the setup asks the player count and every name
+    (``mf-prg.bas:205-215``). ``end_year`` / ``score_weight`` (x9, x8) left ``None`` are
+    asked after the title screen (``:170-176``). A supplied value skips its prompt; each
+    player's eigenschaften screen is always shown.
 
     ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
     player's turn at the menu or on the map, where it was saved (no title, setup or

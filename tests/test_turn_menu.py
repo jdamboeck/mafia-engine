@@ -38,7 +38,7 @@ from engine.interactions import (
 from engine.persistence import load_game, save_game
 from engine.rng import Rng
 from engine.turns import MENU, QUIT, TURN_OVER_SCREEN, TURN_START, WALKING, TurnRunner
-from tests.helpers import NEW_GAME_ACKS, deadline
+from tests.helpers import NEW_GAME_ACKS, SOLO, deadline
 
 _CONFIG = load_game_config(CONFIG_DIR)
 _VEHICLES = _CONFIG.module.load_vehicles(CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
@@ -239,10 +239,12 @@ def test_a_save_at_the_menu_resumes_to_the_menu_with_the_same_movement_points(
 ):
     save = tmp_path / "game.jsonl"
     step = {"up": "w", "left": "a", "down": "s", "right": "d"}[_street_step(_new_game())]
-    # Title, house rules, upkeep, walk, a step, back to the menu, save, quit.
+    # Title, house rules, eigenschaften, upkeep, walk, a step, back to the menu, save,
+    # quit.
     first = _play(
         monkeypatch,
         [*NEW_GAME_ACKS, "2", step, "m", "p", "q"],
+        players=SOLO,
         seed=42,
         end_year=1930,
         score_weight=1.0,
@@ -264,7 +266,12 @@ def test_a_save_at_the_menu_resumes_to_the_menu_with_the_same_movement_points(
 
 def test_the_map_exit_key_returns_to_the_menu_in_the_client(monkeypatch):
     output = _play(
-        monkeypatch, [*NEW_GAME_ACKS, "2", "m", "q"], seed=42, end_year=1930, score_weight=1.0
+        monkeypatch,
+        [*NEW_GAME_ACKS, "2", "m", "q"],
+        players=SOLO,
+        seed=42,
+        end_year=1930,
+        score_weight=1.0,
     )
     screens = output.split(CLEAR)
     assert "║" in screens[-2], "the map was not shown"

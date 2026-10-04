@@ -418,8 +418,8 @@ def _smoke_plan():
     ``play()`` key for key.
 
     Returns ``(lines, mid_save_at, last_save_at)``: ``lines`` is the exact stdin body
-    after ``main()``'s title ack and the house-rules offer (:data:`_BEFORE_UPKEEP`; the
-    setup prompts are skipped by the flags); the two
+    after ``main()``'s title ack, the house-rules offer and the eigenschaften keys
+    (:data:`_BEFORE_UPKEEP`; the other setup prompts are skipped by the flags); the two
     indices point at the mid-game and final-turn ``p`` keys.
 
     Per turn: an optional ``p`` at the turn menu, its walk key, an optional casino visit (walk into the
@@ -555,9 +555,10 @@ _TIE = "diesmal haben mehrere"
 _DEALT = "du begibst dich an den spieltisch"
 
 
-#: A new game's keys before its first upkeep: the title ack, and Enter at the
-#: house-rules offer (every rule faithful).
-_BEFORE_UPKEEP = ["", ""]
+#: A new game's keys before its first upkeep: the title ack, Enter at the house-rules
+#: offer (every rule faithful), and each player's eigenschaften key (the players come
+#: from the flags; piped rolls read nothing).
+_BEFORE_UPKEEP = ["", "", *[""] * len(_SMOKE_PLAYERS)]
 
 
 @pytest.fixture(scope="module")

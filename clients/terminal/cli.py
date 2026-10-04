@@ -32,7 +32,6 @@ from clients.terminal.session import (
     _DEFAULT_SEED,
     _DEFAULT_THEME,
     LoadError,
-    _in_range,
     play,
 )
 
@@ -143,8 +142,8 @@ def main(argv: list[str] | None = None) -> None:
         players = []
         for spec in args.players:
             name, _, gang = spec.partition(":")
-            # :291 ``ifx$=""orlen(x$)>13``: the setup asks again for an empty name or
-            # one over 13 characters; here the flag is refused in the same bounds.
+            # The setup asks again for a name outside input_ranges.name_length (:291);
+            # here the flag is refused in the same bounds, before the game starts.
             bounds = ranges["name_length"]
             for value in (name, gang or name):
                 if not bounds["min"] <= len(value) <= bounds["max"]:
@@ -184,6 +183,11 @@ def main(argv: list[str] | None = None) -> None:
 #: theme -- where every other line lives -- cannot be loaded. The options are then
 #: listed without help text. Minimal by design: just enough to say why.
 _FALLBACK_DESCRIPTION = "(no help text: theme strings could not be loaded: {error})"
+
+
+def _in_range(value: float, bounds: dict) -> bool:
+    """``bounds`` is one ``input_ranges`` entry (``{min, max}``) from config.yaml."""
+    return bounds["min"] <= value <= bounds["max"]
 
 
 def load_classic(config_dir: Path) -> Resolver | Exception:

@@ -50,6 +50,7 @@ from engine.upkeep import run_upkeep
 from tests.helpers import (
     MENU_WALK_KEY,
     NEW_GAME_ACKS,
+    SOLO,
     deadline,
     make_walk_script,
     next_turn_by_hand,
@@ -206,11 +207,12 @@ def run_play(
     ``stdin_keys`` is the RAW per-line body (NOT yet title-prefixed) — callers build it
     with plain movement/menu-answer keys; this wraps it with :func:`make_walk_script`.
     ``players`` forwards straight to ``play()``'s own ``players`` parameter (default:
-    the single "alcapone" player, unchanged) — see ``TestTwoPlayerAlternation`` for a
-    scripted multi-player session.
+    :data:`~tests.helpers.SOLO`, the single "alcapone" player) — see
+    ``TestTwoPlayerAlternation`` for a scripted multi-player session.
     """
+    players = players or SOLO
     out = io.StringIO()
-    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
+    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys, players=len(players)))
     monkeypatch.setattr(sys, "stdout", out)
     # KTD-4: supply both setup answers (the pre-U5 hardcoded values) so play() skips
     # the end-year / score-weight prompts and every existing key script stays valid.
@@ -1765,8 +1767,9 @@ def run_play_returning(
 ):
     """Drive ``play()`` like :func:`run_play` under a SIGALRM deadline, but return
     ``(stdout, play()'s return value)`` so KTD-12's ``(state, rng)`` is observable."""
+    players = players or SOLO
     out = io.StringIO()
-    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
+    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys, players=len(players)))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
         ret = play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
@@ -1918,8 +1921,9 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
 
 
 def _new_game_lines(keys: list[str]) -> list[str]:
-    """A new game's stdin: the title ack, the house-rules offer, the first upkeep ack
-    (:data:`tests.helpers.NEW_GAME_ACKS`) and the turn menu's walk key
+    """A new game's stdin (one player): the title ack, the house-rules offer, the
+    eigenschaften key, the first upkeep ack (:data:`tests.helpers.NEW_GAME_ACKS`) and
+    the turn menu's walk key
     (:data:`tests.helpers.MENU_WALK_KEY`), then ``keys`` on the map."""
     return [*NEW_GAME_ACKS, MENU_WALK_KEY] + keys
 
@@ -1947,7 +1951,7 @@ def _two_steps(seed: int = 42) -> tuple[list[str], list[int]]:
 class TestSaveAndLoad:
     """``p`` on the map saves; ``--load`` resumes that exact game (U8)."""
 
-    _NEW = {"seed": 42, "end_year": 1930, "score_weight": 1.0}
+    _NEW = {"seed": 42, "end_year": 1930, "score_weight": 1.0, "players": SOLO}
 
     def _k1(self):
         """Walk into sph and play two poker hands (entering leaves ``po`` unchanged, so
@@ -2007,6 +2011,7 @@ class TestSaveAndLoad:
             seed=5,
             end_year=1930,
             score_weight=1.0,
+            players=SOLO,
         )
         assert game.job(state.players[0]).type != 0, "no job taken: vacuous"
         assert state.players[0].ms == -5
@@ -2071,11 +2076,12 @@ class TestSaveAndLoad:
         with deadline(60, "play() did not return", exc_type=_Deadline):
             play(save=str(save), **self._NEW)
 
-        # One read per line: title, house rules, upkeep, walk, k1, p, k2, p, q. The file
-        # read before k2 holds the first save; the one read before q holds the second.
+        # One read per line: title, house rules, eigenschaften, upkeep, walk, k1, p, k2,
+        # p, q. The file read before k2 holds the first save; the one read before q
+        # holds the second.
         assert c1 != c2
-        assert stdin.seen[:6] == [None] * 6, "a save existed before the first p"
-        assert stdin.seen[6:] == [c1, c1, c2]
+        assert stdin.seen[:7] == [None] * 7, "a save existed before the first p"
+        assert stdin.seen[7:] == [c1, c1, c2]
         assert list(tmp_path.iterdir()) == [save]
         assert load_game(save, _REGISTRIES).state.players[0].po == c2
         # Confirmed in the map's note line, with the target path.

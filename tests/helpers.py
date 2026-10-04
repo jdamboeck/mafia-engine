@@ -89,29 +89,44 @@ def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
 MENU_WALK_KEY = "2"
 
 
-#: A new game's stdin up to its first turn menu, for a ``play()`` given the end year and
-#: the score weight: the title screen's key, Enter at the house-rules offer (every rule
-#: faithful), and the first upkeep screen's key.
-NEW_GAME_ACKS = ["", "", ""]
+#: The single player a test's new game is set up with when the test names none:
+#: ``play()`` given no ``players`` asks the count and the names, so a test that only
+#: needs a game passes this (or its own roster) to skip those prompts.
+SOLO = [("alcapone", "the outfit")]
 
 
-def make_walk_script(keys: list[str]) -> io.StringIO:
+def new_game_acks(players: int = 1) -> list[str]:
+    """A new game's stdin up to its first turn menu, for ``play()`` given the players,
+    the end year and the score weight: the title screen's key, Enter at the house-rules
+    offer (every rule faithful), one key per player for the eigenschaften screen's key
+    wait (``:316 goto1100``; piped rolls stop on their first frame and read nothing),
+    and the first upkeep screen's key."""
+    return ["", "", *[""] * players, ""]
+
+
+#: :func:`new_game_acks` for one player (:data:`SOLO`).
+NEW_GAME_ACKS = new_game_acks(1)
+
+
+def make_walk_script(keys: list[str], players: int = 1) -> io.StringIO:
     """Build the piped-stdin body for ``play()``: the new game's acks, the walk, one key/line.
 
-    ``play()`` reads one line for "press a key" on the title screen, one for the
-    house-rules offer (Enter keeps every rule faithful), THEN one more for the
-    turn-start upkeep screen's "press any key..." ack (:data:`NEW_GAME_ACKS`), THEN the
-    turn menu's choice (``mf-prg.bas:1030``): :data:`MENU_WALK_KEY` opens the map. All
-    of them come before the map loop starts, so this builder prepends them. See
+    ``play()`` (given ``players`` players, the end year and the score weight) reads one
+    line for "press a key" on the title screen, one for the house-rules offer (Enter
+    keeps every rule faithful), one per player for the eigenschaften screen's key wait,
+    THEN one more for the turn-start upkeep screen's "press any key..." ack
+    (:func:`new_game_acks`), THEN the turn menu's choice (``mf-prg.bas:1030``):
+    :data:`MENU_WALK_KEY` opens the map. All of them come before the map loop starts,
+    so this builder prepends them. See
     ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
     Every turn rotation brings another upkeep ack and another turn menu for the new
     active player -- callers scripting a multi-turn session add a blank/any-key line
-    and :data:`MENU_WALK_KEY` per rotation on top of the three this builder prepends.
+    and :data:`MENU_WALK_KEY` per rotation on top of the acks this builder prepends.
     A turn whose movement points run out on the map ends with no menu (``:2005``,
     ``:1045``); one that leaves the map with points left (the exit key ``m``) meets
     the menu again.
     """
-    return io.StringIO("\n".join([*NEW_GAME_ACKS, MENU_WALK_KEY] + keys) + "\n")
+    return io.StringIO("\n".join([*new_game_acks(players), MENU_WALK_KEY] + keys) + "\n")
 
 
 class DeadlineExceeded(Exception):

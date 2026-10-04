@@ -75,7 +75,7 @@ client:
   cli:
     description: "Play the mafia slice."
     help_seed: "RNG seed for a new game (default {seed:raw})."
-    help_player: "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, turn order = order given). Default: a single 'alcapone:the outfit'."
+    help_player: "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, turn order = order given). Given, the game asks no player count and no names; each player still rolls their stats. Omitted, the game asks."
     help_end_year: "The year the game ends (asked at setup when omitted)."
     help_score_weight: "Score weight, e.g. 0.5 (asked at setup when omitted)."
     help_load: "Resume a saved game (its seed and setup come from the save)."
