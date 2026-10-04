@@ -34,7 +34,9 @@ from data.game_configs.mafia_1920s.gangster import Gangster
 from data.game_configs.mafia_1920s.handlers.gang_war import (
     GANG_WAR_SCREEN,
     SCORE_TO_THE_ATTACKER,
+    ZEROES_THE_ATTACKERS_BOSS,
 )
+from data.game_configs.mafia_1920s.handlers.turn import JAIL_SCREEN
 from engine.combat import CombatResult
 from engine.config_loader import load_game_config
 from engine.interactions import (
@@ -238,13 +240,14 @@ def test_the_attackers_own_number_and_a_number_past_the_players_are_read_again(m
 
 
 def test_a_jailed_opponent_is_listed_and_leaves_the_duel_for_the_prison_brawl(monkeypatch):
-    """:27018 ``ifgs(us)goto27100``: no duel. The brawl (:27100-27150) is U36's; until
-    then nothing happens and nothing is spent."""
+    """:27018 ``ifgs(us)goto27100``: no duel, the brawl's offer instead; "n" at its
+    :1110 leaves (:27110 ``ifx$="n"thenreturn``) with nothing done and nothing spent."""
     fought = _fights(monkeypatch)
     state = with_values(_state(), game.Wanted(jail_months=2), idx=1)
-    result, source = _duel(state, draws=())
+    result, source = _duel(state, answers=("2", False), draws=())
 
     assert [m.params["number"] for m in source.messages() if m.key == "gang_war.opponent"] == [2]
+    assert "gang_war.inmate_offer" in [m.key for m in source.messages()]
     assert fought == []
     assert list(result.effects) == []
 
@@ -462,3 +465,150 @@ def test_the_defenders_board_is_announced_and_the_line_survives_the_render(monke
 def _is_board(screen: str) -> bool:
     resolver = _resolver()
     return resolver.resolve("combat.action_prompt") in screen
+
+
+# --------------------------------------------------------------------------- #
+# The prison brawl (:27100-27150)                                              #
+# --------------------------------------------------------------------------- #
+_BOSS = Gangster(name="boss", weapon=5, energie=30, kraft=30, intelligenz=40, brutalitaet=30)
+
+
+def _jailed(months: int = 2, **fields):
+    """alcapone at the menu, moran in jail for ``months`` with a boss and two men,
+    every one armed."""
+    gang = (_BOSS, replace(_G, weapon=6), replace(_G, name="h", weapon=1))
+    state = _state(p1={"roster": gang}, **fields)
+    return with_values(state, game.Wanted(jail_months=months), idx=_DEFENDER)
+
+
+def _brawls(monkeypatch, *results: CombatResult):
+    """Stand in for the brawl's fight, the n-th returning ``results[n]``; returns the
+    fights fought as their keyword arguments."""
+    fought: list[dict] = []
+    queue = list(results)
+
+    def fight(ctx, encounter, **kwargs):
+        fought.append({"encounter": encounter.key, **kwargs})
+        return queue.pop(0)
+        yield  # a generator, as run_encounter is
+
+    # The turn menu holds the handler it resolved when _CONFIG loaded; a play() run
+    # loads the config again and registers another copy. Patch both modules.
+    menu_handlers = [o.handler for o in _CONFIG.menus["turn"].options if o.handler]
+    for handler in (HANDLERS["turn.gang_war"], *menu_handlers):
+        if handler.__name__ == "gang_war":
+            monkeypatch.setitem(handler.__globals__, "run_encounter", fight)
+    return fought
+
+
+def test_a_defender_with_1_month_left_whose_boss_wins_still_sees_the_jail_screen_next_turn(
+    monkeypatch,
+):
+    """:27140 ``x=int(rnd(1)*2)+1`` (rnd 0 -> 1), :27145 ``gs(us)=gs(us)+x``: moran's
+    last month becomes two, and his next turn is the jail screen showing them."""
+    _brawls(monkeypatch, CombatResult(winner=1, losses=(0, 0)))
+    runner = TurnRunner(
+        _jailed(months=1),
+        StubRng(0),
+        city=_CONFIG.city,
+        shells=_CONFIG.shells,
+        turn_menu=_CONFIG.menus["turn"],
+    )
+    # 3 gang war, 2 moran, j; then 4 ends alcapone's turn at the menu.
+    answers = ["3", "2", True, "4"]
+    gen = runner.run()
+    interaction = next(gen)
+    jail = None
+    with deadline(30, "the next turn never came"):
+        while jail is None:
+            if isinstance(interaction, Acknowledge) and interaction.key == JAIL_SCREEN:
+                jail = (runner.state.clock.active_player, interaction.params["months"])
+                break
+            asked = isinstance(interaction, (TurnMenu, PromptInt, Confirm))
+            interaction = gen.send(answers.pop(0) if asked else None)
+    gen.close()
+    assert jail == (_DEFENDER, 2), "moran's sentence did not grow, or he was let out"
+
+
+def test_after_the_brawl_the_jailed_roster_keeps_its_weapons_and_size():
+    """:27130 ``gw(us,1)=0:gz(us)=1`` for the fight only, :27135 restores both: the
+    boss fights alone and unarmed, and the roster comes out of it as it went in."""
+    state = _jailed()
+    before = state.players[_DEFENDER].roster
+    starts: list[StartCombat] = []
+    gen = HANDLERS["turn.gang_war"](_ctx(state))
+    interaction = next(gen)
+    while not isinstance(interaction, StartCombat):
+        interaction = gen.send(2 if isinstance(interaction, PromptInt) else True)
+    starts.append(interaction)
+    gen.close()
+    side1, side2 = starts[0].scenario.sides
+    assert [(f.weapon, f.roster_id, f.owner) for f in side1] == [(0, 0, _DEFENDER)]
+    assert [(f.weapon, f.vitality, f.owner) for f in side2] == [(3, 50, None)]
+
+    def answer(interaction):
+        if isinstance(interaction, CombatScreen):
+            return ("surrender", None)
+        return 2 if isinstance(interaction, PromptInt) else True
+
+    result = run_pure(HANDLERS["turn.gang_war"], answer, state=state, rng=StubRng(0))
+    after = result.state.players[_DEFENDER].roster
+    assert len(after) == len(before) == 3
+    assert [g.weapon for g in after] == [g.weapon for g in before] == [5, 6, 1]
+
+
+def test_an_attacker_with_less_than_3000_is_refused_at_no_cost(monkeypatch):
+    """:27115 ``ifka(sp)<3000goto1125``, asked after the j/n: "du hast zu wenig kies!",
+    no fight, no cash, no points, no movement (``goto1125`` skips :27150)."""
+    fought = _brawls(monkeypatch)
+    seen, runner, outcome = _menu_run(_jailed(p0={"ka": 2999}), ["3", "2", True])
+
+    assert outcome == "open" and isinstance(seen[-1], TurnMenu)
+    assert _screens(seen) == [["system.not_enough_money"]]
+    assert fought == []
+    attacker = runner.state.players[_ATTACKER]
+    assert (attacker.ka, attacker.gf, attacker.ms) == (2999, 50.0, 21)
+    assert game.wanted(runner.state.players[_DEFENDER]).jail_months == 2
+
+
+def test_the_jailed_players_board_is_announced(monkeypatch, tmp_path):
+    """KTD-8: the jailed player moves his boss (``ks(1)=us``); his board is drawn under
+    the whose-turn line, through ``play()``."""
+    state = _jailed()
+    save = tmp_path / "menu.jsonl"
+    save_game(save, state, registries=_CONFIG.registries, effect_log=[], rng_log=[], seed=42)
+    # 3 gang war, 2 moran, j; "verteidige dich" needs a key; moran gives up; the
+    # outcome needs no key; then quit at the menu.
+    lines = ["3", "2", "j", "", "surrender", "", "q"]
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
+    monkeypatch.setattr(sys, "stdout", out)
+    with deadline(30, "play() did not return"):
+        after, _rng = play(load=str(save))
+
+    output = out.getvalue()
+    boards = [s for s in output.split(CLEAR) if _is_board(s)]
+    assert len(boards) == 1, "not one board for moran's one activation"
+    assert "spieler moran\nist an der reihe..." in boards[0], "moran's board was not announced"
+    assert after.players[_ATTACKER].ka == 6000 - 3000
+
+
+@pytest.mark.parametrize("setting", ["faithful", "intent"])
+def test_the_lost_brawl_zeroes_one_boss_energy(monkeypatch, setting):
+    """:27146 ``a=sp:b=1:gosub1350:en=0:gosub1365`` when mr.bonebreaker wins: faithful,
+    the ATTACKER's boss goes to 0 and the beaten one keeps the fight's energy (21 left
+    here); intent, the beaten boss goes to 0 and the attacker's keeps his 40."""
+    _brawls(
+        monkeypatch,
+        CombatResult(winner=2, losses=(0, 0), roster_vitality=((0, 21),)),
+    )
+    state = with_config(
+        _jailed(p0={"roster": (_G,)}),
+        house_rules={**_jailed().config.house_rules, ZEROES_THE_ATTACKERS_BOSS: setting},
+    )
+    result, _ = _duel(state, answers=("2", True), draws=())
+
+    attacker_boss = result.state.players[_ATTACKER].roster[0].vitality
+    jailed_boss = result.state.players[_DEFENDER].roster[0].vitality
+    expected = {"faithful": (0, 30), "intent": (40, 0)}[setting]
+    assert (attacker_boss, jailed_boss) == expected

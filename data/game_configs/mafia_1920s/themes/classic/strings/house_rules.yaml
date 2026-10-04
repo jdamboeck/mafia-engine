@@ -8,3 +8,4 @@ house_rules:
   chief_bribe_negative_months: "police chief: a negative month count pays the player / is asked again"
   chief_bribe_empty_answer: "police chief: an empty month count repeats the last map step / buys nothing"
   gang_war_score_to_the_attacker: "gang war: the attacker scores +3 even when he loses / the winner scores +3"
+  prison_brawl_zeroes_the_attackers_boss: "prison brawl: a lost brawl zeroes the attacker's boss's energy / the beaten boss's"

@@ -14,7 +14,7 @@ name: "mafia_1920s"
 
 # This config's own content version. A save records it and is refused under another,
 # so bump it when a content change would make an existing save load wrongly.
-content_version: 7
+content_version: 8
 description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 
 # Entity tables live in sibling files under entities/.
@@ -311,6 +311,13 @@ formula_params:
   gang_war_winner_score: 3       # x=3:gosub1160 (:27041), faithfully to sp, the attacker
   gang_war_loser_score: -1       # sp=b:x=-1:gosub1160 (:27041)
   gang_war_cost: 10              # ms=ms-10 (:27045)
+  # The prison brawl — mf-prg.bas:27100-27150 (handlers/gang_war.py); the inmate is
+  # content/encounters/prison_inmate.yaml.
+  prison_brawl_price: 3000       # er verlangt 3000 $ / ifka(sp)<3000 / ka(sp)-3000 (:27110-27120)
+  prison_brawl_boss_weapon: 0    # gw(us,1)=0, haende (:27130)
+  prison_brawl_extension: 2      # x=int(rnd(1)*2)+1: 1 or 2 months (:27140)
+  prison_brawl_score: 2          # x=2:gosub1160, to sp, the attacker (:27150)
+  prison_brawl_cost: 10          # ms=ms-10 (:27150)
 
   # The map roadblock — mf-prg.bas:2041, :6000-6036 (handlers/roadblock.py).
   # ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3 (:2041)

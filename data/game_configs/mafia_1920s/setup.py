@@ -31,7 +31,7 @@ import yaml
 from engine.combat_setup import SIDE2_ANCHOR, build_player_side, placement_positions
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
-from engine.fight_loop import HumanDriver
+from engine.fight_loop import AiDriver, HumanDriver
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.rng import Rng
 from engine.scenario import Scenario
@@ -423,6 +423,7 @@ def run_encounter(
     vitality: int | None = None,
     grid: str | None = None,
     roster=None,
+    owner: int | None = None,
 ):
     """Run one declared fight for the active player and narrate its outcome.
 
@@ -440,7 +441,16 @@ def run_encounter(
       (the police roll all three from the rank, ``:26000-26010``);
     * ``grid`` replaces the backdrop: the caller's ``kf$`` when the caller sets it;
     * ``roster`` replaces the player side, e.g. the gang a caller has already cut
-      before the fight (the entry record of the police capture).
+      before the fight (the entry record of the police capture). It is a per-fight
+      VIEW: the side is built from it, and only each fighter's energy is written
+      back, to the gangster its slot names (``roster_id``); a weapon or a gang size
+      the view changes stays inside the fight;
+    * ``owner`` puts another player's gang on side 1: that player owns it (the fight
+      writes its energy back to them), moves it (a
+      :class:`~engine.fight_loop.HumanDriver` naming them, side 2 the CPU's as
+      ``:30110 ifks(s)=0`` plays it) and the outcome screen names their gang,
+      ``bn$(ks(1))``. The prison brawl's jailed player (``:27130`` ``ks(1)=us``).
+      Without it side 1 is the active player's.
     """
     active = ctx.state.players[ctx.state.clock.active_player]
     spec = encounter.variants[variant]
@@ -461,15 +471,22 @@ def run_encounter(
             _CONFIG_DIR / "content" / "combat" / f"{grid or encounter.grid}.yaml"
         ),
         equip=equipper(weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")),
-        # Side 1 is the active player's gang: its energy is written back to them.
-        owner=ctx.state.clock.active_player,
+        # Side 1's gang is its owner's: its energy is written back to them.
+        owner=ctx.state.clock.active_player if owner is None else owner,
     )
-    result = yield StartCombat(scenario=scenario)
+    if owner is None:
+        result = yield StartCombat(scenario=scenario)
+        player_name = active.name
+    else:
+        result = yield StartCombat(
+            scenario=scenario, drivers={1: HumanDriver(player=owner), 2: AiDriver()}
+        )
+        player_name = _gang_name(ctx.state.players[owner])
     # The outcome screen is the caller's to show (_run_combat yields no final screen);
     # the losses come off the CombatResult, which is right for a many-fighter side.
     yield from narrate_combat_outcome(
         winner=result.winner,
-        player_name=active.name,
+        player_name=player_name,
         enemy_name=spec.name,
         player_losses=result.losses[0],
         enemy_losses=result.losses[1],

@@ -31,9 +31,8 @@ is read again (``:27017``). The key is read as a number: a letter, which ``val()
 as 0 and so leaves on the C64, is asked again here, and RETURN leaves (the
 catalogue's header lists this departure).
 
-**A jailed opponent** (``:27018 ifgs(us)goto27100``) gets the prison brawl,
-``:27100-27150``, which is not ported yet (U36): until it is, picking a jailed player
-goes back to the menu with nothing done and nothing spent (:func:`_prison_brawl`).
+**A jailed opponent** (``:27018 ifgs(us)goto27100``, any sentence, a last month too)
+gets the prison brawl instead of the duel (:func:`_prison_brawl`, below).
 
 **The duel** (``:27020``): the defender's gang is side 1 and moves first, the attacker's
 is side 2, on ``ks``; each player moves his own side (:func:`~..setup.run_gang_fight`),
@@ -59,24 +58,67 @@ and each gang's energy loss stays with its player. ``a`` is the winner, ``b`` th
 
 No one is jailed, killed or dropped from a gang, and a job is untouched.
 
+**The prison brawl** (``:27100-27150``)::
+
+    27100 print"{clr}{down}"sp$(us)" sitzt im knast. ein mit-"
+    27110 print"{down}mischen'. er verlangt 3000 $. ";:gosub1110:ifx$="n"thenreturn
+    27115 ifka(sp)<3000goto1125
+    27120 ka(sp)=ka(sp)-3000:print"{down}verteidige dich, "sp$(us)"!":gosub1100
+    27125 bn$(0)="mr.bonebreaker":gz(0)=1:gw(0,1)=3:ec(1)=50:ks(2)=0
+    27130 z1=gw(us,1):z2=gz(us):gw(us,1)=0:gz(us)=1:ks(1)=us:kf$="kg":gosub30000
+    27135 gw(us,1)=z1:gz(us)=z2:ifs=2goto27146
+    27140 x=int(rnd(1)*2)+1:print"{clr}{down}"sp$(us)"! deine strafe wird wegen"
+    27145 gs(us)=gs(us)+x:goto27150
+    27146 a=sp:b=1:gosub1350:en=0:gosub1365
+    27150 ms=ms-10:x=2:gosub1160:goto1100
+
+* ``:27100-27110`` the attacker is offered a fellow inmate for 3000 $ and answers j/n;
+  "n" leaves at no cost. Only then is the cash checked: under 3000 $ ``:1125`` refuses,
+  and the menu comes back with nothing spent (``:27115`` ``goto1125`` skips ``:27150``);
+* ``:27120`` the 3000 $ are paid, and the jailed player is told to defend himself;
+* ``:27125-27130`` the fight, on ``kg``: side 1 is the jailed player's boss alone and
+  unarmed, owned and moved by the jailed player; side 2 is ``mr.bonebreaker``, one CPU
+  fighter (``ks(2)=0``) with a schlagkette and 50 energy
+  (``content/encounters/prison_inmate.yaml``). The boss alone and unarmed is a per-fight
+  roster view (:func:`_boss_alone_unarmed`): the real roster is never changed, which is
+  ``:27135``'s restore. The boss's energy loss stays with him;
+* ``:27140-27145`` the boss wins: the sentence grows by 1 or 2 months;
+* ``:27146`` mr.bonebreaker wins: ``a=sp:b=1`` zeroes the energy of gangster 1 of
+  ``sp``, the ATTACKER's boss, not the beaten one (switch
+  ``prison_brawl_zeroes_the_attackers_boss``; intent: the jailed boss's);
+* ``:27150`` either way the attacker scores +2 and the brawl costs 10 movement points.
+
 Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
 ``ctx.apply`` and this config's own helpers.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
-from engine.effects import MoneyChange, MsChange
+from engine.effects import EnergyChange, MoneyChange, MsChange
 from engine.interactions import Acknowledge, Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
-from ..effects import BarrelChange, MarkSet, VehicleSet
+from ..effects import BarrelChange, Jail, MarkSet, VehicleSet
 from ..house_rules import intent
-from ..setup import load_vehicles, run_gang_fight, score_and_rank
+from ..setup import (
+    load_encounter,
+    load_vehicles,
+    run_encounter,
+    run_gang_fight,
+    score_and_rank,
+)
 from ..state import contraband, gang_name, wanted
 
-__all__ = ["GANG_WAR_SCREEN", "SCORE_TO_THE_ATTACKER", "gang_war", "plunder"]
+__all__ = [
+    "GANG_WAR_SCREEN",
+    "SCORE_TO_THE_ATTACKER",
+    "ZEROES_THE_ATTACKERS_BOSS",
+    "gang_war",
+    "plunder",
+]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -86,6 +128,12 @@ GANG_WAR_SCREEN = "gang_war.screen"
 
 #: The house rule for ``:27041``'s ``x=3:gosub1160`` (``content/house_rules.yaml``).
 SCORE_TO_THE_ATTACKER = "gang_war_score_to_the_attacker"
+
+#: The house rule for ``:27146``'s ``a=sp:b=1:gosub1350:en=0:gosub1365``.
+ZEROES_THE_ATTACKERS_BOSS = "prison_brawl_zeroes_the_attackers_boss"
+
+#: ``:27125`` mr.bonebreaker, the fellow inmate of the prison brawl.
+_INMATE = load_encounter(_CONFIG_DIR / "content" / "encounters" / "prison_inmate.yaml")
 
 
 def plunder(rng, cash: int, params: dict) -> int:
@@ -111,9 +159,69 @@ def _too_early(clock, params: dict) -> bool:
     return (clock.year, clock.month) < (params["gang_war_from_year"], params["gang_war_from_month"])
 
 
+def _boss_alone_unarmed(roster, params: dict) -> tuple:
+    """``:27130`` ``gw(us,1)=0:gz(us)=1``: the fight's view of the jailed gang, the boss
+    (gangster 1, ``roster[0]``) alone and unarmed. A new tuple: the roster it is taken
+    from keeps its weapons and its size (``:27135``'s restore), and the fight writes
+    only the boss's energy back, to slot 0."""
+    return tuple(replace(boss, weapon=params["prison_brawl_boss_weapon"]) for boss in roster[:1])
+
+
+def _zero_boss_energy(roster, player: int):
+    """``:27146`` ``en=0`` between ``:1350``/``:1365``: gangster 1 of ``player``'s
+    ``roster`` at 0 energy, as an :class:`EnergyChange` of minus its energy before the
+    fight. A fight only lowers energy, and its own write-back is buffered first, so
+    the floor at 0 takes a boss the fight hurt to 0 too."""
+    vitality = roster[0].vitality
+    return EnergyChange(amount=-vitality, cap=vitality, gangster=0, player=player)
+
+
 def _prison_brawl(ctx, defender: int):
-    """``:27100-27150`` the prison brawl -- not ported yet (U36): nothing happens."""
-    yield from ()
+    """``:27100-27150`` the prison brawl; see the module docstring."""
+    state = ctx.state
+    params = state.config.formula_params
+    attacker = state.clock.active_player
+    jailed = state.players[defender]
+    price = params["prison_brawl_price"]
+
+    # :27100-27110 the offer, then :1110 ok (j/n)?; "n" returns.
+    yield ShowMessage("gang_war.inmate_offer", {"name": jailed.name, "price": price})
+    if not (yield Confirm("gang_war.inmate_confirm")):
+        return None
+    if state.players[attacker].ka < price:  # :27115 ifka(sp)<3000goto1125
+        yield Acknowledge(GANG_WAR_SCREEN, {"lines": [("system.not_enough_money", {})]})
+        return None
+    ctx.apply(MoneyChange(-price))  # :27120 ka(sp)=ka(sp)-3000
+    yield Acknowledge(
+        GANG_WAR_SCREEN,
+        {"lines": [("gang_war.defend_yourself", {"name": jailed.name})]},
+        player=defender,
+    )
+
+    # :27125-27130 the boss alone and unarmed (ks(1)=us) against the inmate on kg.
+    result = yield from run_encounter(
+        ctx, _INMATE, roster=_boss_alone_unarmed(jailed.roster, params), owner=defender
+    )
+    if result.winner == 1:  # :27135 ifs=2goto27146 is false: the boss won
+        # :27140 x=int(rnd(1)*2)+1 ... :27145 gs(us)=gs(us)+x
+        x = ctx.rng.range(params["prison_brawl_extension"]) + 1
+        ctx.apply(Jail(months=wanted(jailed).jail_months + x, player=defender))
+        yield Acknowledge(
+            GANG_WAR_SCREEN,
+            {"lines": [("gang_war.sentence_extended", {"name": jailed.name, "months": x})]},
+            player=defender,
+        )
+    elif intent(state, ZEROES_THE_ATTACKERS_BOSS):
+        # The beaten boss.
+        ctx.apply(_zero_boss_energy(jailed.roster, defender))
+    else:
+        # :27146 a=sp:b=1:gosub1350:en=0:gosub1365 -- the attacker's own boss.
+        ctx.apply(_zero_boss_energy(state.players[attacker].roster, attacker))
+
+    # :27150 ms=ms-10:x=2:gosub1160 -- on sp, the attacker, in both outcomes.
+    ctx.apply(score_and_rank(params["prison_brawl_score"], params))
+    ctx.apply(MsChange(-params["prison_brawl_cost"]))
+    return None
 
 
 @register("turn.gang_war")

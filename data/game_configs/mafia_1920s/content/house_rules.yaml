@@ -374,3 +374,17 @@ house_rules:
       takes the stock; whether an overfull winner should keep his excess, take nothing
       or lose it is not said anywhere.
     switch: false
+
+  - id: prison_brawl_zeroes_the_attackers_boss
+    citation: ":27146"
+    quote: "a=sp:b=1:gosub1350:en=0:gosub1365"
+    faithful: >-
+      When mr.bonebreaker beats the jailed boss (:27135 ``ifs=2goto27146``), the energy
+      set to 0 is gangster 1's of sp, the attacker who paid for the beating, not the
+      jailed player's. The beaten boss keeps whatever energy the fight left him (none
+      when he was knocked out, his own when his player gave up).
+    intent: >-
+      The beaten boss's energy is set to 0: the inmate is paid to beat up us, the
+      jailed player (:27100-27110), and the attacker's gang takes no part in the
+      brawl.
+    switch: true

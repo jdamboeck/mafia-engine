@@ -1365,6 +1365,64 @@ _GANG_WAR_SEATS = (
 )
 
 
+# --- :27100-27150 the prison brawl ----------------------------------------------------
+Q_27115 = q(27115, "ka(sp)<3000")
+Q_27120 = q(27120, "ka(sp)=ka(sp)-3000")
+Q_27140 = q(27140, "x=int(rnd(1)*2)+1")
+Q_27145 = q(27145, "gs(us)=gs(us)+x")
+Q_27150_MS = q(27150, "ms=ms-10")
+Q_27150_X = q(27150, "x=2")
+
+
+def _basic_prison_brawl(v: Values) -> Any:
+    """sp=1 pays for the brawl against the jailed us=2 ("j" at :1110); side ``s`` wins."""
+    b: dict[str, Any] = {"sp": 1, "us": 2, "s": v["s"], "x8": 1.0, "ms": 21}
+    b.update({"ka(1)": v["ka"], "gf(1)": v["gf"], "gs(2)": v["gs"], "rnd(1)": v["r"]})
+    if Q_27115.holds(b):  # :27115 goto1125 -- nothing changes
+        return (b["ka(1)"], b["gs(2)"], b["gf(1)"], b["ms"])
+    b["ka(1)"] = Q_27120.assign(b)
+    if b["s"] != 2:  # :27135 ifs=2goto27146
+        b["x"] = Q_27140.assign(b)
+        b["gs(2)"] = Q_27145.assign(b)
+    b["ms"] = Q_27150_MS.assign(b)
+    b["x"] = Q_27150_X.assign(b)
+    b["gf(1)"] = Q_1160.assign(b)
+    if Q_1160_CAP.holds(b):
+        b["gf(1)"] = 100
+    if Q_1161_FLOOR.holds(b):
+        b["gf(1)"] = 0
+    return (b["ka(1)"], b["gs(2)"], b["gf(1)"], b["ms"])
+
+
+def _engine_prison_brawl(v: Values) -> Any:
+    players = (
+        _player(name="p0", ka=v["ka"], gf=v["gf"], ms=21),
+        _player(name="p1", wanted=Wanted(jail_months=v["gs"])),
+    )
+    state = GameState(
+        players=players,
+        clock=Clock(active_player=0, player_count=2, month=4),
+        config=Config(formula_params={**_PARAMS, "score_mult": 1.0}),
+    )
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            return 2  # the jailed defender, us=2
+        if isinstance(interaction, Confirm):
+            return True  # :1110 "j"
+        return None
+
+    run = _drive(
+        HANDLERS["turn.gang_war"],
+        state,
+        draws=(v["r"],) if v["s"] == 1 and v["ka"] >= 3000 else (),
+        answer=answer,
+        fight=CombatResult(winner=v["s"], losses=(0, 0)),
+    )
+    attacker, jailed = run.state.players
+    return (attacker.ka, game.wanted(jailed).jail_months, attacker.gf, attacker.ms)
+
+
 # --- :20100-20150 ban, the night safe-crack ----------------------------------------
 Q_20100 = q(20100, "in>=40andkr>=15andbt>=20")
 Q_20110_RD = q(20110, "rd(i)=1+i")
@@ -2606,6 +2664,14 @@ PORTS: list[Port] = [
         ),
         _basic_gang_war,
         _engine_gang_war,
+    ),
+    Port(
+        "prison brawl",
+        (Q_27115, Q_27120, Q_27140, Q_27145, Q_27150_MS, Q_27150_X),
+        "HANDLERS['turn.gang_war'] (gang_war._prison_brawl)",
+        _grid(s=(1, 2), ka=(2999, 3000, 3001, 9000), gs=(1, 4), gf=(50.0, 98.5, 0.0), r=R),
+        _basic_prison_brawl,
+        _engine_prison_brawl,
     ),
     Port(
         "ban safe gate",
