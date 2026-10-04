@@ -7,9 +7,11 @@ purely additively — it changes nothing in the frozen ``engine.state``/``engine
 
 Store shape (append-only JSONL, one JSON object per line)
 --------------------------------------------------------
-- **line 0 — header**: ``{"kind":"header", "version", "seed", "snapshot", "pending_action"?}``
-  where ``snapshot`` is a serialized per-turn ``GameState`` and ``pending_action`` (optional)
-  is the mid-handler locus ``{location_key, option_id, ln, responses_so_far}``.
+- **line 0 — header**: ``{"kind":"header", "version", "config_id", "content_version", "seed",
+  "snapshot", "pending_action"?}`` where ``config_id``/``content_version`` name the config
+  (and its content version) the save was written under, ``snapshot`` is a serialized
+  per-turn ``GameState`` and ``pending_action`` (optional) is the mid-handler locus
+  ``{location_key, option_id, ln, responses_so_far}``.
 - **line 1..n — effect / rng records**: ``{"kind":"effect"|"rng", "version", ...}`` in commit
   order. **Semantic events are never written** — they are audit/UI records, not replay input
   (binding replay-semantics note in docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md).
@@ -19,47 +21,60 @@ the log so a replay does not re-roll. A **mid-handler** save is restored by repl
 recorded input responses into a fresh ``run_option`` so the handler re-suspends at the same
 prompt — generators are not serializable and none lives in ``GameState``.
 
-Serialization is **type-tagged**: each effect is written as ``{"_type": "<ClassName>", ...}``
-and reconstructed by looking the tag up in :data:`_EFFECT_TYPES`. ``GameState`` is nested
+Serialization is **type-tagged**: each effect is written as ``{"_type": "<tag>", ...}``
+(the tag it registered under, :func:`engine.effects.register_effect`) and reconstructed by
+looking the tag up in the loaded config's effect registry. ``GameState`` is nested
 dataclasses; it round-trips via :func:`~engine.state.json_safe` + typed reconstruction, with the
-int-keyed mapping fields (``map.tenancy``, ``map.special_cells``) restored to int keys (JSON
-stringifies dict keys). The graph's READ-ONLY collections are unwrapped to plain dict/list on
+int-keyed mapping fields (``combat.dir_memory``, int-keyed ``formula_params`` sub-maps) restored
+to int keys (JSON stringifies dict keys). Game state is never a class here: it lives in the
+declared value maps, which hold only scalars. The graph's READ-ONLY collections are unwrapped to plain dict/list on
 save and rebuilt as read-only on load, so a restored state is as immutable as a built one.
+
+**Loading needs the loaded config.** The engine cannot name what a config declares, so
+:func:`load_game` and :func:`replay` take the config's :class:`Registries`: the effect
+registry (effects are rebuilt by tag) and the state schema (value maps are rebuilt, with a
+missing key default-filled and an unknown key refused). :func:`save_game` takes them too,
+for the config's id and content version it stamps in the header; a save loaded under
+another config or content version is refused (:class:`SaveConfigError`), as is a save of
+another :data:`SCHEMA_VERSION` (:class:`SchemaVersionError`) -- nothing upgrades an old
+save. A snapshot whose config stores no house-rules map is refused too
+(:class:`MissingHouseRulesError`): the map is never default-filled. Recordings
+(``engine.recording``) hold no effects or player state and do not take them.
 """
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
+import types
+import typing
 from collections.abc import Mapping
-from dataclasses import dataclass, is_dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from engine import effects as _effects
-from engine.effects import SCHEMA_VERSION, commit
+from engine.effects import SCHEMA_VERSION, commit, effect_tag
 from engine.state import (
-    Business,
     Clock,
     CombatState,
-    Config,
-    Contraband,
-    Debt,
     Combatant,
+    Config,
     Fighter,
-    Flags,
     GameState,
-    Job,
-    MapState,
     Player,
-    Wanted,
+    StateSchema,
     json_safe,
 )
 
 __all__ = [
     "SCHEMA_VERSION",
     "SchemaVersionError",
+    "SaveConfigError",
+    "MissingHouseRulesError",
+    "UnknownEffectError",
+    "Registries",
     "SaveData",
     "save_game",
     "load_game",
@@ -71,26 +86,74 @@ __all__ = [
 
 
 class SchemaVersionError(Exception):
-    """Raised on load when a record carries a schema ``version`` this build cannot read."""
+    """Raised on load when a record carries a schema ``version`` this build cannot read.
+
+    ``found`` is the record's version as saved (any JSON value, or ``None`` when it has
+    none) and ``supported`` this build's :data:`SCHEMA_VERSION`. :attr:`older` tells a
+    save written by an older build from a newer or malformed one.
+    """
+
+    def __init__(self, found: Any, supported: int = SCHEMA_VERSION) -> None:
+        self.found = found
+        self.supported = supported
+        super().__init__(f"record schema version {found!r} != supported {supported}")
+
+    @property
+    def older(self) -> bool:
+        """Whether the record was written by an older build (a lower integer version)."""
+        found = self.found
+        return isinstance(found, int) and not isinstance(found, bool) and found < self.supported
+
+
+class SaveConfigError(Exception):
+    """Raised on load when a save was written under another config or content version.
+
+    ``field`` is ``"config_id"`` or ``"content_version"``; ``found`` is the save's value
+    and ``expected`` the loaded config's.
+    """
+
+    def __init__(self, field: str, found: Any, expected: Any) -> None:
+        self.field = field
+        self.found = found
+        self.expected = expected
+        super().__init__(f"save {field} {found!r} != the loaded config's {expected!r}")
+
+
+class MissingHouseRulesError(Exception):
+    """Raised on load when a save's snapshot stores no house-rules map.
+
+    The map is chosen at setup and changes what the rules do, so a save without it is
+    refused rather than default-filled (docs/design/engine-architecture.md § Save/replay).
+    """
+
+    def __init__(self) -> None:
+        super().__init__("the save's config stores no house_rules map")
+
+
+class UnknownEffectError(TypeError):
+    """Raised when an effect's tag is not in the effect registry it is resolved against."""
+
+
+@dataclass(frozen=True)
+class Registries:
+    """What save loading and replay need from the loaded config.
+
+    ``effects`` is the effect registry (tag -> class, :data:`engine.effects.EFFECTS`);
+    ``state_schema`` declares the per-player and global value maps; ``config_id`` and
+    ``content_version`` are the config's ``name`` and ``content_version`` from its
+    ``config.yaml``, which a save's header records and a load checks. All come from
+    :class:`~engine.config_loader.LoadedConfig` (``loaded.registries``).
+    """
+
+    effects: Mapping[str, type]
+    state_schema: StateSchema
+    config_id: str
+    content_version: int
 
 
 # --------------------------------------------------------------------------- #
 # Effect (de)serialization — type-tagged                                      #
 # --------------------------------------------------------------------------- #
-#: Every concrete Effect class, keyed by its tag (the class name). Built from the
-#: effects module's ``__all__`` so a newly added effect is covered automatically.
-def _build_effect_types() -> dict[str, type]:
-    out: dict[str, type] = {}
-    for name in _effects.__all__:
-        obj = getattr(_effects, name)
-        if isinstance(obj, type) and is_dataclass(obj) and obj is not _effects.CommitResult:
-            out[name] = obj
-    return out
-
-
-_EFFECT_TYPES: dict[str, type] = _build_effect_types()
-
-
 def _effect_to_dict(effect: Any) -> dict:
     """Serialize a frozen Effect dataclass to a type-tagged plain dict.
 
@@ -100,36 +163,52 @@ def _effect_to_dict(effect: Any) -> dict:
     is not picklable, so it cannot walk a frozen graph at all. ``json_safe`` is the
     engine's declared inverse of that frozen form and unwraps it correctly.
     """
-    tag = type(effect).__name__
-    if tag not in _EFFECT_TYPES:
-        raise TypeError(f"cannot serialize unknown effect type {tag!r}")
+    tag = effect_tag(effect)
+    if tag is None:
+        raise UnknownEffectError(
+            f"cannot serialize {type(effect).__name__!r}: it is not a registered effect"
+        )
     return {"_type": tag, **json_safe(effect)}
 
 
-#: Effect fields holding a nested dataclass, by effect type and field name.
-#: ``dataclasses.asdict`` flattens these on the way out, so reconstruction has to
-#: rebuild them — otherwise the effect replays carrying a plain dict and the first
-#: attribute read fails far from the save/load code that caused it.
-_NESTED_EFFECT_FIELDS: dict[str, dict[str, type]] = {
-    "SpawnFighter": {"fighter": Fighter},
-}
+def _dataclass_in(hint: Any) -> type | None:
+    """The dataclass a field annotation names, directly or as one arm of a union."""
+    if isinstance(hint, type) and dataclasses.is_dataclass(hint):
+        return hint
+    if typing.get_origin(hint) in (typing.Union, types.UnionType):
+        found = [a for a in typing.get_args(hint) if isinstance(a, type)]
+        classes = [a for a in found if dataclasses.is_dataclass(a)]
+        if len(classes) == 1:
+            return classes[0]
+    return None
 
 
-def _effect_from_dict(raw: dict) -> Any:
-    """Reconstruct an Effect dataclass from its type-tagged dict."""
-    tag = raw.get("_type")
-    if not isinstance(tag, str) or tag not in _EFFECT_TYPES:
-        raise TypeError(f"cannot deserialize unknown effect type {tag!r}")
-    cls = _EFFECT_TYPES[tag]
-    kwargs = {k: v for k, v in raw.items() if k != "_type"}
-    # A field added after this record was written: fill in what its absence meant.
-    for name, legacy in _effects.LEGACY_FIELD_DEFAULTS.get(cls, {}).items():
-        kwargs.setdefault(name, legacy)
-    for field, nested_cls in _NESTED_EFFECT_FIELDS.get(tag, {}).items():
-        value = kwargs.get(field)
-        if isinstance(value, dict):
-            kwargs[field] = nested_cls(**value)
+def _rebuild(cls: type, raw: dict) -> Any:
+    """Rebuild dataclass ``cls`` from its JSON dict, recursing into nested dataclasses.
+
+    Nested fields are found from the class's own field annotations, so an effect (the
+    engine's or a config's) with a dataclass-typed field needs no table entry: a
+    ``RosterAppend.gangster`` declared ``Combatant`` comes back a ``Combatant``, a
+    ``SpawnFighter.fighter`` declared ``Fighter`` a ``Fighter``.
+    """
+    hints = typing.get_type_hints(cls)
+    kwargs = dict(raw)
+    for f in dataclasses.fields(cls):
+        value = kwargs.get(f.name)
+        nested = _dataclass_in(hints.get(f.name))
+        if nested is not None and isinstance(value, dict):
+            kwargs[f.name] = _rebuild(nested, value)
     return cls(**kwargs)
+
+
+def _effect_from_dict(raw: dict, effects: Mapping[str, type]) -> Any:
+    """Reconstruct an Effect dataclass from its type-tagged dict, by the registry."""
+    tag = raw.get("_type")
+    if not isinstance(tag, str) or tag not in effects:
+        raise UnknownEffectError(
+            f"the save names effect {tag!r}, which the loaded config does not register"
+        )
+    return _rebuild(effects[tag], {k: v for k, v in raw.items() if k != "_type"})
 
 
 # --------------------------------------------------------------------------- #
@@ -172,59 +251,45 @@ def _is_int_literal(s: str) -> bool:
     return body.isascii() and body.isdigit()
 
 
-#: The roster-member blueprint fields the engine names; every other saved key is a
-#: game stat that folds into ``attrs``. ``vitality`` is a slot,
-#: not an attr — this game's ``energie`` was mapped onto it at construction.
-_ROSTER_BLUEPRINT_FIELDS = ("name", "weapon", "vitality")
-
-
 def _roster_member_from_dict(raw: dict) -> Combatant:
     """Rebuild a saved roster member as a bare :class:`~engine.state.Combatant`.
 
     The engine does not know the config's ``Gangster`` type (layer rule), so it never
-    reconstructs the named-field form. ``name``/``weapon`` are read by name; every
-    other saved key is a game stat and is folded into ``attrs`` — which is exactly
+    reconstructs the named-field form: a member is saved as its blueprint slots
+    (``name``, ``weapon``, ``vitality``) and its game stats under ``attrs`` -- exactly
     where the engine reads stats from, so the round-trip is lossless. A config that
     needs the named-field form reads it through ``attrs``.
     """
-    blueprint = {k: raw[k] for k in _ROSTER_BLUEPRINT_FIELDS if k in raw}
-    stats = {k: v for k, v in raw.items() if k not in _ROSTER_BLUEPRINT_FIELDS and k != "attrs"}
-    # Prefer an explicit saved attrs; fall back to the named stat keys.
-    attrs = raw.get("attrs") or stats
-    return Combatant(**blueprint, attrs=dict(attrs))
+    return Combatant(**raw)
 
 
-def _player_from_dict(raw: dict) -> Player:
+def _player_from_dict(raw: dict, schema: StateSchema | None, index: int) -> Player:
+    values = raw["values"]
+    if schema is None:
+        # No schema: the exact inverse of json_safe (see state_from_dict).
+        values = MappingProxyType(dict(values))
+    else:
+        # Default-fill a missing key; refuse an unknown or mistyped one.
+        values = schema.load_player_values(values, where=f"players[{index}]")
     return Player(
         **{
             **raw,
+            "values": values,
             "roster": tuple(_roster_member_from_dict(g) for g in raw["roster"]),
-            "jobs": Job(**raw["jobs"]),
-            "debt": Debt(**raw["debt"]),
-            "business": Business(**raw["business"]),
-            "contraband": Contraband(**raw["contraband"]),
-            "wanted": Wanted(**raw["wanted"]),
         }
     )
 
 
-def _map_from_dict(raw: dict) -> MapState:
-    return MapState(
-        # Rows of int codes; MapState's own __post_init__ freezes the grid (as freeze did).
-        grid=tuple(tuple(row) for row in raw["grid"]),
-        tenancy=_restore_int_keys(raw["tenancy"]),
-        special_cells=_restore_int_keys(raw["special_cells"]),
-    )
-
-
 def _config_from_dict(raw: dict) -> Config:
-    """Reconstruct ``Config``, restoring int dict keys only where they legitimately occur.
+    """Reconstruct ``Config``, restoring the int dict keys JSON stringified.
 
     ``formula_params`` holds opaque nested game data whose sub-dicts may be int-keyed
-    (e.g. ``fnm.overrides``) — restore those. ``action_costs`` is declared ``dict[str, int]``
-    with *semantic string* keys, so it is left untouched: a blanket numeric-key restore
-    would corrupt a legitimately string-keyed dict whose keys happened to look numeric.
+    (e.g. ``fnm.overrides``) — restore those. The house-rules map (string ids) comes
+    back as saved; a config with no map raises :class:`MissingHouseRulesError`, never
+    a default: the one saved field that is never default-filled.
     """
+    if "house_rules" not in raw:
+        raise MissingHouseRulesError()
     restored = dict(raw)
     if "formula_params" in restored:
         restored["formula_params"] = _restore_numeric_keys(restored["formula_params"])
@@ -236,8 +301,8 @@ def _combat_from_dict(raw: dict) -> CombatState:
 
     ``sides`` is a 2-tuple of fighter-dict lists (JSON-safed by :func:`~engine.state.json_safe`
     into plain lists of plain dicts) — each dict rebuilds into a :class:`~engine.state.Fighter`.
-    ``dir_memory`` is keyed by enemy fighter index (int), JSON-stringified on save like
-    ``map.tenancy``, so it goes through the same :func:`_restore_int_keys` restoration.
+    ``dir_memory`` is keyed by enemy fighter index (int), JSON-stringified on save, so it
+    goes through :func:`_restore_int_keys`.
     """
     restored = dict(raw)
     restored["sides"] = tuple(tuple(Fighter(**f) for f in side) for side in raw["sides"])
@@ -245,7 +310,7 @@ def _combat_from_dict(raw: dict) -> CombatState:
     return CombatState(**restored)
 
 
-def state_from_dict(raw: dict) -> GameState:
+def state_from_dict(raw: dict, schema: StateSchema | None = None) -> GameState:
     """Reconstruct a ``GameState`` from its serialized nested dict.
 
     Public because it is the declared inverse of :func:`~engine.state.json_safe`
@@ -253,14 +318,22 @@ def state_from_dict(raw: dict) -> GameState:
     (and int-key restoration) that a generic walker cannot do. The test purity
     harness rebuilds its replay baseline with it, so this is a supported entry
     point, not persistence-internal — changing its shape breaks that harness.
+
+    With a ``schema`` the value maps load through it (default-fill, refuse unknown
+    keys) — :func:`load_game` always passes the loaded config's. Without one they come
+    back exactly as saved, which is what the exact-inverse use needs.
     """
+    global_values = raw["values"]
+    if schema is None:
+        global_values = MappingProxyType(dict(global_values))
+    else:
+        global_values = schema.load_global_values(global_values)
     return GameState(
-        players=tuple(_player_from_dict(p) for p in raw["players"]),
-        map=_map_from_dict(raw["map"]),
+        players=tuple(_player_from_dict(p, schema, i) for i, p in enumerate(raw["players"])),
         combat=_combat_from_dict(raw["combat"]),
         clock=Clock(**raw["clock"]),
         config=_config_from_dict(raw["config"]),
-        flags=Flags(**raw["flags"]),
+        values=global_values,
     )
 
 
@@ -284,15 +357,25 @@ class SaveData:
 # --------------------------------------------------------------------------- #
 def _check_version(rec: dict) -> None:
     if rec.get("version") != SCHEMA_VERSION:
-        raise SchemaVersionError(
-            f"record schema version {rec.get('version')!r} != supported {SCHEMA_VERSION}"
-        )
+        raise SchemaVersionError(rec.get("version"))
+
+
+def _check_config(header: dict, registries: Registries) -> None:
+    """Refuse a save written under another config, or another content version of it."""
+    for field, expected in (
+        ("config_id", registries.config_id),
+        ("content_version", registries.content_version),
+    ):
+        found = header.get(field)
+        if found != expected:
+            raise SaveConfigError(field, found, expected)
 
 
 def save_game(
     path: str | Path,
     state: GameState,
     *,
+    registries: Registries,
     effect_log: list,
     rng_log: list,
     seed: int,
@@ -300,14 +383,18 @@ def save_game(
 ) -> None:
     """Write the append-only JSONL save: header (snapshot) then effect/RNG records.
 
-    ``effect_log`` is the ordered committed-effect stream; ``rng_log`` is the ordered
-    RNG draw records (``engine.rng.Rng.log`` tuples). Semantic events, if a caller has
-    any, are intentionally not accepted here — they are never part of replay.
+    ``registries`` is the loaded config's (``loaded.registries``): the header records
+    its config id and content version, which :func:`load_game` checks. ``effect_log``
+    is the ordered committed-effect stream; ``rng_log`` is the ordered RNG draw records
+    (``engine.rng.Rng.log`` tuples). Semantic events, if a caller has any, are
+    intentionally not accepted here — they are never part of replay.
     """
     path = Path(path)
     header = {
         "kind": "header",
         "version": SCHEMA_VERSION,
+        "config_id": registries.config_id,
+        "content_version": registries.content_version,
         "seed": seed,
         "snapshot": _state_to_dict(state),
     }
@@ -348,8 +435,15 @@ def append_effect(path: str | Path, effect: Any) -> None:
 # --------------------------------------------------------------------------- #
 # Read                                                                        #
 # --------------------------------------------------------------------------- #
-def load_game(path: str | Path) -> SaveData:
-    """Load a save: parse the JSONL, verify versions, reconstruct snapshot + logs."""
+def load_game(path: str | Path, registries: Registries) -> SaveData:
+    """Load a save: parse the JSONL, verify versions, reconstruct snapshot + logs.
+
+    ``registries`` is the loaded config's (``loaded.registries``): effects are rebuilt
+    by tag through its effect registry — an unregistered tag raises
+    :class:`UnknownEffectError` naming it — and the value maps through its state schema.
+    A record of another :data:`SCHEMA_VERSION` raises :class:`SchemaVersionError`, and
+    a save written under another config id or content version :class:`SaveConfigError`.
+    """
     path = Path(path)
     records = [
         json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -361,9 +455,12 @@ def load_game(path: str | Path) -> SaveData:
         _check_version(rec)
 
     header = records[0]
-    state = state_from_dict(header["snapshot"])
+    _check_config(header, registries)
+    state = state_from_dict(header["snapshot"], registries.state_schema)
     effect_log = [
-        _effect_from_dict(rec["effect"]) for rec in records if rec.get("kind") == "effect"
+        _effect_from_dict(rec["effect"], registries.effects)
+        for rec in records
+        if rec.get("kind") == "effect"
     ]
     # rng draws round-trip as [method, [args...], value]; normalize to the log tuple shape.
     rng_log = [
@@ -384,12 +481,21 @@ def load_game(path: str | Path) -> SaveData:
 # --------------------------------------------------------------------------- #
 # Replay + resume                                                             #
 # --------------------------------------------------------------------------- #
-def replay(save: SaveData) -> GameState:
+def replay(save: SaveData, registries: Registries) -> GameState:
     """Reproduce the final ``GameState`` = snapshot + ordered effect log.
 
     RNG draws are carried in ``save.rng_log`` for verification/auditing; replay itself
-    does not re-roll because the committed effects already encode every outcome.
+    does not re-roll because the committed effects already encode every outcome. Each
+    effect applies itself; ``registries`` is checked first, so a log holding an effect
+    the loaded config does not register fails naming its tag rather than replaying it.
     """
+    for effect in save.effect_log:
+        tag = effect_tag(effect)
+        if tag is None or tag not in registries.effects:
+            raise UnknownEffectError(
+                f"the log holds effect {tag or type(effect).__name__!r}, "
+                "which the loaded config does not register"
+            )
     return commit(save.state, save.effect_log).state
 
 

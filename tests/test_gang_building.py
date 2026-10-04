@@ -18,7 +18,6 @@ brutalitaet +5 (mf-prg.bas:13125-13127, C64 true=-1: 2-3*(ln=2) is 5 at ln=2).
 
 from __future__ import annotations
 
-import dataclasses
 from pathlib import Path
 
 import pytest
@@ -27,7 +26,8 @@ import yaml
 from engine.actions import run_option
 from engine.config_loader import load_game_config
 from engine.locations import load_location
-from tests.helpers import StubRng, scripted, with_player
+from tests.helpers import StubRng, scripted, with_player, with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CONFIG = load_game_config(_CONFIG_DIR)
@@ -56,7 +56,7 @@ def _start_state():
     )
     state = with_player(state, ka=_START_CASH, gf=_START_SCORE, rank=_RANK)
     # Housing: one apartment slot rented by player 0 (mf-prg.bas:12103).
-    return dataclasses.replace(state, map=dataclasses.replace(state.map, tenancy={1: 0}))
+    return with_tenancy(state, ln=1, owner=0)
 
 
 def _run(shell, option, state, ln, answers, rng):
@@ -79,20 +79,22 @@ def _build_gang():
     state, seen["recruit"] = _run(pub, "recruit", state, _PUB_LN, [True] * 3, rng)
     assert rng.calls == [("range", 4)] + [("range", 30)] * 3, rng.calls
 
-    # Arm: weapon index, then the gangster. Schlagkette is first offered to billy
-    # (roster 3, brutalitaet 30 < 40), who is refused, then to eddie (roster 2).
+    # Arm: weapon index, then the gangster's number (:1145, 1-based: the boss is 1).
+    # Schlagkette is first offered to billy (roster 3, brutalitaet 30 < 40), who is
+    # refused, then to eddie (roster 2).
     buy_answers = {
-        1: [2, 1],  # knueppel -> joe
-        2: [3, 3, 2],  # schlagkette -> billy (refused), then eddie
-        3: [5, 3],  # revolver -> billy
+        1: [2, 2],  # knueppel -> joe
+        2: [3, 4, 3],  # schlagkette -> billy (refused), then eddie
+        3: [5, 4],  # revolver -> billy
     }
     for roster_idx, answers in buy_answers.items():
         state, seen[f"buy{roster_idx}"] = _run(waf, "buy", state, _WAF_LN, answers, StubRng())
 
-    # Train each recruit at the range: gangster, venue 0 (range; rank >= 5 asks), confirm.
+    # Train each recruit at the range: gangster number, venue 0 (range; rank >= 5
+    # asks), confirm.
     for roster_idx in (1, 2, 3):
         state, seen[f"train{roster_idx}"] = _run(
-            waf, "train", state, _WAF_LN, [roster_idx, 0, True], StubRng()
+            waf, "train", state, _WAF_LN, [roster_idx + 1, 0, True], StubRng()
         )
 
     return start, state, seen
@@ -141,7 +143,7 @@ def test_training_raised_each_recruits_stats_by_the_ln2_range_gains(gang):
 def test_recruits_join_at_energy_5_and_are_marked_hired(gang):
     _, final, _ = gang
     assert [g.vitality for g in _player(final).roster[1:]] == [5, 5, 5]
-    assert set(_RECRUITS) <= set(final.flags.hired_gangsters)
+    assert set(_RECRUITS) <= set(game.hired_ids(final))
 
 
 def test_cash_paid_for_exactly_three_recruits_three_weapons_and_three_trainings(gang):

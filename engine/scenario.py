@@ -82,6 +82,7 @@ class Scenario:
         equip: Any = None,
         rules: RulesBundle | None = None,
         seed: int | None = None,
+        owner: int | None = None,
     ) -> "Scenario":
         """Build the procedural scenario the three in-game handlers share.
 
@@ -95,7 +96,7 @@ class Scenario:
         ``enemy_vitality`` is the enemy's vitality slot, ``enemy_attrs`` its non-vitality
         stats, and ``equip`` the per-fighter equipment constructor. ``rules`` and
         ``seed`` ride alongside — they are not ``setup_combat``'s concern but they are
-        the scenario's.
+        the scenario's. ``owner`` is the player whose roster side 1 is.
         """
         state = setup_combat(
             roster,
@@ -106,6 +107,7 @@ class Scenario:
             enemy_name=enemy_name,
             grid=grid,
             equip=equip,
+            owner=owner,
         )
         return cls(
             sides=state.sides,
@@ -126,6 +128,7 @@ class Scenario:
         grid: tuple[int, ...] = (),
         equip: Any = None,
         seed: int | None = None,
+        owner: int | None = None,
     ) -> "Scenario":
         """Build a scenario from a **parsed encounter declaration**.
 
@@ -157,4 +160,5 @@ class Scenario:
             equip=equip,
             rules=rules,
             seed=seed,
+            owner=owner,
         )

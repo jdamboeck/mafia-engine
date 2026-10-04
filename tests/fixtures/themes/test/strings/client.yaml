@@ -6,7 +6,7 @@ client:
   map:
     hint: "walk on."
   turn_over:
-    summary: "geld: {cash}$ | feld {position} | schritte {movement} | rang {rank} | knast {jail_months}"
+    summary: "geld: {cash:raw}$ | feld {position:raw} | schritte {movement:raw} | rang {rank:raw} | knast {jail_months:raw}"
   load:
     error: "kaputt {path} -- {reason}"
     reason:

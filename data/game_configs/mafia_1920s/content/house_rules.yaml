@@ -1,0 +1,390 @@
+# House rules — this game's rule-quirk catalogue.
+#
+# Each entry records one rule quirk of the original (mf-prg.bas): the port plays the
+# faithful behaviour by default, and setup offers a switch to the intended one where the
+# intent is clear. Checked when the config loads (house_rules.py); a bad entry fails it.
+#
+#   - id: lower_case_id        # unique; the key in state.config.house_rules
+#     citation: ":26020"       # the BASIC line (or range ":1015-1050") it ports
+#     quote: "..."             # a verbatim fragment of that line; the citation checker
+#                              # (tests/test_citations.py) holds it to the line
+#     faithful: "..."          # what the original does
+#     intent: "..."            # what it evidently meant to do  -- or, instead:
+#     no_intent: "..."         # why no intended behaviour is recorded
+#     switch: true             # setup offers it; needs an intent text
+#
+# A switchable entry also needs its one-line setup description in the theme, under
+# house_rules.<id> (themes/classic/strings/house_rules.yaml).
+#
+# Deliberate departures of the port are not entries (the port does not play them
+# faithfully, so there is nothing to switch); each is a note at the code that departs:
+#   - kdh's debtor fight pins its backdrop to "ks": mf-prg.bas:15312 sets no kf$ and
+#     would inherit the last fight's (handlers/kdh.py).
+#   - the hit test draws both miss factors of mf-prg.bas:30247 even when the first
+#     already missed, so the RNG log has one shape per shot (combat_rules.py).
+#   - the debug free-memory line of mf-prg.bas:1208 is not shown (handlers/turn.py).
+#   - ble's stake prompt reads whole numbers only: the C64 INPUT at mf-prg.bas:22105
+#     takes a fraction, and an empty answer keeps the stake variable's last value from
+#     wherever it was set (both checked in VICE; handlers/ble.py). A fraction here, or
+#     an empty answer, is asked again.
+#   - upkeep rolls the 1-in-8 mark decay of mf-prg.bas:4055-4056 only for a mark the
+#     player holds; the source rolls both every turn (handlers/upkeep.py).
+#   - after a lost police fight, a lost fight with the car owner (mf-prg.bas:14125)
+#     or a lost mail-train fight (mf-prg.bas:19030), the chief-bribe auto-pay (mf-prg.bas:26021) charges 0: the source's p there is
+#     whatever the fight left in it (the cell where the last player fighter fell,
+#     0..520, or the last step if the player quit), which the port's fight does not
+#     report (handlers/police.py, handlers/aut.py, handlers/bhf.py).
+#   - the gangster picker's number prompt (mf-prg.bas:1145) reads whole numbers from 0
+#     up: on the C64 a negative number stops the game with an error at :1350's
+#     subscript, a fraction picks the gangster it truncates to, and an empty answer
+#     keeps whatever y last held; here each is asked again (an empty answer cancels
+#     where the caller lets the prompt be cancelled; setup.pick_gangster).
+#   - the car dealer's model key (mf-prg.bas:14020 getx$) reads a number: a letter,
+#     which val() reads as 0 and so leaves the showroom on the C64, is asked again
+#     here; RETURN leaves, as on the C64 (handlers/aut.py).
+#   - the lawyer's fee prompt reads whole numbers only: the C64 INPUT at
+#     mf-prg.bas:26060 takes a fraction, and reads text as 0 (no lawyer); both are
+#     asked again here. An empty answer keeps x$, which is "j" from the lawyer
+#     question at first (0, no lawyer) and the refused answer after a refusal (asked
+#     again), as the port does (checked in VICE; handlers/police.py).
+#   - the gang war's opponent key (mf-prg.bas:27015 getx$) reads a number: a letter,
+#     which val() reads as 0 and so leaves on the C64 (:27016), is asked again here;
+#     RETURN leaves, as on the C64 (handlers/gang_war.py).
+house_rules:
+  - id: intelligence_or_30
+    citation: ":311"
+    quote: "in=xor30"
+    faithful: >-
+      The first gangster's rolled intelligence is stored OR 30 (bitwise), so it is
+      30, 31, 62 or 63, while the setup screen prints the roll itself: :350
+      ``x=int(rnd(1)*9)*5+10``, 10 to 50 in steps of 5.
+    intent: >-
+      Intelligence is the roll the setup screen prints, as strength (:310 ``kr=x``)
+      and brutality (:312 ``bt=x``) are.
+    switch: true
+
+  - id: shared_direction_memory
+    citation: ":30492"
+    quote: "ri(f)=p"
+    faithful: >-
+      The fight AI's direction memory is indexed by the fighter's number alone. The
+      original's only computer side is side 2 (:5010 ``ks(1)=sp:ks(2)=0``), so this
+      never shows there; when both sides are
+      computer-driven (the fight lab), fighter f of one side and fighter f of the
+      other share one memory, and each one's last step forbids the other's reverse
+      step.
+    intent: >-
+      Each fighter of each side remembers only its own last step, as the one
+      computer side does in the original.
+    switch: true
+
+  - id: collectors_win_keeps_debt
+    citation: ":4355"
+    quote: "ifs=1thenreturn"
+    faithful: >-
+      Beating the loan shark's collectors ends upkeep's debt step with no seizure and
+      no relief: the debt and its expired grace counter stay (:4305
+      ``kz(sp)=kz(sp)+(kz(sp)>0):ifkz(sp)=0goto4350`` keeps a counter at 0 and fights
+      again), so the collectors come back every turn until the debt is repaid or a
+      fight is lost.
+    no_intent: >-
+      The return on a win is written out, and the loss branch states its own outcome
+      (:4370 ``ka(sp)=0:kr(sp)=0:kz(sp)=0``); nothing in the source says whether a win should clear the debt,
+      restart the grace months or leave both, so no single intended behaviour exists.
+    switch: false
+
+  - id: croupier_completion_score_zero
+    citation: ":25560"
+    quote: "x=3+3*(jo(sp)=2)"
+    faithful: >-
+      A finished job scores 3, the croupier's 0: a true comparison is -1 on the C64,
+      so the croupier's term is -3.
+    no_intent: >-
+      The author writes true = -1 arithmetic on purpose elsewhere (:13126 adds 5 with
+      ``in=in+3-2*(ln=1)``, :13065 raises the score with ``gf(sp)-x8*1*(gf(sp)<100)``),
+      so 0 reads as meant -- the croupier is the job already paid per shift (:25125
+      ``p=int(rnd(1)*100*x)+300``) -- not as a slip for 6.
+    switch: false
+
+  - id: eviction_keeps_the_room
+    citation: ":4651"
+    quote: "gz(sp)=1"
+    faithful: >-
+      Eviction for unpaid rent only cuts the gang to the boss. The room stays the
+      player's (only :10040 ``uk(ln)=sp`` writes a tenancy) and the rent counter stays
+      at 1 (:4046 ``ifum(sp)=0thenum(sp)=1:gosub4600``), so the player still counts as
+      housed for recruiting (:12103 ``ifuk(i)=spgoto12105``) and is fined again every
+      turn.
+    no_intent: >-
+      The message says the flat is terminated, but vacating would have to choose which
+      of the player's rooms go and whether the monthly fine stops; the source settles
+      neither, so no single intended behaviour exists.
+    switch: false
+
+  - id: recruit_cap_checked_after_the_offer
+    citation: ":12145"
+    quote: "ifgz(sp)=10goto12005"
+    faithful: >-
+      Once a hire in a pub batch fills the gang to 10, the next candidate is still
+      drawn, introduced and offered; a yes the player can pay for then meets the cap
+      through :12005 and :12105 ``ifgz(sp)=10thenprint``, the gang-full message.
+    no_intent: >-
+      The extra offer takes no cash and hires no one, so the two orders differ only
+      in the screens shown and one candidate draw; there is nothing to switch.
+    switch: false
+
+  - id: direction_memory_seeded_left
+    citation: ":30020"
+    quote: "ri(i)=-1"
+    faithful: >-
+      Each computer fighter starts a fight remembering a step to the left, so its first
+      move can never be a step to the right (:30456 ``ifri(f)<>-1thenp=1``).
+    no_intent: >-
+      -1 may be a "no step yet" mark that happens to be a real step, or a deliberate
+      nudge for a side that starts on the right and closes in leftwards; the source
+      does not say which.
+    switch: false
+
+  - id: passport_rebuy_charged
+    citation: ":22020"
+    quote: "ag(sp)=ag(sp)or1"
+    faithful: >-
+      Blueten-Eddie sells a passport to a player who already holds one: the price
+      (:22010 ``p=1000*x``) is charged again and the mark, one bit, stays as it was, so
+      the second passport buys nothing.
+    no_intent: >-
+      The option asks for a new passport ("einen neuen pass"), so selling one to a
+      holder may be meant, and the source keeps no age or count a new one could reset;
+      nothing says whether Eddie should refuse instead.
+    switch: false
+
+  - id: stale_bribe_price
+    citation: ":26021"
+    quote: "ifpl(sp)andint(rnd(1)*2)<>0goto26037"
+    faithful: >-
+      With police-chief bribe months left, one arrest in two skips the menu and goes
+      straight to the payment line (:26037 ``ifka(sp)<pthengosub1125:goto26045``)
+      with whatever ``p`` last held, and no price is shown. After a map step that is
+      the step's screen address (:2030 ``p=br+po(sp)+x``, 52224 plus the cell), which
+      almost no player can pay, so the arrest ends in a sentence; after a fight it is
+      a combat cell (0 to 520), mostly paid and let go.
+    intent: >-
+      The skipped menu charges the ordinary police bribe (:26035
+      ``p=500+500*ra(sp)``): the chief's protection pays the price without asking.
+    switch: true
+
+  - id: flight_odds_by_seat
+    citation: ":26040"
+    quote: "ifint(rnd(1)*tr(sp)/11)=0"
+    faithful: >-
+      The flight's odds read the vehicle range table at the player's seat number
+      rather than at the player's vehicle, so they depend on who plays first: caught
+      11 times in 35 in seat 1, 11 in 40 in seats 2 and 3, 11 in 60 in seat 4,
+      whatever the player drives.
+    intent: >-
+      The odds read the range of the player's own vehicle, as the turn's movement
+      points do (:1012 ``ms=tr(tm(sp))``): a faster car gets away more often.
+    switch: true
+
+  - id: lawyer_fee_uncapped
+    citation: ":26061"
+    quote: "ifx>ka(sp)orx<0then"
+    faithful: >-
+      The lawyer prompt says 0-10000$, but only a fee above the player's cash or below
+      0 is asked again; any larger fee is taken, and each 1000 $ adds one to the months
+      the lawyer can cut (:26062 ``y=int(rnd(1)*(x/1000+1))+1``).
+    no_intent: >-
+      The 10000 appears only in the prompt text (:26060); whether a larger fee should
+      be refused, capped or allowed is not said anywhere else, so no single intended
+      behaviour exists.
+    switch: false
+
+  - id: chief_bribe_negative_months
+    citation: ":21011"
+    quote: "p=1000*x:ifx=0thenreturn"
+    faithful: >-
+      The police chief takes any month count the C64 INPUT reads, a negative one
+      included (checked in VICE). For x below 0 the price is below 0, so :21015
+      ``ifka(sp)<p`` never refuses, and :21020 ``ka(sp)=ka(sp)-p:pl(sp)=pl(sp)+x+1``
+      pays the player 1000 $ a month and lowers the bribe months, below 0 from x=-2
+      on. A negative count never ages (:4050 ``pl(sp)=pl(sp)+(pl(sp)>0)``), and any
+      count other than 0 arms the arrest's auto-pay (:26021 ``ifpl(sp)and``).
+    intent: >-
+      Months are bought, not sold: a count below 0 is asked again.
+    switch: true
+
+  - id: chief_bribe_empty_answer
+    citation: ":21011"
+    quote: 'wieviele monate:";x'
+    faithful: >-
+      An empty answer keeps x as it was (checked in VICE), and the last line to write
+      x is the map step into the station's door (:2015-2018 ``x=-1``, ``1``, ``-40``,
+      ``40``). From the street left of the door the player buys one month; from the
+      right (911, where the back exit and the jail put him) he is paid 1000 $, and
+      from below 40000 $ with the bribe months lowered by 39.
+    intent: >-
+      An empty answer buys nothing: it leaves quietly, as 0 does (:21011
+      ``ifx=0thenreturn``).
+    switch: true
+
+  - id: car_price_ignores_the_trade_in
+    citation: ":14035"
+    quote: "ifka(sp)<pthengosub1125:goto14006"
+    faithful: >-
+      The car dealer asks for the car's full price in cash before the trade-in is
+      offered (:14045 ``q=1000+1000*tm(sp)``), so a player whose cash and old car
+      together cover the price is sent back to the showroom; a player who can pay then
+      gets the trade-in on top (:14050 ``ka(sp)=ka(sp)-p+q``).
+    no_intent: >-
+      A dealer may want the price in hand before he haggles over the old car; nothing
+      in the source says the check should count the trade-in, so no single intended
+      behaviour exists.
+    switch: false
+
+  - id: stolen_car_keeps_the_movement_points
+    citation: ":14118"
+    quote: "tm(sp)=5"
+    faithful: >-
+      A stolen car changes the vehicle but not the movement points left this turn,
+      while a bought one moves them at once (:14050 ``ms=tr(y)-tr(tm(sp))+ms``); the
+      stolen car's range counts from the next turn (:1012 ``ms=tr(tm(sp))``).
+    no_intent: >-
+      A thief who has just fled the owner may be meant to lose the rest of the turn's
+      head start, or the adjustment may have been left out; the source does not say
+      which.
+    switch: false
+
+  - id: smaller_tank_keeps_the_barrels
+    citation: ":14050"
+    quote: "tm(sp)=y"
+    faithful: >-
+      Changing to a car with a smaller tank, bought or stolen (:14118 ``tm(sp)=5``),
+      leaves every alcohol barrel the player holds, above the new tank's size too. Only
+      the pub's buy (:12025 ``q=tk(tm(sp))-ta(sp)``) and the gang war (:27040) compare
+      the barrels with the tank.
+    no_intent: >-
+      The barrels could be dumped, sold or refused at the sale, and the source never
+      trims them anywhere; no single intended behaviour exists.
+    switch: false
+
+  - id: jack_fight_reply_by_killing_weapon
+    citation: ":30215"
+    quote: "w=gw(ks(s),f)"
+    faithful: >-
+      After a won fight with Narben-Jack's gang (:17210), the shop's payout (:17505
+      ``+600*(w=2)``, which is -600 when w=2, as C64 true is -1) and reply (:17510
+      ``onwgoto17511,17515,17520,17525``) read ``w``, which the fight has set to the
+      weapon of whoever fired the last shot, the gangster who killed the last of
+      Jack's men. A kill with a knueppel (weapon 2) pays 600 less, with the sob-story
+      reply; messer, schlagkette and wurfsterne pick their replies; any other weapon
+      falls through to the first reply.
+    no_intent: >-
+      The protection option's own number is 3, and :17210 sets ``w=7`` for the fight,
+      so the reply may be meant to be option 3's, or Jack's gang's, or the source may
+      simply reuse ``w``; nothing says which.
+    switch: false
+
+  - id: pickpocket_scores_even_when_caught
+    citation: ":18039"
+    quote: "x=1:gosub1160"
+    faithful: >-
+      The subway's pickpocketing scores 1 as soon as the thief sets off, before the
+      safecracker roll (:18040) and the catch roll (:18041), so a thief the police
+      catch (:18042 ``goto26020``) keeps the point; a handbag or a fake necklace
+      scores it too.
+    no_intent: >-
+      The point may reward the attempt, or may be meant only for a success; the source
+      pays it on every path and never takes it back, so no single intended behaviour
+      exists.
+    switch: false
+
+  - id: subway_ticket_lost_on_cancel
+    citation: ":18030"
+    quote: "ka(sp)=ka(sp)-50"
+    faithful: >-
+      The train's 50 $ ticket is paid before the thief is picked (:18035
+      ``gosub1130:ify=0thenreturn``), so answering 0 at the picker, or having no gang,
+      leaves the subway with the ticket gone and nothing stolen.
+    no_intent: >-
+      A ticket bought and not used is plausibly lost; the source may have meant the
+      pick to come first, but nothing says so.
+    switch: false
+
+  - id: mail_train_small_gang_loses_tip
+    citation: ":19016"
+    quote: "ifgz(sp)<3thenprint\"du hast zu wenig gangster!\":tp(sp)=0"
+    faithful: >-
+      Trying to rob the mail train with fewer than 3 gangsters (the boss counts) is
+      refused, and the pub tip that opened it (:19015 ``iftp(sp)<>1``) is cleared: the
+      player cannot come back with a bigger gang on the same tip.
+    no_intent: >-
+      Losing the tip may be the price of a botched attempt, or the refusal may have
+      been meant to keep it; the source clears it deliberately on this path and nothing
+      says otherwise.
+    switch: false
+
+  - id: bank_guards_text_says_three
+    citation: ":20011-20012"
+    quote: "gz(0)=3-(ln=1)"
+    faithful: >-
+      The hold-up's warning always reads "leider hast du die drei wachmaenner am
+      eingang uebersehen..." (:20011), but on the bank's tile 1 four guards fight:
+      ``gz(0)=3-(ln=1)``, and C64 true is -1.
+    no_intent: >-
+      Either the fourth guard on tile 1 or the fixed "drei" may be the slip; the source
+      sets both on purpose and nothing says which was meant.
+    switch: false
+
+  - id: safe_gate_checks_the_boss
+    citation: ":20100"
+    quote: "a=sp:b=1:gosub1350:ifin>=40andkr>=15andbt>=20goto20102"
+    faithful: >-
+      The night safe-crack is refused ("du musst noch trainieren!", :20101) unless the
+      boss (gangster 1) has intelligence 40, strength 15 and brutality 20, before the
+      cracker is picked (:20104). The cracker may be anyone in the gang: the picker
+      loads their stats (:1155), and only their intelligence sets the tries (:20111)
+      and the slips (:20125), so a weak cracker gets in on a trained boss.
+    no_intent: >-
+      The gate may be meant for the boss, who plans the break-in, or for the cracker;
+      the source loads the boss on purpose (``b=1``) and nothing says which was meant.
+    switch: false
+
+  - id: gang_war_score_to_the_attacker
+    citation: ":27041"
+    quote: "x=3:gosub1160:y=sp:sp=b:x=-1:gosub1160:sp=y"
+    faithful: >-
+      The duel's +3 goes to sp, the attacker, whoever won: :1160 scores sp, and only
+      the loser's -1 swaps sp to b first. A winning attacker gets +3 and the defender
+      -1; a losing attacker gets +3 and then -1, and the defender who beat him nothing.
+    intent: >-
+      The winner gets the +3, as the winner gets the plunder (:27035
+      ``ka(a)=ka(a)+p``); the loser the -1.
+    switch: true
+
+  - id: gang_war_overfull_tank_feeds_the_loser
+    citation: ":27040"
+    quote: "x=tk(tm(a))-ta(a):ifx>ta(b)thenx=ta(b)"
+    faithful: >-
+      The barrels the winner takes are the free room in his tank, at most the loser's
+      stock, with no floor at 0: a winner holding more barrels than his tank holds
+      (after taking the loser's smaller car, say) has negative room, and :27041 ``ta(a)=ta(a)+x:ta(b)=ta(b)-x`` hands the excess to
+      the loser.
+    no_intent: >-
+      The "ausserdem erbeutest du den alkoholvorrat" text (:27026-27028) says the winner
+      takes the stock; whether an overfull winner should keep his excess, take nothing
+      or lose it is not said anywhere.
+    switch: false
+
+  - id: prison_brawl_zeroes_the_attackers_boss
+    citation: ":27146"
+    quote: "a=sp:b=1:gosub1350:en=0:gosub1365"
+    faithful: >-
+      When mr.bonebreaker beats the jailed boss (:27135 ``ifs=2goto27146``), the energy
+      set to 0 is gangster 1's of sp, the attacker who paid for the beating, not the
+      jailed player's. The beaten boss keeps whatever energy the fight left him (none
+      when he was knocked out, his own when his player gave up).
+    intent: >-
+      The beaten boss's energy is set to 0: the inmate is paid to beat up us, the
+      jailed player (:27100-27110), and the attacker's gang takes no part in the
+      brawl.
+    switch: true

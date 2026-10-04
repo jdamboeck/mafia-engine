@@ -14,6 +14,19 @@ encounter: kdh_ambush   # the enemy side — one schuldner (gewehr, 35 energy) a
 
 seed: 42                # default RNG seed; --seed on the command line overrides it
 
+# The house-rules map this fight runs under (content/house_rules.yaml's switches ->
+# faithful/intent). Required, and it must name every switch: a scenario with no map,
+# or a map missing a switch, is refused. Every switch at faithful here.
+house_rules:
+  intelligence_or_30: faithful
+  shared_direction_memory: faithful
+  stale_bribe_price: faithful
+  flight_odds_by_seat: faithful
+  chief_bribe_negative_months: faithful
+  chief_bribe_empty_answer: faithful
+  gang_war_score_to_the_attacker: faithful
+  prison_brawl_zeroes_the_attackers_boss: faithful
+
 player:
   - name: hero
     weapon: 5           # revolver (ts=5, tg=10, range=15)

@@ -7,8 +7,8 @@ that looks this generator up and drives it at every player's turn start, before 
 free turn (or a job shift).
 
 The flow runs in this fixed order
-(``banner -> regen -> rank -> debt -> shop income -> rent -> arms deal ->
-job-shift/free-turn``):
+(``banner -> regen -> rank -> debt -> shop income -> rent -> chief-bribe months ->
+marks fade -> arms deal -> job-shift/free-turn``):
 
 * **banner** (``4005-4006``) — announce the active player.
 * **per-gangster energy regen** (``4015-4025``) — ``en += int(kraft/10)+1``, capped at
@@ -17,10 +17,11 @@ job-shift/free-turn``):
 * **rank promotion commit** (``4030``) — ``ra(sp)=nr(sp)`` iff they differ, with the
   wanted-poster promotion screen (``4200-4220``).
 
-followed by four resolution slots:
+followed by six resolution slots:
 
 * **debt check** (``4040``, ``4300-4370``) — the loan-shark grace countdown and
-  its collectors fight. Ports ``:4305``'s tick, ``:4306-4309``'s warning,
+  its collectors fight, skipped while the player is jailed (``:4040``
+  ``ifkr(sp)andgs(sp)=0``: the countdown waits out the sentence). Ports ``:4305``'s tick, ``:4306-4309``'s warning,
   ``:4350-4355``'s fight, and ``:4365-4370``'s seizure. See COUNTER DIRECTION below.
 * **shop income** (``4041-4420``) — the passive kdh-shop payout roll. Ports
   ``mf-prg.bas:4041``'s guard (``kg(sp)<>0andkk(sp)<>0`` — must own a shop AND have
@@ -29,6 +30,13 @@ followed by four resolution slots:
   shop's capital.
 * **rent** (``4045-4046``, ``4600-4652``) — the prepaid-months countdown and the
   late-rent consequence. See RENT below.
+* **chief-bribe months** (``4050``) — ``pl(sp)=pl(sp)+(pl(sp)>0)``: the months bought
+  from the police chief (``pol``, ``:21020``) lose one a month while positive, silently.
+* **marks fade** (``4055-4056``) — two separate 1-in-8 rolls, silent: ``:4055``
+  ``ag(sp)=ag(sp)and254`` clears the passport, then ``:4056``
+  ``ag(sp)=ag(sp)and253`` the counterfeit mark. The source rolls both every turn;
+  this port rolls only for a mark the player holds, since a roll on a clear bit
+  changes nothing (the fidelity bar is behavioural; the RNG draw order may differ).
 * **arms deal** (``4060``) — the staked heist-tip resolution, ports
   ``mf-prg.bas:31000-31051``. Only fires when the active player's ``tip_target ==
   pub.ARMS_DEAL_TIP`` (4) — set by ``pub.tip``'s stake sub-flow. The tip is CLEARED
@@ -47,8 +55,6 @@ belongs to the caller (the client's turn loop, which dispatches ``job.shift`` fo
 employed player) — this generator's ``return []`` handing control back is exactly the hand-off
 point.
 
-Lines NOT ported here: ``4050`` (bribe-protection aging), ``4055-4056`` (fake-papers/
-counterfeit decay) — nothing in this config triggers them.
 
 RENT — ``:4045-4046`` and ``:4600-4652``
 ----------------------------------------
@@ -113,30 +119,34 @@ Handler-API conformance: touches only ``ctx.state`` (read-only), ``yield <Intera
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
-from engine.effects import (
+from engine.effects import EnergyChange, MoneyChange, RosterTruncate
+from ..effects import (
+    BribeMonthsChange,
     DebtChange,
     DebtClear,
-    EnergyChange,
-    MoneyChange,
+    MarkSet,
     RankCommit,
     RentAccrue,
-    RosterTruncate,
     TipClear,
 )
-from engine.interactions import ShowMessage, StartCombat
+from ..state import (
+    business,
+    contraband,
+    debt,
+    gang_name,
+    next_rank,
+    rented_months,
+    tip_target,
+    wanted,
+)
+from engine.interactions import ShowMessage
 from engine.locations import register
-from engine.scenario import Scenario
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
-from ..combat_rules import build_rules, enemy_attrs, equipper
-from ..setup import (
-    load_combat_backdrop,
-    load_encounter,
-    narrate_combat_outcome,
-    weapon_stats_by_id,
-)
+from ..setup import load_encounter, run_encounter
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
@@ -152,19 +162,6 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1]
 _COLLECTORS_ENCOUNTER = load_encounter(
     _CONFIG_DIR / "content" / "encounters" / "kdh_collectors.yaml"
 )
-
-
-def _weapon_stats() -> dict:
-    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
-
-    Matches ``kdh.py``/``jobs.py``'s fresh-per-call loader (a handler reads its
-    OWN config's entity data, never the engine's).
-    """
-    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
-
-
-def _backdrop(name: str) -> tuple[int, ...]:
-    return load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{name}.yaml")
 
 
 def _rank_names() -> list[str]:
@@ -201,41 +198,53 @@ def upkeep_turn_start(ctx):
     yield ShowMessage("upkeep.turn_banner", {"name": active.name})
 
     # --- 4010-4025: per-gangster energy regen (boss included, gz(sp) order) -
+    # :4025 `gosub1365` stores the regen at once, so the collectors fight
+    # below (:4355) meets the regenerated gang. ctx.apply only BUFFERS, so the gang
+    # as the regen leaves it is tracked locally for that fight.
+    gang = []
     for g_idx, gangster in enumerate(active.roster):
         # :4020 `x=2+int(kr/4)+int(bt/4)`
         cap = 2 + gangster.attrs["kraft"] // 4 + gangster.attrs["brutalitaet"] // 4
         gain = gangster.attrs["kraft"] // 10 + 1  # :4015 `en=en+int(kr/10)+1`
         ctx.apply(EnergyChange(amount=gain, cap=cap, gangster=g_idx))
+        # EnergyChange's own clamp, [0, cap] (:4020 `ifen>xthenen=x`).
+        gang.append(replace(gangster, vitality=max(0, min(gangster.vitality + gain, cap))))
 
     # --- 4030: rank promotion commit + wanted-poster screen (4200-4220) ----
     # nr is the PENDING rank ScoreAndRank already recomputes from gf on every score
     # award; rank ("ra") is what guards/prices actually read (waf.py's `active.rank`)
     # and only moves here. Compare against the state READ AT THIS HANDLER'S START —
     # nothing above this point can have changed nr, so this is exactly :4030's read.
-    if active.rank != active.nr:
+    if active.rank != next_rank(active):
         ranks = _rank_names()
         yield ShowMessage(
             "upkeep.rank_promotion",
             {
-                "gang_name": active.gang_name,
+                "gang_name": gang_name(active),
                 "name": active.name,
                 "score": active.gf,
-                "rank_name": ranks[active.nr - 1],
+                "rank_name": ranks[next_rank(active) - 1],
             },
         )
-        ctx.apply(RankCommit(new_rank=active.nr))
+        ctx.apply(RankCommit(new_rank=next_rank(active)))
 
     # --- 4040/4300-4370: debt check — the grace tick and the collectors fight ---
     # Ported from :4305's `kz(sp)=kz(sp)+(kz(sp)>0):ifkz(sp)=0goto4350`. See the
     # module docstring's COUNTER DIRECTION note: the tick counts DOWN.
     #
-    # `active.debt` is safe to read here: nothing above this slot in the SAME upkeep
+    # `debt(active)` is safe to read here: nothing above this slot in the SAME upkeep
     # run touches debt (regen writes energy, the rank commit writes rank). Below this
     # point, `months`/`debt_amount` are tracked LOCALLY — ctx.apply only BUFFERS, so
     # re-reading ctx.state mid-flow would see pre-tick values.
-    debt_amount = active.debt.amount
-    months = active.debt.months
-    if debt_amount != 0 or months != 0:
+    #
+    # :4040 ``ifkr(sp)andgs(sp)=0thengosub4300`` -- the whole block waits while the
+    # player is jailed: no tick (the countdown is frozen), no warning, no collectors.
+    # Everything else in upkeep still runs for a jailed player (:1011 precedes :1013).
+    current_debt = debt(active)
+    debt_amount = current_debt.amount
+    months = current_debt.months
+    jailed = wanted(active).jail_months != 0
+    if not jailed and (debt_amount != 0 or months != 0):
         # :4305's `+(kz(sp)>0)` — decrement ONLY while positive, so 0 is a fixed
         # point. That fixed point is exactly what makes a won fight recur every turn
         # (source-confirmed): the counter never leaves 0, so every later turn re-enters :4350.
@@ -254,40 +263,14 @@ def upkeep_turn_start(ctx):
         elif debt_amount != 0:
             # :4350-4370 — the grace period has expired. Guarded on a NONZERO debt so
             # a fully repaid player (:15075 leaves kr=0 AND kz=0) is never ambushed.
-            #
-            # The jail gate (:4040) is a read that trivially passes: jail is
-            # declared-but-stubbed and nothing can imprison a player, so the
-            # not-jailed precondition is always true and is not re-encoded here.
             yield ShowMessage("upkeep.debt_collectors_intro")
-            debt_params = ctx.state.config.formula_params
             # The collectors' SETUP is the declared encounter (:4355 —
-            # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"); the enemy stats and
-            # equipment stay handler-supplied. The SEIZURE consequence below is NOT
-            # declarable (it reads live `active.ka`), so the encounter carries no
-            # on_win/on_loss and stays in Python.
-            enc = _COLLECTORS_ENCOUNTER
-            scenario = Scenario.from_encounter(
-                enc.variants[0],
-                active.roster,
-                build_rules(),
-                enemy_attrs=enemy_attrs(debt_params),
-                grid=_backdrop(enc.grid),
-                equip=equipper(_weapon_stats()),
-            )
-            result = yield StartCombat(scenario=scenario)
-
-            # Outcome narration (the invoking handler's job — _run_combat yields no
-            # final screen). Shared with jobs.py/kdh.py's own fights. This is the one
-            # fight with 5 enemies (gz(0)=5, :4355), so the losses block reads its
-            # per-side tallies off the CombatResult (v(1)/v(2)) — a 1v1-shortcut count
-            # would be wrong here.
-            yield from narrate_combat_outcome(
-                winner=result.winner,
-                player_name=active.name,
-                enemy_name=enc.variants[0].name,
-                player_losses=result.losses[0],
-                enemy_losses=result.losses[1],
-            )
+            # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"), run by the shared fight
+            # helper, which also shows the outcome screen with the per-side losses (this
+            # is the one fight with 5 enemies, so a 1v1 count would be wrong). The
+            # SEIZURE below is NOT declarable (it reads live `active.ka`), so the
+            # encounter carries no on_win/on_loss and stays in Python.
+            result = yield from run_encounter(ctx, _COLLECTORS_ENCOUNTER, roster=tuple(gang))
 
             if result.winner == 2:
                 # :4365-4370 — lost: `ka(sp)=0:kr(sp)=0:kz(sp)=0`. The seizure takes
@@ -306,11 +289,12 @@ def upkeep_turn_start(ctx):
     # --- 4041-4420: shop income — ports mf-prg.bas:4041,4405-4410 --------------
     # ifkg(sp)<>0andkk(sp)<>0thengosub4400 (:4041). Re-read `active` is unnecessary:
     # nothing above this slot in the SAME upkeep run touches business.
-    if active.business.shop_tile != 0 and active.business.shop_capital != 0:
+    shop = business(active)
+    if shop.shop_tile != 0 and shop.shop_capital != 0:
         params = ctx.state.config.formula_params
         if ctx.rng.range(params["kdh_income_quiet_roll"]) != 0:
             # :4405 — 2-in-3 chance the loan business earns money this month.
-            capital = active.business.shop_capital
+            capital = shop.shop_capital
             # :4410 — `p=int(rnd(1)*kk(sp)/20+kk(sp)/10)` -> a continuous draw
             # (rnd(1) in [0,1)) scaled by a VARIABLE coefficient (capital), unlike a
             # fixed-bound roll (rng.hit). Ported as an exact discrete equivalent:
@@ -331,10 +315,10 @@ def upkeep_turn_start(ctx):
 
     # --- 4045-4046/4600-4652: rent countdown and late rent (see RENT above) -----
     # :4045 ``ifum(sp)=0goto4050``. Nothing above this slot touches um.
-    if active.rented_months != 0:
+    if rented_months(active) != 0:
         # :4046 ``um(sp)=um(sp)-1:ifum(sp)=0thenum(sp)=1:gosub4600`` — at 1 the
         # decrement and the reset cancel out, so um is written only while above 1.
-        if active.rented_months > 1:
+        if rented_months(active) > 1:
             ctx.apply(RentAccrue(-1))
         else:
             rent_params = ctx.state.config.formula_params
@@ -357,10 +341,29 @@ def upkeep_turn_start(ctx):
         # :4620/:4652 ``goto1100`` is the press-a-key pause, whose ``return`` closes
         # gosub4600 — turn start falls through to :4050 and on to the arms deal.
 
+    # --- 4050: the police chief's months age -----------------------------------
+    # :4050 ``pl(sp)=pl(sp)+(pl(sp)>0)``: true is -1, so a positive count loses one and
+    # 0 or a negative one (pol's negative-month payout) stays. Nothing above this slot
+    # touches pl. A jailed player's months age too: upkeep runs before the jail skip.
+    if wanted(active).bribe_months > 0:
+        ctx.apply(BribeMonthsChange(-1))
+
+    # --- 4055-4056: the marks fade, 1 in 8 each (see module docstring) --------
+    # Nothing above this slot touches the marks.
+    held = contraband(active)
+    if held.fake_papers:
+        # :4055 ``ifint(rnd(1)*8)=0thenag(sp)=ag(sp)and254``
+        if ctx.rng.range(ctx.state.config.formula_params["marks_decay_roll"]) == 0:
+            ctx.apply(MarkSet(fake_papers=False))
+    if held.counterfeit:
+        # :4056 ``ifint(rnd(1)*8)=0thenag(sp)=ag(sp)and253``
+        if ctx.rng.range(ctx.state.config.formula_params["marks_decay_roll"]) == 0:
+            ctx.apply(MarkSet(counterfeit=False))
+
     # --- 4060: arms deal — ports mf-prg.bas:31000-31051 ---------------------
     # iftp(sp)=4thengosub31000 (:4060). Re-read `active` is unnecessary: nothing above
     # this slot in the SAME upkeep run touches tip_target.
-    if active.tip_target == ARMS_DEAL_TIP:
+    if tip_target(active) == ARMS_DEAL_TIP:
         # :31000 — tp(sp)=0 FIRST, before the roll: the clear must happen before the
         # loss/payout branch so a stake resolves EXACTLY ONCE (see module docstring).
         ctx.apply(TipClear())

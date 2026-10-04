@@ -38,19 +38,23 @@ import pytest
 
 from engine.combat import STEP_RIGHT
 from engine.config_loader import load_game_config
-from engine.effects import DebtChange, DebtClear, MoneyChange
+from engine.effects import MoneyChange
+from data.game_configs.mafia_1920s.effects import DebtChange, DebtClear
 from engine.interactions import ShowMessage
-from engine.state import Business, Clock, Config, Debt, GameState, Player
+from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.state import Business, Debt
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.strings import Resolver
 from engine.upkeep import run_upkeep
-from tests.helpers import StubRng, run_pure, scripted as _scripted
+from tests.helpers import is_effect, StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
 
 _PARAMS = {
     "rank_divisor": 11.1,
+    "score_mult": 1.0,  # x8, a setup input new_game adds to formula_params
     "kdh_borrow_grace_months": 6,
     "kdh_income_quiet_roll": 3,
     "kdh_collectors_count": 5,
@@ -62,6 +66,11 @@ _PARAMS = {
 }
 
 
+#: The player's gang name (``bn$(sp)``), distinct from the player's name (``sp$(sp)``):
+#: the fight's outcome screen names the gangs (``:30500-30515``).
+_GANG = "north side"
+
+
 def _state(*, debt=None, ka=100000, roster=None, business=None):
     roster = (
         roster
@@ -71,8 +80,11 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
     player = Player(
         name="alcapone",
         ka=ka,
-        debt=debt if debt is not None else Debt(),
-        business=business if business is not None else Business(),
+        values=game.values_of(
+            debt if debt is not None else Debt(),
+            business if business is not None else Business(),
+            gang_name=_GANG,
+        ),
         roster=roster,
     )
     return GameState(
@@ -83,7 +95,7 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
 
 
 def _debt_effects(result):
-    return [e for e in result.effects if isinstance(e, (DebtChange, DebtClear))]
+    return [e for e in result.effects if is_effect(e, DebtChange, DebtClear)]
 
 
 # --------------------------------------------------------------------------- #
@@ -98,7 +110,7 @@ def test_counter_counts_down_not_up():
     """
     st = _state(debt=Debt(amount=3000, months=6))
     result = run_upkeep(st, rng=StubRng())
-    assert result.state.players[0].debt.months == 5
+    assert game.debt(result.state.players[0]).months == 5
     assert _debt_effects(result) == [DebtChange(amount=0, months=5)]
 
 
@@ -108,7 +120,7 @@ def test_counter_descends_over_successive_turns_to_the_fight():
     seen = []
     for _ in range(5):
         st = run_upkeep(st, rng=StubRng()).state
-        seen.append(st.players[0].debt.months)
+        seen.append(game.debt(st.players[0]).months)
     assert seen == [5, 4, 3, 2, 1]
 
 
@@ -173,7 +185,7 @@ def test_no_debt_is_a_silent_no_op():
     st = _state(debt=Debt())
     result = run_upkeep(st, rng=StubRng())
     assert _debt_effects(result) == []
-    assert result.state.players[0].debt == Debt()
+    assert game.debt(result.state.players[0]) == Debt()
 
 
 # --------------------------------------------------------------------------- #
@@ -185,7 +197,37 @@ def test_grace_zero_starts_the_collectors_fight():
     # months=1 ticks to 0 -> :4305's `ifkz(sp)=0goto4350`.
     result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
     assert result.state.players[0].ka == 0
-    assert result.state.players[0].debt == Debt(amount=0, months=0)
+    assert game.debt(result.state.players[0]) == Debt(amount=0, months=0)
+
+
+@pytest.mark.parametrize(("energie", "regenerated"), [(10, 14), (40, 16)])
+def test_the_collectors_meet_the_gang_after_this_turns_regen(energie, regenerated):
+    """The regen is written into the gang's stats before the collectors fight
+    (``:4355``), so they meet the regenerated gang: :4015 ``en=en+int(kr/10)+1``, cut
+    by :4020 ``x=2+int(kr/4)+int(bt/4)`` (kraft 30, brutalitaet 30: +4, at most 16),
+    stored by :4025 ``gosub1365``. The regen is buffered, so the fight is built from
+    it rather than from ``ctx.state``."""
+    from engine.interactions import StartCombat
+    from engine.locations import HANDLERS
+    from engine.upkeep import UPKEEP_HANDLER_KEY
+
+    gang = (Gangster(name="alcapone", energie=energie, kraft=30, brutalitaet=30),)
+    st = _state(debt=Debt(amount=3000, months=1), roster=gang)
+
+    class _Ctx:
+        state = st
+        rng = StubRng()
+
+        def apply(self, effect):
+            pass
+
+    gen = HANDLERS[UPKEEP_HANDLER_KEY](_Ctx())
+    interaction = next(gen)
+    while not isinstance(interaction, StartCombat):
+        interaction = gen.send(None)
+    gen.close()
+    assert interaction.scenario is not None and interaction.scenario.sides is not None
+    assert [f.vitality for f in interaction.scenario.sides[0]] == [regenerated]
 
 
 def test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender():
@@ -222,8 +264,8 @@ def test_loss_seizes_all_cash_and_wipes_the_debt():
     assert MoneyChange(-9999) in result.effects
     assert DebtClear() in result.effects
     assert result.state.players[0].ka == 0
-    assert result.state.players[0].debt.amount == 0
-    assert result.state.players[0].debt.months == 0
+    assert game.debt(result.state.players[0]).amount == 0
+    assert game.debt(result.state.players[0]).months == 0
 
 
 def test_loss_seizure_is_the_cash_at_seizure_time_not_a_stale_read():
@@ -289,18 +331,19 @@ def test_win_changes_nothing_and_the_fight_recurs_next_turn():
 
     # The fight really resolved — and the PLAYER won it, all five collectors down.
     # Without this the assertions below would also hold for a fight that never ran.
-    assert _winner_banners(source) == ["alcapone"]
+    # :30500-30515 name the gangs, bn$: the player's gang, not the player (sp$).
+    assert _winner_banners(source) == [_GANG]
     losses = [
         (m.params["name"], m.params["count"])
         for m in source.messages()
         if m.key == "combat.losses_line"
     ]
-    assert losses == [("alcapone", 0), ("eintreiber", 5)]
+    assert losses == [(_GANG, 0), ("eintreiber", 5)]
     assert "upkeep.debt_seized" not in source.message_keys()
 
     # Nothing was seized: cash, debt and the expired counter all survive untouched.
     assert result.state.players[0].ka == 8000
-    assert result.state.players[0].debt == Debt(amount=3000, months=0)
+    assert game.debt(result.state.players[0]) == Debt(amount=3000, months=0)
     assert DebtClear() not in result.effects
     assert MoneyChange(-8000) not in result.effects
 
@@ -319,7 +362,7 @@ def test_the_fight_actually_re_fires_on_the_following_turn():
     """
     st = _state(debt=Debt(amount=3000, months=0), ka=8000, roster=list(_WINNING_GANG))
     first, first_source = _win_the_collectors_fight(st)
-    assert _winner_banners(first_source) == ["alcapone"]  # turn 1 was a real win
+    assert _winner_banners(first_source) == [_GANG]  # turn 1 was a real win
     assert first.state.players[0].ka == 8000
 
     second_source = _scripted("surrender")
@@ -328,7 +371,7 @@ def test_the_fight_actually_re_fires_on_the_following_turn():
     assert "upkeep.debt_collectors_intro" in second_source.message_keys()
     assert _winner_banners(second_source) == ["eintreiber"]
     assert second.state.players[0].ka == 0
-    assert second.state.players[0].debt == Debt(amount=0, months=0)
+    assert game.debt(second.state.players[0]) == Debt(amount=0, months=0)
 
 
 def test_an_under_scripted_collectors_fight_raises_instead_of_passing():
@@ -349,7 +392,7 @@ def test_counter_at_zero_is_a_fixed_point_so_the_fight_recurs():
     st = _state(debt=Debt(amount=3000, months=0), ka=5000)
     result = run_upkeep(st, input_source=_scripted("surrender"), rng=StubRng())
     # The tick must NOT have pushed months negative on the way into the fight.
-    ticks = [e for e in result.effects if isinstance(e, DebtChange)]
+    ticks = [e for e in result.effects if is_effect(e, DebtChange)]
     assert all(e.months is None or e.months >= 0 for e in ticks)
 
 

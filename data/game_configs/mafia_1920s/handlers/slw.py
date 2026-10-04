@@ -1,15 +1,19 @@
-"""The slw (Schlupfwinkel / motel) rent handler.
+"""The slw (Schlupfwinkel / motel) rent handlers.
 
-A faithful port of the shared rent block ``mf-prg.bas:10020-10045``. In the
-original, BOTH menu option 1 ("rent a room") and option 2 ("pay/extend rent",
-re-entering at ``:10105``) jump to this same block; the difference between them
-is only which SHELL guard admits you (room-free vs you-are-the-tenant). So this
-one generator serves both options.
+A faithful port of ``mf-prg.bas:10000-10105``. In the original, BOTH menu option 1
+("rent a room", ``:10010``) and option 2 ("pay/extend rent", ``:10100``) end in the
+same rent block ``:10020-10045``; they differ only in the check that comes first:
 
-The GUARDS live in the location shell (``content/locations/slw.yaml``), not here —
-the shell owns guard evaluation and denial: ``uk(ln)!=0`` gates renting,
-``uk(ln)!=sp`` gates paying — the shell only enters this handler once the guard
-passes, so the handler body is purely the rent block.
+* ``slw.rent`` -- ``:10010 ifuk(ln)<>0thenprint"'nichts mehr frei!'":goto1100``: a
+  room anyone holds is not for rent, the renter's own included.
+* ``slw.pay_rent`` -- ``:10100 ifuk(ln)<>spthenprint"du wohnst hier nicht!"``: only
+  the tenant pays.
+
+Both checks run INSIDE the handler, after the option was picked, as in the source:
+the menu (``content/locations/slw.yaml``) always offers all three options (``:3030``
+prints the file's ``aw`` options with no precondition). The source's players are
+1-based, so its vacant ``uk(ln)=0`` cannot collide with a player; this port's are
+0-based, so a vacant room reads ``None`` from :func:`~..state.tenant`, never 0.
 
 Handler-API conformance: this handler touches ONLY ``ctx.state`` (read-only),
 ``yield <Interaction>``, ``ctx.apply(<Effect>)``, and the named ``fnm`` helper —
@@ -30,13 +34,15 @@ before the location's menu runs.
 
 from __future__ import annotations
 
-from engine.effects import MoneyChange, RentAccrue, SetTenancy
+from engine.effects import MoneyChange
+from ..effects import RentAccrue, SetTenancy
 from engine.interactions import PromptInt, ShowMessage
 from engine.locations import register
 
 from ..setup import fnm
+from ..state import tenant
 
-__all__ = ["slw_rent"]
+__all__ = ["slw_rent", "slw_pay_rent"]
 
 #: Sane upper bound on months for the PromptInt (the original reads a free int;
 #: a cap keeps the prompt well-formed without altering behavior for real inputs).
@@ -45,7 +51,35 @@ _MAX_MONTHS = 999
 
 @register("slw.rent")
 def slw_rent(ctx):
-    """Rent / pay-rent at the current slw tile — ports ``mf-prg.bas:10020-10045``.
+    """Rent the room at the current slw tile -- ports ``mf-prg.bas:10010-10045``.
+
+    ``:10010``: a room anyone holds refuses (``locations.slw.no_room``), then the rent
+    block runs (:func:`_rent_block`).
+    """
+    ln = ctx.state.players[ctx.state.clock.active_player].last_location
+    if tenant(ctx.state, ln) is not None:  # :10010 ifuk(ln)<>0
+        yield ShowMessage("locations.slw.no_room")
+        return []
+    return (yield from _rent_block(ctx))
+
+
+@register("slw.pay_rent")
+def slw_pay_rent(ctx):
+    """Pay rent for the room at the current slw tile -- ports ``mf-prg.bas:10100-10105``.
+
+    ``:10100``: anyone but the tenant is refused (``locations.slw.not_resident``);
+    ``:10105 goto10020`` sends the tenant through the same rent block.
+    """
+    sp = ctx.state.clock.active_player
+    ln = ctx.state.players[sp].last_location
+    if tenant(ctx.state, ln) != sp:  # :10100 ifuk(ln)<>sp
+        yield ShowMessage("locations.slw.not_resident")
+        return []
+    return (yield from _rent_block(ctx))
+
+
+def _rent_block(ctx):
+    """The shared rent block -- ports ``mf-prg.bas:10020-10045``.
 
     Steps (faithful to the BASIC line block):
 

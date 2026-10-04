@@ -48,8 +48,36 @@ The Upkeep Flow is config handler code driven by the engine through the same gen
 The game ends when the round rotation brings the clock to the end year the
 players chose at setup. The highest score wins, and tied top scores share the
 win. It is one of the original's two endings. The other, the **Early Win**
-(rank 10 plus both win flags, checked at turn start), is a separate path. The
+(rank 10 plus both win flags, checked at turn start), ends the game early but
+ranks by score the same way, so the player who triggers it can still lose. The
 original has no lose state.
+
+### Win Flags
+Two per-player flags, one set by winning each map-triggered win flow: the cash
+transport (cell 569) and the mayor hit (cell 861). A flow can only start while the
+player holds the matching pub tip (3 or 5).
+
+### Gang War
+A player-vs-player fight picked from the turn menu (Bandenkrieg). It is refused in a
+solo game and before 4/1925, and it duels two players' gangs in the combat engine.
+
+## Police
+
+### Marks
+Two per-player marks from Blüten-Eddie. The **forged passport** protects the player at a
+roadblock. **Counterfeit money** gets the player caught at a roadblock, and is checked
+before the passport. Each mark can disappear at random at upkeep. The original has no
+wanted level: a roadblock with no finding and no passport catches the player on a
+wanted poster.
+
+### Police Capture
+The screen where a caught player chooses to bribe, flee or surrender. Surrender leads
+to trial and a jail sentence. Six locations, the roadblock and both win flows can
+lead into it.
+
+### Jail
+While a player serves a sentence, each of their turns shows the jail screen and is
+skipped. The sentence counts down one month per turn.
 
 ### Job Shift
 A turn that is replaced by working an active pub job — no map movement, no location menu; the shift (quiet day, croupier trick, or a fight) is the whole turn.

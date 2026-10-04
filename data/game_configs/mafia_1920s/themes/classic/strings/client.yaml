@@ -22,13 +22,17 @@ client:
 
   # The map screen's note line and legend.
   map:
-    hint: "move: W/A/S/D into a door to enter. P saves, Q quits."
-    bad_key: "(use W/A/S/D, P or Q)"
+    hint: "move: W/A/S/D into a door to enter. M menu, P saves, Q quits."
+    bad_key: "(use W/A/S/D, M, P or Q)"
     wall: "(a wall)"
     edge: "(edge of the city)"
     resized: " resized"
     # {player} is the player's map glyph.
     legend_you: "{player} you"
+
+  # The turn menu's note line.
+  menu:
+    hint: "P saves, Q quits."
 
   # Location screens. {location} is the location key.
   location:
@@ -40,15 +44,31 @@ client:
 
   # The turn-over summary for the player whose turn just ended.
   turn_over:
-    summary: "cash: {cash}$\nposition: {position}\nmovement: {movement}\nrank: {rank}\njail: {jail_months} months"
+    summary: "cash: {cash:raw}$\nposition: {position:raw}\nmovement: {movement:raw}\nrank: {rank:raw}\njail: {jail_months:raw} months"
 
   # The reverse-video status bar under the map and after each action.
-  status_bar: " {name} │ cash {cash}$ │ pos {pos} │ ms {ms} "
+  status_bar: " {name} │ cash {cash:raw}$ │ pos {pos:raw} │ ms {ms:raw} "
   # Status-bar name for a player record that carries none.
   unnamed_player: "player"
 
   # Losses block: the name given to a side that has no name of its own.
-  side_name: "side {index}"
+  side_name: "side {index:raw}"
+
+  # The new-game house-rules step, after the setup questions. Shown only when the
+  # config's catalogue offers a switch; skipped by default (Enter at the offer). Each
+  # rule's description is the theme's house_rules.<id>.
+  house_rules:
+    # {key} is change_key: the answer that opens the list.
+    offer: "house rules: Enter plays every rule as in the original, {key} changes them:"
+    change_key: "h"
+    title: "house rules -- each quirk of the original, played faithfully or as intended:"
+    # {number} picks the entry, {setting} is setting.faithful/intent, {description}
+    # the rule's house_rules.<id>.
+    entry: "{number:raw}. [{setting}] {description}"
+    setting:
+      faithful: "faithful"
+      intent: "intent"
+    prompt: "a number switches that rule, Enter starts the game:"
 
   # A --load file that cannot be resumed: one stderr line, "error" with one reason.
   load:
@@ -59,13 +79,18 @@ client:
       not_json: "not valid JSON ({detail})"
       not_text: "not a text file"
       bad_version: "unsupported save version ({detail})"
+      older_version: "the save was made by an older version of the game (save version {found:raw}; this version reads {supported:raw})"
+      other_config_id: "the save belongs to another game ({found:raw}, not {expected:raw})"
+      other_content_version: "the save was made for another content version of this game ({found:raw}, not {expected:raw})"
+      no_house_rules: "the save stores no house rules"
+      other_house_rules: "the save's house rules do not match this game's: {detail}"
       missing_field: "save is missing the field {detail}"
       corrupt: "corrupt save ({error_type}: {detail})"
 
   # Command line: the help text and the errors for bad flags.
   cli:
     description: "Play the mafia slice."
-    help_seed: "RNG seed for a new game (default {seed})."
+    help_seed: "RNG seed for a new game (default {seed:raw})."
     help_player: "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, turn order = order given). Default: a single 'alcapone:the outfit'."
     help_end_year: "The year the game ends (asked at setup when omitted)."
     help_score_weight: "Score weight, e.g. 0.5 (asked at setup when omitted)."
@@ -74,6 +99,7 @@ client:
     help_watch_ai: "In fights, show the board after each computer move and wait for a key."
     help_theme: "The theme to word the game in: a theme of the game config, or the path of a theme directory (default {theme})."
     load_clash: "--load resumes a saved game; it cannot be combined with {flags}"
-    out_of_range: "{flag} must be in [{min}, {max}], got {value}"
+    out_of_range: "{flag} must be in [{min:raw}, {max:raw}], got {value:raw}"
+    bad_name: "--player {spec}: a player or gang name is {min:raw} to {max:raw} characters, got '{value}'"
     config_error: "cannot load game config {config_dir}: {error}"
     theme_error: "cannot load theme {theme}: {error}"

@@ -36,8 +36,18 @@ def test_load_game_config_registers_handler_and_exposes_new_game():
 
     # The handle exposes the config's new_game entry point + parsed config.
     assert callable(loaded.new_game)
-    assert loaded.config["engine_api"] == 1
+    assert loaded.config["engine_api"] == 2
     assert loaded.config_dir == CONFIG_DIR.resolve()
+
+
+def test_loaded_config_exposes_the_configs_declared_stat_names():
+    # StatChange validation reads these; the config declares them (the engine names none).
+    from data.game_configs.mafia_1920s.gangster import GANGSTER_ATTR_NAMES
+    from engine.effects import STAT_NAMES
+
+    loaded = load_game_config(CONFIG_DIR)
+    assert loaded.stat_names is STAT_NAMES
+    assert set(loaded.stat_names) == set(GANGSTER_ATTR_NAMES)
 
 
 def test_load_game_config_rejects_missing_dir(tmp_path):
@@ -46,9 +56,9 @@ def test_load_game_config_rejects_missing_dir(tmp_path):
 
 
 def test_load_game_config_rejects_bad_engine_api(tmp_path):
-    # A config dir with engine_api != 1 is rejected at load (before importing it).
+    # A config dir with engine_api != 2 is rejected at load (before importing it).
     (tmp_path / "config.yaml").write_text(
-        "engine_api: 2\nentities: {}\nformula_params: {}\nsetup: {}\ninput_ranges: {}\n"
+        "engine_api: 1\nname: x\ncontent_version: 1\nentities: {}\nformula_params: {}\nsetup: {}\ninput_ranges: {}\n"
     )
     (tmp_path / "__init__.py").write_text("")
     with pytest.raises(ValueError):
@@ -58,7 +68,7 @@ def test_load_game_config_rejects_bad_engine_api(tmp_path):
 def test_load_game_config_rejects_missing_required_key(tmp_path):
     # engine_api ok but a GameConfigSchema-required key ('setup') is missing.
     (tmp_path / "config.yaml").write_text(
-        "engine_api: 1\nentities: {}\nformula_params: {}\ninput_ranges: {}\n"
+        "engine_api: 2\nname: x\ncontent_version: 1\nentities: {}\nformula_params: {}\ninput_ranges: {}\n"
     )
     (tmp_path / "__init__.py").write_text("")
     with pytest.raises(ValueError) as exc:
@@ -69,7 +79,7 @@ def test_load_game_config_rejects_missing_required_key(tmp_path):
 def test_load_game_config_rejects_missing_init(tmp_path):
     # Valid config.yaml but no __init__.py => not an importable config package.
     (tmp_path / "config.yaml").write_text(
-        "engine_api: 1\nentities: {}\nformula_params: {}\nsetup: {}\ninput_ranges: {}\n"
+        "engine_api: 2\nname: x\ncontent_version: 1\nentities: {}\nformula_params: {}\nsetup: {}\ninput_ranges: {}\n"
     )
     with pytest.raises(ValueError):
         load_game_config(tmp_path)
@@ -83,7 +93,7 @@ def _write_minimal_config(pkg_dir: Path, marker: int) -> None:
     """
     pkg_dir.mkdir(parents=True, exist_ok=True)
     (pkg_dir / "config.yaml").write_text(
-        "engine_api: 1\nentities: {}\nformula_params: {}\nsetup: {}\ninput_ranges: {}\n"
+        "engine_api: 2\nname: x\ncontent_version: 1\nentities: {}\nformula_params: {}\nsetup: {}\ninput_ranges: {}\n"
     )
     (pkg_dir / "__init__.py").write_text(f"def new_game(*args, **kwargs):\n    return {marker}\n")
 
@@ -113,7 +123,9 @@ def test_validate_config_rejects_wrong_typed_key():
     with pytest.raises(ConfigValidationError):
         validate_config(
             {
-                "engine_api": 1,
+                "engine_api": 2,
+                "name": "x",
+                "content_version": 1,
                 "entities": [],  # wrong type: must be a dict
                 "formula_params": {},
                 "setup": {},

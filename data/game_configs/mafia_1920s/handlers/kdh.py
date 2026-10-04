@@ -9,8 +9,8 @@ even offering the option, and kdh never does that):
   (``kr(sp)=0``); amount 0-5000; sets ``kr+=x``, ``ka+=x``, grace ``kz=6``.
 - ``kdh.repay`` (``15050-15075``) — repay part or all. Bounds ``0<=x<=kr(sp)``;
   afford check; full repayment (``kr`` reaches 0) additionally resets the grace
-  counter ``kz=0`` (:class:`~engine.effects.DebtClear`, applied ALONGSIDE the final
-  :class:`~engine.effects.DebtChange` that zeros ``kr`` — not instead of it, since a
+  counter ``kz=0`` (:class:`DebtClear`, applied ALONGSIDE the final
+  :class:`DebtChange` that zeros ``kr`` — not instead of it, since a
   partial repay that happens to land exactly on 0 is the SAME code path as an
   intentional full repay in the source: ``ifkr(sp)=0goto15075`` tests the RESULT, not
   the caller's intent).
@@ -56,18 +56,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import DebtChange, DebtClear, MoneyChange, ShopChange
-from engine.interactions import Confirm, PromptInt, ShowMessage, StartCombat
+from engine.effects import MoneyChange
+from ..effects import DebtChange, DebtClear, ShopChange
+from ..state import business, debt
+from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
-from engine.scenario import Scenario
 
-from ..combat_rules import build_rules, enemy_attrs, equipper
 from ..setup import (
     apply_outcome,
-    load_combat_backdrop,
     load_encounter,
-    narrate_combat_outcome,
-    weapon_stats_by_id,
+    run_encounter,
 )
 
 __all__ = ["kdh_borrow", "kdh_repay", "kdh_trade", "kdh_capital", "kdh_collect"]
@@ -80,19 +78,6 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1]
 #: back off the loaded encounter for the outcome narration; nothing about the fight
 #: is assembled inline.
 _AMBUSH_ENCOUNTER = load_encounter(_CONFIG_DIR / "content" / "encounters" / "kdh_ambush.yaml")
-
-
-def _weapon_stats() -> dict:
-    """This config's weapon id -> ``(ts, tg, range)`` table, for ``StartCombat.weapon_stats``.
-
-    Matches ``jobs.py``'s/``upkeep.py``'s/``waf.py``'s own fresh-per-call loader
-    (a handler reads its OWN config's entity data, never the engine's).
-    """
-    return weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")
-
-
-def _backdrop(name: str) -> tuple[int, ...]:
-    return load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{name}.yaml")
 
 
 # --------------------------------------------------------------------------- #
@@ -114,7 +99,7 @@ def kdh_borrow(ctx):
     params = ctx.state.config.formula_params
 
     # :15010 — one loan at a time.
-    if active.debt.amount != 0:
+    if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_old_debts_first")
         return []
 
@@ -154,13 +139,13 @@ def kdh_repay(ctx):
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
-    debt = active.debt.amount
+    debt_amount = debt(active).amount
 
     # :15050-15051 — bounds 0..kr(sp); PromptInt needs max>=min even when debt is 0
     # (a guardless entry with no debt: the source still asks and the answer is
     # forced to 0, a quiet abort. This handler is never routed to at 0 debt by any
     # caller, but the bound stays well-formed regardless).
-    x = yield PromptInt("locations.kdh.repay_prompt", min=0, max=max(debt, 0))
+    x = yield PromptInt("locations.kdh.repay_prompt", min=0, max=max(debt_amount, 0))
     if x == 0:
         return []
 
@@ -173,7 +158,7 @@ def kdh_repay(ctx):
     ctx.apply(DebtChange(amount=-x))
     ctx.apply(MoneyChange(-x))
 
-    remaining = debt - x
+    remaining = debt_amount - x
     if remaining == 0:
         # :15075 — full repayment: also reset the grace counter.
         ctx.apply(DebtClear())
@@ -200,7 +185,7 @@ def kdh_trade(ctx):
     ln = active.last_location
     params = ctx.state.config.formula_params
 
-    if active.business.shop_tile == ln:
+    if business(active).shop_tile == ln:
         yield from _sell(ctx, params=params)
         return []
 
@@ -213,12 +198,12 @@ def _buy(ctx, *, ln: int, params: dict):
     active = ctx.state.players[sp]
 
     # :15105 — already own a DIFFERENT shop.
-    if active.business.shop_tile != 0:
+    if business(active).shop_tile != 0:
         yield ShowMessage("locations.kdh.already_own_a_shop")
         return
 
     # :15106 — own outstanding debt.
-    if active.debt.amount != 0:
+    if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_own_debts_first")
         return
 
@@ -226,7 +211,7 @@ def _buy(ctx, *, ln: int, params: dict):
     for i, other in enumerate(ctx.state.players):
         if i == sp:
             continue
-        if other.business.shop_tile == ln:
+        if business(other).shop_tile == ln:
             yield ShowMessage("locations.kdh.shop_belongs_to", {"name": other.name})
             return
 
@@ -287,11 +272,11 @@ def kdh_capital(ctx):
     params = ctx.state.config.formula_params
 
     # :15200 — must own this tile.
-    if active.business.shop_tile != ln:
+    if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
         return []
 
-    capital = active.business.shop_capital
+    capital = business(active).shop_capital
     cap_max = params["kdh_capital_max"]
     yield ShowMessage("locations.kdh.capital_status", {"capital": capital, "max": cap_max})
     x = yield PromptInt("locations.kdh.capital_prompt", min=-capital, max=cap_max - capital)
@@ -336,41 +321,22 @@ def kdh_collect(ctx):
     params = ctx.state.config.formula_params
 
     # :15300 — must own this tile.
-    if active.business.shop_tile != ln:
+    if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
         return []
 
-    capital = active.business.shop_capital
+    capital = business(active).shop_capital
     # :15305 — 2/3 chance of an ambush, ONLY when capital is nonzero.
     ambush = capital != 0 and ctx.rng.range(params["kdh_ambush_roll"]) != 0
     if not ambush:
         yield ShowMessage("locations.kdh.debts_paid_on_time")
         return []
 
-    # :15310-15312 — the ambush fight, built from the declared encounter.
+    # :15310-15312 — the ambush fight, the declared encounter run by the shared fight
+    # helper (which also shows the outcome screen, :30500-30515).
     yield ShowMessage("locations.kdh.ambush_intro")
     enc = _AMBUSH_ENCOUNTER
-    spec = enc.variants[0]  # single-enemy encounter: one variant.
-    scenario = Scenario.from_encounter(
-        spec,
-        active.roster,
-        build_rules(),
-        enemy_attrs=enemy_attrs(params),
-        grid=_backdrop(enc.grid),
-        equip=equipper(_weapon_stats()),
-    )
-    result = yield StartCombat(scenario=scenario)
-
-    # Outcome narration (the invoking handler's job — _run_combat yields no final
-    # screen). Shared with jobs.py/upkeep.py's own fights; per-side death tallies
-    # come off the CombatResult.
-    yield from narrate_combat_outcome(
-        winner=result.winner,
-        player_name=active.name,
-        enemy_name=spec.name,
-        player_losses=result.losses[0],
-        enemy_losses=result.losses[1],
-    )
+    result = yield from run_encounter(ctx, enc)
 
     # :15315 (loss — on_loss: [], nothing) / :15320-15321 (win — loot + score +
     # message). The whole declarable consequence rides the encounter's on_win/on_loss.

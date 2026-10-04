@@ -1,0 +1,20 @@
+# sub (Subway-Station, U-Bahn) — location shell (declarative layer).
+#
+# Ports the sub menu from mf-prg.bas:18010 (onwgoto18035,18015). Neither option
+# carries a shell guard: the source refuses only inside the handler (the ticket's
+# cash check :18025), after the option was picked.
+#
+#   platform — sub.platform: pick pockets on the platform (:18035-18052, w=1)
+#   train    — sub.train: a 50 $ ticket, then pick pockets on the train
+#              (:18015-18030, then :18035-18052 with w=2)
+#   leave    — costs 5 movement points (:3045) back to the map.
+key: sub
+options:
+  - id: platform
+    handler: "sub.platform"
+  - id: train
+    handler: "sub.train"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

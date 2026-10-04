@@ -2,24 +2,28 @@
 
 Composes the client building blocks (:class:`TerminalInput`, the render helpers, and
 the movement primitives) into a full game over the mafia_1920s config. It holds no
-rules: movement goes through ``engine.movement.try_move``, location actions through
-``engine.actions.run_option``, turn starts through ``engine.upkeep.run_upkeep``, and it
-adopts the returned ``EngineResult.state`` after every step (all are pure).
+rules and no turn order: the engine turn runner (:class:`engine.turns.TurnRunner`)
+owns the order of every turn -- next player, standings and the year-end check on a
+wrap, upkeep, the config's turn-start hooks, a job shift or the free turn and its map
+steps and location visits, the turn-over -- and this session renders what the runner
+yields (its acknowledgement screens, the map-move prompt, the location menu, its
+hooks' and handlers' prompts, narration and fights) and adopts the runner's state at
+every interaction.
+
+Each turn opens the turn menu (``mf-prg.bas:1015-1050``): its number keys pick an
+option (the overview, walking the map, the next player). On the map-move prompt W/A/S/D
+answer a direction; pressing into a door enters the location, whose menu the runner
+offers next; ``m`` leaves the map for the turn menu (the source's exit key, ``:2019``).
 
 A new game shows the title screen, then asks the two setup questions (end year, score
-weight; ``mf-prg.bas:170-176``) unless the caller supplied them. One to four players
-take hot-seat turns:
+weight; ``mf-prg.bas:170-176``) unless the caller supplied them, then offers the
+optional house-rules step (skipped by default; not shown when the config's catalogue
+offers no switch). One to four players take hot-seat turns.
 
-    upkeep banner  ->  a job shift (employed player)  OR  a free turn on the map:
-      walk with W/A/S/D  ->  press into a door to ENTER one of the five locations
-      with a shell (slw/pub/sph/waf/kdh)  ->  pick a menu option (the driver runs the
-      handler via TerminalInput)  ->  back on the map; the turn ends when ms hits 0
-    ->  turn-over summary  ->  next player. After each round the standings show; when
-        the end year is reached the year-end result shows and the game ends.
-
-``p`` on the map saves (to the ``save`` path / the loaded file / ``mafia-save.jsonl``);
-a ``load`` resumes a save (:func:`_load_session`). ``q`` on the map or at a
-turn-over/standings prompt quits. The command line lives in :mod:`clients.terminal.cli`.
+``p`` at the turn menu or on the map saves (to the ``save`` path / the loaded file /
+``mafia-save.jsonl``); a ``load`` resumes a save (:func:`_load_session`) in the phase it
+recorded. ``q`` at the turn menu, on the map or at a turn-over/standings prompt quits. The command line lives in
+:mod:`clients.terminal.cli`.
 
 The headless end-to-end proof is ``tests/test_slice_integration.py``, which drives the
 same protocol without a terminal.
@@ -30,32 +34,48 @@ from __future__ import annotations
 import json
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import yaml
 
-from engine.actions import run_option
+from engine.conditions import build_context, evaluate
 from engine.config_loader import load_game_config
-from engine.effects import RankCommit
-from engine.game_end import run_standings, run_year_end
-from engine.interactions import ShowMessage
-from engine.interactions import run as run_handler
-from engine.locations import HANDLERS, available_options, load_location
-from engine.movement import (
-    DOWN,
-    LEFT,
-    RIGHT,
-    UP,
-    advance_turn,
-    load_city,
-    start_free_turn,
-    try_move,
+from engine.interactions import (
+    MAP_EXIT,
+    MAP_QUIT,
+    MAP_SAVE,
+    Acknowledge,
+    CombatScreen,
+    Heading,
+    LocationMenu,
+    MapMove,
+    OptionDone,
+    TurnMenu,
 )
-from engine.persistence import SchemaVersionError, load_game, replay, save_game
+from engine.persistence import (
+    MissingHouseRulesError,
+    Registries,
+    SaveConfigError,
+    SchemaVersionError,
+    load_game,
+    replay,
+    save_game,
+)
 from engine.rng import Rng
-from engine.state import GameState
+from engine.state import FAITHFUL, INTENT, GameState
 from engine.strings import Resolver
-from engine.upkeep import run_upkeep
+from engine.turns import (
+    JOB_SHIFT_SCREEN,
+    LOCATION_CLOSED_SCREEN,
+    STANDINGS_SCREEN,
+    TURN_OVER_SCREEN,
+    UPKEEP,
+    UPKEEP_SCREEN,
+    YEAR_END_SCREEN,
+    TurnRunner,
+)
 
 from clients.terminal import (
     CLEAR,
@@ -68,7 +88,6 @@ from clients.terminal import (
     client_text,
     hide_cursor,
     install_sigwinch_handler,
-    render_result,
     show_cursor,
 )
 from clients.terminal.ascii_art import location_art, title_screen
@@ -84,8 +103,14 @@ from clients.terminal.renderers import (
 
 _CONFIG_DIR = CONFIG_DIR
 
-#: W/A/S/D -> movement deltas; Q (or empty) -> quit the turn. Case-insensitive.
-_MOVE_KEYS = {"w": UP, "s": DOWN, "a": LEFT, "d": RIGHT}
+#: W/A/S/D -> the map-move prompt's directions; Q (or empty) -> quit. Case-insensitive.
+_MOVE_KEYS = {"w": "up", "s": "down", "a": "left", "d": "right"}
+
+#: A map-move outcome -> the map note that reports it (any other outcome: the hint).
+_OUTCOME_NOTES = {"wall": "client.map.wall", "oob": "client.map.edge"}
+
+#: The map's exit key back to the turn menu (the source's ``_``, ``mf-prg.bas:2019``).
+_EXIT_KEY = "m"
 
 #: The map screen's save key and the save target when neither ``--save`` nor
 #: ``--load`` names one (relative, so it lands in the working directory).
@@ -99,6 +124,10 @@ _DEFAULT_SEED = 42
 #: The theme a session is worded in when ``--theme`` is not given; every other theme
 #: is merged over it.
 _DEFAULT_THEME = "classic"
+
+
+#: What :meth:`TerminalSession.render` returns when the player quit at that screen.
+_QUIT = object()
 
 
 class LoadError(Exception):
@@ -128,13 +157,30 @@ def _load_reason(exc: BaseException, resolver: Resolver) -> str:
     if isinstance(exc, UnicodeDecodeError):
         return reason("not_text")
     if isinstance(exc, SchemaVersionError):
+        if exc.older:
+            return reason("older_version", found=exc.found, supported=exc.supported)
         return reason("bad_version", detail=exc)
+    if isinstance(exc, SaveConfigError):
+        return reason(f"other_{exc.field}", found=exc.found, expected=exc.expected)
+    if isinstance(exc, MissingHouseRulesError):
+        return reason("no_house_rules")
+    if isinstance(exc, _HouseRulesMismatch):
+        return reason("other_house_rules", detail=exc)
     if isinstance(exc, KeyError):
         return reason("missing_field", detail=exc)
     return reason("corrupt", error_type=type(exc).__name__, detail=exc)
 
 
-def _load_session(path: str | Path, resolver: Resolver) -> tuple[int, GameState, Rng]:
+class _HouseRulesMismatch(Exception):
+    """A save's house-rules map does not hold exactly the catalogue's switches."""
+
+
+def _load_session(
+    path: str | Path,
+    resolver: Resolver,
+    registries: Registries,
+    check_house_rules: Callable[[dict], object] | None = None,
+) -> tuple[int, GameState, Rng]:
     """Resume a save: its seed, its state and the session RNG rebuilt mid-stream.
 
     The snapshot is authoritative (the effect log is saved empty), and the session RNG
@@ -142,10 +188,18 @@ def _load_session(path: str | Path, resolver: Resolver) -> tuple[int, GameState,
     uninterrupted play would be. A draw log that does not match the save's seed makes
     :meth:`Rng.replayed` raise ``ValueError`` -- a load failure like any other.
     Every failure becomes :class:`LoadError` with the theme's ``client.load.error`` line.
+    ``registries`` is the loaded config's: effects and value maps load through it.
+    ``check_house_rules`` is the config's check of a stored house-rules map (it raises
+    ``ValueError`` naming the rule): a save made under another catalogue is refused.
     """
     try:
-        loaded = load_game(path)
-        return loaded.seed, replay(loaded), Rng.replayed(loaded.seed, loaded.rng_log)
+        loaded = load_game(path, registries)
+        if check_house_rules is not None:
+            try:
+                check_house_rules(dict(loaded.state.config.house_rules))
+            except ValueError as exc:
+                raise _HouseRulesMismatch(str(exc)) from exc
+        return loaded.seed, replay(loaded, registries), Rng.replayed(loaded.seed, loaded.rng_log)
     except Exception as exc:
         message = resolver.resolve(
             "client.load.error", {"path": path, "reason": _load_reason(exc, resolver)}
@@ -249,41 +303,6 @@ _CODE_TO_CHAR: dict[int, str] = {
 }
 
 
-def _shell_path(location_key: str) -> Path:
-    return _CONFIG_DIR / "content" / "locations" / f"{location_key}.yaml"
-
-
-def _shell_exists(location_key: str) -> bool:
-    """Whether this location has a shell yet.
-
-    The map's door table runs ahead of the shells: city.yaml has doors for all
-    twelve menu locations, but only some have a shell under ``content/locations/``,
-    so walking into the others would otherwise crash on a missing file. Derived from
-    disk rather than a hardcoded list so a new shell needs no edit here to become
-    reachable.
-    """
-    return _shell_path(location_key).is_file()
-
-
-def _load_shell(location_key: str):
-    """Load a location shell by its key (e.g. ``slw``)."""
-    return load_location(yaml.safe_load(_shell_path(location_key).read_text(encoding="utf-8")))
-
-
-def _door_location_map(city_raw: dict) -> dict[int, str]:
-    """Map ``la`` (numeric location id from the door table) -> shell key.
-
-    The decoded city carries ``location`` (the shell key) alongside ``la`` for every door,
-    so a single pass builds the id->key lookup the REPL needs when ``try_move`` reports an
-    ``enter`` with a numeric ``la``.
-    """
-    out: dict[int, str] = {}
-    for door in city_raw.get("doors", []):
-        if "la" in door and "location" in door:
-            out[door["la"]] = door["location"]
-    return out
-
-
 def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Colors) -> None:
     """Draw the 40x25 city with per-cell colors from the C64 color RAM.
 
@@ -311,8 +330,18 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
             color = char_cfg.get("color", "white")
             door_info[door["cell"]] = (loc_key, char, color)
 
-    # Special cell lookup
+    # Special cell lookup: an event cell is drawn only while it is armed for the
+    # active player -- its ``armed`` guard (the config's city data) holds against the
+    # state, as the source pokes it off the street code (``:2002``/``:2003``). The
+    # armed state is derived here each time, never stored; an unarmed cell is drawn as
+    # the street it is.
     special_cfg = _MAP_CFG.get("special_cells", {})
+    guard_context = build_context(state)
+    armed = {
+        spec["cell"]
+        for spec in city_raw.get("special_cells", [])
+        if evaluate(spec.get("armed"), guard_context)
+    }
 
     # Config values
     player_char = _MAP_CFG.get("player_char", "@")
@@ -332,7 +361,7 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
             elif cell in door_info:
                 _, dchar, dcolor = door_info[cell]
                 chars.append(f"{colors.fg(dcolor)}{dchar}")
-            elif cell in city.special_cells and cell in special_cfg:
+            elif cell in armed and cell in special_cfg:
                 scfg = special_cfg[cell]
                 chars.append(f"{colors.fg(scfg.get('color', 'white'))}{scfg['char']}")
             else:
@@ -365,43 +394,22 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
     render_status_bar_from_state(state, out, resolver, colors)
 
 
-def _run_location(
-    location_key: str,
-    ln: int,
-    state,
-    resolver: Resolver,
-    colors: Colors,
-    inp: TerminalInput,
-    out,
-    rng: Rng,
-    stdin=None,
-):
-    """Show a location's available options and run the one the player picks.
+def _render_location_menu(
+    menu: LocationMenu, resolver: Resolver, colors: Colors, out, stdin=None
+) -> Any:
+    """Show a location's menu (the runner's :class:`LocationMenu`); return the pick.
 
-    Returns the (possibly new) state. Guard-denied options are excluded by
-    ``available_options`` and never listed. ``leave`` (and an empty choice)
-    returns to the map without running anything.
-
-    ``rng`` is the ONE session RNG constructed in :func:`play` (session-owned; a
-    network transport may move that ownership to the server) and threaded
-    through every handler call for this location. Any handler that draws
-    (``ctx.rng.range``/``ctx.rng.hit``) needs a real :class:`Rng`, not ``None``.
+    Returns the chosen 0-based index. A blank line or a key that is not an offered
+    option is ignored and the prompt waits again, as the runner does
+    (``mf-prg.bas:3040``): only the shell's own leave option leaves. EOF returns
+    ``_QUIT`` (the session ends). With no options there is nothing to pick: ``None``.
     """
     if stdin is None:
         stdin = sys.stdin
-
-    if not _shell_exists(location_key):
-        # No state change, and no move spent beyond try_move's door-step charge.
-        render_screen_clear(out)
-        out.write(resolver.resolve("client.location.closed", {"location": location_key}) + "\n\n")
-        out.flush()
-        return state
-
-    shell = _load_shell(location_key)
-    options = available_options(shell, state, ln)
-    if not options:
+    location_key = menu.location
+    if not menu.options:
         out.write(resolver.resolve("client.location.nothing_to_do") + "\n")
-        return state
+        return None
 
     # Entry prompt sets the scene
     try:
@@ -411,7 +419,8 @@ def _run_location(
 
     # --- render location screen ---
     render_screen_clear(out)
-    # Location ASCII art splash (if available)
+    # Location ASCII art splash (if available): the location's picture
+    # (:3007 `syslh,lk$(la)+"-pic"`), drawn for the terminal.
     art = location_art(location_key)
     if art is not None:
         for line in art:
@@ -423,138 +432,36 @@ def _run_location(
     render_header(location_key, out, colors)
     render_body(entry_text, out, colors)
     out.write("\n")
-    for i, opt in enumerate(options):
+    for i, option_id in enumerate(menu.options):
         try:
-            label = resolver.resolve(f"locations.{location_key}.menu.{opt.id}")
+            label = resolver.resolve(f"locations.{location_key}.menu.{option_id}")
         except Exception:
-            label = opt.id
+            label = option_id
         render_menu_option(i, label, out, colors)
-    render_prompt(out)
-    out.flush()
-
-    raw = _read_line_visible(stdin, out).strip()
-
-    if not raw.isdigit() or not (0 <= int(raw) < len(options)):
-        return state  # invalid / empty -> back to the map, no action run
-    chosen = options[int(raw)]
-    if chosen.id == "leave":
-        return state
-
-    result = run_option(shell, chosen.id, state, ln=ln, input_source=inp, rng=rng)
-    render_result(result, out, resolver, colors)
-    return result.state  # adopt (run_option is pure)
+    while True:
+        render_prompt(out)
+        out.flush()
+        line = _read_line_visible(stdin, out)
+        if line == "":  # EOF
+            return _QUIT
+        raw = line.strip()
+        if raw.isdigit() and int(raw) < len(menu.options):
+            return int(raw)
 
 
-def _run_upkeep_screen(
-    state, resolver: Resolver, colors: Colors, out, rng: Rng, stdin=None, inp=None
-):
-    """Run the active player's turn-start upkeep and show its banner/promotion.
+def _render_lines_screen(header: str, lines, resolver: Resolver, colors: Colors, out) -> bool:
+    """Show a display-only flow (standings or year-end) as ONE screen and wait for a key.
 
-    Calls :func:`engine.upkeep.run_upkeep` — THE engine-level turn-start entry point —
-    so the client never decides for itself whether upkeep runs; it only renders what
-    already happened. The turn banner always shows; the rank-promotion "wanted poster"
-    screen shows only when the committed effects contain a :class:`RankCommit` (the
-    handler's own ``rank != nr`` gate, mirrored here rather than re-derived, so the
-    client stays a thin renderer over the driver's decision).
-
-    Blocks for one keypress after the banner/promotion (mirrors the turn-over prompt's
-    "press any key..." pattern) so a human has time to read it; EOF is treated as an
-    ack, not a quit, since upkeep offers no cancel path — the
-    turn must proceed regardless.
-
-    ``inp`` is the session's :class:`TerminalInput`, forwarded to ``run_upkeep`` so the
-    debt-default collectors fight (``mf-prg.bas:4350``) can read real combat input.
-    Every other upkeep step yields only auto-acked ``ShowMessage`` screens and never
-    consults it. This does not reopen a cancel path: combat prompts are
-    non-cancellable, so a quit during the fight surrenders — losing it, and
-    triggering the seizure — rather than escaping upkeep.
-    """
-    if stdin is None:
-        stdin = sys.stdin
-
-    result = run_upkeep(state, input_source=inp, rng=rng)
-    new_state = result.state  # adopt (run_upkeep is pure)
-    assert new_state is not None, "run_upkeep was given a state, so it returns one"
-    active = new_state.players[new_state.clock.active_player]
-
-    render_screen_clear(out)
-    render_header(resolver.resolve("client.header.upkeep"), out, colors)
-    render_body(resolver.resolve("upkeep.turn_banner", {"name": active.name}), out, colors)
-
-    promoted = next((e for e in result.effects if isinstance(e, RankCommit)), None)
-    if promoted is not None:
-        cfg = load_game_config(_CONFIG_DIR)
-        ranks = cfg.module.load_ranks(_CONFIG_DIR / cfg.config["entities"]["ranks"])
-        out.write("\n")
-        render_body(
-            resolver.resolve(
-                "upkeep.rank_promotion",
-                {
-                    "gang_name": active.gang_name,
-                    "name": active.name,
-                    "score": active.gf,
-                    "rank_name": ranks[active.rank - 1],
-                },
-            ),
-            out,
-            colors,
-        )
-
-    _write_press_any_key(resolver, out)
-    _read_line_visible(stdin, out)
-    return new_state
-
-
-def _run_job_shift_screen(
-    state, resolver: Resolver, colors: Colors, inp: TerminalInput, out, rng: Rng
-):
-    """Run the active player's job shift (the turn-start job-shift seam) and render it.
-
-    Dispatched by the CALLER (:func:`play`'s turn loop), right after upkeep, in place
-    of the free turn -- an employed player never reaches the map/menu this turn
-    (``data/game_configs/mafia_1920s/handlers/jobs.py``'s ``job_shift``, registered
-    under ``"job.shift"`` in the SAME :data:`engine.locations.HANDLERS` registry a
-    location option's handler string resolves against). Drives the generator via
-    :func:`engine.interactions.run` directly (there is no location shell/guard layer
-    for a shift, unlike :func:`_run_location`), sharing the ONE session RNG and the
-    real terminal ``inp`` so the shift's ``StartCombat`` fights render exactly like
-    any other fight.
-    """
-    render_screen_clear(out)
-    render_header(resolver.resolve("client.header.job"), out, colors)
-    result = run_handler(HANDLERS["job.shift"], inp, state=state, rng=rng)
-    return result.state  # adopt (run is pure)
-
-
-def _run_game_end_screen(
-    runner, header: str, state, resolver: Resolver, colors: Colors, out, rng: Rng
-) -> bool:
-    """Run a display-only game-end flow (standings or year-end) and show it as ONE screen.
-
-    ``runner`` is :func:`engine.game_end.run_standings` or
-    :func:`engine.game_end.run_year_end`; WHICH state it gets is the caller's
-    decision. The runner's input source collects every ``ShowMessage`` the
-    config handler yields (one per row -- templates cannot iterate); each is resolved
-    through the theme and rendered in order under one header, then the screen waits
-    for one key like the turn-over prompt. Any other interaction raises, mirroring the
-    engine runners' own display-only contract, so a handler that starts asking
-    questions fails loudly instead of being answered here.
+    ``lines`` are the flow's rows as ``(key, params)`` pairs (one per row -- templates
+    cannot iterate); each is resolved through the theme and rendered in order under one
+    header, then the screen waits for one key like the turn-over prompt.
 
     Returns ``False`` when that key is a quit (``q`` or EOF, :func:`_is_quit`), so the
     caller ends the session; ``True`` otherwise.
     """
-    messages: list[ShowMessage] = []
-
-    def collect(interaction):
-        if not isinstance(interaction, ShowMessage):
-            raise AssertionError(f"game-end flow asked a question: {interaction!r}")
-        messages.append(interaction)
-
-    runner(state, input_source=collect, rng=rng)
-
     render_screen_clear(out)
     render_header(header, out, colors)
-    render_body("\n".join(resolver.resolve(m.key, m.params) for m in messages), out, colors)
+    render_body("\n".join(resolver.resolve(key, params) for key, params in lines), out, colors)
     _write_press_any_key(resolver, out)
     return not _is_quit(_read_key())
 
@@ -605,6 +512,54 @@ def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out,
             return value
 
 
+def _ask_house_rules(rules, resolver, out, stdin) -> dict[str, str]:
+    """The optional house-rules step: each switchable rule's setting, faithful by default.
+
+    ``rules`` are the catalogue entries that have a switch; with none the step is not
+    shown. Enter at the offer keeps every rule faithful; the change key opens the list,
+    where a rule's number switches it between faithful and intent and Enter starts the
+    game (any other answer shows the list again). Real EOF raises :class:`EndOfInput`.
+    """
+    chosen = {rule.id: FAITHFUL for rule in rules}
+    if not rules:
+        return chosen
+
+    def read() -> str:
+        line = _read_line_visible(stdin, out)
+        if line == "":
+            raise EndOfInput
+        return line.strip()
+
+    change_key = resolver.resolve("client.house_rules.change_key")
+    render_screen_clear(out)
+    out.write(f"{resolver.resolve('client.house_rules.offer', {'key': change_key})} ")
+    out.flush()
+    if read().lower() != change_key.lower():
+        return chosen
+    while True:
+        render_screen_clear(out)
+        out.write(resolver.resolve("client.house_rules.title") + "\n")
+        for number, rule in enumerate(rules, start=1):
+            entry = {
+                "number": number,
+                "setting": resolver.resolve(f"client.house_rules.setting.{chosen[rule.id]}"),
+                "description": resolver.resolve(f"house_rules.{rule.id}"),
+            }
+            out.write(resolver.resolve("client.house_rules.entry", entry) + "\n")
+        out.write(f"{resolver.resolve('client.house_rules.prompt')} ")
+        out.flush()
+        answer = read()
+        if answer == "":
+            return chosen
+        if answer.isdigit() and 1 <= int(answer) <= len(rules):
+            rule_id = rules[int(answer) - 1].id
+            chosen[rule_id] = INTENT if chosen[rule_id] == FAITHFUL else FAITHFUL
+
+
+#: The turn runner's own acknowledgement screens; every other one is a handler's.
+_RUNNER_SCREENS = frozenset({UPKEEP_SCREEN, TURN_OVER_SCREEN, STANDINGS_SCREEN, YEAR_END_SCREEN})
+
+
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
 
@@ -645,14 +600,14 @@ class TerminalSession:
         )
         self.cfg = load_game_config(_CONFIG_DIR)
 
+        # The map's drawing data (door glyphs by location); the rules' city is the config's.
         self.city_raw = yaml.safe_load(
             (_CONFIG_DIR / "content" / "map" / "city.yaml").read_text(encoding="utf-8")
         )
-        self.city = load_city(self.city_raw)
-        self.la_to_key = _door_location_map(self.city_raw)
+        assert self.cfg.city is not None, "the mafia_1920s config has a city map"
+        self.city = self.cfg.city
 
         cfg = self.cfg
-        self.vehicles = cfg.module.load_vehicles(_CONFIG_DIR / cfg.config["entities"]["vehicles"])
         self.weapon_names = [
             w["name"]
             for w in cfg.module.load_weapons(_CONFIG_DIR / cfg.config["entities"]["weapons"])
@@ -669,7 +624,13 @@ class TerminalSession:
         )
         if load is not None:
             # raises LoadError; main() reports it
-            self.seed, self.state, self.rng = _load_session(load, self.resolver)
+            rules = self.cfg.module.house_rules
+            self.seed, self.state, self.rng = _load_session(
+                load,
+                self.resolver,
+                self.cfg.registries,
+                lambda stored: rules.check_stored_map(stored, rules.CATALOGUE),
+            )
         else:
             self.seed = seed if seed is not None else _DEFAULT_SEED
             # the one session RNG — threaded into every run_option call
@@ -703,9 +664,13 @@ class TerminalSession:
         return self.state, self.rng
 
     def start_new_game(self) -> None:
-        """Title screen, setup prompts, the new game and its first upkeep, then the turns."""
+        """Title screen, setup prompts, the new game and its first upkeep, then the turns.
+
+        The source's order (``:30`` ``gosub100:gosub170:gosub200:goto1000``): the title,
+        the end year and score weight, the players, then the turns.
+        """
         out, resolver = self.out, self.resolver
-        # Title screen
+        # Title screen; it waits for a key (:154 `getx$:ifx$=""goto154`).
         out.write(CLEAR)
         out.write(title_screen(self.colors))
         out.flush()
@@ -731,67 +696,236 @@ class TerminalSession:
                 out=out,
                 stdin=sys.stdin,
             )
+        # The optional house-rules step: every game, solo or not, goes through it.
+        module = self.cfg.module
+        house_rules = _ask_house_rules(
+            module.house_rules.switchable(module.house_rules.CATALOGUE),
+            resolver,
+            out,
+            sys.stdin,
+        )
         # new_game validates both against input_ranges and stores the weight as
-        # Config.score_mult -- nothing here sets the config directly.
-        self.state = self.cfg.module.new_game(
+        # formula_params["score_mult"] and the house rules as the frozen map --
+        # nothing here sets the config directly.
+        self.state = module.new_game(
             seed=self.seed,
             end_year=end_year,
             score_weight=score_weight,
             players=self.players or [("alcapone", "the outfit")],
+            house_rules=house_rules,
         )
 
-        # The engine owns the coupling — upkeep runs at EVERY turn start,
-        # including the very first (before the map loop's first render), so no path
-        # through this client can reach a free turn without it. Later turns run it
-        # right after advance_turn rotates (in next_turn), at the exact same seam.
-        self.state = _run_upkeep_screen(
-            self.state, resolver, self.colors, out, self.rng, inp=self.inp
-        )
-        self.run_turns(resuming_free_turn=False)
+        # The engine turn runner owns the order of every turn from here on; a new
+        # game enters it at the first player's turn start, upkeep first.
+        self.drive_turns(UPKEEP)
 
     def resume_loaded_game(self) -> None:
         """Enter the turns of a loaded game: no title, no setup, no upkeep."""
-        # A loaded game skips all of that: it was set up, and this turn's
-        # upkeep already ran, before the save.
-        # A save is only ever taken on the map during a free turn -- including the rest
-        # of the turn in which a job was just accepted (ms=0, job already set). So the
-        # first iteration after a load resumes that free turn; the shift belongs to the
-        # NEXT turn start, exactly as in uninterrupted play.
-        self.run_turns(resuming_free_turn=True)
+        # The runner re-enters the phase the save recorded: a save is only ever taken
+        # at the turn menu or on the map, so the saved player's free turn resumes there,
+        # and this turn's upkeep and turn start (which ran before the save) do not run
+        # again.
+        self.drive_turns()
 
-    def run_turns(self, *, resuming_free_turn: bool) -> None:
-        """The turn loop: a job shift or a map turn, then turn-over, until the session ends."""
-        while True:
-            # Job-shift seam: an EMPLOYED player never reaches the map/menu this
-            # turn -- the shift flow replaces the free turn entirely (mirrors the
-            # source's :1012 dispatch). Checked fresh every turn start, right after
-            # upkeep (in start_new_game on the first turn, in next_turn on later ones).
-            assert self.state is not None, "state is set by setup or load before any turn"
-            active = self.state.players[self.state.clock.active_player]
-            if active.jobs.type and not resuming_free_turn:
-                self.job_shift()
-            else:
-                # :1013 -- the free turn opens with the score truncation. A resumed
-                # turn already had it before the save, as the source runs it once.
-                if not resuming_free_turn:
-                    self.state = start_free_turn(self.state)
-                resuming_free_turn = False
-                if not self.map_turn():
-                    return
-            if not self.turn_over():
-                return
-            if not self.next_turn():
-                return
+    def drive_turns(self, entry: str | None = None) -> None:
+        """Drive the engine turn runner from ``entry`` until the game ends or a quit.
 
-    def job_shift(self) -> None:
-        """Run the employed active player's job shift in place of the free turn."""
-        self.state = _run_job_shift_screen(
-            self.state, self.resolver, self.colors, self.inp, self.out, self.rng
+        The runner (:class:`engine.turns.TurnRunner`) owns the order of the turn; this
+        only renders its screens and answers its prompts, adopting the runner's state
+        at every interaction. ``entry=None`` re-enters the phase the state recorded.
+        """
+        assert self.state is not None, "state is set by setup or load before any turn"
+        runner = TurnRunner(
+            self.state,
+            self.rng,
+            city=self.cfg.city,
+            shells=self.cfg.shells,
+            turn_menu=self.cfg.menus.get("turn"),
+            observe_ai=self.inp.observes_ai,
         )
+        turns = runner.run(entry)
+        try:
+            interaction = next(turns)
+            while True:
+                self.state = runner.state
+                response = self.render(interaction)
+                if response is _QUIT:
+                    turns.close()
+                    return
+                interaction = turns.send(response)
+        except StopIteration:
+            self.state = runner.state
 
-    def map_turn(self) -> bool:
-        """Play the free turn on the map until ``ms`` runs out; ``False`` on a quit."""
+    def render(self, interaction):
+        """Show one interaction of the turn runner; return its answer, or ``_QUIT``."""
+        if isinstance(interaction, CombatScreen):
+            # The board clears the screen when it is drawn, so the whose-turn line goes
+            # under the clear, with the board, not before it.
+            return self.inp.answer(interaction, banner=self.whose_turn(interaction))
+        if isinstance(interaction, Acknowledge) and interaction.key not in _RUNNER_SCREENS:
+            # A handler's own screen clears too (see acknowledge()).
+            return self.acknowledge(interaction, banner=self.whose_turn(interaction))
+        self.announce_player(interaction)
+        if isinstance(interaction, TurnMenu):
+            return self.turn_menu(interaction)
+        if isinstance(interaction, MapMove):
+            return self.map_prompt(interaction)
+        if isinstance(interaction, LocationMenu):
+            return _render_location_menu(interaction, self.resolver, self.colors, self.out)
+        if isinstance(interaction, OptionDone):
+            # Between actions, a status bar off the action's committed state; a
+            # cancelled action committed nothing and shows nothing.
+            if interaction.status != "cancelled":
+                render_status_bar_from_state(self.state, self.out, self.resolver, self.colors)
+            return None
+        if isinstance(interaction, Heading):
+            return self.heading(interaction)
+        if isinstance(interaction, Acknowledge):
+            return self.acknowledge(interaction)
+        # A hook's or handler's own interaction: prompts, narration, fights.
+        return self.inp(interaction)
+
+    def announce_player(self, interaction) -> None:
+        """Name the answering player when it is not the active one (``session.whose_turn``).
+
+        Every interaction names who answers it (``player``; ``None`` is the active
+        player). A prompt meant for someone else -- a defender, a freed prisoner -- is
+        announced first, so the right player takes the keyboard.
+        """
+        line = self.whose_turn(interaction)
+        if line is None:
+            return
+        self.out.write(line + "\n")
+        self.out.flush()
+
+    def whose_turn(self, interaction) -> str | None:
+        """The whose-turn line for ``interaction``, or ``None`` for the active player."""
+        player = getattr(interaction, "player", None)
+        if player is None or self.state is None or player == self.state.clock.active_player:
+            return None
+        return self.text("session.whose_turn", {"name": self.state.players[player].name})
+
+    def heading(self, screen: Heading) -> None:
+        """Open one of the runner's own screens under its heading."""
         out = self.out
+        if screen.key == UPKEEP_SCREEN:
+            # Upkeep's messages follow under this heading, each printed once; the
+            # Acknowledge that closes the screen only waits for the key.
+            render_screen_clear(out)
+            render_header(self.text("client.header.upkeep"), out, self.colors)
+        elif screen.key == JOB_SHIFT_SCREEN:
+            render_screen_clear(out)
+            render_header(self.text("client.header.job"), out, self.colors)
+        elif screen.key == LOCATION_CLOSED_SCREEN:
+            # No state change, and no move spent beyond the door step's charge.
+            render_screen_clear(out)
+            out.write(self.text("client.location.closed", dict(screen.params)) + "\n\n")
+            out.flush()
+        else:
+            raise AssertionError(f"unknown screen heading {screen.key!r}")
+
+    def acknowledge(self, screen: Acknowledge, *, banner: str | None = None):
+        """Show one of the runner's acknowledgement screens; ``_QUIT`` on a quit key.
+
+        ``banner`` is the whose-turn line of a handler's own screen, printed under its
+        screen clear."""
+        if screen.key == UPKEEP_SCREEN:
+            # The upkeep screen's body is already printed (see heading()): wait for the
+            # key. EOF is an ack, not a quit -- upkeep offers no cancel path.
+            _write_press_any_key(self.resolver, self.out)
+            _read_line_visible(sys.stdin, self.out)
+            return None
+        if screen.key == TURN_OVER_SCREEN:
+            return None if self.turn_over() else _QUIT
+        if screen.key == STANDINGS_SCREEN:
+            header = self.text("client.header.standings")
+            if not _render_lines_screen(
+                header, screen.params["lines"], self.resolver, self.colors, self.out
+            ):
+                self.out.write(self.text("client.bye") + "\n")
+                return _QUIT
+            return None
+        if screen.key == YEAR_END_SCREEN:
+            # :40100 — the year-end result; the game ends after it, whatever the key.
+            header = self.text("client.header.game_over")
+            _render_lines_screen(
+                header, screen.params["lines"], self.resolver, self.colors, self.out
+            )
+            return None
+        # A handler's own screen (the overview): its lines, then a key.
+        render_screen_clear(self.out)
+        if banner is not None:
+            self.out.write(banner + "\n")
+        lines = screen.params.get("lines")
+        body = (
+            "\n".join(self.text(key, params) for key, params in lines)
+            if lines is not None
+            else self.text(screen.key, dict(screen.params))
+        )
+        render_body(body, self.out, self.colors)
+        _write_press_any_key(self.resolver, self.out)
+        _read_key()
+        return None
+
+    def turn_menu(self, menu: TurnMenu):
+        """Show the turn menu (``mf-prg.bas:1015-1022``); return the key, or ``_QUIT``.
+
+        The head names the player and gang (``:1015``), the cash and the date
+        (``:1016-1017``); the options are the runner's, each worded by the theme. A
+        pressed key goes to the runner, which ignores one no option has (``:1030``) and
+        asks again. The save key saves and redraws; a resize redraws.
+        """
+        out = self.out
+        assert self.state is not None, "state is set by setup or load before any turn"
+        player = self.state.players[self.state.clock.active_player]
+        clock = self.state.clock
+        note = self.text("client.menu.hint")
+        while True:
+            render_screen_clear(out)
+            render_header(
+                self.text(
+                    "turn.menu.header",
+                    {
+                        "name": player.name,
+                        "gang_name": self.cfg.module.state.gang_name(player),
+                    },
+                ),
+                out,
+                self.colors,
+            )
+            status = self.text(
+                "turn.menu.status",
+                # :1017 1+int((ja-x)*12): the month, 1-based.
+                {"cash": player.ka, "year": clock.year, "month": clock.month + 1},
+            )
+            options = "\n".join(self.text(f"turn.menu.option.{o}") for o in menu.options)
+            render_body(
+                f"{status}\n\n{self.text('turn.menu.prompt')}\n\n{options}", out, self.colors
+            )
+            out.write(f"\n{DIM}{note}{RESET}\n")
+            out.flush()
+            key = _read_key()
+            if check_resize():
+                continue
+            if _is_quit(key) and MAP_QUIT in menu.commands:
+                out.write(self.text("client.bye") + "\n")
+                return _QUIT
+            if key == _SAVE_KEY and MAP_SAVE in menu.commands:
+                self.save()
+                note = self.note
+                continue
+            return key
+
+    def map_prompt(self, prompt: MapMove):
+        """Answer the runner's map-move prompt: a direction, or ``_QUIT``.
+
+        The map is drawn with a note saying what the last move did. A resize redraws,
+        the save key saves (when the prompt offers saving) and redraws, any other key
+        says so and redraws; none of them reaches the runner.
+        """
+        out = self.out
+        # What the last move did; a prompt no move preceded (a fresh free turn) hints.
+        self.note = self.text(_OUTCOME_NOTES.get(prompt.outcome or "", "client.map.hint"))
         while True:
             out.write(CLEAR)
             render_map(self.city, self.city_raw, self.state, out, self.resolver, self.colors)
@@ -803,44 +937,20 @@ class TerminalSession:
                 continue
             if _is_quit(key):
                 out.write(self.text("client.bye") + "\n")
-                return False
-
-            if key == _SAVE_KEY:
+                return _QUIT
+            if key == _SAVE_KEY and MAP_SAVE in prompt.commands:
                 self.save()
                 continue
-
-            delta = _MOVE_KEYS.get(key)
-            if delta is None:
+            if key == _EXIT_KEY and MAP_EXIT in prompt.commands:
+                return MAP_EXIT
+            direction = _MOVE_KEYS.get(key)
+            if direction is None or direction not in prompt.directions:
                 self.note = self.text("client.map.bad_key")
                 continue
-
-            assert self.state is not None, "state is set by setup or load before any turn"
-            result = try_move(self.state, self.city, delta)
-            self.state = result.state
-            payload = result.payload
-            kind = getattr(payload, "kind", None)
-            note_key = {"wall": "client.map.wall", "oob": "client.map.edge"}.get(
-                kind or "", "client.map.hint"
-            )
-            self.note = self.text(note_key)
-            if kind == "enter":
-                key_for_la = self.la_to_key.get(payload.la)
-                if key_for_la is not None:
-                    self.state = _run_location(
-                        key_for_la,
-                        payload.ln,
-                        self.state,
-                        self.resolver,
-                        self.colors,
-                        self.inp,
-                        out,
-                        self.rng,
-                    )
-            if getattr(payload, "turn_over", False):
-                return True
+            return direction
 
     def save(self) -> None:
-        """Save the game from the map (``p``) and set the map note to the outcome."""
+        """Save the game (``p``, at the turn menu or on the map); the note says how it went."""
         # A map-turn save -- the snapshot is authoritative, so
         # the effect log is empty; the RNG log lets a load resume the
         # stream mid-way. Overwrites without asking.
@@ -849,7 +959,12 @@ class TerminalSession:
         assert self.state is not None, "state is set by setup or load before any turn"
         try:
             save_game(
-                self.save_path, self.state, effect_log=[], rng_log=self.rng.log, seed=self.seed
+                self.save_path,
+                self.state,
+                registries=self.cfg.registries,
+                effect_log=[],
+                rng_log=self.rng.log,
+                seed=self.seed,
             )
         except OSError as exc:
             reason = exc.strerror or str(exc)
@@ -872,7 +987,7 @@ class TerminalSession:
                     "position": p.po,
                     "movement": p.ms,
                     "rank": p.rank,
-                    "jail_months": p.wanted.jail_months,
+                    "jail_months": self.cfg.module.state.wanted(p).jail_months,
                 },
             ),
             out,
@@ -883,58 +998,6 @@ class TerminalSession:
             out.write(self.text("client.bye") + "\n")
             return False
         return True
-
-    def next_turn(self) -> bool:
-        """Advance to the next turn (standings, ending, upkeep); ``False`` ends the session."""
-        assert self.state is not None, "state is set by setup or load before any turn"
-        played = self.state  # the round just finished, for the standings
-        # advance_turn is pure — the rotated/replenished state must be adopted.
-        self.state, game_over = advance_turn(self.state, self.vehicles)
-        # :1010 — on a round wrap (back to player 0) gosub4500 shows the standings
-        # BEFORE ja=ja+1/12, so they get the pre-advance state: the date shown is
-        # the round just played.
-        if self.state.clock.active_player == 0:
-            if not self.round_end(played):
-                return False
-        if game_over:
-            self.ending()
-            return False
-        # Upkeep for the NEW active player, right at the turn-start seam
-        # advance_turn just opened — before this player's free turn (or job
-        # shift) is offered.
-        self.state = _run_upkeep_screen(
-            self.state, self.resolver, self.colors, self.out, self.rng, inp=self.inp
-        )
-        return True
-
-    def round_end(self, played) -> bool:
-        """Show the standings for ``played``, the round just finished; ``False`` on a quit."""
-        if not _run_game_end_screen(
-            run_standings,
-            self.text("client.header.standings"),
-            played,
-            self.resolver,
-            self.colors,
-            self.out,
-            self.rng,
-        ):
-            self.out.write(self.text("client.bye") + "\n")
-            return False
-        return True
-
-    def ending(self) -> None:
-        """Show the year-end result; the game ends here."""
-        # :40100 — the year-end result (standings again, then winner/tie) on the
-        # POST-advance state; the game ends here, so no upkeep and no new turn.
-        _run_game_end_screen(
-            run_year_end,
-            self.text("client.header.game_over"),
-            self.state,
-            self.resolver,
-            self.colors,
-            self.out,
-            self.rng,
-        )
 
 
 def play(
@@ -957,8 +1020,9 @@ def play(
     for after the title screen (``mf-prg.bas:170-176``); a supplied value skips its prompt.
 
     ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
-    player's map turn (no title, setup or upkeep); the new-game inputs are ignored.
-    ``p`` on the map saves to ``save``, else the loaded file, else ``mafia-save.jsonl``.
+    player's turn at the menu or on the map, where it was saved (no title, setup or
+    upkeep); the new-game inputs are ignored. ``p`` at the turn menu or on the map saves
+    to ``save``, else the loaded file, else ``mafia-save.jsonl``.
     ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
     ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
     drawn in (default: the ``classic`` theme's); the terminal's colour support is read

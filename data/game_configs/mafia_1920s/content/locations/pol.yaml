@@ -1,0 +1,23 @@
+# pol (Polizei-Praesidium) — location shell (declarative layer).
+#
+# Ports the pol menu from mf-prg.bas:21005 (onwgoto26045,21010,21100). No option
+# carries a shell guard: the source asks nothing before an option is picked (no rank,
+# no wanted check), and refuses only inside the handler (the cash checks :21015 and
+# :21135, the empty inmate list :21110).
+#
+#   surrender  — pol.surrender: the trial, straight at :26045
+#   bribe      — pol.bribe: buy months from the police chief (:21010-21030)
+#   free       — pol.free: bribe the guards to free an inmate (:21100-21255)
+#   leave      — costs 5 movement points (:3045) back to the map.
+key: pol
+options:
+  - id: surrender
+    handler: "pol.surrender"
+  - id: bribe
+    handler: "pol.bribe"
+  - id: free
+    handler: "pol.free"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

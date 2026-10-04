@@ -12,9 +12,9 @@ supplies the generic runners that look a generator up, drive it via
 :func:`engine.interactions.run`, and return the :class:`~engine.actions.EngineResult`
 for the caller to adopt.
 
-WHEN these run is the engine's decision, not the client's: the client calls
-:func:`run_standings` on a round wrap and :func:`run_year_end` whenever
-``advance_turn`` reports ``game_over``. Both flows are display-only — they ask the
+WHEN these run is the engine's decision, not the client's: the engine turn runner
+(:mod:`engine.turns`) calls :func:`run_standings` on a round wrap and
+:func:`run_year_end` when that wrap reaches the end year. Both flows are display-only — they ask the
 player nothing and commit no effects — so each runner's default input source swallows
 ``ShowMessage`` and raises on anything that asks a question (the same contract as
 :func:`engine.upkeep._refuse_input`), catching a future handler that adds a prompt
@@ -88,7 +88,7 @@ def run_standings(
 ) -> EngineResult[GameState]:
     """Run the config's standings generator against ``state`` and return its result.
 
-    The caller passes the state from BEFORE ``advance_turn`` so the date
+    The caller passes the state from BEFORE the round's rotation so the date
     shown is the round just finished. The flow is display-only: ``result.state`` equals
     ``state``. ``handlers`` is a test seam (defaults to :data:`engine.locations.HANDLERS`).
 
@@ -108,7 +108,7 @@ def run_year_end(
 ) -> EngineResult[GameState]:
     """Run the config's year-end generator (standings, then the result) and return it.
 
-    The caller passes the post-``advance_turn`` state, as ``:40100`` does.
+    The caller passes the state after the round's rotation, as ``:40100`` does.
     Display-only: ``result.state`` equals ``state``. ``handlers`` is a test seam.
 
     Raises:

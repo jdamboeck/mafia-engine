@@ -56,7 +56,7 @@ def _scenario(*, sides, grid=(), rules=None, dir_memory=None, seed=None) -> Scen
     return Scenario(
         sides=sides,
         grid=grid,
-        rules=build_rules() if rules is None else rules,
+        rules=build_rules({}) if rules is None else rules,
         dir_memory=dir_memory if dir_memory is not None else {0: -1},
         seed=seed,
     )
@@ -305,7 +305,7 @@ def _ai_fight(*, rng, target_col):
             active_fighter=1,
         ),
         rng=rng,
-        rules=build_rules(),
+        rules=build_rules({}),
     )
 
 

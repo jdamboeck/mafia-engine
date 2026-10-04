@@ -4,18 +4,20 @@ This is generic engine machinery, not game-specific content (docs/design/config-
 FSM + turn loop + movement economy" is engine-provided). It ports the original's
 turn/movement layer from the decompiled BASIC:
 
-* **Turn loop** — ``mf-prg.bas:1010-1013``: rotate the active player, wrap after
-  the last player (advancing the calendar), and replenish movement points from
-  the active player's vehicle: ``ms = tr(tm(sp))``.
+* **The turn order** (``mf-prg.bas:1010-1013``) is not here: it is
+  :mod:`engine.turns`'s (the engine turn runner), which commits the rotation as
+  effects and asks the config's hooks for the game rules in it.
 * **Movement** — ``mf-prg.bas:2000-2065``: one step per direction key on the
   40-wide grid. A move toward the target cell ``p = po + delta`` either STEPS onto
   a walkable street (grid code 156, ``ms -= 1``), ENTERS a location if ``p`` is a
-  door-table cell (``ms -= 5``, ``po`` unchanged — entering is the action, not a
-  move), or is rejected as a WALL. ``ms <= 0`` ends the turn (``mf-prg.bas:2005``).
-* **Police interrupt** — ``mf-prg.bas:2041``: the ``rank > 3`` gate (never fires
-  at rank 1). Only the *gate* is implemented; the roadblock body is not built.
-* **Event cells** — the la=13/14 map-triggered cells (cash transport, mayor hit) are
-  detected and skipped; their flows are not built.
+  door-table cell (``po`` unchanged — entering is the action, not a move), or is
+  rejected as a WALL. ``ms <= 0`` ends the turn (``mf-prg.bas:2005``). The door's 5
+  points (:data:`ENTER_COST`) are not charged here: the source charges them after the
+  visit (``:2055 gosub3000`` returns to ``:2060 ms=ms-5``), so the turn runner does.
+* **The map step's rules** — the roadblock (``:2041``) and the event cells
+  (``la=13/14``, ``:2045/2046``) are game rules: the engine turn runner
+  (:mod:`engine.turns`) asks the config's hooks for them. :func:`try_move` reports an
+  event cell as ``kind="special"`` and leaves it to that hook.
 
 **The ``ln`` seam (formalized here).** When a move enters a location with resolved
 ``(la, ln)``, a :class:`~engine.effects.SetEntryContext` effect sets the active
@@ -31,13 +33,17 @@ never statically imports anything under ``data/``.
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass, replace
-from typing import Any
+from dataclasses import dataclass, field
 
 from engine.actions import EngineResult
-from engine.effects import MsChange, SetEntryContext, SetPosition, commit
-from engine.state import GameState, tuple_replace
+from engine.effects import (
+    MONTHS_PER_YEAR,
+    MsChange,
+    SetEntryContext,
+    SetPosition,
+    commit,
+)
+from engine.state import GameState
 from engine.events import EnterLocation, MoveBlocked, MoveStep
 
 __all__ = [
@@ -54,9 +60,7 @@ __all__ = [
     "MoveResult",
     "load_city",
     "try_move",
-    "advance_turn",
-    "start_free_turn",
-    "police_interrupt_would_fire",
+    "DIRECTION_DELTAS",
 ]
 
 # --- Movement deltas on the 40-wide grid (mf-prg.bas:2015-2018) ------------
@@ -66,12 +70,18 @@ RIGHT = 1
 UP = -GRID_WIDTH
 DOWN = GRID_WIDTH
 
+#: The map-move prompt's direction answers (:data:`engine.interactions.MAP_DIRECTIONS`)
+#: -> their deltas on the grid.
+DIRECTION_DELTAS = {"up": UP, "down": DOWN, "left": LEFT, "right": RIGHT}
+
 #: The walkable-street grid code. Only cells with this code may be STEPPED on
 #: (mf-prg.bas:2035/2040). Door cells decode to other codes (e.g. 83, 144), so the
 #: 156-gate correctly refuses to step onto a door — entry is via the door table.
 STREET_CODE = 156
 
-#: Movement-point costs: 1 per street step (:2040), 5 to enter a location (:2060).
+#: Movement-point costs: 1 per street step (:2040), charged by :func:`try_move`; 5 for a
+#: location visit (:2060), charged by the turn runner after the visit -- and after a
+#: street step its roadblock hook reports as stopped (``:2041 gosub6000:goto2060``).
 STEP_COST = 1
 ENTER_COST = 5
 
@@ -89,6 +99,8 @@ class City:
     ``doors`` maps a cell index to its ``(la, ln)`` — the RESOLVED door mechanic
     (``syslc(p)``): a move whose TARGET cell is a door entry ENTERS that location,
     it is NOT adjacency. ``special_cells`` maps a cell to its event ``la`` (13/14).
+    ``location_keys`` maps a door's ``la`` to the key of the location shell it opens
+    (a door with no named location is absent).
     """
 
     grid: list[list[int]]
@@ -96,6 +108,7 @@ class City:
     special_cells: dict[int, int]
     cols: int = GRID_WIDTH
     color_grid: list[list[int]] | None = None
+    location_keys: dict[int, str] = field(default_factory=dict)
 
     def code(self, cell: int) -> int:
         """The grid code at absolute cell index ``cell`` (row-major, 40 wide)."""
@@ -112,7 +125,7 @@ class City:
         return self.doors.get(cell)
 
     def is_special(self, cell: int) -> bool:
-        """Whether ``cell`` is an la=13/14 event cell (detected; the flows are not built)."""
+        """Whether ``cell`` is an la=13/14 event cell (the config's special-cell hook)."""
         return cell in self.special_cells
 
 
@@ -120,8 +133,8 @@ def load_city(raw: dict) -> City:
     """Parse a ``city.yaml`` dict (from ``yaml.safe_load``) into a :class:`City`.
 
     Reads ``grid`` (25×40 int codes), ``color_grid`` (25×40 C64 color indices),
-    ``doors`` (list of ``{cell, la, ln, ...}``), and ``special_cells`` (list of
-    ``{cell, la, ...}``). City data is CONFIG-owned; the engine takes it as plain
+    ``doors`` (list of ``{cell, la, ln, location?, ...}``; ``location`` names the shell
+    a door opens), and ``special_cells`` (list of ``{cell, la, ...}``). City data is CONFIG-owned; the engine takes it as plain
     data, never importing it.
     """
     grid = [list(row) for row in raw["grid"]]
@@ -130,13 +143,23 @@ def load_city(raw: dict) -> City:
     if not color_grid or len(color_grid) != len(grid):
         color_grid = [[12] * len(row) for row in grid]
     doors: dict[int, tuple[int, int]] = {}
+    location_keys: dict[int, str] = {}
     for d in raw.get("doors", []) or []:
         doors[d["cell"]] = (d["la"], d["ln"])
+        if d.get("location"):
+            location_keys[d["la"]] = d["location"]
     special: dict[int, int] = {}
     for s in raw.get("special_cells", []) or []:
         special[s["cell"]] = s.get("la", 0)
     cols = (raw.get("dims") or {}).get("cols", GRID_WIDTH)
-    return City(grid=grid, color_grid=color_grid, doors=doors, special_cells=special, cols=cols)
+    return City(
+        grid=grid,
+        color_grid=color_grid,
+        doors=doors,
+        special_cells=special,
+        cols=cols,
+        location_keys=location_keys,
+    )
 
 
 @dataclass
@@ -145,11 +168,13 @@ class MoveResult:
 
     ``kind`` is one of:
       * ``"step"``     — stepped onto a street cell (``po`` moved, ``ms -= 1``);
-      * ``"enter"``    — entered a location (``po`` unchanged, ``ms -= 5``);
-        ``la``/``ln`` carry the resolved location + tile;
+      * ``"enter"``    — entered a location (``po`` unchanged, ``ms`` unchanged: the
+        door's charge comes after the visit); ``la``/``ln`` carry the resolved
+        location + tile;
       * ``"wall"``     — the target was a wall (no change);
       * ``"oob"``      — the target was out of bounds (no change);
-      * ``"special"``  — the target was an la=13/14 event cell (detected and skipped);
+      * ``"special"``  — the target was an la=13/14 event cell (no change here: the
+        turn runner hands it to the config's special-cell hook);
       * ``"turn_over"``— the turn was already over (``ms <= 0``); no move happened.
 
     ``turn_over`` is ``True`` once the active player's ``ms <= 0`` after the move
@@ -192,12 +217,13 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
     3. Walkable street (:2035/2040): ``code(p) == 156`` -> STEP: commits
        ``SetPosition(p)`` + ``MsChange(-1)``, emits :class:`~engine.events.MoveStep`,
        ``status="completed"``, ``kind="step"``.
-    4. Else try to ENTER (:2045-2060): if ``p`` is a door-table cell -> ENTER that
-       location: commits ``SetEntryContext(la, ln)`` (the ``ln`` seam) +
-       ``MsChange(-5)``, emits :class:`~engine.events.EnterLocation`; ``po`` stays put
-       (``kind="enter"``, ``la``/``ln`` set), ``status="completed"``.
-    5. Special cell (la=13/14): detected and skipped (the flows are not built) — no events, no
-       effects, ``status="not_implemented"``, ``kind="special"``.
+    4. Else try to ENTER (:2050): if ``p`` is a door-table cell -> ENTER that
+       location: commits ``SetEntryContext(la, ln)`` (the ``ln`` seam), emits
+       :class:`~engine.events.EnterLocation`; ``po`` stays put (``kind="enter"``,
+       ``la``/``ln`` set), ``status="completed"``. The door's :data:`ENTER_COST` is
+       the caller's to charge after the visit (``:2060``).
+    5. Special cell (la=13/14): no events, no effects, ``status="not_implemented"``,
+       ``kind="special"`` -- the turn runner asks the config's special-cell hook.
     6. Otherwise a WALL (:2050): reject the move. Emits
        :class:`~engine.events.MoveBlocked` (reason ``"wall"``), no effects,
        ``status="blocked"``, ``kind="wall"``.
@@ -266,14 +292,14 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
             payload=payload,
         )
 
-    # :2045-2060 — otherwise try to ENTER a location via the door table.
+    # :2050 — otherwise try to ENTER a location via the door table.
     door = city.door(target)
     if door is not None:
         la, ln = door
         # The ln seam: SetEntryContext records last_la/last_location BEFORE the
         # location's handler runs. po does NOT move onto the door — entering is the
-        # action (mf-prg.bas:2060). ms -= 5 unconditionally (may go negative).
-        result = commit(state, [SetEntryContext(la=la, ln=ln), MsChange(-ENTER_COST)])
+        # action. No charge here: :2060 ms=ms-5 comes after the visit (gosub3000).
+        result = commit(state, [SetEntryContext(la=la, ln=ln)])
         new_player = result.state.players[active]
         event = EnterLocation(
             player=active,
@@ -300,7 +326,7 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
             payload=payload,
         )
 
-    # la=13/14 event cells — detected and skipped (no-op); their flows are not built.
+    # la=13/14 event cells — no change here; the turn runner asks the config's hook.
     if city.is_special(target):
         payload = MoveResult(
             kind="special",
@@ -339,116 +365,3 @@ def try_move(state: GameState, city: City, delta: int) -> EngineResult[GameState
         status="blocked",
         payload=payload,
     )
-
-
-#: Months per year — the wrap divisor for the year/month clock (the engine stores
-#: integer ``year``/``month`` in place of mf-prg.bas:1010's fractional ``ja = ja + 1/12``,
-#: which accumulates twelfths of a year per round).
-MONTHS_PER_YEAR = 12
-
-
-def advance_turn(state: GameState, vehicles: list[dict]) -> tuple[GameState, bool]:
-    """End the active player's turn and rotate to the next (mf-prg.bas:1010-1012).
-
-    Ports the turn-loop head (``:1013``'s score truncation is :func:`start_free_turn`,
-    since it runs only after upkeep and only for a player without a job):
-
-    * ``sp = sp + 1``; when it passes the player count it **wraps to player 0**
-      (0-based here; the original is 1-based). On wrap, a full round has elapsed,
-      so the calendar advances ONE MONTH (``ja = ja + 1/12``): ``month``
-      increments, and ``year`` increments only when ``month`` wraps past 11 (i.e.
-      once every 12 full rounds) — matching ``int(ja)`` incrementing once per 12
-      additions of ``1/12``.
-    * ``ms = tr(tm(sp))`` (:1012) — the NEW active player's movement points are
-      replenished from its vehicle's ``tr`` in the config's ``vehicles`` table.
-
-    Pure, like :func:`try_move`: the state graph is frozen, so this returns a NEW
-    state rather than mutating in place — **callers must adopt the returned state**.
-
-    Returns:
-        ``(new_state, game_over)`` where ``game_over`` is ``True`` if the game has
-        reached ``end_year``. This only reports it; the client ends the game on it
-        (running the year-end flow, :mod:`engine.game_end`).
-    """
-    clock = state.clock
-    year = clock.year
-    month = clock.month
-    next_player = clock.active_player + 1
-    if next_player >= clock.player_count:
-        next_player = 0  # wrap to player 0 (:1010-1011)
-        month += 1  # a full round advances the month by 1 (ja += 1/12)
-        if month >= MONTHS_PER_YEAR:
-            month = 0
-            year += 1  # 12 full rounds -> a full year (int(ja) increments)
-
-    new_clock = replace(clock, year=year, month=month, active_player=next_player)
-
-    # :1012 — replenish ms from the new active player's vehicle: ms = tr(tm(sp)).
-    active = state.players[next_player]
-    new_active = replace(active, ms=vehicles[active.vehicle]["tr"])
-
-    new_state = replace(
-        state,
-        clock=new_clock,
-        players=tuple_replace(state.players, next_player, new_active),
-    )
-
-    # Game-over hook: report reaching end_year; the client ends the game on it.
-    return new_state, int(year) >= clock.end_year
-
-
-#: Decimal places ``gf * 100`` is rounded to before :func:`start_free_turn` floors it.
-#: A representation guard, not a rule: IEEE doubles store most whole-cent scores a hair
-#: off (``0.29 * 100`` is ``28.999999999999996``), and a plain floor would take a cent
-#: off such a score every turn. Rounding to 1e-6 of a cent (5e-9 in ``gf``) absorbs
-#: that drift -- at ``gf <= 100`` it is thousands of times the double's own error --
-#: while staying at or below the C64's float resolution there (a 32-bit mantissa is
-#: about 7e-9 at ``gf`` = 25), so no difference the original could hold is erased.
-_SCORE_SNAP_DECIMALS = 6
-
-
-def start_free_turn(state: GameState) -> GameState:
-    """Truncate the active player's score to two decimals (mf-prg.bas:1013).
-
-    ``:1013`` ``gf(sp)=int(gf(sp)*100)/100`` runs once per turn start, and only on
-    the path to a free turn:
-
-    * after upkeep (``:1011`` ``gosub4000``), so the upkeep screens show the score
-      before truncation;
-    * after ``:1012``'s job dispatch (``ifjo(sp)thengosub25000:goto1010``), so an
-      employed player's turn never reaches it;
-    * after ``:1010``'s year-end jump (``goto40100``), so the final scoring sees each
-      score as it stood when that player's last turn ended.
-
-    The caller (the client's turn loop) calls this where the free turn begins. BASIC
-    ``int`` is floor, so a negative score goes toward -inf (-0.125 becomes -0.13).
-    ``gf * 100`` is rounded to :data:`_SCORE_SNAP_DECIMALS` places first, so every
-    whole-cent score is a fixed point and a second call changes nothing.
-
-    Sets ``gf`` by ``replace`` rather than an effect, as :func:`advance_turn` sets
-    ``ms``: both are the engine's own turn machinery, not a handler. Pure: returns a
-    NEW state.
-    """
-    sp = state.clock.active_player
-    active = state.players[sp]
-    cents = math.floor(round(active.gf * 100, _SCORE_SNAP_DECIMALS))
-    truncated = replace(active, gf=cents / 100)
-    return replace(state, players=tuple_replace(state.players, sp, truncated))
-
-
-def police_interrupt_would_fire(state, ms: int, rng: Any) -> bool:
-    """Whether the roadblock police interrupt would fire (mf-prg.bas:2041).
-
-    The source gate is ``if ms%20==0 and rnd(5)==0 and ra(sp)>3 then <roadblock>``.
-    This returns whether ALL three conditions hold; the roadblock BODY is not built
-    (only the gate is implemented). The ``rank > 3`` term is why a rank-1
-    player is NEVER interrupted.
-
-    ``rng`` supplies ``range(5)`` (``rnd(5)``); ``range(5) == 0`` is the roll hit.
-    """
-    active = state.players[state.clock.active_player]
-    if active.rank <= 3:  # ra(sp) > 3 gate — false at ranks 1..3
-        return False
-    if ms % 20 != 0:
-        return False
-    return rng.range(5) == 0

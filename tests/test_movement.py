@@ -9,21 +9,20 @@ walkable street cells (code 156), the RESOLVED door-entry mechanic (a move whose
 TARGET cell is a door-table entry ENTERS that location — NOT adjacency), the
 turn-loop rotation + ``ms`` replenishment from the vehicle table, the ``ln`` seam
 that sets the active player's ``last_location`` on entry (formalizing what U7
-stubbed), the pub recruit denial reached by WALKING at rank 1, and the police
+stubbed), the pub recruit refusal reached by WALKING at rank 1, and the police
 interrupt gated off at rank 1.
 
 Ports (all oracle-gated):
   * turn loop        — mf-prg.bas:1010-1013 (sp wrap, ms = tr(tm(sp)))
   * movement         — mf-prg.bas:2000-2065 (deltas, 156-step, door-entry, walls)
   * police interrupt — mf-prg.bas:2041 (rank>3 gate; never fires at rank 1)
-  * pub recruit      — mf-prg.bas:12100/12105 (ra>4 AND gz<10)
+  * pub recruit      — mf-prg.bas:12100/12105 (ra>4 AND gz<10), checked in the handler
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 import yaml
 
 from dataclasses import replace
@@ -38,21 +37,23 @@ from engine.movement import (
     RIGHT,
     UP,
     DOWN,
-    advance_turn,
     load_city,
-    start_free_turn,
     try_move,
 )
-from engine.state import Clock, Config, GameState, MapState, Player
+from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
+from engine.config_loader import load_game_config
+from engine.actions import run_option
+from tests.helpers import next_turn_by_hand, scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
 _PUB_SHELL = _CONFIG_DIR / "content" / "locations" / "pub.yaml"
 _PUB_STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "pub.yaml"
 
-# On-foot vehicle table (index 0 -> tr=25), enough for the turn loop.
-_VEHICLES = [{"name": "fuesse", "tank": 50, "tr": 25}]
+# Registers the config's turn hooks: the rotation below refills ``ms`` through its
+# movement-points hook (on foot, vehicle 0: tr=25).
+_CONFIG = load_game_config(_CONFIG_DIR)
 
 
 def _city():
@@ -75,7 +76,6 @@ def _state(*, po=162, ms=25, rank=1, active=0, players=1, vehicle=0, roster=1):
         players=plist,
         clock=Clock(active_player=active, player_count=players),
         config=Config(),
-        map=MapState(),
     )
 
 
@@ -188,7 +188,7 @@ def test_special_cell_is_not_implemented():
 
 # --------------------------------------------------------------------------- #
 # Door entry (THE resolved mechanic): target-cell lookup, NOT adjacency.      #
-# From 162, UP (-40) targets 122 = slw door (la=1, ln=1): enter, 5 ms, po     #
+# From 162, UP (-40) targets 122 = slw door (la=1, ln=1): enter (no charge), po #
 # stays at 162, and the ln seam sets last_location=1.                         #
 # --------------------------------------------------------------------------- #
 def test_enter_slw_via_door_target():
@@ -204,28 +204,27 @@ def test_enter_slw_via_door_target():
     assert res.state is not st
     # You do NOT stand on the door cell — po is unchanged (no SetPosition on entry).
     assert res.state.players[0].po == 162
-    # Location-visit cost is 5 ms (mf-prg.bas:2060).
-    assert res.state.players[0].ms == 20
+    # No charge at the door: :2060 ms=ms-5 comes after the visit (the turn runner's).
+    assert res.state.players[0].ms == 25
     # The ln seam: entering set the active player's last_location = ln (and last_la).
     assert res.state.players[0].last_location == 1
     assert res.state.players[0].last_la == 1
-    # Events + effects: EnterLocation event, SetEntryContext + MsChange effects.
+    # Events + effects: EnterLocation event, the SetEntryContext effect only.
     assert res.events == [
         EnterLocation(player=0, from_cell=162, door_cell=122, delta=UP, la=1, ln=1)
     ]
-    assert res.effects == [SetEntryContext(la=1, ln=1), MsChange(-ENTER_COST)]
+    assert res.effects == [SetEntryContext(la=1, ln=1)]
 
 
-def test_enter_charges_5ms_unconditionally_and_can_go_negative():
-    # mf-prg.bas:2060 charges ms-=5 UNCONDITIONALLY, then checks >0 — so entering
-    # with fewer than 5 ms drives ms negative and ends the turn (faithful; entry is
-    # NOT blocked for lack of budget).
+def test_entering_with_fewer_points_than_the_door_costs_is_not_blocked():
+    # :2050 enters whatever ms is left; the door's 5 come after the visit (:2060
+    # ms=ms-5, the turn runner's), so the handler runs on the 3 points left.
     st = _state(po=162, ms=3, active=0)
     res = try_move(st, _city(), UP)  # target 122 = slw door
     assert res.payload.kind == "enter"
-    assert res.state.players[0].ms == -2  # 3 - 5, not clamped, not blocked
-    assert res.payload.turn_over is True  # ms <= 0 ends the turn
-    assert st.players[0].ms == 3  # input untouched
+    assert res.state.players[0].ms == 3
+    assert res.payload.turn_over is False
+    assert ENTER_COST == 5
 
 
 # --------------------------------------------------------------------------- #
@@ -261,46 +260,35 @@ def test_handler_forced_ms_zero_ends_turn():
 
 
 # --------------------------------------------------------------------------- #
-# Turn rotation: advance rotates active_player, wraps, replenishes ms = tr,   #
-# and a full round advances the MONTH by 1 (year only every 12 rounds, KTD-4).#
+# Turn rotation: the engine's rotation (AdvanceTurn) moves active_player,      #
+# wraps, and a full round advances the MONTH by 1 (year only every 12 rounds,  #
+# KTD-4); the config's movement-points hook replenishes ms = tr.               #
 # --------------------------------------------------------------------------- #
 def test_turn_rotation_and_ms_replenish():
     st = _state(ms=3, active=0, players=2, vehicle=0)  # player 0 spent down to ms=3
     year0 = st.clock.year
     month0 = st.clock.month
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     # Rotated to player 1; player 1's ms replenished to tr(0) = 25.
     assert st.clock.active_player == 1
     assert st.players[1].ms == 25
     assert st.clock.year == year0  # no wrap yet
     assert st.clock.month == month0  # no wrap yet
     # Advance again -> wraps to player 0, a full round -> month + 1 (year unchanged).
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     assert st.clock.active_player == 0
     assert st.players[0].ms == 25  # replenished on wrap
     assert st.clock.year == year0  # a single round is a MONTH, not a year (KTD-4)
     assert st.clock.month == month0 + 1
 
 
-def test_advance_turn_is_pure_and_returns_game_over_signal():
-    """R4: advance_turn no longer mutates in place — it returns the new state."""
-    st = _state(ms=3, active=0, players=2, vehicle=0)
-    new_st, over = advance_turn(st, _VEHICLES)
-
-    assert new_st is not st
-    assert st.clock.active_player == 0  # INPUT untouched (purity)
-    assert st.players[0].ms == 3
-    assert new_st.clock.active_player == 1  # rotation lives on the returned state
-    assert over is False  # 1925 < end_year 1978
-
-
-def test_advance_turn_reports_game_over_at_end_year():
-    """The game-over hook still fires when a wrap reaches end_year (12th month wrap)."""
+def test_a_wrap_reaching_the_end_year_reports_game_over():
+    """The game-over check fires when a wrap reaches end_year (12th month wrap)."""
     st = _state(ms=0, active=0, players=1, vehicle=0)
     # month=11 (the 12th round of the year): the NEXT wrap rolls year 1929 -> 1930.
     st = replace(st, clock=replace(st.clock, year=1929, month=11, end_year=1930))
 
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     assert st.clock.year == 1930
     assert st.clock.month == 0  # wrapped
     assert over is True
@@ -310,7 +298,7 @@ def test_single_player_wraps_every_turn():
     st = _state(ms=0, active=0, players=1, vehicle=0)
     year0 = st.clock.year
     month0 = st.clock.month
-    st, _over = advance_turn(st, _VEHICLES)
+    st, _over = next_turn_by_hand(st)
     assert st.clock.active_player == 0  # wrapped to itself
     assert st.players[0].ms == 25  # replenished
     assert st.clock.year == year0  # a one-player round is one MONTH, not a year
@@ -323,88 +311,20 @@ def test_twelve_full_rounds_advance_the_year_exactly_once():
     st = _state(ms=0, active=0, players=1, vehicle=0)
     year0 = st.clock.year
     for expected_month in range(1, 12):
-        st, over = advance_turn(st, _VEHICLES)
+        st, over = next_turn_by_hand(st)
         assert st.clock.year == year0  # no year rollover yet
         assert st.clock.month == expected_month
         assert over is False
     # The 12th wrap rolls the year and resets month to 0.
-    st, over = advance_turn(st, _VEHICLES)
+    st, over = next_turn_by_hand(st)
     assert st.clock.year == year0 + 1
     assert st.clock.month == 0
 
 
 # --------------------------------------------------------------------------- #
-# :1013 score truncation: `gf(sp)=int(gf(sp)*100)/100` at the head of a free   #
-# turn, for the NEW active player only.                                       #
+# THE HEADLINE: walk to the pub, recruit refused at rank 1 (:12100-12102).   #
 # --------------------------------------------------------------------------- #
-def _with_scores(scores, *, active):
-    st = _state(players=len(scores), active=active)
-    players = tuple(replace(p, gf=gf) for p, gf in zip(st.players, scores))
-    return replace(st, players=players)
-
-
-@pytest.mark.parametrize(
-    ("gf", "expected"),
-    [
-        (25.199999, 25.19),  # a real sub-cent part is cut, not rounded
-        (51.2, 51.2),
-        (-3.5, -3.5),
-        (-0.125, -0.13),  # C64 int() is floor: a negative score goes toward -inf
-        (0.29, 0.29),  # IEEE 0.29*100 is 28.999999999999996: still a fixed point
-        (0.57, 0.57),
-        (1.13, 1.13),
-        (1.2 * 21, 25.2),  # 25.199999999999992: float drift below the cent
-        (8.4 * 3, 25.2),  # 25.200000000000003: float drift above the cent
-        (0.0, 0.0),
-        (100.0, 100.0),
-    ],
-)
-def test_start_free_turn_truncates_the_active_players_score(gf, expected):
-    st = _with_scores((0.125, gf), active=1)
-    new = start_free_turn(st)
-    assert new.players[1].gf == expected
-    assert new.players[0].gf == 0.125, "only the active player's score is truncated"
-    assert st.players[1].gf == gf, "the input state is untouched (pure)"
-
-
-def test_truncation_keeps_every_two_decimal_score_and_is_idempotent():
-    """Every whole-cent score is a fixed point, and truncating twice equals once."""
-    moved = [
-        k / 100
-        for k in range(-10000, 10001)
-        if start_free_turn(_with_scores((k / 100,), active=0)).players[0].gf != k / 100
-    ]
-    assert moved == [], f"{len(moved)} whole-cent scores changed, e.g. {moved[:5]}"
-    for gf in (25.199999, 1.2 * 21, 0.1 * 3, -0.125, 33.337, 0.7 * 36, 99.99999999):
-        once = start_free_turn(_with_scores((gf,), active=0))
-        assert start_free_turn(once) == once, gf
-
-
-# --------------------------------------------------------------------------- #
-# Police interrupt: rank gate (rank>3) is FALSE at rank 1 -> never fires,     #
-# regardless of ms / rng.                                                     #
-# --------------------------------------------------------------------------- #
-def test_police_interrupt_never_fires_at_rank_1():
-    from engine.movement import police_interrupt_would_fire
-
-    # rank 1, and even with ms a multiple of 20 and the rng "hit", the gate is
-    # rank>3 which is false at rank 1.
-    st = _state(po=162, ms=20, rank=1)
-
-    class _AlwaysRng:
-        def range(self, n):
-            return 0  # rnd(5)==0 would satisfy the roll gate
-
-    assert police_interrupt_would_fire(st, ms=20, rng=_AlwaysRng()) is False
-    # And it WOULD be eligible at rank 4+ (the gate is correct for later ranks).
-    st4 = _state(po=162, ms=20, rank=4)
-    assert police_interrupt_would_fire(st4, ms=20, rng=_AlwaysRng()) is True
-
-
-# --------------------------------------------------------------------------- #
-# THE HEADLINE: walk to the pub, recruit denied at rank 1 (guard rank>4).     #
-# --------------------------------------------------------------------------- #
-def test_walk_to_pub_recruit_denied_at_rank_1():
+def test_walk_to_pub_recruit_refused_at_rank_1():
     # Load the pub shell (its handler must be registered -> load the config).
     from engine.config_loader import load_game_config
 
@@ -423,29 +343,26 @@ def test_walk_to_pub_recruit_denied_at_rank_1():
     assert state.players[0].po == 473  # did not stand on the door
     assert state.players[0].last_location == 1  # ln seam set
 
-    # available_options at rank 1 EXCLUDES recruit (guard rank>4 fails).
-    avail = available_options(pub, state, ln=res.payload.ln)
-    ids = [o.id for o in avail]
-    assert "recruit" not in ids
-    recruit = next(o for o in pub.options if o.id == "recruit")
-    assert recruit.on_denied == "locations.pub.rank_too_low"
-    # No effects committed — denial is a shell exclusion, nothing mutated.
-    assert state.players[0].ka == 5000
+    # The menu is fixed (#122): recruit is offered at rank 1 and refuses inside its
+    # handler (:12100-12102), naming the rank.
+    ids = [o.id for o in available_options(pub, state, ln=res.payload.ln)]
+    assert ids == ["drink", "recruit", "tip", "job", "leave"]
+    src = scripted()
+    result = run_option(pub, "recruit", state, ln=res.payload.ln, input_source=src)
+    assert src.message_keys() == ["locations.pub.rank_too_low"]
+    # No effects committed — the refusal changes nothing.
+    assert result.effects == []
+    assert result.state.players[0].ka == 5000
 
 
-def test_pub_recruit_available_when_rank_high_and_room():
+def test_pub_recruit_offered_whatever_the_rank_and_gang_size():
     from engine.config_loader import load_game_config
 
     load_game_config(_CONFIG_DIR)
     pub = load_location(yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8")))
-    # rank 5 (>4) AND gang size 1 (<10) -> recruit available.
-    st = _state(rank=5, roster=1)
-    ids = [o.id for o in available_options(pub, st, ln=1)]
-    assert "recruit" in ids
-    # Full gang (10) -> denied even at high rank.
-    full = _state(rank=5, roster=10)
-    ids_full = [o.id for o in available_options(pub, full, ln=1)]
-    assert "recruit" not in ids_full
+    for st in (_state(rank=5, roster=1), _state(rank=5, roster=10), _state(rank=1, roster=10)):
+        ids = [o.id for o in available_options(pub, st, ln=1)]
+        assert ids == ["drink", "recruit", "tip", "job", "leave"]
 
 
 # --------------------------------------------------------------------------- #

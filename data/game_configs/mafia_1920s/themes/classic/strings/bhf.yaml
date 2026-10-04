@@ -1,0 +1,25 @@
+# bhf (Bahnhof, railway station) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code: handlers/bhf.py emits these KEYS and the theme resolves them. The menu
+# is the SEQ file src/bhf (research-data/pass-2/location-dialogue.yaml, bhf); the rest
+# is mf-prg.bas:19015-19027, printed as the listing
+# prints it (the corpus misses :19015 and :19016). A number the source prints between
+# strings is a bare placeholder: the c64 number style prints the spaces C64 PRINT puts
+# around it (_format.yaml). A screen that ends in :1100's "taste druecken!" pause gets
+# it from the client. The station pub's own screens are the pub's (strings/pub.yaml), and
+# the pickpocketing's are the subway's (strings/sub.yaml): :19050 jumps into :18035.
+locations:
+  bhf:
+    entry_prompt: "DU BIST IM BAHNHOF VON CHICKAGO."
+    menu:
+      pub: "BAHNHOFSKNEIPE AUFSUCHEN"
+      pickpocket: "TASCHENDIEBSTAHL"
+      mail_train: "POSTZUG UEBERFALLEN"
+      leave: "NICHTS WIE WEG"
+
+    # --- the mail train (19015-19040) ---
+    no_train: "kein postzug zu sehen..."                                   # 19015
+    too_few: "du hast zu wenig gangster!"                                  # 19016
+    storm: "du stuermst in den panzerwaggon und\nbeginnst gerade einzusacken, als du auf\ndrei nette herren aufmerksam wirst..."  # 19025-19027
+
+    # The heist payout's screen (:19040 goto20050) is the bank's, strings/ban.yaml.

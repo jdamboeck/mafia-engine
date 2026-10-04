@@ -149,6 +149,31 @@ class TestSmokeAsciiArt:
         assert art is not None
         assert len(art) > 5
 
+    def test_location_art_ble(self):
+        art = location_art("ble")
+        assert art is not None
+        assert len(art) > 5
+
+    def test_location_art_pol(self):
+        art = location_art("pol")
+        assert art is not None
+        assert len(art) > 5
+
+    def test_location_art_aut(self):
+        art = location_art("aut")
+        assert art is not None
+        assert len(art) > 5
+
+    def test_location_art_sub(self):
+        art = location_art("sub")
+        assert art is not None
+        assert len(art) > 5
+
+    def test_location_art_ban(self):
+        art = location_art("ban")
+        assert art is not None
+        assert len(art) > 5
+
     def test_location_art_unknown(self):
         assert location_art("nonexistent") is None
 
@@ -299,7 +324,7 @@ class TestQuitVocabulary:
         output, (state, _rng) = run_play_returning(monkeypatch, seed=42, stdin_keys=[])
         assert output.endswith("bye.\n" + CURSOR_SHOW)
         assert state.players[0].po == new_state(42).players[0].po
-        assert "(use W/A/S/D, P or Q)" not in output
+        assert "(use W/A/S/D, M, P or Q)" not in output
 
     @pytest.mark.parametrize("key", ["x", "e", "1"])
     def test_other_keys_are_not_quit(self, monkeypatch, key):
@@ -309,7 +334,7 @@ class TestQuitVocabulary:
         output, (state, _rng) = run_play_returning(
             monkeypatch, seed=42, stdin_keys=[key, step, "q"]
         )
-        assert "(use W/A/S/D, P or Q)" in output, f"{key!r} was not refused as a bad key"
+        assert "(use W/A/S/D, M, P or Q)" in output, f"{key!r} was not refused as a bad key"
         assert output.count("bye.") == 1
         assert state.players[0].po == cell, f"the session ended at {key!r}"
 

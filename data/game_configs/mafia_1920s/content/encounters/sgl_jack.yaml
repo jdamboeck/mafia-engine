@@ -1,0 +1,20 @@
+# Narben-Jack's gang, who fight for a shop that is not yours to protect
+# (mf-prg.bas:17200-17225).
+#
+#   17210 bn$(0)="jack's gang":gz(0)=3-2*(gz(sp)>5):w=7:e=30:kf$="ksgl":gosub5000
+#
+# Two variants for the two gang sizes: 3 men, or 5 when the player's gang counts more
+# than 5 (C64 true is -1, so 3-2*(-1) = 5). The caller (handlers/sgl.py) picks the
+# variant from the roster size. No declarable consequence: a loss returns (:17215), a
+# win goes on to the payout (:17225), both in the handler.
+key: sgl_jack
+grid: ksgl              # kf$="ksgl" — :17210
+variants:
+  - count: 3            # gz(0)=3-2*(gz(sp)>5), gang of 5 or fewer — :17210
+    weapon: 7           # w=7, maschinenpistole — :17210
+    vitality: 30        # e=30 — :17210
+    name: jack's gang   # bn$(0)="jack's gang" — :17210
+  - count: 5            # gz(0)=3-2*(gz(sp)>5), gang of more than 5 — :17210
+    weapon: 7
+    vitality: 30
+    name: jack's gang

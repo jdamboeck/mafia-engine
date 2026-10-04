@@ -48,8 +48,9 @@ from dataclasses import replace
 import pytest
 
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
+from data.game_configs.mafia_1920s.state import tenancy_values, values_of
 from engine.combat import CombatFight
-from engine.effects import commit
+from engine.effects import commit, effect_tag
 from engine.interactions import ShowMessage, run
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
@@ -84,18 +85,33 @@ def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
     return _parsed_source(path)
 
 
-def make_walk_script(keys: list[str]) -> io.StringIO:
-    """Build the piped-stdin body for ``play()``: two blank acks + one key/line.
+#: The turn menu's walk key (``mf-prg.bas:1021`` "2 - durch die stadt gehen").
+MENU_WALK_KEY = "2"
 
-    ``play()`` reads one line for "press a key" on the title screen, THEN (U3, KTD-3)
-    one more for the turn-start upkeep screen's "press any key..." ack — BOTH before
-    the map loop starts — so every scripted stdin must account for both. See
+
+#: A new game's stdin up to its first turn menu, for a ``play()`` given the end year and
+#: the score weight: the title screen's key, Enter at the house-rules offer (every rule
+#: faithful), and the first upkeep screen's key.
+NEW_GAME_ACKS = ["", "", ""]
+
+
+def make_walk_script(keys: list[str]) -> io.StringIO:
+    """Build the piped-stdin body for ``play()``: the new game's acks, the walk, one key/line.
+
+    ``play()`` reads one line for "press a key" on the title screen, one for the
+    house-rules offer (Enter keeps every rule faithful), THEN one more for the
+    turn-start upkeep screen's "press any key..." ack (:data:`NEW_GAME_ACKS`), THEN the
+    turn menu's choice (``mf-prg.bas:1030``): :data:`MENU_WALK_KEY` opens the map. All
+    of them come before the map loop starts, so this builder prepends them. See
     ``docs/solutions/developer-experience/driving-terminal-play-loop-over-piped-stdin.md``.
-    Every ``advance_turn`` rotation triggers a THIRD such ack for the new active
-    player's upkeep — callers scripting a multi-turn session add one blank/any-key
-    line per rotation on top of the two this builder prepends.
+    Every turn rotation brings another upkeep ack and another turn menu for the new
+    active player -- callers scripting a multi-turn session add a blank/any-key line
+    and :data:`MENU_WALK_KEY` per rotation on top of the three this builder prepends.
+    A turn whose movement points run out on the map ends with no menu (``:2005``,
+    ``:1045``); one that leaves the map with points left (the exit key ``m``) meets
+    the menu again.
     """
-    return io.StringIO("\n".join(["", ""] + keys) + "\n")
+    return io.StringIO("\n".join([*NEW_GAME_ACKS, MENU_WALK_KEY] + keys) + "\n")
 
 
 class DeadlineExceeded(Exception):
@@ -183,6 +199,42 @@ class scripted:  # noqa: N801 - a callable used like a function at 200+ call sit
         return [i.key for i in self.messages()]
 
 
+def is_effect(effect: Any, *classes: type) -> bool:
+    """Whether ``effect`` is one of ``classes``, by registered tag rather than class.
+
+    A config reload re-executes the config's effects module, so the class a test
+    imported and the class a reloaded handler builds are different objects with the
+    same tag. ``isinstance`` would tell them apart; the tag (the effect's identity in a
+    save) does not.
+    """
+    tag = effect_tag(effect)
+    return tag is not None and tag in {effect_tag(c) for c in classes}
+
+
+def next_turn_by_hand(state, rng=None) -> tuple[Any, bool]:
+    """``:1010``/``:1012`` stepped by hand, for tests that plan keys over many turns.
+
+    Commits the engine's own rotation (:class:`~engine.effects.AdvanceTurn`: the next
+    player, and a month on a wrap), then refills the new active player's movement
+    points from the loaded config's movement-points hook -- the two steps the engine
+    turn runner (:mod:`engine.turns`) takes. Upkeep, the standings and the other turn
+    hooks do not run. The config must be loaded (its hooks registered). Returns
+    ``(state, game_over)``, ``game_over`` once the calendar reaches the end year.
+    """
+    from engine.effects import AdvanceTurn, SetMovementPoints
+    from engine.locations import HANDLERS
+    from engine.turns import MOVEMENT_POINTS_HOOK_KEY
+
+    def _no_input(interaction):
+        raise AssertionError(f"the movement-points hook asked {interaction!r}")
+
+    state = commit(state, [AdvanceTurn()]).state
+    hook = HANDLERS[MOVEMENT_POINTS_HOOK_KEY]
+    points = run(hook, _no_input, state=state, rng=rng).payload.returned
+    state = commit(state, [SetMovementPoints(points)]).state
+    return state, int(state.clock.year) >= state.clock.end_year
+
+
 def with_player(state, idx: int = 0, **field_changes):
     """Return ``state`` with ``players[idx]`` field-updated — the test-side setup idiom.
 
@@ -199,26 +251,38 @@ def with_clock(state, **field_changes):
     return dataclasses.replace(state, clock=dataclasses.replace(state.clock, **field_changes))
 
 
-def with_tenancy(state, tenancy=None, *, ln=None, owner=None):
-    """Return ``state`` with ``map.tenancy`` arranged for a test.
+def with_values(state, *views, idx: int = 0, **scalars):
+    """Return ``state`` with ``players[idx]``'s value map updated — the game-state arrange idiom.
 
-    Two shapes, since fixtures need both: pass a whole ``tenancy`` mapping to
-    replace it outright, or ``ln=``/``owner=`` to set one tile on top of what is
-    already there.
+    ``views`` are this game's entity views (``Debt(...)``, ``Job(...)``, ...) and
+    ``scalars`` plain value-map keys (``tip_target=4``); both are flattened into
+    declared keys by the config's :func:`~data.game_configs.mafia_1920s.state.values_of`
+    and merged over what the player already holds.
+    """
+    merged = {**state.players[idx].values, **values_of(*views, **scalars)}
+    return with_player(state, idx, values=merged)
 
-    Wraps the result in a proxy so a fixture cannot hand the engine a mutable
-    mapping and quietly reopen the write path the freeze exists to close.
+
+def with_tenancy(state, tenancy=None, *, ln: int | None = None, owner: int | None = None):
+    """Return ``state`` with the global tenancy values (``uk(ln)``) arranged for a test.
+
+    Two shapes, since fixtures need both: pass a whole ``{ln: owner}`` mapping to
+    replace every tile's tenancy outright, or ``ln=``/``owner=`` to set one tile on
+    top of what is already there.
     """
     if (tenancy is None) == (ln is None):
         raise TypeError(
             "with_tenancy takes either a tenancy mapping or ln=/owner=, not both or neither"
         )
     if ln is not None:
-        tenancy = {**state.map.tenancy, ln: owner}
-    assert tenancy is not None  # the either/or check above guarantees one was given
-    return dataclasses.replace(
-        state, map=dataclasses.replace(state.map, tenancy=MappingProxyType(dict(tenancy)))
-    )
+        if owner is None:
+            raise TypeError("with_tenancy(ln=...) needs the owner's player index")
+        values = {**state.values, **tenancy_values({ln: owner})}
+    else:
+        assert tenancy is not None  # the either/or check above guarantees one was given
+        kept = {k: v for k, v in state.values.items() if not k.startswith("tenancy.")}
+        values = {**kept, **tenancy_values(dict(tenancy))}
+    return dataclasses.replace(state, values=values)
 
 
 def with_config(state, **field_changes):
@@ -231,7 +295,7 @@ def _shape(value):
 
     :func:`~engine.state.json_safe` exists to ERASE types — proxy to dict, tuple to list — so a
     value comparison built on it cannot see type drift. That blind spot is not
-    cosmetic: swapping ``map.tenancy``'s ``MappingProxyType`` for a plain ``dict``
+    cosmetic: swapping a value map's ``MappingProxyType`` for a plain ``dict``
     reopens the exact R2 false floor the frozen graph closes, and both sides
     flatten to the same JSON. Python's own coercions hide more (``0 == False``,
     ``5000 == 5000.0``), so an int silently becoming a float — the corruption that
@@ -448,7 +512,7 @@ def build_fight(
             active_fighter=active[1],
         ),
         rng=rng,
-        rules=build_rules() if rules is None else rules,
+        rules=build_rules({}) if rules is None else rules,
     )
 
 

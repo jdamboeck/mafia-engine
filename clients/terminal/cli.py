@@ -18,7 +18,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, Callable, NoReturn
 
 import yaml
 
@@ -38,66 +38,69 @@ from clients.terminal.session import (
 
 
 def main(argv: list[str] | None = None) -> None:
-    # Every line main() prints comes from the theme, so it is loaded first. Without
-    # it there are no words to phrase the failure in: the error's own text is shown.
-    try:
-        resolver = Resolver.from_config(_CONFIG_DIR, theme=_DEFAULT_THEME)
-    except (OSError, yaml.YAMLError, ValueError) as exc:
-        _die(str(exc))
-
-    def text(key: str, **params) -> str:
-        return resolver.resolve(f"client.cli.{key}", params)
-
-    parser = argparse.ArgumentParser(prog="clients.terminal", description=text("description"))
+    # Every line main() prints comes from the theme, so it is loaded first. A broken
+    # classic theme still answers --help (in the built-in fallback, help_texts); any
+    # other run then ends on the load error's own text, as there are no words to
+    # phrase it in.
+    classic = load_classic(_CONFIG_DIR)
+    help_text = help_texts(classic, "client.cli")
+    parser = argparse.ArgumentParser(prog="clients.terminal", description=help_text("description"))
     parser.add_argument(
         "--seed",
         type=int,
         default=None,
-        help=text("help_seed", seed=_DEFAULT_SEED),
+        help=help_text("help_seed", seed=_DEFAULT_SEED),
     )
     parser.add_argument(
         "--player",
         dest="players",
         action="append",
         metavar="NAME:GANG",
-        help=text("help_player"),
+        help=help_text("help_player"),
     )
     parser.add_argument(
         "--end-year",
         type=int,
         default=None,
-        help=text("help_end_year"),
+        help=help_text("help_end_year"),
     )
     parser.add_argument(
         "--score-weight",
         type=float,
         default=None,
-        help=text("help_score_weight"),
+        help=help_text("help_score_weight"),
     )
     parser.add_argument(
         "--load",
         metavar="PATH",
         default=None,
-        help=text("help_load"),
+        help=help_text("help_load"),
     )
     parser.add_argument(
         "--save",
         metavar="PATH",
         default=None,
-        help=text("help_save", save=_DEFAULT_SAVE),
+        help=help_text("help_save", save=_DEFAULT_SAVE),
     )
     parser.add_argument(
         "--watch-ai",
         action="store_true",
-        help=text("help_watch_ai"),
+        help=help_text("help_watch_ai"),
     )
     parser.add_argument(
         "--theme",
         metavar="NAME|PATH",
         default=_DEFAULT_THEME,
-        help=text("help_theme", theme=_DEFAULT_THEME),
+        help=help_text("help_theme", theme=_DEFAULT_THEME),
     )
     args = parser.parse_args(argv)
+    if not isinstance(classic, Resolver):
+        _die(str(classic))
+    resolver = classic
+
+    def text(key: str, **params) -> str:
+        return resolver.resolve(f"client.cli.{key}", params)
+
     # From here on every line is worded in the chosen theme. An unknown or broken
     # theme is a known failure: one line, not a traceback.
     try:
@@ -140,6 +143,20 @@ def main(argv: list[str] | None = None) -> None:
         players = []
         for spec in args.players:
             name, _, gang = spec.partition(":")
+            # :291 ``ifx$=""orlen(x$)>13``: the setup asks again for an empty name or
+            # one over 13 characters; here the flag is refused in the same bounds.
+            bounds = ranges["name_length"]
+            for value in (name, gang or name):
+                if not bounds["min"] <= len(value) <= bounds["max"]:
+                    parser.error(
+                        text(
+                            "bad_name",
+                            spec=spec,
+                            value=value,
+                            min=bounds["min"],
+                            max=bounds["max"],
+                        )
+                    )
             players.append((name, gang or name))
     # Only KNOWN failures are caught here. A LoadError is raised before play()
     # draws anything; KeyboardInterrupt unwinds through play()'s finally (which shows
@@ -161,6 +178,45 @@ def main(argv: list[str] | None = None) -> None:
         _die(str(exc))
     except KeyboardInterrupt:
         sys.exit(130)  # 128 + SIGINT, the shell convention; no traceback, no message
+
+
+#: The only words the client holds itself: ``--help``'s description when the classic
+#: theme -- where every other line lives -- cannot be loaded. The options are then
+#: listed without help text. Minimal by design: just enough to say why.
+_FALLBACK_DESCRIPTION = "(no help text: theme strings could not be loaded: {error})"
+
+
+def load_classic(config_dir: Path) -> Resolver | Exception:
+    """The config's ``classic`` strings, or the error that kept them from loading.
+
+    A broken classic theme is returned, not raised, so a command line can still build
+    its ``--help`` (:func:`help_texts`) before it gives up on the error.
+    """
+    try:
+        return Resolver.from_config(config_dir, theme=_DEFAULT_THEME)
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        return exc
+
+
+def help_texts(classic: Resolver | Exception, section: str) -> Callable[..., str]:
+    """``help_text(key, **params)``: argparse help for ``<section>.<key>`` in ``classic``.
+
+    argparse %-formats help strings, so a literal ``%`` in a theme string is escaped
+    before argparse sees it. When ``classic`` is the error that kept the theme from
+    loading, the description is the built-in fallback naming it and every option's
+    help is empty.
+    """
+
+    def help_text(key: str, **params: Any) -> str:
+        if isinstance(classic, Resolver):
+            text = classic.resolve(f"{section}.{key}", params)
+        elif key == "description":
+            text = _FALLBACK_DESCRIPTION.format(error=classic)
+        else:
+            text = ""
+        return text.replace("%", "%%")
+
+    return help_text
 
 
 def _load_theme(value: str, classic: Resolver) -> tuple[Resolver, Palette]:

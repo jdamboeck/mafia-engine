@@ -17,13 +17,13 @@ from engine.effects import (
     AssignWeapon,
     MoneyChange,
     MsChange,
-    ScoreAndRank,
     ScoreChange,
     SetEntryContext,
     SetPosition,
     StatChangeCapped,
     Teleport,
 )
+from data.game_configs.mafia_1920s.effects import ScoreAndRank
 
 
 # --------------------------------------------------------------------------- #
@@ -38,16 +38,18 @@ def test_money_change_converts():
 
 
 def test_score_change_converts():
-    assert effect_from_dict({"type": "score_change", "amount": 3, "clamp": False}) == (
-        ScoreChange(amount=3, clamp=False)
-    )
+    raw = {"type": "score_change", "amount": 3, "floor": None, "cap": 50}
+    assert effect_from_dict(raw) == ScoreChange(amount=3, floor=None, cap=50)
 
 
-def test_score_change_without_clamp_keeps_its_pre_field_clamped_meaning():
-    """A ``score_change`` consequence authored before ``clamp`` existed has no such key;
-    it meant the [0, 100]-clamped delta (:1160/:1161), and still does."""
-    restored = effect_from_dict({"type": "score_change", "amount": 3})
-    assert restored == ScoreChange(amount=3, clamp=True)
+def test_score_change_without_its_bound_is_refused():
+    """The bound is the game's choice, never backfilled: a ``score_change`` without
+    ``floor``/``cap`` is missing required fields, and the replaced ``clamp`` flag is
+    an unknown field."""
+    with pytest.raises(ValueError, match="missing required field"):
+        effect_from_dict({"type": "score_change", "amount": 3})
+    with pytest.raises(ValueError, match="clamp"):
+        effect_from_dict({"type": "score_change", "amount": 3, "clamp": True})
 
 
 def test_stat_change_capped_converts():
@@ -151,12 +153,12 @@ def test_effects_from_dicts_preserves_order():
     raws = [
         {"type": "ms_change", "amount": 1},
         {"type": "money_change", "amount": 2},
-        {"type": "score_change", "amount": 3},
+        {"type": "score_change", "amount": 3, "floor": 0.0, "cap": 100.0},
     ]
     assert effects_from_dicts(raws) == [
         MsChange(amount=1),
         MoneyChange(amount=2),
-        ScoreChange(amount=3, clamp=True),
+        ScoreChange(amount=3, floor=0.0, cap=100.0),
     ]
 
 

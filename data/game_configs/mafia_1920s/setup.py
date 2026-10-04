@@ -22,22 +22,38 @@ handler imports ``fnm`` from HERE (its own config), not from the engine.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import yaml
 
+from engine.combat_setup import SIDE2_ANCHOR, build_player_side, placement_positions
 from engine.config_loader import load_config
-from engine.effects import DebtClear, MoneyChange, ScoreAndRank
-from engine.interactions import ShowMessage
+from engine.effects import MoneyChange
+from engine.fight_loop import AiDriver, HumanDriver
+from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.rng import Rng
-from engine.state import Clock, Config, GameState, Player
+from engine.scenario import Scenario
+from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, INTENT, Clock, Config, GameState, Player
 
 try:
-    from .gangster import Gangster
+    from .combat_rules import build_rules, enemy_attrs, equipper
+    from .effects import DebtClear, ScoreAndRank
+    from .gangster import GANGSTER_ATTR_NAMES, Gangster
+    from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
+    from .house_rules import load_house_rules, switchable
+    from .state import SCHEMA
+    from .state import gang_name as _gang_name
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
-    from gangster import Gangster
-from engine.types import validate_rank, validate_vehicle, validate_weapon
+    from combat_rules import build_rules, enemy_attrs, equipper
+    from effects import DebtClear, ScoreAndRank
+    from gangster import GANGSTER_ATTR_NAMES, Gangster
+    from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
+    from house_rules import load_house_rules, switchable
+    from state import SCHEMA
+    from state import gang_name as _gang_name
+from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
 
 __all__ = [
     "new_game",
@@ -51,13 +67,19 @@ __all__ = [
     "EnemySpec",
     "Encounter",
     "apply_outcome",
+    "run_encounter",
+    "run_gang_fight",
+    "roster_after",
+    "gangster_line",
+    "pick_gangster",
     "fnm",
     "score_and_rank",
     "narrate_combat_outcome",
 ]
 
 # Default config location: this config's own directory.
-_DEFAULT_CONFIG = Path(__file__).resolve().parent / "config.yaml"
+_CONFIG_DIR = Path(__file__).resolve().parent
+_DEFAULT_CONFIG = _CONFIG_DIR / "config.yaml"
 
 
 # --- entity loaders --------------------------------------------------------
@@ -94,18 +116,42 @@ def load_ranks(path: str | Path) -> list[str]:
 
 
 def load_weapons(path: str | Path) -> list[dict]:
-    """Load the weapon table (list of ``{name, price, ts, tg, ws, req_*}``), index == weapon index.
+    """Load the weapon table (list of ``{name, price, ts, tg, range, ws, requires}``).
 
-    Ports the DATA table (``mf-prg.bas:50100-50115``); ``req_int``/``req_kraft``/
-    ``req_brut`` are the per-weapon stat minimums derived from the buy-guard lines
-    (``13050-13060``). Each entry is validated against the engine's
-    :func:`~engine.types.validate_weapon` contract at load time. Returned 0-based
+    Ports the DATA table (``mf-prg.bas:50100-50115``). Each entry is validated against
+    the engine's :func:`~engine.types.validate_weapon` contract (the fields the engine
+    knows) and against this config's own ``requires`` contract: the per-weapon stat
+    minimums derived from the buy-guard lines (``13050-13060``), a map from a declared
+    gangster stat (:data:`GANGSTER_ATTR_NAMES`) to an int. The engine names no stat, so
+    it cannot check that map; the config does, here. Returned 0-based
     (``weapons[i]`` == in-game weapon index ``i``, 0..8).
     """
     weapons = list(_load_yaml(path)["weapons"])
     for i, w in enumerate(weapons):
         validate_weapon(w, index=i)
+        _validate_requires(w, index=i)
     return weapons
+
+
+def _validate_requires(entry: dict, index: int) -> None:
+    """Refuse a weapon whose ``requires`` is not a map of declared stat -> int."""
+    where = f"weapon[{index}]"
+    requires = entry.get("requires")
+    if not isinstance(requires, dict):
+        raise ConfigValidationError(
+            f"{where} field 'requires' must be a mapping of stat -> minimum, "
+            f"got {type(requires).__name__}"
+        )
+    for stat, minimum in requires.items():
+        if stat not in GANGSTER_ATTR_NAMES:
+            raise ConfigValidationError(
+                f"{where} requires undeclared stat {stat!r}; "
+                f"the config declares {list(GANGSTER_ATTR_NAMES)}"
+            )
+        if type(minimum) is not int:
+            raise ConfigValidationError(
+                f"{where} requirement {stat!r} must be int, got {type(minimum).__name__}"
+            )
 
 
 def load_gangster_candidates(path: str | Path) -> list[dict]:
@@ -171,7 +217,7 @@ def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int, int]]:
 _OUTCOME_KEYS = frozenset({"money", "score", "message", "clear"})
 
 #: The named no-argument effects a ``clear:`` step may name. Only ``debt`` today
-#: (mapping to :class:`~engine.effects.DebtClear`); listing them here keeps an
+#: (mapping to :class:`DebtClear`); listing them here keeps an
 #: unknown ``clear:`` target a LOAD-time failure, not a fight-time one.
 _CLEAR_TARGETS = frozenset({"debt"})
 
@@ -330,7 +376,7 @@ def apply_outcome(ctx, encounter: Encounter, result):
     * ``message: <theme key>`` — a :class:`~engine.interactions.ShowMessage`. Params are
       the last money roll's ``{"amount": …}`` if one preceded it, else empty.
     * ``clear: <named effect>`` — a no-argument named effect (``debt`` ->
-      :class:`~engine.effects.DebtClear`), validated at load.
+      :class:`DebtClear`), validated at load.
 
     This is the WHOLE vocabulary — no state references, no conditionals, no arithmetic
     over live values (that boundary is why the collectors' seizure and the jobs' payouts
@@ -364,6 +410,239 @@ def apply_outcome(ctx, encounter: Encounter, result):
             ctx.apply(_CLEAR_EFFECTS[step["clear"]]())
 
 
+# --- the fight helper --------------------------------------------------------
+
+
+def run_encounter(
+    ctx,
+    encounter: Encounter,
+    *,
+    variant: int = 0,
+    count: int | None = None,
+    weapon: int | None = None,
+    vitality: int | None = None,
+    grid: str | None = None,
+    roster=None,
+    owner: int | None = None,
+):
+    """Run one declared fight for the active player and narrate its outcome.
+
+    A generator (``result = yield from run_encounter(ctx, encounter)``) returning the
+    fight's :class:`~engine.combat.CombatResult`. It is the one place a handler's fight
+    is assembled: ``encounter.variants[variant]`` against the active player's roster,
+    on this game's rules bundle (``build_rules`` under the game's house rules), with
+    the fixed CPU stats (``enemy_attrs``, ``mf-prg.bas:30245``), the encounter's
+    backdrop and this config's weapon table. The outcome screen (``:30500-30515``)
+    follows every fight, as the source prints it for every caller; it names the sides
+    as the source does, by gang: ``bn$(ks(1))``, the player's gang name, and the
+    encounter's ``bn$(0)``.
+
+    Runtime overrides, for a fight whose setup depends on the game:
+
+    * ``count``/``weapon``/``vitality`` replace the variant's ``gz(0)``/``w``/``e``
+      (the police roll all three from the rank, ``:26000-26010``);
+    * ``grid`` replaces the backdrop: the caller's ``kf$`` when the caller sets it;
+    * ``roster`` replaces the player side, e.g. the gang a caller has already cut
+      before the fight (the entry record of the police capture). It is a per-fight
+      VIEW: the side is built from it, and only each fighter's energy is written
+      back, to the gangster its slot names (``roster_id``); a weapon or a gang size
+      the view changes stays inside the fight;
+    * ``owner`` puts another player's gang on side 1: that player owns it (the fight
+      writes its energy back to them), moves it (a
+      :class:`~engine.fight_loop.HumanDriver` naming them, side 2 the CPU's as
+      ``:30110 ifks(s)=0`` plays it) and the outcome screen names their gang,
+      ``bn$(ks(1))``. The prison brawl's jailed player (``:27130`` ``ks(1)=us``).
+      Without it side 1 is the active player's.
+    """
+    active = ctx.state.players[ctx.state.clock.active_player]
+    spec = encounter.variants[variant]
+    overrides = {
+        name: value
+        for name, value in (("count", count), ("weapon", weapon), ("vitality", vitality))
+        if value is not None
+    }
+    if overrides:
+        spec = replace(spec, **overrides)
+    params = ctx.state.config.formula_params
+    scenario = Scenario.from_encounter(
+        spec,
+        active.roster if roster is None else roster,
+        build_rules(ctx.state.config.house_rules),
+        enemy_attrs=enemy_attrs(params),
+        grid=load_combat_backdrop(
+            _CONFIG_DIR / "content" / "combat" / f"{grid or encounter.grid}.yaml"
+        ),
+        equip=equipper(weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")),
+        # Side 1's gang is its owner's: its energy is written back to them.
+        owner=ctx.state.clock.active_player if owner is None else owner,
+    )
+    if owner is None:
+        result = yield StartCombat(scenario=scenario)
+        # :30500-30515 print the gangs, bn$(ks(1)): the active player's gang name.
+        player_name = _gang_name(active)
+    else:
+        result = yield StartCombat(
+            scenario=scenario, drivers={1: HumanDriver(player=owner), 2: AiDriver()}
+        )
+        player_name = _gang_name(ctx.state.players[owner])
+    # The outcome screen is the caller's to show (_run_combat yields no final screen);
+    # the losses come off the CombatResult, which is right for a many-fighter side.
+    yield from narrate_combat_outcome(
+        winner=result.winner,
+        player_name=player_name,
+        enemy_name=spec.name,
+        player_losses=result.losses[0],
+        enemy_losses=result.losses[1],
+    )
+    return result
+
+
+def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
+    """Run a fight between two players' gangs and narrate its outcome.
+
+    A generator (``result = yield from run_gang_fight(ctx, defender=d, attacker=a,
+    grid=g)``) returning the fight's :class:`~engine.combat.CombatResult`; the sibling of
+    :func:`run_encounter` for a fight with no NPC side, assembled with the same
+    discipline (this game's rules bundle under its house rules, its weapon table, the
+    named backdrop). The gang war launches it (``mf-prg.bas:27020``
+    ``ks(1)=us:ks(2)=sp:kf$="ks":gosub30000``):
+
+    * side 1 is ``defender``'s whole gang, side 2 ``attacker``'s, each placed as
+      ``:30000`` places side ``i`` (``kp(i,j)=129-18*(i=2)+p(j)``) with every gangster's
+      own weapon and **current** energy (a gangster at 0 is placed and fights);
+    * each side is owned by its player (``Fighter.owner``), so the fight writes each
+      gang's energy back to its own player (``:30260-30265``);
+    * neither side is the CPU's (``:30110 ifks(s)=0`` is false for both): each is a
+      :class:`~engine.fight_loop.HumanDriver` naming the player who controls it, which
+      every :class:`~engine.interactions.CombatScreen` of that side carries. Side 1, the
+      defender, moves first (``:30100 s=1``).
+
+    The outcome screen (``:30500-30515``) names the gangs, ``bn$(ks(i))``.
+    """
+    players = ctx.state.players
+    weapons_path = _CONFIG_DIR / "entities" / "weapons.yaml"
+    equip = equipper(weapon_stats_by_id(weapons_path))
+    defending = players[defender].roster
+    attacking = players[attacker].roster
+    side1 = build_player_side(defending, owner=defender)
+    # :30000 side 2's anchor: build_player_side places at side 1's, so move each fighter.
+    side2 = tuple(
+        replace(fighter, position=position)
+        for fighter, position in zip(
+            build_player_side(attacking, owner=attacker),
+            placement_positions(SIDE2_ANCHOR, len(attacking)),
+        )
+    )
+    sides = (
+        tuple(replace(f, equipment=equip(f.weapon)) for f in side1),
+        tuple(replace(f, equipment=equip(f.weapon)) for f in side2),
+    )
+    scenario = Scenario(
+        sides=sides,
+        grid=load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{grid}.yaml"),
+        rules=build_rules(ctx.state.config.house_rules),
+        # :30020 seeds the direction memory for a CPU side only (ks(2)=0): none here.
+        dir_memory={},
+    )
+    result = yield StartCombat(
+        scenario=scenario,
+        drivers={1: HumanDriver(player=defender), 2: HumanDriver(player=attacker)},
+    )
+    yield from narrate_combat_outcome(
+        winner=result.winner,
+        player_name=_gang_name(players[defender]),
+        enemy_name=_gang_name(players[attacker]),
+        player_losses=result.losses[0],
+        enemy_losses=result.losses[1],
+    )
+    return result
+
+
+def roster_after(roster, result):
+    """``roster`` with each gangster's energy as the fight ``result`` left it.
+
+    A fight's energy loss is written back as effects buffered into the calling handler
+    (:func:`engine.fight_loop._run_combat`), so ``ctx.state`` does not show it until
+    the handler ends. A handler that runs a second fight in the same action passes
+    this as the second fight's ``roster=`` (the mayor hit, ``mf-prg.bas:24005``
+    then ``:24010``: the source keeps the energy in the gang's stats between the two). The
+    values come from the result's ``roster_vitality``; a gangster it does not name keeps
+    its energy.
+    """
+    closing = dict(result.roster_vitality)
+    return tuple(
+        replace(member, vitality=closing[slot]) if slot in closing else member
+        for slot, member in enumerate(roster)
+    )
+
+
+# --- the gangster picker ----------------------------------------------------
+
+
+def gangster_line(member, weapons: list[dict]) -> dict:
+    """One gangster as ``:1300-1320`` prints it: the name, the four stats, the weapon.
+
+    ``:1300`` reads the stats ``x$=ge$(a,b)``; ``:1315`` prints the four of them
+    (``"e"left$(x$,2)" k"mid$(x$,3,2)" i"mid$(x$,5,2)" b"right$(x$,2)``, two digits
+    each); ``:1320`` the weapon's name. The theme template pads the digits.
+    """
+    return {
+        "name": member.name,
+        "energie": member.vitality,
+        "kraft": member.attrs["kraft"],
+        "intelligenz": member.attrs["intelligenz"],
+        "brutalitaet": member.attrs["brutalitaet"],
+        "weapon": weapons[member.weapon]["name"],
+    }
+
+
+def pick_gangster(ctx, *, cancellable: bool):
+    """The gangster picker, ``mf-prg.bas:1130-1155``: which of the gang does the job.
+
+    A generator (``y = yield from pick_gangster(ctx, cancellable=...)``) returning the
+    chosen gangster's 0-based roster index, or ``None`` for the source's ``y=0``:
+
+    * ``:1130 ifgz(sp)=0theny=0:return`` — an empty gang returns ``None`` at once,
+      with no list and no prompt;
+    * ``:1135-1140`` — each gangster, numbered from 1, as ``:1300-1320`` prints it
+      (the key the source waits for after each one is the client's pause);
+    * ``:1145 input"{down}nummer:";y:ify>gz(sp)thenprint"{up}{up}";:goto1145`` — the
+      number, 0 up to the gang's size; a larger one is asked again (the prompt's
+      ceiling, which the driver enforces);
+    * ``:1150 ify=0thenreturn`` — 0 returns ``None``. The caller decides what that
+      means (waf goes back to its weapon list, aut and the training leave);
+    * ``:1155 a=sp:b=y:gosub1350`` loads the gangster's stats; the caller reads them
+      off the roster at the returned index.
+
+    The caller prints its own question first (``:13035``, ``:13101``, ``:14101``).
+
+    ``cancellable`` says whether the client may cancel the prompt (an empty answer,
+    which discards everything the calling handler buffered). A caller that has already
+    committed to something the source keeps on a ``y=0`` passes ``False``; then only
+    0 leaves, and the caller's buffered effects stand.
+
+    What the port reads differently (the catalogue's header lists it): the prompt reads
+    whole numbers from 0 up, so a negative number (the C64 stops with an error at
+    ``:1350``'s subscript), a fraction (the C64 truncates it to a gangster) and, on a
+    prompt that is not cancellable, an empty answer (the C64 keeps whatever ``y`` last
+    held) are asked again.
+
+    The roster is ``ctx.state``'s: no caller changes the gang before it picks.
+    """
+    roster = ctx.state.players[ctx.state.clock.active_player].roster
+    if not roster:  # :1130
+        return None
+    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
+    for number, member in enumerate(roster, start=1):  # :1135-1140
+        yield ShowMessage(
+            "turn.picker.gangster", {"index": number, **gangster_line(member, weapons)}
+        )
+    y = yield PromptInt("turn.picker.prompt", min=0, max=len(roster), cancellable=cancellable)
+    if y == 0:  # :1150
+        return None
+    return y - 1  # :1155
+
+
 # --- fnm rent formula ------------------------------------------------------
 
 
@@ -389,16 +668,18 @@ def fnm(ln: int, params: dict) -> int:
 # --- score / rank helper ---------------------------------------------------
 
 
-def score_and_rank(x: float, params: dict) -> ScoreAndRank:
+def score_and_rank(x: float, params: dict, *, player: int | None = None) -> ScoreAndRank:
     """Build the :class:`ScoreAndRank` effect for reward ``x`` — ports ``gosub 1160/1165``.
 
     ``params`` is the config's ``formula_params`` block; the ``rank_divisor`` (11.1) is
     read from it and passed into the effect (the engine hardcodes no game number). ``x`` is the raw reward (1 for range training, 2 for camp, or a buy-score
-    delta); the effect weights it by ``Config.score_mult`` (``x8``) at apply time.
+    delta); the effect weights it by ``formula_params["score_mult"]`` (``x8``) at apply
+    time.
     Every score-awarding waf path routes through this helper so rank never drifts from
-    the original.
+    the original. ``player`` scores another player than the active one (the gang war's
+    loser, ``:27041`` ``sp=b:x=-1:gosub1160``).
     """
-    return ScoreAndRank(amount=x, rank_divisor=params["rank_divisor"])
+    return ScoreAndRank(amount=x, rank_divisor=params["rank_divisor"], player=player)
 
 
 # --- combat-outcome narration -----------------------------------------------
@@ -443,12 +724,33 @@ def _roll_stat(rng: Rng, roll: dict) -> int:
     return rng.range(roll["choices"]) * roll["step"] + roll["base"]
 
 
+#: The house rule that picks the first gangster's intelligence (``content/house_rules.yaml``).
+INTELLIGENCE_OR_30 = "intelligence_or_30"
+
+
+def _house_rules_map(cfg_dir: Path, choices: Mapping[str, str]) -> dict[str, str]:
+    """Every switch of the catalogue in ``cfg_dir`` at faithful, then ``choices``."""
+    rules = switchable(load_house_rules(cfg_dir / HOUSE_RULES_FILE))
+    chosen = {rule.id: FAITHFUL for rule in rules}
+    for rule_id, setting in choices.items():
+        if rule_id not in chosen:
+            raise ValueError(f"the catalogue offers no switch for house rule {rule_id!r}")
+        if setting not in HOUSE_RULE_SETTINGS:
+            raise ValueError(
+                f"house rule {rule_id!r} is set to {setting!r}; "
+                f"expected one of {list(HOUSE_RULE_SETTINGS)}"
+            )
+        chosen[rule_id] = setting
+    return chosen
+
+
 def new_game(
     *,
     seed: int,
     end_year: int,
     score_weight: float,
     players: list[tuple[str, str]],
+    house_rules: Mapping[str, str] | None = None,
     config_path: str | Path = _DEFAULT_CONFIG,
 ) -> GameState:
     """Build a fresh :class:`GameState` — the ported BASIC new-game setup.
@@ -464,6 +766,12 @@ def new_game(
     players:
         One ``(name, gang_name)`` per player; 1..4 players. Each player's single
         starting gangster is named after the player.
+    house_rules:
+        The setup's house-rules choices, switchable catalogue id -> ``"faithful"`` or
+        ``"intent"``. Every switch the catalogue beside ``config_path`` offers starts
+        at faithful; these override it. An id the catalogue offers no switch for, or
+        another setting, raises ``ValueError``. The full map lands on
+        ``state.config.house_rules``.
     config_path:
         Which ``config.yaml`` to assemble from.
 
@@ -485,6 +793,14 @@ def new_game(
     pc = ranges["player_count"]
     if not (pc["min"] <= len(players) <= pc["max"]):
         raise ValueError(f"player count must be in [{pc['min']}, {pc['max']}], got {len(players)}")
+    # :290-292, the input routine for both names (``:210``/``:215`` ``gosub290``):
+    # :291 ``ifx$=""orlen(x$)>13`` asks again for an empty name or one over 13 characters.
+    nl = ranges["name_length"]
+    for name in (text for player in players for text in player):
+        if not (nl["min"] <= len(name) <= nl["max"]):
+            raise ValueError(
+                f"a player or gang name must be {nl['min']} to {nl['max']} characters, got {name!r}"
+            )
 
     # --- entity tables -----------------------------------------------------
     vehicles = load_vehicles(cfg_dir / cfg["entities"]["vehicles"])
@@ -492,13 +808,17 @@ def new_game(
     start_ms = vehicles[start_vehicle]["tr"]  # ms = tr(vehicle); on foot tr(0)=25
 
     rng = Rng(seed)
+    chosen_rules = _house_rules_map(cfg_dir, house_rules or {})
+    # House rule intelligence_or_30: faithful stores the roll OR 30, intent the roll.
+    intelligence_as_rolled = chosen_rules.get(INTELLIGENCE_OR_30) == INTENT
 
     game_players: list[Player] = []
     for name, gang_name in players:
         # Roll the starting gangster's stats — ALL via rng.
         kraft = _roll_stat(rng, setup["stat_roll"])
         raw_intel = _roll_stat(rng, setup["stat_roll"])
-        intelligenz = raw_intel | setup["intelligenz_or"]  # OR-30 quirk, :311 `in=xor30`
+        # :311 `in=xor30` — the roll OR 30 (faithful), or the roll :350 printed (intent).
+        intelligenz = raw_intel if intelligence_as_rolled else raw_intel | setup["intelligenz_or"]
         brutalitaet = _roll_stat(rng, setup["stat_roll"])
         cash = _roll_stat(rng, setup["cash_roll"])
 
@@ -513,14 +833,18 @@ def new_game(
         game_players.append(
             Player(
                 name=name,
-                gang_name=gang_name,
                 ka=cash,
                 rank=setup["start_rank"],
-                nr=setup["start_nr"],
                 po=setup["start_position"],
                 vehicle=start_vehicle,
                 ms=start_ms,
                 roster=(gangster,),
+                # Every declared key at its default, then this player's own values.
+                values={
+                    **SCHEMA.player_defaults(),
+                    "gang_name": gang_name,
+                    "nr": setup["start_nr"],
+                },
             )
         )
 
@@ -532,10 +856,15 @@ def new_game(
         player_count=len(players),
     )
     config = Config(
-        score_mult=score_weight,
-        # Passed as plain YAML dicts: Config deep-freezes them on construction.
-        formula_params=cfg["formula_params"],
-        action_costs=cfg.get("action_costs", {}),
+        # Passed as plain YAML dicts: Config deep-freezes them on construction. The
+        # x8 score weight is a setup input, so it joins the static params here.
+        formula_params={**cfg["formula_params"], "score_mult": score_weight},
+        house_rules=chosen_rules,
     )
 
-    return GameState(players=tuple(game_players), clock=clock, config=config)
+    return GameState(
+        players=tuple(game_players),
+        clock=clock,
+        config=config,
+        values=SCHEMA.global_defaults(),
+    )

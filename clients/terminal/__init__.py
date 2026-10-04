@@ -1,7 +1,8 @@
 """The terminal client: a thin renderer over the frozen protocol (docs/design §7).
 
-NO game logic, NO local simulation state. The client is two callables plus a map REPL,
-all consuming the shared headless resolver (:mod:`engine.strings`):
+NO game logic, NO local simulation state. The client is two callables, both consuming
+the shared headless resolver (:mod:`engine.strings`), driven by the session's loop
+(:func:`clients.terminal.session.play`):
 
 * :class:`TerminalInput` — an ``input_source(interaction) -> response`` the driver
   (:func:`engine.interactions.run`) pulls from. Control flow is INVERTED: the driver owns
@@ -11,8 +12,6 @@ all consuming the shared headless resolver (:mod:`engine.strings`):
   throws ``Cancelled`` into the handler).
 * :func:`render_result` / :func:`render_message` — print resolved text + a status bar off
   ``EngineResult.state`` between actions.
-* :func:`map_repl` — read a key, call ``try_move``/``run_option``, adopt ``result.state``,
-  render, loop until turn end. Enforces nothing the engine already enforces.
 
 Screen handling uses raw ANSI escapes: stdlib-only, and stdout stays plain text that
 tests can assert on (``rich`` would pollute captured output; ``curses`` fights the
@@ -53,7 +52,6 @@ __all__ = [
     "ScreenContext",
     "render_message",
     "render_result",
-    "map_repl",
     "CLEAR",
     "DIM",
     "RESET",
@@ -289,6 +287,11 @@ class TerminalInput:
         self._weapon_names = weapon_names or []
 
     def __call__(self, interaction: Any) -> Any:
+        return self.answer(interaction)
+
+    def answer(self, interaction: Any, *, banner: str | None = None) -> Any:
+        """Answer one interaction. ``banner`` is a line drawn at the top of a combat
+        board, under the screen clear (the session's whose-turn line)."""
         if isinstance(interaction, ShowMessage):
             # Driver auto-acks ShowMessage; if we are ever consulted, just render it.
             render_message(self._resolver, interaction, self._stdout)
@@ -301,7 +304,9 @@ class TerminalInput:
             # EndOfInput: the frame just continues (readline() returns "" at once, so it
             # cannot hang), and the next real prompt meets the same EOF and ends the
             # fight/session through its own, already-defined EOF path.
-            self._render_combat_screen(interaction, footer=("combat.observe_prompt",))
+            self._render_combat_screen(
+                interaction, footer=("combat.observe_prompt",), banner=banner
+            )
             self._stdin.readline()
             return None
 
@@ -312,7 +317,7 @@ class TerminalInput:
             # _parse_combat_response (engine/fight_loop.py) maps to a surrender --
             # combat prompts are non-cancellable, so CANCEL here is never a
             # "discard the action" signal, only "give up".
-            self._render_combat_screen(interaction)
+            self._render_combat_screen(interaction, banner=banner)
             return self._read_combat_action()
 
         self._stdout.write(self._prompt_text(interaction))
@@ -331,11 +336,13 @@ class TerminalInput:
         self,
         screen: CombatScreen,
         footer: tuple[str, ...] = ("combat.action_prompt", "combat.key_legend"),
+        banner: str | None = None,
     ) -> None:
         """Draw one activation's full combat screen: grid, message, panel, prompt.
 
         ``footer`` is the theme keys printed under the panel: the action prompt + key
         legend for a real activation, or the "press a key" line for an observe frame.
+        ``banner``, when given, is printed first, right under the screen clear.
 
         Renders straight from ``screen.to_json()`` (the JSON-serializable payload,
         never the engine's ``CombatState``/``Fighter`` objects) so this client
@@ -351,6 +358,8 @@ class TerminalInput:
 
         payload = screen.to_json()
         render_screen_clear(self._stdout)
+        if banner is not None:
+            self._stdout.write(banner + "\n")
         render_combat_grid(payload, self._stdout, self._colors)
         render_combat_message(payload, self._resolver, self._stdout, self._colors)
         render_fighter_panel(
@@ -440,39 +449,6 @@ def render_result(result: Any, out: TextIO, resolver: Resolver, colors: Colors) 
     from clients.terminal.renderers import render_status_bar_from_state
 
     render_status_bar_from_state(result.state, out, resolver, colors)
-
-
-def map_repl(
-    *,
-    state: Any,
-    city: Any,
-    key_reader,
-    move_for_key,
-    resolver: Resolver,
-    colors: Colors,
-    out: TextIO | None = None,
-) -> Any:
-    """Drive one turn on the map: read a key, move, adopt the new state, render, repeat.
-
-    Holds no rules — it calls ``try_move`` (imported lazily to keep this module's import
-    graph minimal) and adopts the returned ``result.state`` (movement is pure). Loops until
-    ``ms <= 0`` / a turn-over move. ``key_reader() -> str`` yields the next key; ``move_for_key``
-    maps a key to a movement delta (or ``None`` to quit); ``resolver`` words the status
-    bar and ``colors`` colours it. Returns the final state.
-    """
-    from engine.movement import try_move
-
-    sink: TextIO = out if out is not None else sys.stdout
-    while True:
-        key = key_reader()
-        delta = move_for_key(key)
-        if delta is None:
-            return state
-        result = try_move(state, city, delta)
-        state = result.state  # adopt (movement is pure)
-        render_result(result, sink, resolver, colors)
-        if getattr(result.payload, "turn_over", False):
-            return state
 
 
 # The session and the command line are re-exported last: both modules import the

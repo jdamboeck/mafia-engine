@@ -173,14 +173,14 @@ def test_declared_draws_are_the_draws_the_formulas_make(attr, ts, tg):
     declared = [b for _, b in game_rules.damage_draws(attr, equipment) if b > 0]
     assert rng.calls == [("range", b) for b in declared]
 
-    bundle = game_rules.build_rules()
+    bundle = game_rules.build_rules({})
     assert bundle.hit_draws is game_rules.hit_draws
     assert bundle.damage_draws is game_rules.damage_draws
 
 
 def test_bundle_declares_this_games_roles():
     """The bundle names both capability role maps — and NOT vitality (amendment A5)."""
-    bundle = game_rules.build_rules()
+    bundle = game_rules.build_rules({})
     assert bundle.hit_roles == {"attacker": "kraft"}
     assert bundle.damage_roles == {"attacker": "brutalitaet"}
     # A5: the depleting resource is the engine's ``vitality`` SLOT, read directly — the

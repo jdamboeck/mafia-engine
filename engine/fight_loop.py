@@ -11,7 +11,7 @@ free of it.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -34,6 +34,9 @@ __all__ = [
     "ReplayDriver",
     # Headless fight entry
     "simulate",
+    # Closing vitality (CombatResult.roster_vitality / owner_vitality)
+    "roster_vitality",
+    "owner_vitality",
 ]
 
 
@@ -84,9 +87,16 @@ class Driver:
 
 @dataclass(frozen=True)
 class HumanDriver(Driver):
-    """A client-driven side: the loop yields a :class:`CombatScreen` and prompts."""
+    """A client-driven side: the loop yields a :class:`CombatScreen` and prompts.
+
+    ``player`` is the player who controls the side and answers its screens (the
+    screens carry it as :attr:`CombatScreen.player`); ``None`` means the active
+    player. A fight where another player commands a side — the defender in a gang war,
+    a jailed player in the prison brawl — names that player here.
+    """
 
     kind: str = "human"
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -131,20 +141,57 @@ class ReplayDriver(Driver):
         )
 
 
+def roster_vitality(fight: Any) -> tuple[tuple[int, int], ...]:
+    """Side 1's closing ``vitality`` per roster slot, for :class:`~engine.combat.CombatResult`."""
+    return tuple((f.roster_id, f.vitality) for f in fight.sides[0] if f.roster_id is not None)
+
+
+def owner_vitality(fight: Any) -> tuple[tuple[int, tuple[tuple[int, int], ...]], ...]:
+    """Each owner's closing ``vitality`` per roster slot, for :class:`~engine.combat.CombatResult`.
+
+    ``(owner, ((roster_id, vitality), ...))`` per player who owns a fighter, in the order
+    the owners first appear (side 1 first); fighters with no owner or no roster slot are
+    left out.
+    """
+    by_owner: dict[int, list[tuple[int, int]]] = {}
+    for side in fight.sides:
+        for f in side:
+            if f.owner is not None and f.roster_id is not None:
+                by_owner.setdefault(f.owner, []).append((f.roster_id, f.vitality))
+    return tuple((owner, tuple(pairs)) for owner, pairs in by_owner.items())
+
+
+def _written_back(side_index: int, fighter: Any) -> bool:
+    """Whether a fight writes ``fighter``'s energy back to a roster (KTD-14).
+
+    A fighter with no roster slot is NPC working state and never is. On side 1 every
+    roster fighter is, to its ``owner`` or, with none, to the active player (every fight
+    before owners existed). On any other side only an OWNED roster fighter is: an
+    unowned side there is an NPC party, whatever its fighters carry.
+    """
+    if fighter.roster_id is None:
+        return False
+    return side_index == 0 or fighter.owner is not None
+
+
 def _run_combat(
     start: "StartCombat",
-    input_source: Callable[[Any], Any],
     ctx: "Ctx",
-) -> "CombatResult":
+    *,
+    observe_ai: bool = False,
+) -> "Generator[CombatScreen, Any, CombatResult]":
     """Drive a full fight to a winner and return its :class:`~engine.combat.CombatResult`.
 
     The combat sub-protocol, structurally a sibling of
-    :func:`engine.interactions._run_substate`: an INLINE loop over the parent's ``ctx``
-    (so the fight's effects buffer into the parent action and commit or discard with
-    it), never a nested :func:`engine.interactions.run` call (which would commit the
-    fight independently and break that atomicity).
+    :func:`engine.interactions._run_substate`: a generator composed into
+    :func:`engine.interactions.step` with ``yield from``, so every human side's
+    :class:`CombatScreen` (and, with ``observe_ai``, every observation frame) reaches
+    the client through ``step``'s own stream. It runs over the parent's ``ctx`` (so
+    the fight's effects buffer into the parent action and commit or discard with it),
+    never a nested driver (which would commit the fight independently and break that
+    atomicity).
 
-    Ports the activation loop ``mf-prg.bas:30100-30155`` via :func:`_drive_fight`
+    Ports the activation loop ``mf-prg.bas:30100-30155`` via :func:`_fight_steps`
     (victory check, one action per activation, CPU sides decided with no prompt,
     human sides prompted with a :class:`CombatScreen`).
 
@@ -159,19 +206,21 @@ def _run_combat(
     etc.) — that is still on the caller. But the fight's OWN persistent side-effect on
     the roster — energy spent, fighters knocked down — is NOT entry-point-specific, it
     is true of every fight regardless of who triggered it, so this function buffers it
-    directly: before returning, it diffs side 1's (the acting player's roster,
-    ``mf-prg.bas:5010``'s ``ks(1)=sp`` — SpawnFighter's docstring pins this convention)
-    per-fighter energy against its pre-fight snapshot and buffers one
-    :class:`~engine.effects.EnergyChange` per fighter whose energy changed, in roster
-    order (1:1 with ``start.sides[0]``, since :func:`engine.combat_setup.build_player_side`
-    never reorders the roster). ``cap`` is set to the fighter's OWN pre/post energy
+    directly: before returning, it diffs every roster fighter's energy against its
+    pre-fight snapshot and buffers one :class:`~engine.effects.EnergyChange` per fighter
+    whose energy changed, side by side in fighter order, addressed to the fighter's own
+    gangster (``roster_id``) of the player who owns it (``owner``, KTD-14) — so a fight
+    between two players' rosters writes each side's damage to its owner. A side-1
+    roster fighter with no owner writes to the active player (``player=None``), as every
+    fight did before owners existed. ``cap`` is set to the fighter's OWN pre/post energy
     ceiling (never a fresh regen-cap computation) so the clamp in
-    ``engine.effects._apply``'s ``EnergyChange`` branch is a structural no-op here —
+    ``engine.effects.EnergyChange.apply`` is a structural no-op here —
     combat only ever LOWERS energy (no mid-fight healing exists), so the
     post-fight value is by construction the correct final value, not merely a floor.
-    Side 2 (the enemy party) is NPC working state, never a roster, so it is not
-    persisted here. A no-op fight (no side-1 fighter's energy moved, e.g. a
-    zero-activation surrender before anyone was struck) buffers nothing.
+    An unowned side other than side 1 is an NPC party, working state, never a roster,
+    so it is not persisted (:func:`_written_back`). A no-op fight (no roster fighter's
+    energy moved, e.g. a zero-activation surrender before anyone was struck) buffers
+    nothing.
     """
     # Lazy imports keep this module's top-level import graph free of engine.state /
     # engine.combat, mirroring the commit() import in engine.interactions.run().
@@ -184,34 +233,38 @@ def _run_combat(
     # driver reads it directly and never spells this game's word for it. Every Fighter
     # carries the slot, so there is nothing to guard: a bundle-less fight (surrendered
     # without a shot) simply sees an unchanged ``vitality`` and buffers no delta.
-    pre_vitality = [f.vitality for f in fight.sides[0]]
+    pre_vitality = [[f.vitality for f in side] for side in fight.sides]
 
-    # The activation loop is the SHARED one (:func:`_drive_fight`) so `_run_combat` and
+    # The activation loop is the SHARED one (:func:`_fight_steps`) so `_run_combat` and
     # `simulate` cannot drift — the same loop, whether a client is in it or not.
-    winner = _drive_fight(fight, drivers, input_source)
+    winner = yield from _fight_steps(fight, drivers, observe_ai=observe_ai)
 
-    # Buffer the roster's persistent energy/down consequence BEFORE handing
+    # Buffer the rosters' persistent energy/down consequence BEFORE handing
     # the winner back, so it commits atomically with the invoking handler's own
     # entry-point effects (one shared ctx, one atomic buffer).
-    for i, f in enumerate(fight.sides[0]):
-        now = f.vitality
-        if now == pre_vitality[i]:
-            continue
-        # Address the gangster this fighter IS, not the slot it happens to sit in
-        # These coincide today because build_player_side maps roster
-        # order onto placement order 1:1 — but a fighter without a roster entry must
-        # not write to gangster 0 just because it is first.
-        if f.roster_id is None:
-            continue
-        ctx.apply(
-            EnergyChange(
-                amount=now - pre_vitality[i],
-                cap=max(pre_vitality[i], now),
-                gangster=f.roster_id,
+    for side_index, side in enumerate(fight.sides):
+        for i, f in enumerate(side):
+            before, now = pre_vitality[side_index][i], f.vitality
+            # Address the gangster this fighter IS (``roster_id``) of the player who
+            # owns it (``owner``), not the slot it sits in or the player to move.
+            if now == before or not _written_back(side_index, f):
+                continue
+            ctx.apply(
+                EnergyChange(
+                    amount=now - before,
+                    cap=max(before, now),
+                    gangster=f.roster_id,
+                    player=f.owner,
+                )
             )
-        )
     # Hand back the winner AND the real per-side death tallies (v(1)/v(2)).
-    return CombatResult(winner=winner, losses=fight.losses)
+    return CombatResult(
+        winner=winner,
+        losses=fight.losses,
+        last_shooter=fight.last_shooter,
+        roster_vitality=roster_vitality(fight),
+        owner_vitality=owner_vitality(fight),
+    )
 
 
 def _build_fight(start: "StartCombat", *, rng: Any) -> Any:
@@ -268,6 +321,34 @@ def _drive_fight(
     input_source: Callable[[Any], Any],
     recorder: Any = None,
 ) -> int:
+    """Advance a fight to a winner, pulling each human answer from ``input_source``.
+
+    A thin pull loop over :func:`_fight_steps` (the shared activation loop): every
+    screen it yields is handed to ``input_source`` and the answer sent back. The
+    observation opt-in is read off ``input_source`` (a truthy ``observes_ai``
+    attribute), so the headless callers (``simulate``, ``record_fight``) stay OFF.
+    """
+    steps = _fight_steps(
+        fight,
+        drivers,
+        recorder,
+        observe_ai=bool(getattr(input_source, "observes_ai", False)),
+    )
+    try:
+        screen = next(steps)
+        while True:
+            screen = steps.send(input_source(screen))
+    except StopIteration as stop:
+        return stop.value
+
+
+def _fight_steps(
+    fight: Any,
+    drivers: "Mapping[int, Driver]",
+    recorder: Any = None,
+    *,
+    observe_ai: bool = False,
+) -> "Generator[CombatScreen, Any, int]":
     """Advance a fight to a winner, one activation at a time — the SHARED loop.
 
     Ports the activation loop ``mf-prg.bas:30100-30155``, driver-agnostic:
@@ -275,7 +356,7 @@ def _drive_fight(
     1. Victory check (``30106``) — the fight ends the moment one side has no standing
        fighter, mid-round, without finishing the current side's turn.
     2. Pick ``drivers[fight.active_side]``. If it is ``human``, yield a
-       :class:`CombatScreen` and read one response via ``input_source`` (the ONLY
+       :class:`CombatScreen` and receive one response (the ONLY
        suspending path — "headless" means no yield occurs on a non-human side's turn).
        Otherwise the driver ``decide``s ``(action, argument)`` with NO client in the
        loop.
@@ -291,9 +372,9 @@ def _drive_fight(
     **Non-cancellable.** :data:`CANCEL` / EOF at a human prompt is mapped to a
     surrender, never a ``Cancelled`` throw — a mandatory fight must not be escapable.
 
-    A ``human`` driver on a side reached during a **headless** run (``input_source is
-    None``) is a caller error: :func:`simulate` rejects human drivers up front, so this
-    loop can assume a human side always has a usable ``input_source``.
+    A ``human`` driver on a side reached during a **headless** run is a caller error:
+    :func:`simulate` rejects human drivers up front, so this loop can assume a human
+    side always has a client to answer it.
 
     **Recording seam.** An optional ``recorder`` (a
     :class:`engine.recording._Recorder`) observes the loop without altering it: it marks
@@ -301,20 +382,20 @@ def _drive_fight(
     a driver reassignment, and appends one ``ActivationEvent`` per applied action. A
     non-recording caller passes ``recorder=None`` and every hook is a no-op.
 
-    **Observation frames.** If ``input_source`` carries a truthy
-    ``observes_ai`` attribute, the loop hands it one display-only :class:`CombatScreen`
-    with ``prompt=`` :data:`OBSERVE_PROMPT` after EACH non-human activation applies
-    (including the one that ends the fight), AFTER the recorder has captured it. The
-    response is ignored and nothing is drawn from the RNG, so the fight, its rng log, and
-    its recording are identical with or without the opt-in. The opt-in lives on the input
-    source (read with ``getattr``) rather than as a keyword so no signature changes:
+    **Observation frames.** With ``observe_ai``, the loop yields one display-only
+    :class:`CombatScreen` with ``prompt=`` :data:`OBSERVE_PROMPT` after EACH non-human
+    activation applies (including the one that ends the fight), AFTER the recorder has
+    captured it. The response is ignored and nothing is drawn from the RNG, so the
+    fight, its rng log, and its recording are identical with or without the opt-in. The
+    pull-style callers read the opt-in off their input source (a truthy ``observes_ai``
+    attribute, see :func:`_drive_fight` and :func:`engine.interactions.run`):
     ``simulate``/``record_fight``'s headless ``_no_input_source`` and every wrapper
     callable (``persistence``'s chained input, ``upkeep``/``game_end`` fallbacks, test
     scripts) lack the attribute and therefore stay OFF — the faithful default, since the
     original's CPU path narrates nothing between activations (``mf-prg.bas:30110``).
     """
     message: Any = None
-    observes_ai = bool(getattr(input_source, "observes_ai", False))
+    observes_ai = observe_ai
     while True:
         winner = fight.winner()
         if winner is not None:
@@ -343,8 +424,9 @@ def _drive_fight(
                 losses=fight.losses,
                 prompt="action",
                 message=message,
+                player=getattr(driver, "player", None),
             )
-            raw = input_source(screen)
+            raw = yield screen
             message = None
             action, argument = _parse_combat_response(raw)
         else:
@@ -383,26 +465,32 @@ def _drive_fight(
                     draw_start=draw_start,
                     decision_draw_count=decision_draw_count,
                 )
-            # Then the opt-in observation frame — after the recorder, so the
-            # recording never sees it; display-only, response discarded, no draws.
-            if observes_ai and driver.kind != "human":
-                input_source(
-                    CombatScreen(
-                        sides=fight.sides,
-                        grid=fight.grid,
-                        active_side=acting_side,
-                        active_fighter=acting_fighter_index + 1,
-                        losses=fight.losses,
-                        prompt=OBSERVE_PROMPT,
-                        message=result or None,
-                    )
+
+        def _observed(result: Any) -> "list[CombatScreen]":
+            # The opt-in observation frame, yielded right after the recorder captured
+            # the activation, so the recording never sees it; display-only, response
+            # discarded, no draws.
+            if not (observes_ai and driver.kind != "human"):
+                return []
+            return [
+                CombatScreen(
+                    sides=fight.sides,
+                    grid=fight.grid,
+                    active_side=acting_side,
+                    active_fighter=acting_fighter_index + 1,
+                    losses=fight.losses,
+                    prompt=OBSERVE_PROMPT,
+                    message=result or None,
                 )
+            ]
 
         if action == "surrender":
             return fight.surrender()
         if action == "pass":
             fight.advance_activation()
             _record("pass", {}, {})
+            for frame in _observed({}):
+                yield frame  # the response is ignored
             continue
         if action == "move":
             committed = fight.apply_action(
@@ -422,6 +510,8 @@ def _drive_fight(
                 )
             fight.advance_activation()
             _record("move", {}, {})
+            for frame in _observed({}):
+                yield frame  # the response is ignored
             continue
         if action == "shoot":
             result = fight.apply_action("shoot", argument)
@@ -429,9 +519,13 @@ def _drive_fight(
             winner = fight.winner()
             if winner is not None:
                 _record("shoot", result, calc_inputs)
+                for frame in _observed(result):
+                    yield frame  # the response is ignored
                 return fight.finish(winner)
             fight.advance_activation()
             _record("shoot", result, calc_inputs)
+            for frame in _observed(result):
+                yield frame  # the response is ignored
             continue
         # 30139: an unrecognized key. A HUMAN falls back to the GET wait and re-prompts;
         # a non-human driver that returns an unknown action has a broken decide contract
@@ -493,7 +587,13 @@ def simulate(
     # No input_source: a headless run never reaches the human/yield branch (guarded
     # above), so the loop never consults it.
     winner = _drive_fight(fight, dict(drivers), _no_input_source)
-    return CombatResult(winner=winner, losses=fight.losses)
+    return CombatResult(
+        winner=winner,
+        losses=fight.losses,
+        last_shooter=fight.last_shooter,
+        roster_vitality=roster_vitality(fight),
+        owner_vitality=owner_vitality(fight),
+    )
 
 
 def _no_input_source(interaction: Any) -> Any:

@@ -46,6 +46,9 @@ Rules (KTD-9)
 - **Source.** ``../research/src/decompiled_basic/mf-prg.bas``. When it is absent (CI)
   the real-tree test is skipped with a reason naming the path, never passed.
 
+The same scan yields every citation, quoted or not (:func:`citations_in_file`), which
+``tests/test_coverage_ledger.py`` matches against the source's line blocks.
+
 The scanned roots are :data:`ROOTS`. ``tests/test_ports.py`` checks its inventory quotes
 itself (:func:`tests.test_ports.test_quote_is_verbatim`); its comments are scanned here.
 """
@@ -62,6 +65,7 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+import yaml
 
 from tests.helpers import load_source, parse_source
 
@@ -262,6 +266,20 @@ def quotes_in_block(
 ) -> list[tuple[int, Citation, str]]:
     """The ``(line index, citation, fragment)`` triples in one block of text.
 
+    See :func:`scan_block`, which also returns the block's citations.
+    """
+    return scan_block(lines, any_fence=any_fence, lead=lead)[0]
+
+
+def scan_block(
+    lines: Sequence[str], *, any_fence: bool, lead: bool = False
+) -> tuple[list[tuple[int, Citation, str]], list[tuple[int, Citation]]]:
+    """The quotes and the citations in one block of text.
+
+    The quotes are ``(line index, citation, fragment)`` triples; the citations are
+    ``(line index, citation)`` pairs, one per citation token, quoted or not, a bare
+    number continuing an open group (``mf-prg.bas:30106``, ``30108``) included.
+
     A block is one comment, docstring paragraph or Markdown paragraph: consecutive
     non-blank lines, comment markers already blanked. An open citation carries across
     its line breaks, so a quote that wraps onto the next line is still paired. ``lead``
@@ -276,12 +294,14 @@ def quotes_in_block(
     tokens.sort(key=lambda token: token[1])
 
     found: list[tuple[int, Citation, str]] = []
+    cited: list[tuple[int, Citation]] = []
     group: Citation | None = None
     group_end = 0
     for kind, start, end, value in tokens:
         gap = text[group_end:start]
         if kind == "cite":
             assert isinstance(value, Citation)
+            cited.append((text.count("\n", 0, start), value))
             joined = group is not None and _GROUP_GAP.fullmatch(gap)
             group = _merge(group if joined else None, value)
             group_end = end
@@ -290,6 +310,7 @@ def quotes_in_block(
             # ``mf-prg.bas:30106``, ``30108``: a bare number continues an open group.
             assert isinstance(value, Citation)
             if group is not None and _GROUP_GAP.fullmatch(gap):
+                cited.append((text.count("\n", 0, start), value))
                 group = _merge(group, value)
                 group_end = end
             else:
@@ -299,7 +320,7 @@ def quotes_in_block(
         if group is not None and _pairs_across(gap, value):
             found.append((text.count("\n", 0, start), group, value))
         group = None
-    return found
+    return found, cited
 
 
 def quotes_in_text(text: str, *, any_fence: bool, lead: bool = False) -> list[tuple[Citation, str]]:
@@ -340,8 +361,27 @@ def _unmark(comment: str) -> str:
     return " " * marker.end() + comment[marker.end() :]
 
 
+@dataclass(frozen=True)
+class Cited:
+    """A citation found in a file, quoted or not, and where it was found."""
+
+    path: str
+    lineno: int
+    citation: Citation
+
+
 def quotes_in_file(path: str, text: str) -> list[Quote]:
-    """Every quote in one file; ``path`` is only recorded, never read.
+    """Every quote in one file; ``path`` is only recorded, never read."""
+    return scan_file(path, text)[0]
+
+
+def citations_in_file(path: str, text: str) -> list[Cited]:
+    """Every citation in one file, quoted or not (the coverage ledger's input)."""
+    return scan_file(path, text)[1]
+
+
+def scan_file(path: str, text: str) -> tuple[list[Quote], list[Cited]]:
+    """Every quote and every citation in one file; ``path`` is only recorded, never read.
 
     Each line splits into a code part and a ``#`` comment part (Markdown is all one
     part); consecutive non-blank parts of the same kind form a block.
@@ -351,16 +391,18 @@ def quotes_in_file(path: str, text: str) -> list[Quote]:
     # kind -> (lines of the open block, line number of its first line)
     streams: dict[str, tuple[list[str], int]] = {}
     quotes: list[Quote] = []
+    cited: list[Cited] = []
 
     def close(kind: str) -> None:
         lines, first = streams.pop(kind, ([], 0))
         if not lines:
             return
         any_fence = kind != "code"
-        for index, citation, fragment in quotes_in_block(
-            lines, any_fence=any_fence, lead=kind == "comment"
-        ):
+        found, citations = scan_block(lines, any_fence=any_fence, lead=kind == "comment")
+        for index, citation, fragment in found:
             quotes.append(Quote(path, first + index, citation, fragment))
+        for index, citation in citations:
+            cited.append(Cited(path, first + index, citation))
 
     for lineno, line in enumerate(text.splitlines(), start=1):
         if suffix == ".md":
@@ -382,7 +424,8 @@ def quotes_in_file(path: str, text: str) -> list[Quote]:
     for kind in list(streams):
         close(kind)
     quotes.sort(key=lambda quote: quote.lineno)
-    return quotes
+    cited.sort(key=lambda found: found.lineno)
+    return quotes, cited
 
 
 # --------------------------------------------------------------------------- #
@@ -453,13 +496,45 @@ def tree_files(repo: Path = _REPO) -> Iterator[Path]:
                 yield path
 
 
+#: A config's house-rules catalogue: its entries cite as data, not prose.
+CATALOGUE_NAME = "house_rules.yaml"
+_CATALOGUE_ID = re.compile(r"\s*-\s*id:\s*(?P<id>\S+)\s*$")
+
+
+def catalogue_quotes(path: str, text: str) -> list[Quote]:
+    """Each house-rules catalogue entry's ``quote`` held to its ``citation`` (R22).
+
+    A catalogue (``content/house_rules.yaml``) names the line in an entry's
+    ``citation`` field and the verbatim fragment in its ``quote`` field -- data, which
+    the prose scan cannot pair -- so this reads them as one :class:`Quote` per entry,
+    recorded at the entry's ``id`` line. An entry whose citation does not parse is a
+    quote of line 0, which no source has: it fails as a missing line.
+    """
+    data = yaml.safe_load(text) or {}
+    id_lines = {
+        match.group("id"): lineno
+        for lineno, line in enumerate(text.splitlines(), start=1)
+        if (match := _CATALOGUE_ID.fullmatch(line))
+    }
+    quotes: list[Quote] = []
+    for entry in data.get("house_rules") or []:
+        match = _CITATION.fullmatch(str(entry.get("citation", "")))
+        cited = _citation_from(match.group("nums")) if match else Citation((0,), ())
+        lineno = id_lines.get(str(entry.get("id")), 0)
+        quotes.append(Quote(path, lineno, cited, str(entry.get("quote", ""))))
+    return quotes
+
+
 def tree_quotes(repo: Path = _REPO) -> list[Quote]:
     quotes: list[Quote] = []
     for path in tree_files(repo):
         if path == Path(__file__).resolve():
             continue  # this module's synthetic misquotes are test data
         rel = path.relative_to(repo).as_posix()
-        quotes.extend(quotes_in_file(rel, path.read_text(encoding="utf-8")))
+        text = path.read_text(encoding="utf-8")
+        quotes.extend(quotes_in_file(rel, text))
+        if path.name == CATALOGUE_NAME and path.parent.name == "content":
+            quotes.extend(catalogue_quotes(rel, text))
     return quotes
 
 
@@ -746,6 +821,67 @@ def test_allow_list_suppresses_only_its_entry() -> None:
     report = check_quotes(quotes, _SYNTHETIC, {("m.py", "deffnm"): "paraphrase"})
     assert report.allowed_used == {("m.py", "deffnm")}
     assert len(report.errors) == 1 and "deffnx" in report.errors[0]
+
+
+_CATALOGUE = """\
+house_rules:
+  - id: toggle
+    citation: ":30108"
+    quote: "s=1-(s=1)"
+  - id: misquoted
+    citation: ":30108"
+    quote: "s=2-(s=1)"
+  - id: rent
+    citation: ":115-116"
+    quote: "deffnm"
+  - id: nowhere
+    citation: "30108"
+    quote: "s=1-(s=1)"
+"""
+
+
+def test_a_catalogue_entry_is_held_to_its_cited_line() -> None:
+    quotes = catalogue_quotes("c/content/house_rules.yaml", _CATALOGUE)
+    assert [(q.lineno, q.citation.label(), q.fragment) for q in quotes] == [
+        (2, "30108", "s=1-(s=1)"),
+        (5, "30108", "s=2-(s=1)"),
+        (8, "115-116", "deffnm"),
+        (11, "0", "s=1-(s=1)"),
+    ]
+    errors = check_quotes(quotes, _SYNTHETIC, {}).errors
+    assert len(errors) == 2
+    assert errors[0].startswith("c/content/house_rules.yaml:5: `s=2-(s=1)`")
+    assert "no such line" in errors[1] and "c/content/house_rules.yaml:11" in errors[1]
+
+
+def test_the_tree_scan_reads_the_real_catalogue() -> None:
+    catalogue = "data/game_configs/mafia_1920s/content/house_rules.yaml"
+    held = [q for q in tree_quotes() if q.path == catalogue]
+    entries = yaml.safe_load((_REPO / catalogue).read_text(encoding="utf-8"))["house_rules"]
+    assert entries, "the real catalogue is empty: the scan is vacuous"
+    for entry in entries:
+        assert any(
+            q.fragment == entry["quote"] and q.citation.label() == entry["citation"].lstrip(":")
+            for q in held
+        ), entry["id"]
+
+
+def test_every_citation_is_found_quoted_or_not() -> None:
+    text = (
+        "# :30108 toggles the side; ``mf-prg.bas:30106``, ``30108``\n"
+        "x = 1  # at 12:30, a[1:10]\n"
+        "# 13065 — no old weapon\n"
+        '"""Ports ``:4000-4090`` and :2035/2040."""\n'
+    )
+    found = [(c.lineno, c.citation.label()) for c in citations_in_file("m.py", text)]
+    assert found == [
+        (1, "30108"),
+        (1, "30106"),
+        (1, "30108"),
+        (3, "13065"),
+        (4, "4000-4090"),
+        (4, "2035,2040"),
+    ]
 
 
 def test_skips_with_a_reason_when_the_source_is_absent(tmp_path: Path) -> None:

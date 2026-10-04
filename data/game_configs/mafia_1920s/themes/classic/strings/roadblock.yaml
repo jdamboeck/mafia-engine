@@ -1,0 +1,19 @@
+# The map roadblock — classic-theme strings (VERBATIM German).
+#
+# DATA, not code: handlers/roadblock.py emits these KEYS and the theme resolves them.
+# Ported from the research text corpus (research-data/pass-1/game-text.yaml, lines
+# 6000-6036) and mf-prg.bas:6000-6036. The :1100 "taste druecken!" pause that ends
+# the screen is the client's.
+roadblock:
+  # :6000 print"{clr}{down}{rvon}{blk} strassensperre!!! "
+  title: "strassensperre!!!"
+  # :6010 print"{down}ausweiskontrolle! der polizist verlangt":print"{down}deine papiere!"
+  papers: "ausweiskontrolle! der polizist verlangt\ndeine papiere!"
+  # :6025 — a clean pass, or the passport.
+  nothing: "er hat nichts zu beanstanden."
+  # :6030 — counterfeit money.
+  counterfeit: "dein blueten-schwindel ist aufgeflogen!"
+  # :6035-6036 — alcohol (the source breaks the word across its two lines).
+  alcohol: "der kerl hat deine alkoholfaesser ent-\ndeckt! es ist aus..."
+  # :6020 — a wanted poster.
+  wanted_poster: "er hat einen steckbrief von dir!"

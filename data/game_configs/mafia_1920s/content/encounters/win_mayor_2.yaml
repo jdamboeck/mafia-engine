@@ -1,0 +1,14 @@
+# The mayor hit's second fight: the mayor himself (mf-prg.bas:24010). The player's gang
+# fights it with the energy the first fight (win_mayor_1.yaml) left.
+#
+#   24010 bn$(0)="buergermeister":gz(0)=1:e=30:w=1:kf$="ks":gosub5000:ifs=2goto26020
+#
+# No declarable consequence: a loss goes to the arrest (:26020), a win to the reward
+# (:24015-24020), both in handlers/win_flows.py.
+key: win_mayor_2
+enemies:
+  count: 1              # gz(0)=1 — :24010
+  weapon: 1             # w=1, messer — :24010
+  vitality: 30          # e=30 — :24010
+  name: buergermeister  # bn$(0)="buergermeister" — :24010
+grid: ks                # kf$="ks" — :24010

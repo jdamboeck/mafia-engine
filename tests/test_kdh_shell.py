@@ -103,7 +103,7 @@ def test_kdh_strings_resolve_for_every_key_the_handler_emits():
     assert "{price}" in _get(data, "locations.kdh.buy_offer")
     assert "{price}" in _get(data, "locations.kdh.sell_offer")
     assert "{capital}" in _get(data, "locations.kdh.capital_status")
-    assert "{max}" in _get(data, "locations.kdh.capital_status")
+    assert "{max:mid$}" in _get(data, "locations.kdh.capital_status")
     assert "{amount}" in _get(data, "locations.kdh.ambush_loot")
 
 

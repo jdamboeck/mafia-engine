@@ -30,7 +30,7 @@ from engine.interactions import (
     ShowMessage,
     run,
 )
-from engine.state import Clock, Fighter, GameState, MapState, Player
+from engine.state import Clock, Fighter, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_fight, run_pure, scripted
 
@@ -418,20 +418,20 @@ def test_run_pure_catches_a_mutation_that_bypasses_frozen():
 def test_run_pure_catches_a_readonly_collection_downgrade():
     """Swapping a read-only collection for a mutable one must fail the harness.
 
-    This is the R2 false floor reopening: `map.tenancy` going from
+    This is the R2 false floor reopening: the global value map going from
     `MappingProxyType` back to a plain `dict` restores the write path the frozen
     graph exists to close. Both flatten to the same JSON, so the harness's value
     comparison alone cannot see it — only the type fingerprint can.
     """
 
     def downgrading_handler(ctx):
-        object.__setattr__(ctx.state.map, "tenancy", {1: 0})
+        object.__setattr__(ctx.state, "values", {"tenancy.1": 0})
         return []
         yield  # pragma: no cover - make this a generator
 
     st = dataclasses.replace(
         _harness_state(ka=5000),
-        map=MapState(tenancy=MappingProxyType({1: 0})),
+        values=MappingProxyType({"tenancy.1": 0}),
     )
     with pytest.raises(AssertionError, match="changed the TYPE"):
         run_pure(downgrading_handler, scripted(), state=st)
@@ -544,3 +544,186 @@ def test_show_message_reaches_the_input_source_before_being_acked():
     assert [i.key for i in seen if isinstance(i, ShowMessage)] == ["some.key"], (
         "ShowMessage never reached the input source; clients cannot render it"
     )
+
+
+# --------------------------------------------------------------------------- #
+# step(): the generator form of the driver                                     #
+# --------------------------------------------------------------------------- #
+def _prompt_substate_fight_handler(ctx):
+    """A handler with a prompt (re-prompted once), a sub-state and a fight."""
+    from data.game_configs.mafia_1920s.combat_rules import build_rules
+    from engine.fight_loop import AiDriver, HumanDriver
+    from engine.interactions import StartCombat
+    from tests.helpers import combat_fighter
+
+    n = yield PromptInt("how_many", min=1, max=5)
+    picked = yield LoadSubState("step_parity_pick", {"n": n})
+    yield ShowMessage("picked", {"picked": picked})
+    sides = (
+        (combat_fighter(name="hero", weapon=5, energie=20, position=6 * 40 + 15, roster_id=0),),
+        (combat_fighter(name="thug", weapon=6, energie=35, position=6 * 40 + 30),),
+    )
+    result = yield StartCombat(
+        sides=sides, rules=build_rules({}), drivers={1: HumanDriver(), 2: AiDriver()}
+    )
+    ctx.apply(("fight", result.winner, tuple(result.losses)))
+    return ["done", n, picked]
+
+
+class _Client:
+    """A scripted client: answers each interaction by kind, and records what it saw."""
+
+    observes_ai = True
+
+    def __init__(self):
+        self.seen: list = []
+        self._int_answers = iter(["nine", "3"])  # one invalid answer, then a valid one
+
+    def __call__(self, interaction):
+        from engine.interactions import CombatScreen
+
+        self.seen.append(interaction)
+        if isinstance(interaction, PromptInt):
+            return next(self._int_answers)
+        if isinstance(interaction, PromptChoice):
+            return "1"
+        if isinstance(interaction, CombatScreen):
+            return ("shoot", +1)
+        return None
+
+
+def test_step_driven_by_a_scripted_sender_gives_the_same_result_as_run():
+    from engine.interactions import CombatScreen, step
+    from engine.rng import Rng
+    from engine.substates import SUBSTATES, register_substate
+
+    @register_substate("step_parity_pick")
+    def _pick(ctx, params):
+        choice = yield PromptChoice("pick_one", options=["a", "b", "c"])
+        ctx.apply(("picked", choice, params["n"]))
+        return choice
+
+    try:
+        pulled = _Client()
+        pulled_rng = Rng(42)
+        expected = run(_prompt_substate_fight_handler, pulled, rng=pulled_rng)
+
+        sent = _Client()
+        sent_rng = Rng(42)
+        steps = step(_prompt_substate_fight_handler, None, sent_rng, observe_ai=True)
+        try:
+            interaction = next(steps)
+            while True:
+                interaction = steps.send(sent(interaction))
+        except StopIteration as stop:
+            result = stop.value
+    finally:
+        SUBSTATES.pop("step_parity_pick", None)
+
+    kinds = {type(i) for i in sent.seen}
+    assert {PromptInt, PromptChoice, ShowMessage, CombatScreen} <= kinds
+    assert any(i.prompt == "observe" for i in sent.seen if isinstance(i, CombatScreen))
+    assert sent.seen == pulled.seen
+    assert result == expected
+    assert result.payload.returned == ["done", 3, 1]
+    assert sent_rng.log and sent_rng.log == pulled_rng.log
+
+
+def test_step_yields_acknowledge_and_heading_and_sends_back_ack():
+    from engine.interactions import Acknowledge, Heading, step
+
+    got = []
+
+    def handler(ctx):
+        got.append((yield Heading("title")))
+        got.append((yield Acknowledge("screen", {"x": 1})))
+        return None
+
+    steps = step(handler)
+    assert next(steps) == Heading("title")
+    assert steps.send("ignored") == Acknowledge("screen", {"x": 1})
+    with pytest.raises(StopIteration):
+        steps.send(CANCEL)
+    assert got == [Ack, Ack]
+
+
+# --------------------------------------------------------------------------- #
+# Who answers: every interaction names its player (KTD-8)                     #
+# --------------------------------------------------------------------------- #
+def _two_player_state(active: int) -> GameState:
+    return GameState(
+        players=(Player(name="alcapone"), Player(name="moran")),
+        clock=Clock(active_player=active, player_count=2),
+    )
+
+
+def _named_handler(*, fight_player=None, prompt_player=None):
+    """A prompt, a sub-state prompt, narration and a fight, each yielded unnamed
+    unless a player is given."""
+    from data.game_configs.mafia_1920s.combat_rules import build_rules
+    from engine.fight_loop import AiDriver, HumanDriver
+    from engine.interactions import StartCombat
+    from tests.helpers import combat_fighter
+
+    def handler(ctx):
+        n = yield PromptInt("how_many", min=1, max=5, player=prompt_player)
+        yield LoadSubState("named_pick", {})
+        yield ShowMessage("picked", {"n": n})
+        sides = (
+            (combat_fighter(name="hero", weapon=5, energie=20, position=6 * 40 + 15),),
+            (combat_fighter(name="thug", weapon=6, energie=35, position=6 * 40 + 30),),
+        )
+        yield StartCombat(
+            sides=sides,
+            rules=build_rules({}),
+            drivers={1: HumanDriver(player=fight_player), 2: AiDriver()},
+        )
+        return None
+
+    return handler
+
+
+def _stepped(handler, state):
+    """Drive ``step`` over ``handler``; return every interaction it yielded."""
+    from engine.interactions import CombatScreen, step
+    from engine.substates import SUBSTATES, register_substate
+
+    @register_substate("named_pick")
+    def _pick(ctx, params):
+        return (yield PromptChoice("pick_one", options=["a", "b"]))
+
+    seen = []
+    try:
+        steps = step(handler, state)
+        interaction = next(steps)
+        while True:
+            seen.append(interaction)
+            if isinstance(interaction, CombatScreen):
+                answer = ("surrender", None)
+            elif isinstance(interaction, (PromptInt, PromptChoice)):
+                answer = "1"
+            else:
+                answer = None
+            interaction = steps.send(answer)
+    except StopIteration:
+        pass
+    finally:
+        SUBSTATES.pop("named_pick", None)
+    return seen
+
+
+def test_interactions_carry_the_active_player_by_default():
+    from engine.interactions import CombatScreen
+
+    seen = _stepped(_named_handler(), _two_player_state(active=1))
+
+    assert [type(i) for i in seen] == [PromptInt, PromptChoice, ShowMessage, CombatScreen]
+    assert [i.player for i in seen] == [1, 1, 1, 1]
+    assert seen[-1].to_json()["player"] == 1  # the wire payload names the player too
+
+
+def test_an_interaction_naming_another_player_keeps_that_player():
+    seen = _stepped(_named_handler(fight_player=0, prompt_player=0), _two_player_state(active=1))
+
+    # The prompt and the side's screen name player 0; the rest default to the active 1.
+    assert [i.player for i in seen] == [0, 1, 1, 0]

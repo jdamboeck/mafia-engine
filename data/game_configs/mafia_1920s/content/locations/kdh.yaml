@@ -6,14 +6,14 @@
 # buy/sell/rival-scan guard chain, must-own-this-tile for capital/collect) — exactly
 # like pub's drink/tip/job (the shell only carries guards where the ORIGINAL
 # refuses before even offering the option, which never happens here). Plus a
-# guardless leave.
+# guardless leave, last (the source's option aw).
 #
 #   borrow  — no guard; kr(sp)!=0 (existing debt) refusal happens inside the handler.
 #   repay   — no guard; bounds/afford checks happen inside the handler.
 #   trade   — no guard; buy/sell routing + all guards happen inside the handler.
 #   capital — no guard; must-own-this-tile check happens inside the handler.
 #   collect — no guard; must-own-this-tile check happens inside the handler.
-#   leave   — guardless, force-ends nothing (ms unchanged; mirrors waf's leave).
+#   leave   — guardless; costs 5 movement points (:3045), on top of the door's 5 (:2060).
 key: kdh
 options:
   - id: borrow
@@ -29,4 +29,4 @@ options:
   - id: leave
     resolve:
       consequences:
-        - {type: ms_change, amount: 0}
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

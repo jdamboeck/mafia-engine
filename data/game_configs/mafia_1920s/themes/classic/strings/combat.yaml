@@ -13,49 +13,35 @@ combat:
   # 30145: illegal move target (occupied/scenery/out of bounds) -- re-prompt.
   illegal_move: "(das geht nicht)"
 
-  # 30235: "{rvon}verfehlt!" -- the shot missed.
+  # :30235 "{rvon}verfehlt!" -- the shot missed.
   miss: "verfehlt!"
 
-  # 30305: "treffer! spieler <i> ist am ende!" -- a player-side fighter is knocked out.
-  hit_player_down: "treffer! spieler {index} ist am ende!"
+  # :30305 "treffer! spieler <i> ist am ende!" -- a player-side fighter is knocked out.
+  hit_player_down: "treffer! spieler{index}ist am ende!"
 
-  # 30300: "der gegner ist tot!" -- an enemy/NPC fighter is knocked out.
+  # :30300 "der gegner ist tot!" -- an enemy/NPC fighter is knocked out.
   hit_enemy_down: "der gegner ist tot!"
 
-  # A hit that does not knock the target down -- no verbatim original line covers
-  # this case narratively (the source prints nothing between the muzzle flash and the
-  # next activation), so this is a presentation-only addition, not ported text.
-  hit: "treffer!"
+  # :30350 "treffer! energie -"mid$(str$(y),2)"!" -- a hit that does not knock the
+  # target down, with the damage y it did.
+  hit: "treffer! energie -{damage:mid$}!"
 
   # 30500: "{rvon} sieger: <gang>!!!" -- the winner banner. {name} = winning side's name.
   winner_banner: "sieger: {name}!!!"
 
-  # 30510/30515: "verluste der spieler:" heading + "<gang>: <n>" per side.
+  # 30510/30515: "verluste der spieler:" heading + bn$(ks(i))":"v(i) per side
+  # (the count PRINTs with its sign space: "<gang>: <n> ").
   losses_heading: "verluste der spieler:"
-  losses_line: "{name}: {count}"
+  losses_line: "{name}:{count}"
 
-  # Presentation-only labels for the fighter panel (no single verbatim source line;
-  # 30116/1300 print the stat block using labels sourced elsewhere in game-text.yaml's
-  # spec-sheet vocabulary -- reused here for consistency).
-  panel_weapon: "waffe: {weapon}"
-
-  # The depleting resource is the engine's `vitality` SLOT, rendered first via
-  # `panel_vitality`. This game's word for it -- "energie" -- lives here as the label,
-  # the same engine-slot / game-word split the engine keeps everywhere. A different
-  # game names the slot "hp" or "stamina" by editing this one key.
-  panel_vitality: "energie: {value}"
-
-  # The panel's remaining attribute rows are THEME-declared. `panel_attrs` chooses
-  # which `attrs` keys appear and in what order; each is labelled by its own
-  # `panel_attr_<key>` template. The renderer reads the fighter's opaque `attrs` map
-  # and knows none of these names -- so this game's German stat vocabulary lives
-  # here, in presentation, and a different game re-declares its own without touching
-  # the client. (`energie` is NOT here -- it is the vitality slot above, not an attr;
-  # `intelligenz` is carried in `attrs` but deliberately not listed: the original's
-  # panel does not show it.)
-  panel_attrs: [kraft, brutalitaet]
-  panel_attr_kraft: "kraft: {value}"
-  panel_attr_brutalitaet: "brutalitaet: {value}"
+  # The fighter panel (:30116 gosub1300): the name, then :1315's stat line, then
+  # :1320's weapon. :1315 prints the ge$ fields that :1365-1385 build: each stat is
+  # mid$(str$(..),2), padded to two digits with a leading "0" ("e05 k10 i07 b03").
+  # `panel_stats` is filled with the engine's `vitality` SLOT and the fighter's
+  # opaque `attrs`, so this game's stat names live here, not in the client.
+  panel_stats: "e{vitality:mid$0>2} k{kraft:mid$0>2} i{intelligenz:mid$0>2} b{brutalitaet:mid$0>2}"
+  # :1320 print"w:"wa$(gw(a,b))
+  panel_weapon: "w:{weapon}"
 
   # Action prompt shown above the key legend.
   action_prompt: "deine aktion:"

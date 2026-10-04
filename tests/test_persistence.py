@@ -27,11 +27,8 @@ import yaml
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "data" / "game_configs" / "mafia_1920s"
 sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 
-from engine.effects import (  # noqa: E402
-    MoneyChange,
-    SetTenancy,
-    commit,
-)
+from engine.effects import MoneyChange, commit  # noqa: E402
+from data.game_configs.mafia_1920s.effects import SetTenancy  # noqa: E402
 from engine.config_loader import load_game_config  # noqa: E402
 from engine.interactions import run  # noqa: E402
 from engine.locations import load_location  # noqa: E402
@@ -40,11 +37,13 @@ from engine.state import freeze  # noqa: E402
 from tests.helpers import with_config, with_player  # noqa: E402
 from engine.rng import Rng  # noqa: E402
 from engine import persistence  # noqa: E402  (module under test)
+import data.game_configs.mafia_1920s.state as game  # noqa: E402
 
 # Load the config BY PATH so its "slw.rent" handler registers into
 # engine.locations.HANDLERS (mirror of tests/test_slice_integration.py).
 _CONFIG = load_game_config(_CONFIG_DIR)
 new_game = _CONFIG.module.new_game
+_REGISTRIES = _CONFIG.registries
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 _SLW_SHELL = _CONFIG_DIR / "content" / "locations" / "slw.yaml"
@@ -89,41 +88,46 @@ def test_save_load_roundtrip_after_setup(tmp_path: Path):
     state = _fresh_state()
     save_path = tmp_path / "game.jsonl"
 
-    persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
-    loaded = persistence.load_game(save_path)
+    persistence.save_game(
+        save_path, state, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=SEED
+    )
+    loaded = persistence.load_game(save_path, _REGISTRIES)
 
     # Identical GameState across a serialize/deserialize boundary (fresh objects).
     assert loaded.state == state
     assert loaded.state is not state
 
 
-def test_roundtrip_preserves_int_keyed_dicts(tmp_path: Path):
-    """tenancy/special_cells are int-keyed dicts; JSON stringifies keys — assert they
-    come back as ints, not strings (the documented JSON gotcha)."""
+def test_roundtrip_preserves_a_written_global_value(tmp_path: Path):
+    """A global value an effect wrote (the tenancy of tile 2) survives the round-trip."""
     state = _fresh_state()
-    # Commit a tenancy write so there is a non-empty int-keyed dict to round-trip.
     state = commit(state, [SetTenancy(ln=2)]).state
-    assert state.map.tenancy == {2: 0}
+    assert game.tenant(state, 2) == 0
 
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
-    loaded = persistence.load_game(save_path)
+    persistence.save_game(
+        save_path, state, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=SEED
+    )
+    loaded = persistence.load_game(save_path, _REGISTRIES)
 
-    assert loaded.state.map.tenancy == {2: 0}  # keys are ints, not "2"
+    assert game.tenant(loaded.state, 2) == 0
     assert loaded.state == state
 
 
-def test_string_keyed_config_dict_survives_roundtrip(tmp_path: Path):
-    """action_costs is dict[str,int] with SEMANTIC string keys — even numeric-looking ones
-    must NOT be coerced to int by the config restorer (formula_params-only restoration)."""
+def test_string_keyed_formula_params_survive_roundtrip(tmp_path: Path):
+    """A string-keyed ``formula_params`` sub-map whose keys are not all int-looking keeps
+    its string keys: the restorer coerces only an all-int-looking key set."""
     # A numeric-looking string key is the adversarial case for a blanket int-key restore.
-    state = with_config(_fresh_state(), action_costs=freeze({"bribe": 100, "42": 7}))
+    params = {**_fresh_state().config.formula_params, "costs": {"bribe": 100, "42": 7}}
+    state = with_config(_fresh_state(), formula_params=freeze(params))
 
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
-    loaded = persistence.load_game(save_path)
+    persistence.save_game(
+        save_path, state, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=SEED
+    )
+    loaded = persistence.load_game(save_path, _REGISTRIES)
 
-    assert loaded.state.config.action_costs == {"bribe": 100, "42": 7}  # keys stay str
+    assert loaded.state.config.formula_params["costs"] == {"bribe": 100, "42": 7}
     assert loaded.state == state
 
 
@@ -142,10 +146,17 @@ def test_replay_reproduces_final_state_without_rerolling(tmp_path: Path):
     live_final = commit(base, effect_log).state
 
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(save_path, base, effect_log=effect_log, rng_log=list(rng.log), seed=SEED)
-    loaded = persistence.load_game(save_path)
+    persistence.save_game(
+        save_path,
+        base,
+        registries=_REGISTRIES,
+        effect_log=effect_log,
+        rng_log=list(rng.log),
+        seed=SEED,
+    )
+    loaded = persistence.load_game(save_path, _REGISTRIES)
 
-    replayed_final = persistence.replay(loaded)
+    replayed_final = persistence.replay(loaded, _REGISTRIES)
     assert replayed_final == live_final
     # RNG draws replay from the log — identical to the live run's log.
     assert loaded.rng_log == rng.log
@@ -160,9 +171,11 @@ def test_semantic_events_excluded_from_replay_log(tmp_path: Path):
 
     save_path = tmp_path / "game.jsonl"
     # Even if a caller hands events, save_game must not fold them into replay.
-    persistence.save_game(save_path, base, effect_log=effect_log, rng_log=[], seed=SEED)
-    loaded = persistence.load_game(save_path)
-    assert persistence.replay(loaded) == live_final
+    persistence.save_game(
+        save_path, base, registries=_REGISTRIES, effect_log=effect_log, rng_log=[], seed=SEED
+    )
+    loaded = persistence.load_game(save_path, _REGISTRIES)
+    assert persistence.replay(loaded, _REGISTRIES) == live_final
     # No 'event' records in the persisted log.
     assert all(rec.get("kind") != "event" for rec in loaded.raw_records)
 
@@ -196,6 +209,7 @@ def test_mid_slw_rent_save_resume_matches_uninterrupted(tmp_path: Path):
     persistence.save_game(
         save_path,
         state,
+        registries=_REGISTRIES,
         effect_log=[],
         rng_log=[],
         seed=SEED,
@@ -206,7 +220,7 @@ def test_mid_slw_rent_save_resume_matches_uninterrupted(tmp_path: Path):
             "responses_so_far": [],
         },
     )
-    loaded = persistence.load_game(save_path)
+    loaded = persistence.load_game(save_path, _REGISTRIES)
 
     resumed = persistence.resume_pending_action(loaded, slw, live_input=_Recorder(2), rng=None)
     assert resumed.status == "completed"
@@ -222,7 +236,12 @@ def test_log_is_append_only_and_versioned(tmp_path: Path):
     state = _fresh_state()
     save_path = tmp_path / "game.jsonl"
     persistence.save_game(
-        save_path, state, effect_log=[MoneyChange(amount=10)], rng_log=[], seed=SEED
+        save_path,
+        state,
+        registries=_REGISTRIES,
+        effect_log=[MoneyChange(amount=10)],
+        rng_log=[],
+        seed=SEED,
     )
     first = save_path.read_text(encoding="utf-8")
     # Appending another effect grows the file; earlier bytes are unchanged (append-only).
@@ -231,7 +250,7 @@ def test_log_is_append_only_and_versioned(tmp_path: Path):
     assert grown.startswith(first)
     assert len(grown) > len(first)
 
-    loaded = persistence.load_game(save_path)
+    loaded = persistence.load_game(save_path, _REGISTRIES)
     # Every record carries the schema version.
     assert all("version" in rec for rec in loaded.raw_records)
 
@@ -239,7 +258,9 @@ def test_log_is_append_only_and_versioned(tmp_path: Path):
 def test_unknown_version_is_rejected(tmp_path: Path):
     state = _fresh_state()
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(save_path, state, effect_log=[], rng_log=[], seed=SEED)
+    persistence.save_game(
+        save_path, state, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=SEED
+    )
     # Corrupt a record to a future version the loader cannot understand.
     lines = save_path.read_text(encoding="utf-8").splitlines()
     import json
@@ -250,7 +271,7 @@ def test_unknown_version_is_rejected(tmp_path: Path):
     save_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     with pytest.raises(persistence.SchemaVersionError):
-        persistence.load_game(save_path)
+        persistence.load_game(save_path, _REGISTRIES)
 
 
 def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path):
@@ -268,9 +289,11 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     effect = SpawnFighter(fighter=Fighter(name="Al", position=100, vitality=30), side=1)
     state = _fresh_state()
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(save_path, state, effect_log=[effect], rng_log=[], seed=SEED)
+    persistence.save_game(
+        save_path, state, registries=_REGISTRIES, effect_log=[effect], rng_log=[], seed=SEED
+    )
 
-    loaded = persistence.load_game(save_path)
+    loaded = persistence.load_game(save_path, _REGISTRIES)
     restored = loaded.effect_log[0]
     assert isinstance(restored.fighter, Fighter), (
         f"fighter replayed as {type(restored.fighter).__name__}, not Fighter"
@@ -281,28 +304,106 @@ def test_spawn_fighter_effect_round_trips_as_a_fighter_dataclass(tmp_path: Path)
     assert restored.side == 1
 
 
-def test_a_score_change_recorded_before_the_clamp_field_loads_clamped(tmp_path: Path):
-    """A ScoreChange logged before ``clamp`` existed has no such key; it must load, and
-    replay with the clamp it was recorded under. One written now carries its clamp."""
+def test_a_score_change_round_trips_its_bound_and_an_unbounded_record_is_refused(
+    tmp_path: Path,
+):
+    """A ScoreChange carries its caller-supplied bound in a save. A record without the
+    bound fields (or with the replaced ``clamp`` flag) is not upgraded: nothing
+    backfills an old record, so it fails to load."""
     from engine.effects import ScoreChange
 
     save_path = tmp_path / "game.jsonl"
-    unclamped = ScoreChange(3.0, clamp=False)
-    persistence.save_game(save_path, _fresh_state(), effect_log=[unclamped], rng_log=[], seed=SEED)
+    unclamped = ScoreChange(3.0, floor=None, cap=None)
+    persistence.save_game(
+        save_path,
+        _fresh_state(),
+        registries=_REGISTRIES,
+        effect_log=[unclamped],
+        rng_log=[],
+        seed=SEED,
+    )
     header, effect_line = save_path.read_text(encoding="utf-8").splitlines()
     record = json.loads(effect_line)
     assert record["effect"] == {
         "_type": "ScoreChange",
         "amount": 3.0,
         "player": None,
-        "clamp": False,
+        "floor": None,
+        "cap": None,
     }
-    assert persistence.load_game(save_path).effect_log == [unclamped]
+    assert persistence.load_game(save_path, _REGISTRIES).effect_log == [unclamped]
 
-    # The same record as an older save wrote it: no ``clamp`` key.
-    del record["effect"]["clamp"]
-    save_path.write_text(f"{header}\n{json.dumps(record)}\n", encoding="utf-8")
-    assert persistence.load_game(save_path).effect_log == [ScoreChange(3.0, clamp=True)]
+    for fields in ({}, {"clamp": True}):
+        old = {"_type": "ScoreChange", "amount": 3.0, "player": None, **fields}
+        line = json.dumps({**record, "effect": old})
+        save_path.write_text(f"{header}\n{line}\n", encoding="utf-8")
+        with pytest.raises(TypeError):
+            persistence.load_game(save_path, _REGISTRIES)
+
+
+# --------------------------------------------------------------------------- #
+# The save header: version, config id, content version (KTD-4, KTD-5)          #
+# --------------------------------------------------------------------------- #
+def _rewrite_header(path: Path, **changes) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    lines[0] = json.dumps({**json.loads(lines[0]), **changes})
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _saved(tmp_path: Path) -> Path:
+    path = tmp_path / "game.jsonl"
+    persistence.save_game(
+        path, _fresh_state(), registries=_REGISTRIES, effect_log=[], rng_log=[], seed=SEED
+    )
+    return path
+
+
+def test_the_header_records_the_config_id_and_content_version(tmp_path: Path):
+    header = json.loads(_saved(tmp_path).read_text(encoding="utf-8").splitlines()[0])
+    assert header["version"] == persistence.SCHEMA_VERSION == 2
+    assert header["config_id"] == _CONFIG.config["name"] == "mafia_1920s"
+    assert header["content_version"] == _CONFIG.config["content_version"]
+
+
+def test_a_version_1_save_is_refused_as_older(tmp_path: Path):
+    path = _saved(tmp_path)
+    _rewrite_header(path, version=1)
+    with pytest.raises(persistence.SchemaVersionError) as exc:
+        persistence.load_game(path, _REGISTRIES)
+    assert exc.value.older and exc.value.found == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("config_id", "another_game"), ("content_version", 999)]
+)
+def test_a_save_under_another_config_or_content_version_is_refused(
+    tmp_path: Path, field: str, value
+):
+    path = _saved(tmp_path)
+    _rewrite_header(path, **{field: value})
+    with pytest.raises(persistence.SaveConfigError) as exc:
+        persistence.load_game(path, _REGISTRIES)
+    assert (exc.value.field, exc.value.found) == (field, value)
+
+
+def test_a_save_without_the_config_fields_is_refused(tmp_path: Path):
+    path = _saved(tmp_path)
+    header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    del header["config_id"]
+    path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+    with pytest.raises(persistence.SaveConfigError):
+        persistence.load_game(path, _REGISTRIES)
+
+
+def test_a_snapshot_without_a_value_map_is_refused(tmp_path: Path):
+    """A key missing from a value map is default-filled (KTD-2); a whole map missing is
+    not a version-2 save, and is refused rather than filled."""
+    path = _saved(tmp_path)
+    header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    del header["snapshot"]["players"][0]["values"]
+    path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+    with pytest.raises(KeyError, match="values"):
+        persistence.load_game(path, _REGISTRIES)
 
 
 def test_session_save_resumes_the_rng_stream(tmp_path):
@@ -316,11 +417,13 @@ def test_session_save_resumes_the_rng_stream(tmp_path):
         rng.range(9)
         rng.hit(10, 50)
     save_path = tmp_path / "game.jsonl"
-    persistence.save_game(save_path, state, effect_log=[], rng_log=rng.log, seed=SEED)
+    persistence.save_game(
+        save_path, state, registries=_REGISTRIES, effect_log=[], rng_log=rng.log, seed=SEED
+    )
 
-    loaded = persistence.load_game(save_path)
+    loaded = persistence.load_game(save_path, _REGISTRIES)
     assert loaded.effect_log == []
-    assert persistence.replay(loaded) == state
+    assert persistence.replay(loaded, _REGISTRIES) == state
     resumed = Rng.replayed(loaded.seed, loaded.rng_log)
     assert resumed.log == rng.log
     assert [resumed.range(1000) for _ in range(100)] == [rng.range(1000) for _ in range(100)]
@@ -334,7 +437,9 @@ def test_a_save_that_fails_midway_leaves_the_old_save_untouched(tmp_path, monkey
     import io
 
     path = tmp_path / "s.jsonl"
-    persistence.save_game(path, _fresh_state(), effect_log=[], rng_log=[], seed=1)
+    persistence.save_game(
+        path, _fresh_state(), registries=_REGISTRIES, effect_log=[], rng_log=[], seed=1
+    )
     before = path.read_bytes()
     later = with_player(_fresh_state(), ka=_fresh_state().players[0].ka + 1)
 
@@ -366,7 +471,9 @@ def test_a_save_that_fails_midway_leaves_the_old_save_untouched(tmp_path, monkey
 
     monkeypatch.setattr(io, "open", dying_open)
     with pytest.raises(OSError):
-        persistence.save_game(path, later, effect_log=[], rng_log=[], seed=1)
+        persistence.save_game(
+            path, later, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=1
+        )
     monkeypatch.setattr(io, "open", real_open)
 
     assert failed, "the failure was never injected mid-write"
@@ -380,12 +487,16 @@ def test_save_format_is_unchanged_by_the_atomic_write(tmp_path):
 
     state = _fresh_state()
     path = tmp_path / "s.jsonl"
-    persistence.save_game(path, state, effect_log=[], rng_log=[("range", (6,), 3)], seed=7)
+    persistence.save_game(
+        path, state, registries=_REGISTRIES, effect_log=[], rng_log=[("range", (6,), 3)], seed=7
+    )
     expected = (
         json.dumps(
             {
                 "kind": "header",
                 "version": persistence.SCHEMA_VERSION,
+                "config_id": "mafia_1920s",
+                "content_version": _CONFIG.config["content_version"],
                 "seed": 7,
                 "snapshot": persistence._state_to_dict(state),
             }
@@ -397,3 +508,33 @@ def test_save_format_is_unchanged_by_the_atomic_write(tmp_path):
         + "\n"
     )
     assert path.read_text(encoding="utf-8") == expected
+
+
+def test_roster_append_effect_round_trips_its_gangster(tmp_path: Path):
+    """A RosterAppend in the effect log must replay a roster member, not a raw dict.
+
+    The nested ``gangster`` is written as a plain dict; reconstruction rebuilds it from
+    the effect's declared field type (#110: a hand-kept nested-field table covered only
+    ``SpawnFighter``, so this reloaded as a dict and replay put a dict in the roster).
+    """
+    from engine.effects import RosterAppend
+    from engine.state import Combatant
+
+    hire = _CONFIG.module.Gangster(name="Lucky", weapon=2, energie=5, kraft=20)
+    effect = RosterAppend(gangster=hire)
+    state = _fresh_state()
+    live = commit(state, [effect]).state
+    save_path = tmp_path / "game.jsonl"
+    persistence.save_game(
+        save_path, state, registries=_REGISTRIES, effect_log=[effect], rng_log=[], seed=SEED
+    )
+
+    loaded = persistence.load_game(save_path, _REGISTRIES)
+    restored = loaded.effect_log[0]
+    assert isinstance(restored.gangster, Combatant), (
+        f"gangster replayed as {type(restored.gangster).__name__}, not a Combatant"
+    )
+    assert restored == effect
+    replayed = persistence.replay(loaded, _REGISTRIES)
+    assert replayed == live
+    assert isinstance(replayed.players[0].roster[-1], Combatant)

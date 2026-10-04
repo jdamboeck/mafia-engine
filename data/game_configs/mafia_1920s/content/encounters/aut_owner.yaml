@@ -1,0 +1,13 @@
+# The car owner who catches a thief at the car dealer (mf-prg.bas:14120-14131).
+#
+#   14125 bn$(0)="wagenbesitzer":gz(0)=1:e=30:w=5:kf$="ks":gosub5000:ifs=2goto26020
+#
+# No declarable consequence: a loss leads into the police capture at :26020, and a win
+# only prints :14130-14131 (no car, no money, no score); both are in handlers/aut.py.
+key: aut_owner
+enemies:
+  count: 1              # gz(0)=1 — :14125
+  weapon: 5             # w=5, revolver — :14125
+  vitality: 30          # e=30 — :14125
+  name: wagenbesitzer   # bn$(0)="wagenbesitzer" — :14125
+grid: ks                # kf$="ks" — :14125

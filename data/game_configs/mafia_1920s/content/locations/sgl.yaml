@@ -1,0 +1,27 @@
+# sgl (Einfacher Laden, the protection racket) — location shell (declarative layer).
+#
+# Ports the sgl menu from mf-prg.bas:17010 (onwgoto17015,17100,17200,17300). No option
+# carries a shell guard: the source shows all five and refuses only after the pick, in
+# its own order — the rank (:17005), then the revisit trap (:17007), then the option.
+# The trap reads the previous tile ll(sp), which is not a single-literal guard.
+#
+#   threat      — sgl.threat: 'den zaster her...' (:17015-17020)
+#   sob_story   — sgl.sob_story: 'bitte, bitte...' (:17100-17105)
+#   protection  — sgl.protection: 'wir schuetzen dich...' (:17200-17225)
+#   fake_police — sgl.fake_police: 'polizei! ...falschgeld' (:17300-17306)
+#   leave       — costs 5 movement points (:3045) back to the map, before any of the
+#                 above is reached: leaving never meets the rank gate or the trap.
+key: sgl
+options:
+  - id: threat
+    handler: "sgl.threat"
+  - id: sob_story
+    handler: "sgl.sob_story"
+  - id: protection
+    handler: "sgl.protection"
+  - id: fake_police
+    handler: "sgl.fake_police"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

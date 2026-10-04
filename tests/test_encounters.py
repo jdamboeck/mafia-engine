@@ -108,7 +108,7 @@ def test_from_encounter_equals_inline_from_roster(
     assert (spec.count, spec.weapon, spec.vitality, spec.name) == (count, weapon, vitality, name)
 
     via_encounter = Scenario.from_encounter(
-        spec, roster, build_rules(), enemy_attrs=attrs, grid=grid, equip=equip
+        spec, roster, build_rules({}), enemy_attrs=attrs, grid=grid, equip=equip
     )
     via_roster = Scenario.from_roster(
         roster,
@@ -119,7 +119,7 @@ def test_from_encounter_equals_inline_from_roster(
         enemy_name=name,
         grid=grid,
         equip=equip,
-        rules=build_rules(),
+        rules=build_rules({}),
     )
     assert via_encounter == via_roster
 
@@ -178,16 +178,27 @@ def test_setup_only_encounters_carry_no_declared_consequence(key):
 # No handler assembles a fight inline (the unit's verification bar)           #
 # --------------------------------------------------------------------------- #
 def test_no_handler_assembles_a_fight_inline():
-    """After U6a, no handler contains an opponent literal or an inline
-    setup_combat/Scenario.from_roster call — every fight setup is declared in data."""
-    handlers = _CONFIG_DIR / "handlers"
-    banned = ("_BOUNCER_BRAWLERS", "_CROUPIER_OPPONENT", "_KILLER_VICTIM", "setup_combat(")
-    for path in (handlers / "kdh.py", handlers / "upkeep.py", handlers / "jobs.py"):
+    """No handler file contains an opponent literal or assembles a fight itself: every
+    fight setup is declared in data and run through the shared fight helper
+    (``setup.run_encounter``), which alone builds the scenario and starts the combat."""
+    handlers = sorted((_CONFIG_DIR / "handlers").glob("*.py"))
+    assert len(handlers) > 3, "the handler files were not found"
+    banned = (
+        "_BOUNCER_BRAWLERS",
+        "_CROUPIER_OPPONENT",
+        "_KILLER_VICTIM",
+        "setup_combat(",
+        ".from_roster(",
+        ".from_encounter(",
+        "StartCombat(",
+        "build_rules(",
+        "equipper(",
+        "load_combat_backdrop(",
+    )
+    for path in handlers:
         src = path.read_text(encoding="utf-8")
         for token in banned:
-            assert token not in src, f"{path.name} still references {token!r}"
-        # from_roster may appear in a comment but never as a call.
-        assert ".from_roster(" not in src, f"{path.name} still calls Scenario.from_roster"
+            assert token not in src, f"{path.name} assembles a fight inline: {token!r}"
 
 
 # --------------------------------------------------------------------------- #

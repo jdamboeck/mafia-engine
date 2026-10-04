@@ -1,33 +1,31 @@
 # pub (Kneipe) — location shell (declarative layer).
 #
 # Ports the pub menu from mf-prg.bas:12005 (onwgoto12010,12100,12200,12300). The
-# original ALWAYS shows all 4 options and refuses INSIDE the handler (no menu-level
-# filtering) for drink/tip/job — only recruit gets a SHELL guard (a deliberate
-# menu-availability choice; the pub.recruit handler re-checks every guard itself, in
-# the source's order). drink/tip/job therefore carry NO
-# shell guard — rank (tip, job) and tile (drink) branching happen inside their
-# handlers, faithful to the source's always-offered menu.
+# original ALWAYS shows all five options (aw=5, :3030 prints them with no
+# precondition) and refuses INSIDE the handler, so no option carries a shell guard:
+# a guard would hide the option and move the later ones up a place (#122).
 #
-#   drink   — no guard; branches on ln (only ln=4 sells) and RNG inside the handler.
-#   recruit — guard: rank>4 AND gang has room (<10);   on_denied -> rank_too_low
-#   tip     — no guard; rank>3 check happens inside the handler (mf-prg.bas:12200).
-#   job     — no guard; rank<4 (INVERTED vs. recruit) check happens inside the
+#   drink   — branches on ln (only ln=4 sells) and RNG inside the handler.
+#   recruit — rank>4, housing and the 10-gangster cap are checked inside the
+#             handler, in the source's order (mf-prg.bas:12100-12105).
+#   tip     — rank>3 check happens inside the handler (mf-prg.bas:12200).
+#   job     — rank<4 (INVERTED vs. recruit) check happens inside the
 #             handler (mf-prg.bas:12300).
-#
-# At rank 1 the recruit guard fails (rank>4 is false), so that option is EXCLUDED by
-# available_options — walking to the pub at rank 1 shows the denial.
+#   leave   — the pub file's fifth and last option (aw=5), which the
+#             dispatch 'onwgoto12010,12100,12200,12300' never reaches: :3045
+#             ifw=awthenms=ms-5:return charges 5 movement points, on top of the
+#             door's 5 (:2060).
 key: pub
 options:
   - id: drink
     handler: "pub.drink"
   - id: recruit
-    guard:
-      and:
-        - {var: rank, op: '>', value: 4}       # ra(sp)>4 (mf-prg.bas:12100)
-        - {var: gang_size, op: '<', value: 10} # gz(sp)<10, room for more (mf-prg.bas:12105)
-    on_denied: "locations.pub.rank_too_low"
     handler: "pub.recruit"
   - id: tip
     handler: "pub.tip"
   - id: job
     handler: "pub.job"
+  - id: leave
+    resolve:
+      consequences:
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

@@ -16,7 +16,7 @@ refactor introduced, one seam at a time:
 
 * movement (``try_move``) returns an ``EngineResult`` whose events name the move
   (``MoveStep`` / ``EnterLocation``) and whose effects are the sole mutations
-  (``SetPosition`` + ``MsChange`` on a step; ``SetEntryContext`` + ``MsChange`` on
+  (``SetPosition`` + ``MsChange`` on a step; ``SetEntryContext`` on
   an entry) — and is PURE (new state out, input untouched);
 * a guard-denied option through the location-aware ``run_option`` dispatcher yields
   ``status="blocked"`` with an ``OptionDenied`` event, a ``DeniedResult`` payload,
@@ -40,6 +40,7 @@ from engine.events import EnterLocation, MoveStep, OptionDenied
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, load_city, try_move
 from tests.helpers import run_pure, scripted as _scripted, with_player
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -114,7 +115,7 @@ def test_movement_step_result_events_effects_and_purity():
 
 
 # --------------------------------------------------------------------------- #
-# 2. Location entry: EnterLocation event / SetEntryContext+MsChange effects /  #
+# 2. Location entry: EnterLocation event / the SetEntryContext effect /        #
 #    resulting state has last_location + last_la set to the door's (ln, la).   #
 # --------------------------------------------------------------------------- #
 def test_location_entry_result_events_effects_and_entry_context():
@@ -135,17 +136,16 @@ def test_location_entry_result_events_effects_and_entry_context():
     # The entry is a semantic EnterLocation event.
     assert EnterLocation in _types(result.events)
 
-    # Effects: SetEntryContext (the ln seam) AND MsChange (the -5 entry cost).
-    effect_types = _types(result.effects)
-    assert SetEntryContext in effect_types
-    assert MsChange in effect_types
+    # Effects: SetEntryContext (the ln seam) only; the door's -5 comes after the
+    # visit (:2060), from the turn runner.
+    assert _types(result.effects) == [SetEntryContext]
 
     # The resulting state carries the door's (ln, la) on the active player.
     entered = result.state.players[0]
     assert entered.last_location == 2  # ln
     assert entered.last_la == 1  # la
     assert entered.po == 181  # po does NOT move onto the door
-    assert entered.ms == ms_before - 5  # ENTER_COST
+    assert entered.ms == ms_before  # no charge at the door
 
     # Purity: the input state is untouched (ms and entry context all unchanged).
     assert state.players[0].ms == ms_before
@@ -158,8 +158,15 @@ def test_location_entry_result_events_effects_and_entry_context():
 #    DeniedResult payload / zero effects / SAME state object.                  #
 # --------------------------------------------------------------------------- #
 def test_guard_denial_through_run_option_is_blocked_and_pure():
-    pub = _load_shell(_PUB_SHELL)
-    state = _fresh_state()  # fresh game -> rank 1; pub.recruit guard needs rank>4.
+    # This config's shells guard no option (#122), so the engine's denial path runs
+    # on a copy of the pub shell whose recruit option is guarded rank > 4.
+    raw = yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8"))
+    for option in raw["options"]:
+        if option["id"] == "recruit":
+            option["guard"] = {"var": "rank", "op": ">", "value": 4}
+            option["on_denied"] = "locations.pub.rank_too_low"
+    pub = load_location(raw)
+    state = _fresh_state()  # fresh game -> rank 1; the probe guard needs rank>4.
     assert state.players[0].rank == 1
 
     result = run_option(pub, "recruit", state, ln=1, input_source=None)
@@ -207,12 +214,12 @@ def test_handler_option_through_run_option_commits_and_is_pure():
     assert result.state is not state
     # fnm(2) == 50 -> 2 months cost 100; cash drops by exactly 100.
     assert result.state.players[0].ka == ka_before - 100
-    assert result.state.map.tenancy[2] == 0  # tenancy set to active player index 0
-    assert result.state.players[0].rented_months == 2
+    assert game.tenant(result.state, 2) == 0  # tenancy set to active player index 0
+    assert game.rented_months(result.state.players[0]) == 2
 
     # Purity: the input state was NOT mutated.
     assert state.players[0].ka == ka_before
-    assert 2 not in state.map.tenancy
+    assert game.tenant(state, 2) is None
 
 
 def test_handler_option_purity_via_run_pure_harness():
@@ -230,4 +237,4 @@ def test_handler_option_purity_via_run_pure_harness():
 
     assert result.status == "completed"
     assert result.state.players[0].ka == state.players[0].ka - 100
-    assert result.state.map.tenancy[2] == 0
+    assert game.tenant(result.state, 2) == 0

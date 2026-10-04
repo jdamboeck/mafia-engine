@@ -1,12 +1,15 @@
 """The interaction protocol + in-process synchronous driver — THE SPINE (docs/design/engine-architecture.md).
 
 A **handler** is a factory ``(ctx) -> Generator[Interaction, Response, list[Event]]``.
-It ``yield``s a typed **Interaction**; the **driver** (:func:`run`) turns that into an
-obtained **Response** and ``.send()``s it back. This same request/response protocol is,
+It ``yield``s a typed **Interaction**; the **driver** turns that into an obtained
+**Response** and ``.send()``s it back. The driver has two forms: :func:`step`, a
+generator that yields every interaction (a sub-state's and a fight's included) to
+whoever drives it, and :func:`run`, a pull loop over ``step`` that asks an input
+callback for each answer. This same request/response protocol is,
 unchanged, the eventual network message protocol — the WebSocket server (docs/design/engine-architecture.md) is
 merely an async transport driving the identical generators. This module holds the
 interaction catalog, the response/cancel sentinels, :class:`Ctx`, and the in-process
-synchronous driver (:func:`run`, with the :class:`LoadSubState` sub-state loop). A
+synchronous driver (:func:`step`/:func:`run`, with the :class:`LoadSubState` sub-state loop). A
 yielded :class:`StartCombat` is delegated to :func:`engine.fight_loop._run_combat`,
 which holds the fight loop. It imports nothing from ``server``/``clients``/transport.
 
@@ -25,12 +28,19 @@ the handler when the input source supplies the :data:`CANCEL` sentinel at a
 ``cancellable`` prompt. The handler unwinds through its ``try/finally`` (it does not need
 to catch ``Cancelled``); the driver catches ``Cancelled`` as expected control flow and
 discards the effect buffer.
+
+Who answers: every interaction carries ``player``, the index of the player who answers
+it. ``None`` means the active player, and :func:`step` fills a ``None`` in with the
+active player (``state.clock.active_player``) on everything it yields, so what reaches a
+driver always names its player. An interaction answered by someone else — the freed
+player at ``pol``, a defender's side in a gang war — names that player explicitly, and a
+client announces the change of player before the prompt.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, TypeAlias, overload
 
 from engine.actions import EngineResult, HandlerResult
@@ -48,6 +58,16 @@ __all__ = [
     "CombatScreen",
     "OBSERVE_PROMPT",
     "LoadSubState",
+    "Acknowledge",
+    "Heading",
+    "MapMove",
+    "MAP_DIRECTIONS",
+    "MAP_SAVE",
+    "MAP_QUIT",
+    "MAP_EXIT",
+    "TurnMenu",
+    "LocationMenu",
+    "OptionDone",
     "Interaction",
     # Response / control
     "Ack",
@@ -55,6 +75,7 @@ __all__ = [
     "Cancelled",
     # Driver
     "Ctx",
+    "step",
     "run",
 ]
 
@@ -68,6 +89,9 @@ class ShowMessage:
 
     key: str
     params: dict = field(default_factory=dict)
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +107,15 @@ class PromptInt:
     min: int
     max: int
     cancellable: bool = False
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
+    #: The value an empty answer stands for, returned without the range check (a
+    #: source prompt that keeps its variable's value on an empty answer, where that
+    #: value is known); ``None``: an empty answer is asked again. A cancellable
+    #: prompt's client reads an empty answer as cancel, so pair it with
+    #: ``cancellable=False``.
+    blank: int | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +129,9 @@ class PromptChoice:
     key: str
     options: list
     cancellable: bool = False
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -103,6 +139,9 @@ class Confirm:
     """Yes/no prompt (BASIC sub ``1110``). The Response is a ``bool``."""
 
     key: str
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
 
 
 @dataclass(frozen=True)
@@ -175,6 +214,9 @@ class StartCombat:
     scenario: Any = None
     #: An explicit ``{side: Driver}`` map. Overrides ``cpu_sides`` when present.
     drivers: Any = None
+    #: The player whose handler starts the fight (``None``: the active player). Who
+    #: answers each side's screens is the side's driver's (``HumanDriver.player``).
+    player: int | None = None
 
 
 #: The ``CombatScreen.prompt`` of a display-only observation frame.
@@ -233,6 +275,9 @@ class CombatScreen:
     losses: Any = (0, 0)
     prompt: str = "action"
     message: Any = None
+    #: Who answers this screen: the controller of the acting side
+    #: (:attr:`engine.fight_loop.HumanDriver.player`); ``None``: the active player.
+    player: int | None = None
 
     def to_json(self) -> dict:
         """Return the JSON-serializable payload (plain dicts/lists/scalars only).
@@ -251,6 +296,7 @@ class CombatScreen:
             "losses": list(self.losses),
             "prompt": self.prompt,
             "message": json_safe(self.message) if self.message is not None else None,
+            "player": self.player,
             "fighter": self._active_fighter_panel(json_safe),
         }
 
@@ -276,12 +322,146 @@ class LoadSubState:
 
     kind: Any
     params: dict = field(default_factory=dict)
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class Acknowledge:
+    """An acknowledgement screen: shown whole, then answered with one key (:data:`Ack`).
+
+    The turn runner (:mod:`engine.turns`) yields one for each screen of a turn that
+    only waits to be read: the upkeep screen, the turn-over summary, the round
+    standings and the year-end result. ``key`` names the screen (the runner's
+    ``*_SCREEN`` constants); ``params`` carries its data, e.g. the standings' rows as
+    ``(key, params)`` pairs under ``"lines"``. ``player`` is the player the screen is
+    for (``None``: the active player). The response is ignored — a client that offers
+    a quit key there simply stops driving the runner.
+    """
+
+    key: str
+    params: dict = field(default_factory=dict)
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class Heading:
+    """A display-only screen title: a new screen begins under ``key``.
+
+    The turn runner yields one where a turn step opens a screen of its own before its
+    handler's interactions (the job shift). The response is ignored.
+    """
+
+    key: str
+    params: dict = field(default_factory=dict)
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
+
+
+#: The map-move prompt's direction answers, and its command answers: save and quit
+#: (offered at the turn menu too) and the map's exit back to the turn menu.
+MAP_DIRECTIONS = ("up", "down", "left", "right")
+MAP_SAVE = "save"
+MAP_QUIT = "quit"
+MAP_EXIT = "exit"
+
+
+@dataclass(frozen=True)
+class MapMove:
+    """The map-move prompt: the turn runner asks for the next step on the map.
+
+    The runner yields one before every step of the free turn (``mf-prg.bas:2010``).
+    The answer is one of ``directions`` (the runner moves) or one of ``commands``:
+    :data:`MAP_SAVE` and :data:`MAP_QUIT` are offered here because saving is offered
+    only at the turn menu and this prompt. A driver saves the runner's committed
+    state itself; the runner, answered :data:`MAP_SAVE`, asks again with nothing
+    changed. Answered :data:`MAP_QUIT`, the runner stops (a driver may also simply
+    stop driving). Answered :data:`MAP_EXIT`, the player leaves the map for the turn
+    menu (``mf-prg.bas:2019 ifx$="_"thensysie:return``). Any other answer asks again.
+
+    ``outcome`` is what the previous answer did on the map, so a client can say so:
+    the step's kind (``"step"``, ``"enter"``, ``"wall"``, ``"oob"``, ``"special"``, see
+    :class:`engine.movement.MoveResult`), or ``None`` when no move preceded this prompt
+    (the free turn just opened, or the answer was a command or invalid). ``player`` is
+    the player who moves (``None``: the active player).
+    """
+
+    outcome: str | None = None
+    directions: tuple[str, ...] = MAP_DIRECTIONS
+    commands: tuple[str, ...] = (MAP_SAVE, MAP_QUIT, MAP_EXIT)
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class TurnMenu:
+    """The turn menu: the turn runner asks what the active player does next.
+
+    The runner yields one when the free turn opens and again after each action while
+    movement points remain (``mf-prg.bas:1015-1045``). ``options`` are the ids of the
+    turn-menu shell's options whose guard passes, in shell order, and ``keys`` the key
+    that picks each (the same order): the answer is one of ``keys``. Anything else --
+    a key no option has, no answer -- is ignored and the same menu is asked again
+    (``:1030``). ``commands`` are answers too: :data:`MAP_SAVE` (a driver saves the
+    runner's committed state itself; the runner asks again with nothing changed) and
+    :data:`MAP_QUIT` (the runner stops). ``player`` is the player choosing (``None``:
+    the active player).
+    """
+
+    options: tuple[str, ...]
+    keys: tuple[str, ...]
+    commands: tuple[str, ...] = (MAP_SAVE, MAP_QUIT)
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class LocationMenu:
+    """The location menu: a choice over a location shell's available options.
+
+    The turn runner yields one after a door entry. ``location`` is the shell's key,
+    ``options`` the ids of the options whose guard passes, in shell order, and ``ln``
+    the tile entered (``mf-prg.bas:2050``). The answer is the chosen option's 0-based
+    index; anything else — no answer, a non-number, an index out of range — is ignored
+    and the same menu is asked again (``:3040 ifw<1orw>awgoto3040``): no answer leaves
+    for free, leaving is the shell's own option. With no ``options`` there is nothing
+    to choose and any answer ends the visit. ``player`` is the player inside
+    (``None``: active).
+    """
+
+    location: str
+    options: tuple[str, ...]
+    ln: int
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class OptionDone:
+    """Display-only: a location option chosen at a :class:`LocationMenu` has run.
+
+    ``status`` is its :data:`~engine.actions.EngineStatus`: ``"completed"``, or
+    ``"cancelled"`` when the player backed out and nothing committed. A client shows
+    the result of the action between actions. The response is ignored.
+    """
+
+    location: str
+    option: str
+    status: str
+    player: int | None = None
 
 
 #: What a handler may yield: the interaction catalog above, as one union. The single
 #: definition — :class:`engine.types.HandlerFunc` imports it rather than restating it.
 Interaction: TypeAlias = (
-    ShowMessage | PromptInt | PromptChoice | Confirm | StartCombat | CombatScreen | LoadSubState
+    ShowMessage
+    | PromptInt
+    | PromptChoice
+    | Confirm
+    | StartCombat
+    | CombatScreen
+    | LoadSubState
+    | Acknowledge
+    | Heading
 )
 
 
@@ -382,6 +562,116 @@ class Ctx:
 # --------------------------------------------------------------------------- #
 # The driver                                                                  #
 # --------------------------------------------------------------------------- #
+def step(
+    handler: Callable[[Ctx], Generator[Any, Any, Any]],
+    state: GameState | None = None,
+    rng: Any = None,
+    *,
+    observe_ai: bool = False,
+) -> Generator[Any, Any, EngineResult[Any]]:
+    """The generator form of the driver: drive ``handler`` by yielding its interactions.
+
+    ``step`` builds the :class:`Ctx`, calls the factory with it and advances the
+    handler. Every interaction that needs the client is YIELDED to whoever drives
+    ``step`` — including those of a nested sub-state and every screen of a fight —
+    and the value sent back is that attempt's raw response. ``step`` owns validation
+    exactly as :func:`run` always has: an invalid answer re-yields the same prompt, a
+    ``ShowMessage``/:class:`Acknowledge`/:class:`Heading` is yielded for delivery and
+    the handler always gets :data:`Ack`, and :data:`CANCEL` at a ``cancellable``
+    prompt unwinds the handler. It returns (``StopIteration.value``) the same
+    :class:`~engine.actions.EngineResult` :func:`run` returns.
+
+    Because it is a generator, a caller that itself yields interactions — the engine
+    turn runner (:mod:`engine.turns`) — composes a handler into its own stream with
+    ``result = yield from step(...)``. :func:`run` is a thin pull loop over it.
+
+    ``observe_ai`` opts in to the display-only ``prompt="observe"`` combat frames after
+    each non-human activation (see :func:`engine.fight_loop._drive_fight`); their
+    response is ignored. :func:`run` sets it from its input source's ``observes_ai``.
+
+    A handler that RAISES commits nothing: its buffered effects are never folded, and
+    the exception propagates out of ``step`` (a bug keeps its traceback).
+
+    Every interaction ``step`` yields names its player: one whose ``player`` is ``None``
+    is yielded with the active player's index filled in (``state.clock.active_player``;
+    with no state it stays ``None``).
+    """
+    ctx = Ctx(state=state, rng=rng)
+    gen = handler(ctx)
+    active = _active_player(state)
+
+    try:
+        interaction = next(gen)  # prime the generator to its first yield
+        while True:
+            if isinstance(interaction, LoadSubState):
+                # The nested sub-state runs HERE, sharing this ctx — its ctx.apply/
+                # ctx.record append into the parent's buffers, so the whole nesting
+                # commits or discards as ONE atomic action. A Cancelled thrown at a
+                # child prompt propagates out of _run_substate up to the `except
+                # Cancelled` below, unwinding the whole action.
+                response = yield from _addressed(_run_substate(interaction, ctx), active)
+            elif isinstance(interaction, StartCombat):
+                # The combat sub-protocol runs HERE for the same reason: it shares
+                # this ctx, so a fight's effects buffer into the parent action and
+                # commit (or discard) with it.
+                from engine.fight_loop import _run_combat
+
+                response = yield from _addressed(
+                    _run_combat(interaction, ctx, observe_ai=observe_ai), active
+                )
+            else:
+                response = yield from _addressed(_resolve(interaction), active)
+                if response is _CANCEL_SIGNAL:
+                    # A cancellable prompt was cancelled: unwind the handler. The throw
+                    # is owned here (not in _resolve) so that a handler which *catches*
+                    # Cancelled and continues fails loud instead of silently feeding
+                    # its next yielded Interaction back in as a response.
+                    gen.throw(Cancelled())
+                    # gen.throw only returns if the handler swallowed Cancelled and
+                    # yielded again — a contract violation (cancel must unwind).
+                    raise RuntimeError(
+                        "handler caught Cancelled and continued; cancellation must "
+                        "unwind the handler (do not catch Cancelled and keep yielding)"
+                    )
+            interaction = gen.send(response)
+    except Cancelled:
+        # Expected control flow: the handler unwound on the cancel throw. Atomic discard:
+        # NO effects apply AND NO events surface — the returned state is the ORIGINAL,
+        # unchanged state object (atomicity proven at the state level).
+        return EngineResult(
+            state=state,
+            events=[],
+            effects=[],
+            status="cancelled",
+            payload=HandlerResult(returned=None),
+        )
+    except (StopIteration, _InputExhausted) as stop:
+        # Clean completion: commit the buffer atomically against a SINGLE deep copy of the
+        # state and surface the buffered semantic events. Import commit lazily HERE so this
+        # module never imports engine.effects at module load — engine.effects imports
+        # GameState from engine.state, so a top-level import would risk a cycle; the lazy
+        # local import keeps engine.effects free of any dependency on this module.
+        buffer = list(ctx._buffer)
+        if state is None:
+            # No state to commit against: the buffered items pass through as the effect
+            # record unchanged (they are never applied — there is nothing to apply to).
+            final_state = None
+            effects = buffer
+        else:
+            from engine.effects import commit
+
+            commit_result = commit(state, buffer)
+            final_state = commit_result.state
+            effects = commit_result.effects
+        return EngineResult(
+            state=final_state,
+            events=list(ctx._events),
+            effects=effects,
+            status="completed",
+            payload=HandlerResult(returned=stop.value),
+        )
+
+
 @overload
 def run(
     handler: Callable[[Ctx], Generator[Any, Any, Any]],
@@ -411,6 +701,9 @@ def run(
 ) -> EngineResult[GameState | None]:
     """Advance a handler generator to completion, mediating its interactions.
 
+    A thin pull loop over :func:`step`: every interaction ``step`` yields is handed to
+    ``input_source`` and its return value is sent back.
+
     Args:
         handler: A factory ``(ctx) -> generator``. The driver builds the :class:`Ctx`,
             calls the factory with it, and drives the returned generator.
@@ -422,7 +715,8 @@ def run(
             return value there is discarded and :data:`Ack` is sent regardless, so a
             display-only interaction can never become a cancel path. This callable
             shape lets tests both assert on the presented interaction and return a
-            context-appropriate response.
+            context-appropriate response. A truthy ``observes_ai`` attribute on it opts
+            in to the fight's observation frames (``step``'s ``observe_ai``).
         state: Opaque game state exposed as ``ctx.state`` (read-only for handlers).
         rng: Opaque rng handle exposed as ``ctx.rng``.
 
@@ -447,113 +741,92 @@ def run(
         Synchronous by construction. The SAME protocol is later driven by an async
         server (docs/design/engine-architecture.md); that transport is deliberately NOT built here.
     """
-    ctx = Ctx(state=state, rng=rng)
-    gen = handler(ctx)
-
+    steps = step(
+        handler,
+        state,
+        rng,
+        observe_ai=bool(getattr(input_source, "observes_ai", False)),
+    )
     try:
-        interaction = next(gen)  # prime the generator to its first yield
+        interaction = next(steps)
         while True:
-            if isinstance(interaction, LoadSubState):
-                # Run the nested sub-state HERE (not in _resolve, which has no
-                # handle to ctx or the parent generator). The child shares this ctx —
-                # its ctx.apply/ctx.record append into the parent's buffers, so the
-                # whole nesting commits or discards as ONE atomic action. A Cancelled
-                # thrown at a child prompt propagates out of _run_substate up to the
-                # `except Cancelled` below, unwinding the whole action.
-                response = _run_substate(interaction, input_source, ctx)
-                interaction = gen.send(response)
+            try:
+                response = input_source(interaction)
+            except StopIteration as exhausted:
+                # An input source that raises StopIteration (a scripted answer list
+                # run dry) ends the action as a clean completion with what it has
+                # buffered — the pull driver's contract before step() existed, kept so
+                # scripted callers behave as they always have.
+                interaction = steps.throw(_InputExhausted(exhausted.value))
                 continue
-            if isinstance(interaction, StartCombat):
-                # The combat sub-protocol runs HERE for the same reason
-                # LoadSubState does — it shares this ctx, so a fight's effects
-                # buffer into the parent action and commit (or discard) with it.
-                from engine.fight_loop import _run_combat
-
-                response = _run_combat(interaction, input_source, ctx)
-                interaction = gen.send(response)
-                continue
-            response = _resolve(interaction, input_source)
-            if response is _CANCEL_SIGNAL:
-                # A cancellable prompt was cancelled: unwind the handler. The throw
-                # is owned here (not in _resolve) so that a handler which *catches*
-                # Cancelled and continues fails loud instead of silently feeding its
-                # next yielded Interaction back in as a response.
-                gen.throw(Cancelled())
-                # gen.throw only returns if the handler swallowed Cancelled and
-                # yielded again — a contract violation (cancel must unwind).
-                raise RuntimeError(
-                    "handler caught Cancelled and continued; cancellation must "
-                    "unwind the handler (do not catch Cancelled and keep yielding)"
-                )
-            interaction = gen.send(response)
-    except Cancelled:
-        # Expected control flow: the handler unwound on the cancel throw. Atomic discard:
-        # NO effects apply AND NO events surface — the returned state is the ORIGINAL,
-        # unchanged state object (atomicity proven at the state level).
-        return EngineResult(
-            state=state,
-            events=[],
-            effects=[],
-            status="cancelled",
-            payload=HandlerResult(returned=None),
-        )
+            interaction = steps.send(response)
     except StopIteration as stop:
-        # Clean completion: commit the buffer atomically against a SINGLE deep copy of the
-        # state and surface the buffered semantic events. Import commit lazily HERE so this
-        # module never imports engine.effects at module load — engine.effects imports
-        # GameState from engine.state, so a top-level import would risk a cycle; the lazy
-        # local import keeps engine.effects free of any dependency on this module.
-        buffer = list(ctx._buffer)
-        if state is None:
-            # No state to commit against: the buffered items pass through as the effect
-            # record unchanged (they are never applied — there is nothing to apply to).
-            final_state = None
-            effects = buffer
-        else:
-            from engine.effects import commit
-
-            commit_result = commit(state, buffer)
-            final_state = commit_result.state
-            effects = commit_result.effects
-        return EngineResult(
-            state=final_state,
-            events=list(ctx._events),
-            effects=effects,
-            status="completed",
-            payload=HandlerResult(returned=stop.value),
-        )
+        return stop.value
 
 
-#: Private sentinel :func:`_resolve` returns to tell :func:`run` "cancel this action".
+def _active_player(state: Any) -> int | None:
+    """The active player's index in ``state``, or ``None`` when it has no turn clock."""
+    clock = getattr(state, "clock", None)
+    return getattr(clock, "active_player", None)
+
+
+def _addressed(inner: Generator[Any, Any, Any], active: int | None) -> Generator[Any, Any, Any]:
+    """Relay ``inner``'s interactions, filling each unnamed ``player`` with ``active``.
+
+    Answers are sent back to ``inner`` unchanged and its return value is returned. An
+    exception thrown in (a driver's :class:`_InputExhausted`) ends the relay where it
+    lands; none of the relayed generators catches one, so it reaches :func:`step`
+    exactly as through a plain ``yield from``.
+    """
+    try:
+        interaction = next(inner)
+        while True:
+            if active is not None and getattr(interaction, "player", active) is None:
+                interaction = replace(interaction, player=active)
+            interaction = inner.send((yield interaction))
+    except StopIteration as stop:
+        return stop.value
+
+
+class _InputExhausted(Exception):
+    """Thrown into :func:`step` by :func:`run` when its input source raised StopIteration."""
+
+    def __init__(self, value: Any) -> None:
+        super().__init__(value)
+        self.value = value
+
+
+#: Private sentinel :func:`_resolve` returns to tell :func:`step` "cancel this action".
 #: The driver — not :func:`_resolve` — owns the ``gen.throw(Cancelled())`` so a handler
 #: that swallows ``Cancelled`` and continues fails loud rather than corrupting the stream.
 _CANCEL_SIGNAL = object()
 
+#: The display-only interactions: delivered to the client, always answered with :data:`Ack`.
+_DISPLAY_ONLY = (ShowMessage, Acknowledge, Heading)
 
-def _resolve(
-    interaction: Any,
-    input_source: Callable[[Any], Any],
-) -> Any:
+
+def _resolve(interaction: Any) -> Generator[Any, Any, Any]:
     """Obtain the Response to ``.send()`` for one interaction (validating/re-prompting).
 
-    Returns the validated response value, or :data:`_CANCEL_SIGNAL` when a
-    ``cancellable`` prompt was cancelled (the caller, :func:`run`, then unwinds
-    the handler via ``gen.throw``). Never throws into the generator itself.
+    A generator: it yields the interaction once per attempt and receives that attempt's
+    raw response. Returns the validated response value, or :data:`_CANCEL_SIGNAL` when
+    a ``cancellable`` prompt was cancelled (the caller then unwinds the handler via
+    ``gen.throw``). Never throws into the handler generator itself.
     """
-    if isinstance(interaction, ShowMessage):
+    if isinstance(interaction, _DISPLAY_ONLY):
         # Display-only, but DELIVERY and RESPONSE are separate concerns. The
         # message still has to reach the client — a driver that acks without handing
         # it over makes every handler's narration structurally invisible. So the
-        # input source SEES it, and its return value is DISCARDED: nothing a client
-        # returns (CANCEL included) can turn narration into a cancel path or feed a
+        # client SEES it, and its response is DISCARDED: nothing a client returns
+        # (CANCEL included) can turn narration into a cancel path or feed a
         # fabricated response back into the handler. Ack is sent unconditionally.
-        input_source(interaction)
+        yield interaction
         return Ack
 
     if isinstance(interaction, StartCombat):
         # StartCombat is a SUB-PROTOCOL, not a single request/response: it is handled
-        # by run()/_run_substate before _resolve is ever consulted (like LoadSubState).
-        # Reaching here means a new yield path bypassed that dispatch.
+        # by step() before _resolve is ever consulted (like LoadSubState). Reaching here
+        # means a new yield path bypassed that dispatch.
         raise AssertionError(
             "StartCombat must be dispatched by the driver's combat loop, not resolved "
             "as a single interaction."
@@ -561,11 +834,13 @@ def _resolve(
 
     if isinstance(interaction, PromptInt):
         while True:
-            raw = input_source(interaction)
+            raw = yield interaction
             if raw is CANCEL:
                 if interaction.cancellable:
                     return _CANCEL_SIGNAL
                 continue  # invalid at a non-cancellable prompt → re-prompt
+            if interaction.blank is not None and isinstance(raw, str) and not raw.strip():
+                return interaction.blank  # an empty answer stands for ``blank``
             value = _coerce_int(raw)
             if value is None:
                 continue  # non-numeric → re-prompt
@@ -576,7 +851,7 @@ def _resolve(
     if isinstance(interaction, PromptChoice):
         n = len(interaction.options)
         while True:
-            raw = input_source(interaction)
+            raw = yield interaction
             if raw is CANCEL:
                 if interaction.cancellable:
                     return _CANCEL_SIGNAL
@@ -589,32 +864,29 @@ def _resolve(
             # out of range → re-prompt
 
     if isinstance(interaction, Confirm):
-        raw = input_source(interaction)
+        raw = yield interaction
         # Confirm is not itself cancellable in this catalog; coerce to a bool.
         return bool(raw)
 
     raise TypeError(f"Unknown interaction type: {type(interaction).__name__!r}")
 
 
-def _run_substate(
-    load: "LoadSubState",
-    input_source: Callable[[Any], Any],
-    ctx: "Ctx",
-) -> Any:
+def _run_substate(load: "LoadSubState", ctx: "Ctx") -> Generator[Any, Any, Any]:
     """Drive a nested sub-state generator to completion and return its value.
 
-    Looks up the sub-state factory registered under ``load.kind`` in
-    :data:`engine.substates.SUBSTATES`, builds the child generator sharing the
-    parent's ``ctx`` (shared-buffer model — child ``ctx.apply``/``ctx.record`` append
-    into the parent's buffers), and drives it with an INLINE loop reusing
-    :func:`_resolve` for its interactions. This is deliberately NOT a nested
-    :func:`run` call: a nested ``run`` would commit/discard the child's effects
-    independently and break cross-boundary atomicity.
+    A generator, composed into :func:`step` with ``yield from``: every interaction of
+    the child reaches the client through ``step``'s own stream. Looks up the sub-state
+    factory registered under ``load.kind`` in :data:`engine.substates.SUBSTATES`,
+    builds the child generator sharing the parent's ``ctx`` (shared-buffer model —
+    child ``ctx.apply``/``ctx.record`` append into the parent's buffers), and drives it
+    reusing :func:`_resolve` for its interactions. This is deliberately NOT a nested
+    :func:`step`: a nested one would commit/discard the child's effects independently
+    and break cross-boundary atomicity.
 
     On the child's clean completion, returns its ``StopIteration.value`` (the value
-    :func:`run` then ``.send()``s into the parent). A ``Cancelled`` thrown at a
+    :func:`step` then ``.send()``s into the parent). A ``Cancelled`` thrown at a
     cancellable child prompt is raised INTO the child (so its ``try/finally``
-    unwinds) and then **propagates out of this function** to :func:`run`'s
+    unwinds) and then **propagates out of this function** to :func:`step`'s
     ``except Cancelled`` handler — one discard unwinds the whole nesting.
 
     Raises:
@@ -640,10 +912,10 @@ def _run_substate(
             "StartCombat inside a sub-state is not supported: "
             "yield combat from a top-level handler."
         )
-        response = _resolve(interaction, input_source)
+        response = yield from _resolve(interaction)
         if response is _CANCEL_SIGNAL:
             # Cancel INSIDE the sub-state: unwind the child, then let Cancelled
-            # propagate up to run()'s handler so the whole action discards atomically.
+            # propagate up to step()'s handler so the whole action discards atomically.
             child.throw(Cancelled())
             raise RuntimeError(
                 "sub-state handler caught Cancelled and continued; cancellation "

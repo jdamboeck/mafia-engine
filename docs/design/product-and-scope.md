@@ -60,7 +60,7 @@ Generalize only mechanics another same-genre game would share:
 - turn and movement economy;
 - location shell and guard evaluation;
 - handler interaction protocol;
-- effect/event vocabulary;
+- generic effect vocabulary and effect application;
 - deterministic RNG and replay;
 - tactical-grid combat framework;
 - config loading and validation;
@@ -74,3 +74,11 @@ Do **not** generalize Mafia-specific facts into the engine:
 - game-specific setup choices and win-condition parameters.
 
 A new title in the genre should start by copying `data/game_configs/mafia_1920s/` and editing its data, formulas, strings, assets, and handlers. The engine itself should remain untouched unless a second config proves a real shared seam.
+
+One engine change comes before any second config: the engine/config seam (`engine-architecture.md`, "Engine/config seam"). It is an exception to the rule above, for three reasons:
+
+- **The engine already breaks the rule.** `engine/` holds this game's vocabulary: effects such as `DebtChange`, `JobSet` and `BarrelChange`, state entities such as `Debt`, `Job` and `Wanted`, the stat names in `_STAT_NAMES`, and the weapon stat minimums in `WeaponInstance.req_*`. A copied config could not change them without editing the engine.
+- **The leak is growing.** `engine/effects.py` began with 10 effects, two of them this game's (`WantedChange`, `Jail`). It holds 29 now, and 15 of them are this game's. They came with five of the twelve locations.
+- **The rest of the game would multiply it.** The remaining locations, police capture, the jail, the win flows and the gang war each need their own effects and state. Built on the current pattern, each one adds game vocabulary to `engine/`, and moving it later costs more than moving it now.
+
+A second config is not needed to find this seam. The rule that places each item (mechanism, attribute, or game formula) decides it without one.

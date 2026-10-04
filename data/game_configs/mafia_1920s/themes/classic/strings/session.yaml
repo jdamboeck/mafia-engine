@@ -1,4 +1,4 @@
-# Session (save/load) — classic-theme strings.
+# Session (save/load, whose turn) — classic-theme strings.
 #
 # NOT from the source: the 1986 original has no save feature, so this text is the
 # port's own (German, lower-case, to sit with the verbatim strings). The terminal
@@ -7,3 +7,8 @@
 session:
   saved: "spielstand gespeichert: {path}"
   save_failed: "speichern fehlgeschlagen: {reason}"
+
+  # Whose turn: printed before a prompt that a player other than the active one answers
+  # (e.g. a defender's side in a gang war). The port's own line, worded as the
+  # original's turn banner (mf-prg.bas:4005-4006, upkeep.turn_banner).
+  whose_turn: "spieler {name}\nist an der reihe..."

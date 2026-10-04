@@ -23,11 +23,18 @@ Two commands:
 
 | Command | What it does |
 |---|---|
-| `play  --scenario PATH [--seed N] [--debug]` | Drive a scenario file as a **human-vs-AI** fight |
-| `watch --recording PATH [--debug] [--delay S]` | Step through a **recorded** fight, forwards and back |
+| `play  --scenario PATH [--seed N] [--debug] [--theme T]` | Drive a scenario file as a **human-vs-AI** fight |
+| `watch --recording PATH [--debug] [--delay S] [--theme T]` | Step through a **recorded** fight, forwards and back |
 
 `python -m clients.terminal.fightlab --help` (or `… play --help` / `… watch --help`)
 prints the same.
+
+**Text and themes.** Every line the tool prints is a theme string — the `fightlab.*`
+keys, classic's in `data/game_configs/mafia_1920s/themes/classic/strings/fightlab.yaml`.
+`--theme NAME|PATH` works as in the main client: a theme name of the game config, or a
+theme directory, merged over `classic` so it restates only what it changes. An unknown
+or broken theme is one stderr line. The `--help` text itself is always classic's (it
+is printed before `--theme` is read).
 
 ---
 
@@ -68,6 +75,9 @@ artifact. (To keep a fight for later, record one; see
 `watch` loads a recording and lets you walk it one activation at a time, forwards or
 back, or autoplay to the end.
 
+There is no recording in the repo — **record one first** (see
+[Making a recording](#making-a-recording-file)), then:
+
 ```bash
 python -m clients.terminal.fightlab watch --recording recordings/kdh_ambush.json --debug
 ```
@@ -83,7 +93,7 @@ python -m clients.terminal.fightlab watch --recording recordings/kdh_ambush.json
 | `q` / EOF | Quit |
 
 Each frame is labelled with its activation index and the action taken, e.g.
-`-- activation 18 / 33 | activation:shoot --`.
+`-- activation 18 / 41 | activation:shoot --`.
 
 **Pacing autoplay.** By default autoplay redraws as fast as the terminal can — each
 frame clears the screen, so you only see the last one. Add `--delay S` to pause `S`
@@ -136,7 +146,8 @@ Reading it:
   `rng.range(ts)` (shown) and the kraft factor `rng.range(kraft+10)`. The shot hits iff
   the weapon factor is non-zero and the kraft draw is at least 10 (i.e.
   `int(rnd(1)*(kraft/10+1))` is non-zero). The attacker's accuracy attribute (`kraft`)
-  is shown beside it.
+  is shown beside it; the verdict line's attribute name is the rules bundle's
+  (`hit_roles`), not the tool's.
 - **damage roll** — the damage (`:30255`): a `rng.range(10*tg)` draw, the attacker's
   damage attribute (`brutalitaet`), and the exact `(draw + attr) // 10 + 1` arithmetic
   (the port of `int(rnd(1)*tg + bt/10) + 1`).
@@ -165,6 +176,7 @@ example (`kdh_ambush.yaml`):
 ```yaml
 encounter: kdh_ambush   # the ENEMY side — reuses the in-game kdh_ambush encounter
 seed: 42                # default RNG seed; --seed overrides it
+house_rules: {...}      # every house-rules switch, faithful or intent (required)
 player:                 # the PLAYER side — invented fighters (no roster needed)
   - name: hero
     weapon: 5           # revolver (id into entities/weapons.yaml)
@@ -181,6 +193,9 @@ player:                 # the PLAYER side — invented fighters (no roster neede
   needs a `name`, a `weapon` id, and combat stats (`energie`, `kraft`, `brutalitaet`;
   `intelligenz` is optional).
 - **`seed`** is the default RNG seed; `--seed` on the command line overrides it.
+- **`house_rules`** is the house-rules map the fight runs under: every switch of the
+  catalogue, each `faithful` or `intent` (copy the shipped file's). A file without
+  one, or with a different set of switches, is refused with one line.
 
 An unknown weapon id (either side) fails **at load**, naming the id — never as a crash
 mid-fight.
@@ -192,33 +207,35 @@ declaration, and edit the `player` list.
 
 ## Making a recording file
 
-By design, `play` writes nothing to disk — that is the "no save UI" boundary. To
-produce a recording for `watch`, record a fight programmatically with the engine's
-`record_fight` + `save`:
+By design, `play` writes nothing to disk — that is the "no save UI" boundary — and no
+recording ships with the repo: recordings are **run artifacts, not versioned game
+content**, so `recordings/` is gitignored. A recording also stores the house-rules map
+its fight ran under, and `watch` refuses one without it ("the recording stores no
+house-rules map"), so a file recorded before the house rules existed must be recorded
+again.
 
-```python
+To record the shipped scenario (both sides AI, its seed 42), run from the repo root:
+
+```bash
+mkdir -p recordings && python - <<'PY'
 from clients.terminal.fightlab import load_scenario
 from engine.fight_loop import AiDriver
 from engine.recording import record_fight, save
 
-scenario = load_scenario(
-    "data/game_configs/mafia_1920s/content/scenarios/kdh_ambush.yaml"
-)
+scenario = load_scenario("data/game_configs/mafia_1920s/content/scenarios/kdh_ambush.yaml")
 # Drive both sides with the AI so the fight runs headlessly to the end.
 result, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
 save(recording, "recordings/kdh_ambush.json")
 print(result.winner, result.losses)
+PY
 ```
 
-A ready-made example lives at **`recordings/kdh_ambush.json`** (seed 42, 34
-activations). Watch it:
+It prints the winner and the losses (`2 (1, 0)`) and writes
+`recordings/kdh_ambush.json`. Watch it:
 
 ```bash
 python -m clients.terminal.fightlab watch --recording recordings/kdh_ambush.json --debug
 ```
-
-Recordings are **run artifacts, not versioned game content**, so `recordings/` is
-gitignored — regenerate the file any time with the snippet above.
 
 ---
 

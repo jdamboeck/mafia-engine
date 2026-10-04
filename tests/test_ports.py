@@ -33,6 +33,7 @@ Conventions
 
 from __future__ import annotations
 
+import functools
 import itertools
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -55,10 +56,12 @@ from data.game_configs.mafia_1920s.setup import (
     new_game,
     score_and_rank,
 )
-from engine.combat import CombatFight
+from engine.c64_numbers import c64_float
+from engine.combat import CombatFight, CombatResult
 from engine.combat_setup import SIDE1_ANCHOR, SIDE2_ANCHOR, placement_position
 from engine.config_loader import load_config, load_game_config
-from engine.effects import JobSet, TipSet, apply, commit
+from engine.effects import apply, commit
+from data.game_configs.mafia_1920s.effects import JobSet, TipSet
 from engine.interactions import (
     Ack,
     Confirm,
@@ -70,23 +73,14 @@ from engine.interactions import (
     StartCombat,
 )
 from engine.locations import HANDLERS
-from engine.movement import start_free_turn
+from engine.turns import ROADBLOCK_HOOK_KEY, SCORE_TRUNCATION_HOOK_KEY, SPECIAL_CELL_HOOK_KEY
 from engine.rng import Rng
-from engine.state import (
-    Business,
-    Clock,
-    CombatState,
-    Config,
-    Contraband,
-    Debt,
-    Flags,
-    GameState,
-    Job,
-    MapState,
-    Player,
-)
+from engine.state import Clock, CombatState, Config, Fighter, GameState, Player
+from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job, Wanted
+from data.game_configs.mafia_1920s.handlers import police, win_flows
 from tests.basic_eval import eval_assignment, eval_expr
-from tests.helpers import load_source
+from tests.helpers import is_effect, load_source, with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 _REPO = Path(__file__).resolve().parents[1]
 _CONFIG_DIR = _REPO / "data" / "game_configs" / "mafia_1920s"
@@ -259,15 +253,23 @@ def _state(player: Player, *, score_mult: float = 1.0) -> GameState:
     return GameState(
         players=(player,),
         clock=Clock(active_player=0, player_count=1),
-        config=Config(score_mult=score_mult, formula_params=_PARAMS),
+        config=Config(formula_params={**_PARAMS, "score_mult": score_mult}),
     )
 
 
+#: The game-state arguments ``_player`` takes: entity views, and scalar value-map keys.
+_VIEW_ARGS = ("debt", "business", "contraband", "jobs", "wanted")
+_SCALAR_ARGS = ("tip_target", "rented_months", "nr")
+
+
 def _player(**fields: Any) -> Player:
+    """A player; game state given by the old field names lands in its value map."""
     fields.setdefault("name", "p")
     fields.setdefault("ka", 10**6)
     fields.setdefault("roster", (_gangster(),))
-    return Player(**fields)
+    views = [fields.pop(k) for k in _VIEW_ARGS if k in fields]
+    scalars = {k: fields.pop(k) for k in _SCALAR_ARGS if k in fields}
+    return Player(**fields, values=game.values_of(*views, **scalars))
 
 
 def _grid(**axes: Iterable[Any]) -> tuple[dict[str, Any], ...]:
@@ -314,7 +316,7 @@ def _engine_slw(v: Values) -> Any:
         answer=lambda i: v["x"],
     )
     p = run.state.players[0]
-    return (p.ka, p.rented_months)
+    return (p.ka, game.rented_months(p))
 
 
 # --- :1160-1165 score and rank -------------------------------------------------------
@@ -337,7 +339,7 @@ def _basic_score(v: Values) -> Any:
 def _engine_score(v: Values) -> Any:
     state = _state(_player(gf=v["gf"]), score_mult=v["x8"])
     p = apply(state, score_and_rank(v["x"], _PARAMS)).players[0]
-    return (p.gf, p.nr)
+    return (p.gf, game.next_rank(p))
 
 
 # --- :1013 per-turn score truncation --------------------------------------------------
@@ -345,11 +347,17 @@ Q_1013 = q(1013, "gf(sp)=int(gf(sp)*100)/100")
 
 
 def _basic_truncate(v: Values) -> Any:
-    return Q_1013.assign({"sp": 1, "gf(1)": v["gf"]})
+    # The C64 holds gf(sp) and the stored result as 5-byte floats (engine.c64_numbers,
+    # checked against VICE in tests/test_c64_float.py); the evaluator's doubles do the
+    # line in between. That is exact here: int() floors gf*100, which a 32-bit mantissa
+    # times 100 never rounds, and the one division rounds once more at the store
+    # (n/100's 20-bit period rules out a double landing on a 5-byte tie).
+    return c64_float(Q_1013.assign({"sp": 1, "gf(1)": c64_float(v["gf"])}))
 
 
 def _engine_truncate(v: Values) -> Any:
-    return start_free_turn(_state(_player(gf=v["gf"]))).players[0].gf
+    run = _drive(HANDLERS[SCORE_TRUNCATION_HOOK_KEY], _state(_player(gf=v["gf"])))
+    return run.state.players[0].gf
 
 
 # --- :4015/:4020 energy regen -------------------------------------------------------
@@ -391,8 +399,8 @@ def _engine_grace(v: Values) -> Any:
     try:
         run = _drive(HANDLERS["upkeep.turn_start"], state)
     except _FightStarted as fight:
-        return (commit(state, fight.effects).state.players[0].debt.months, True)
-    return (run.state.players[0].debt.months, False)
+        return (game.debt(commit(state, fight.effects).state.players[0]).months, True)
+    return (game.debt(run.state.players[0]).months, False)
 
 
 # --- :4405/:4410 loan-shop income --------------------------------------------------------
@@ -452,7 +460,7 @@ def _engine_rent(v: Values) -> Any:
     player = _player(ka=v["ka"], rented_months=v["um"], roster=(_gangster(),) * 3)
     run = _drive(HANDLERS["upkeep.turn_start"], _state(player), draws=(v["r"],))
     p = run.state.players[0]
-    return (p.ka, p.rented_months, len(p.roster))
+    return (p.ka, game.rented_months(p), len(p.roster))
 
 
 # --- :31000-31010 arms-deal payout ----------------------------------------------------
@@ -473,6 +481,1142 @@ def _basic_arms(v: Values) -> Any:
 def _engine_arms(v: Values) -> Any:
     player = _player(ka=0, tip_target=4)
     run = _drive(HANDLERS["upkeep.turn_start"], _state(player), draws=(v["r0"], v["r"]))
+    return run.state.players[0].ka
+
+
+# --- :4055-4056 the marks fade -------------------------------------------------------
+Q_4055 = q(4055, "int(rnd(1)*8)=0")
+Q_4055_AG = q(4055, "ag(sp)=ag(sp)and254")
+Q_4056 = q(4056, "int(rnd(1)*8)=0")
+Q_4056_AG = q(4056, "ag(sp)=ag(sp)and253")
+
+
+def _ag(player: Player) -> int:
+    """``ag(sp)`` rebuilt from the two marks: the passport is bit 1, counterfeit bit 2."""
+    held = game.contraband(player)
+    return held.fake_papers + 2 * held.counterfeit
+
+
+def _marks(ag: int) -> Contraband:
+    return Contraband(fake_papers=ag & 1, counterfeit=(ag & 2) // 2)
+
+
+def _basic_decay(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ag(1)": v["ag"], "rnd(1)": v["r0"]}
+    if Q_4055.holds(b):
+        b["ag(1)"] = Q_4055_AG.assign(b)
+    b["rnd(1)"] = v["r1"]
+    if Q_4056.holds(b):
+        b["ag(1)"] = Q_4056_AG.assign(b)
+    return b["ag(1)"]
+
+
+def _engine_decay(v: Values) -> Any:
+    # The port rolls only for a held mark (a roll on a clear bit changes nothing), so it
+    # is handed the source's roll for each mark it holds, in the source's order.
+    draws = [r for bit, r in ((1, v["r0"]), (2, v["r1"])) if v["ag"] & bit]
+    player = _player(contraband=_marks(v["ag"]))
+    run = _drive(HANDLERS["upkeep.turn_start"], _state(player), draws=draws)
+    assert run.draws_used == len(draws)
+    return _ag(run.state.players[0])
+
+
+# --- :22010-22020 ble passport ---------------------------------------------------------
+Q_22010 = q(22010, "p=1000*x")
+Q_22014 = q(22014, "ka(sp)<p")
+Q_22020_KA = q(22020, "ka(sp)=ka(sp)-p")
+Q_22020_AG = q(22020, "ag(sp)=ag(sp)or1")
+
+
+def _basic_passport(v: Values) -> Any:
+    b = {"sp": 1, "x": v["gz"], "ka(1)": v["ka"], "ag(1)": v["ag"]}
+    b["p"] = Q_22010.assign(b)
+    if Q_22014.holds(b):
+        return (b["ka(1)"], b["ag(1)"])
+    return (Q_22020_KA.assign(b), Q_22020_AG.assign(b))
+
+
+def _engine_passport(v: Values) -> Any:
+    player = _player(ka=v["ka"], roster=(_gangster(),) * v["gz"], contraband=_marks(v["ag"]))
+    run = _drive(HANDLERS["ble.passport"], _state(player), answer=lambda i: True)
+    return (run.state.players[0].ka, _ag(run.state.players[0]))
+
+
+# --- :22105-22120 ble counterfeit money ------------------------------------------------
+Q_22105 = q(22105, "q<=0")
+Q_22106 = q(22106, "q>5000orq>ka(sp)")
+Q_22110 = q(22110, "p=int(rnd(1)*q/2)+q+100")
+Q_22120_KA = q(22120, "ka(sp)=ka(sp)-q+p")
+Q_22120_AG = q(22120, "ag(sp)=ag(sp)or2")
+
+
+class _AskedAgain(Exception):
+    """The answer is outside the prompt's bounds: the driver would ask again."""
+
+
+def _basic_counterfeit(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "q": v["q"], "ka(1)": v["ka"], "ag(1)": v["ag"]}
+    if Q_22105.holds(b):
+        return (b["ka(1)"], b["ag(1)"])
+    if Q_22106.holds(b):
+        return "asked again"
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_22110.assign(b)
+    return (Q_22120_KA.assign(b), Q_22120_AG.assign(b))
+
+
+def _engine_counterfeit(v: Values) -> Any:
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            if not interaction.min <= v["q"] <= interaction.max:
+                raise _AskedAgain
+            return v["q"]
+        return True  # the :22115 confirm
+
+    player = _player(ka=v["ka"], contraband=_marks(v["ag"]))
+    try:
+        run = _drive(HANDLERS["ble.counterfeit"], _state(player), draws=(v["r"],), answer=answer)
+    except _AskedAgain:
+        return "asked again"
+    return (run.state.players[0].ka, _ag(run.state.players[0]))
+
+
+# --- :26000-26010 the police squad ----------------------------------------------------
+Q_26000 = q(26000, "gz(0)=5+int(rnd(1)*ra(sp)/2)")
+Q_26010_W = q(26010, "w=5-2*(ra(sp)>5)")
+Q_26010_E = q(26010, "e=20+2*(ra(sp)-1)-int(rnd(1)*21)")
+
+
+def _basic_squad(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ra(1)": v["ra"], "rnd(1)": v["r0"]}
+    count = Q_26000.assign(b)
+    weapon = Q_26010_W.assign(b)
+    b["rnd(1)"] = v["r1"]
+    return (count, weapon, Q_26010_E.assign(b))
+
+
+def _engine_squad(v: Values) -> Any:
+    state = _state(_player(rank=v["ra"]))
+    rng = StubRng((v["r0"], v["r1"]))
+    gen = police.police_fight(Ctx(state=state, rng=rng), police.Arrest())
+    start = next(gen)
+    gen.close()
+    assert isinstance(start, StartCombat) and start.scenario is not None
+    assert start.scenario.sides is not None
+    squad = start.scenario.sides[1]
+    ((weapon, energy),) = {(f.weapon, f.vitality) for f in squad}  # one w, one e
+    return (len(squad), weapon, energy)
+
+
+# --- :26021-26039 the arrest: the chief-bribe auto-pay and the bribe ----------------------
+Q_26021 = q(26021, "pl(sp)andint(rnd(1)*2)<>0")
+Q_26035 = q(26035, "p=500+500*ra(sp)")
+Q_26037 = q(26037, "ka(sp)<p")
+Q_26038_KA = q(26038, "ka(sp)=ka(sp)-p")
+Q_26038 = q(26038, "int(rnd(1)*5)=0")
+
+
+def _basic_payment(b: dict[str, Any], r: float) -> Any:
+    """:26037-26039 from the price ``b["p"]``: (cash, trial or free)."""
+    if Q_26037.holds(b):
+        return (b["ka(1)"], "trial")
+    b["ka(1)"] = Q_26038_KA.assign(b)
+    b["rnd(1)"] = r
+    return (b["ka(1)"], "trial" if Q_26038.holds(b) else "free")
+
+
+def _arrest_outcome(run: _Run) -> Any:
+    player = run.state.players[0]
+    return (player.ka, "trial" if player.po == 911 else "free")
+
+
+class _MenuShown(Exception):
+    """The capture menu was asked: :26021 did not skip it."""
+
+
+def _capture_answer(menu: int | None) -> Callable[[Any], Any]:
+    """Answers the capture's prompts: ``menu`` at the menu (``None``: raise), yes to the
+    bribe, no to the trial's lawyer."""
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptChoice):
+            if menu is None:
+                raise _MenuShown
+            return menu
+        return interaction.key == "police.confirm"
+
+    return answer
+
+
+def _basic_autopay(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "pl(1)": v["pl"], "rnd(1)": v["r0"], "ka(1)": v["ka"]}
+    if not Q_26021.holds(b):
+        return "menu"
+    b["p"] = v["p"]
+    return _basic_payment(b, v["r1"])
+
+
+def _engine_autopay(v: Values) -> Any:
+    player = _player(ka=v["ka"], wanted=Wanted(bribe_months=v["pl"]), po=400)
+    handler = lambda ctx: police.caught(ctx, police.Arrest(p=v["p"]))  # noqa: E731
+    try:
+        run = _drive(handler, _state(player), (v["r0"], v["r1"]), _capture_answer(None))
+    except _MenuShown:
+        return "menu"
+    return _arrest_outcome(run)
+
+
+def _basic_bribe(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ra(1)": v["ra"], "ka(1)": v["ka"]}
+    b["p"] = Q_26035.assign(b)
+    return _basic_payment(b, v["r"])
+
+
+def _engine_bribe(v: Values) -> Any:
+    player = _player(ka=v["ka"], rank=v["ra"], po=400)
+    handler = lambda ctx: police.caught(ctx, police.Arrest(p=0))  # noqa: E731
+    return _arrest_outcome(_drive(handler, _state(player), (0.0, v["r"]), _capture_answer(0)))
+
+
+# --- :26040 the flight -----------------------------------------------------------------
+Q_26040 = q(26040, "int(rnd(1)*tr(sp)/11)=0")
+
+
+def _basic_flight(v: Values) -> Any:
+    sp = v["sp"]
+    b = {"sp": sp, f"tr({sp})": _VEHICLES[sp]["tr"], "rnd(1)": v["r"]}
+    return "caught" if Q_26040.holds(b) else "escaped"
+
+
+def _engine_flight(v: Values) -> Any:
+    players = tuple(_player(po=400) for _ in range(v["sp"]))
+    state = replace(
+        _state(players[0]),
+        players=players,
+        clock=Clock(active_player=v["sp"] - 1, player_count=v["sp"]),
+    )
+    handler = lambda ctx: police.caught(ctx, police.Arrest(p=0))  # noqa: E731
+    run = _drive(handler, state, (0.0, v["r"]), _capture_answer(1))
+    return "caught" if run.state.players[v["sp"] - 1].po == 911 else "escaped"
+
+
+# --- :2041, :6015-6036 the map roadblock ---------------------------------------------------
+Q_110_BR = q(110, "br=52224")
+Q_2030 = q(2030, "p=br+po(sp)+x")
+Q_2041 = q(2041, "ms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3")
+Q_6015 = q(6015, "int(rnd(1)*3)=0")
+Q_6016 = q(6016, "(ag(sp)and2)<>0")
+Q_6017 = q(6017, "ta(sp)")
+Q_6018 = q(6018, "(ag(sp)and1)<>0")
+Q_6036 = q(6036, "ta(sp)=0")
+#: The capture after a stop: chief-bribe months, the :26021 roll skipping the menu, and
+#: :26038's roll letting the player go, so the cash shows the ``p`` capture was handed.
+_ROADBLOCK_CAPTURE_R = 0.5
+
+
+def _basic_roadblock(v: Values) -> Any:
+    """(outcome, ta, ka) after a street step from ``po`` by ``x``."""
+    b: dict[str, Any] = {"sp": 1, "ms": v["ms"], "ra(1)": v["ra"], "rnd(1)": v["r0"]}
+    b.update({"ag(1)": v["ag"], "ta(1)": v["ta"], "ka(1)": 10**6, "po(1)": v["po"], "x": v["x"]})
+    if not Q_2041.holds(b):
+        return ("none", b["ta(1)"], b["ka(1)"])
+    b["rnd(1)"] = v["r1"]
+    if Q_6015.holds(b) or (
+        not Q_6016.holds(b) and not Q_6017.holds(b) and Q_6018.holds(b)
+    ):  # :6015 / :6018 goto6025
+        return ("pass", b["ta(1)"], b["ka(1)"])
+    if not Q_6016.holds(b) and Q_6017.holds(b):
+        b["ta(1)"] = Q_6036.assign(b)
+    b["br"] = Q_110_BR.assign(b)
+    b["p"] = Q_2030.assign(b)
+    ka, _ = _basic_payment(b, _ROADBLOCK_CAPTURE_R)
+    return ("caught", b["ta(1)"], ka)
+
+
+def _engine_roadblock(v: Values) -> Any:
+    marks = Contraband(
+        fake_papers=v["ag"] & 1, counterfeit=(v["ag"] & 2) // 2, alcohol_barrels=v["ta"]
+    )
+    player = _player(
+        ka=10**6,
+        rank=v["ra"],
+        ms=v["ms"],
+        po=v["po"] + v["x"],  # the runner has made the step (:2040)
+        contraband=marks,
+        wanted=Wanted(bribe_months=1),
+    )
+    # The port draws the :2041 roll only when the rank and the points allow a stop (a
+    # roll that cannot change the outcome is not drawn); the stop draws :6015's, and a
+    # capture the two above.
+    draws: list[float] = []
+    if v["ra"] > 3 and v["ms"] % 20 == 0:
+        draws = [v["r0"], v["r1"], _ROADBLOCK_CAPTURE_R, _ROADBLOCK_CAPTURE_R]
+    screens: list[Any] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptChoice):
+            raise AssertionError("the capture menu showed")
+        screens.append(interaction)
+        return None
+
+    run = _drive(HANDLERS[ROADBLOCK_HOOK_KEY], _state(player), draws, answer)
+    after = run.state.players[0]
+    if not screens:
+        outcome = "none"
+    else:
+        outcome = "pass" if screens[0].params["lines"][-1][0] == "roadblock.nothing" else "caught"
+    return (outcome, game.contraband(after).alcohol_barrels, after.ka)
+
+
+# --- :26045-26065 the trial: the months and the lawyer -----------------------------------
+Q_26045 = q(26045, "gs(sp)=int(ra(sp)/2+.5)")
+Q_26050 = q(26050, "ra(sp)<5")
+Q_26061 = q(26061, "x>ka(sp)orx<0")
+Q_26062_KA = q(26062, "ka(sp)=ka(sp)-x")
+Q_26062_Y = q(26062, "y=int(rnd(1)*(x/1000+1))+1")
+Q_26065 = q(26065, "gs(sp)=gs(sp)-y")
+Q_26065_FLOOR = q(26065, "gs(sp)<0")
+
+
+def _basic_trial(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ra(1)": v["ra"], "ka(1)": v["ka"], "x": v["x"]}
+    b["gs(1)"] = Q_26045.assign(b)
+    if Q_26050.holds(b) or b["x"] == 0:  # :26060 ``ifx=0goto26075``
+        return (b["ka(1)"], b["gs(1)"])
+    if Q_26061.holds(b):
+        return "asked again"
+    b["ka(1)"] = Q_26062_KA.assign(b)
+    b["rnd(1)"] = v["r"]
+    b["y"] = Q_26062_Y.assign(b)
+    b["gs(1)"] = Q_26065.assign(b)
+    if Q_26065_FLOOR.holds(b):
+        b["gs(1)"] = 0
+    return (b["ka(1)"], b["gs(1)"])
+
+
+def _engine_trial(v: Values) -> Any:
+    asked: list[Any] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            asked.append(interaction)
+            if len(asked) > 1:
+                raise _AskedAgain
+            return v["x"]
+        return True  # :26055 yes, a lawyer
+
+    player = _player(ka=v["ka"], rank=v["ra"], po=400)
+    handler = lambda ctx: police.sentence(ctx, police.Arrest())  # noqa: E731
+    try:
+        run = _drive(handler, _state(player), (v["r"],), answer)
+    except _AskedAgain:
+        return "asked again"
+    after = run.state.players[0]
+    return (after.ka, game.wanted(after).jail_months)
+
+
+# --- :4050 the police chief's months age ---------------------------------------------
+Q_4050 = q(4050, "pl(sp)=pl(sp)+(pl(sp)>0)")
+
+
+def _basic_bribe_aging(v: Values) -> Any:
+    return Q_4050.assign({"sp": 1, "pl(1)": v["pl"]})
+
+
+def _engine_bribe_aging(v: Values) -> Any:
+    run = _drive(
+        HANDLERS["upkeep.turn_start"], _state(_player(wanted=Wanted(bribe_months=v["pl"])))
+    )
+    return game.wanted(run.state.players[0]).bribe_months
+
+
+# --- :21011-21020 pol, the chief bribe ------------------------------------------------
+Q_21011 = q(21011, "p=1000*x")
+Q_21011_ZERO = q(21011, "x=0")
+Q_21015 = q(21015, "ka(sp)<p")
+Q_21020_KA = q(21020, "ka(sp)=ka(sp)-p")
+Q_21020_PL = q(21020, "pl(sp)=pl(sp)+x+1")
+
+
+def _basic_chief(v: Values) -> Any:
+    b = {"sp": 1, "x": v["x"], "ka(1)": v["ka"], "pl(1)": v["pl"]}
+    b["p"] = Q_21011.assign(b)
+    if Q_21011_ZERO.holds(b) or Q_21015.holds(b):
+        return (b["ka(1)"], b["pl(1)"])
+    return (Q_21020_KA.assign(b), Q_21020_PL.assign(b))
+
+
+def _engine_chief(v: Values) -> Any:
+    def answer(interaction: Any) -> Any:
+        # This stepper hands the answer straight to the handler, so it plays the
+        # driver's range check: an answer outside the prompt's bounds is asked again.
+        if not interaction.min <= v["x"] <= interaction.max:
+            raise _AskedAgain
+        return v["x"]
+
+    player = _player(ka=v["ka"], po=909, wanted=Wanted(bribe_months=v["pl"]))
+    run = _drive(HANDLERS["pol.bribe"], _state(player), answer=answer)
+    p = run.state.players[0]
+    return (p.ka, game.wanted(p).bribe_months)
+
+
+# --- :21130-21140 pol, the guards' price ----------------------------------------------
+Q_21130 = q(21130, "p=500*int(rnd(1)*5)+3000")
+Q_21135 = q(21135, "ka(sp)<p")
+Q_21140 = q(21140, "ka(sp)=ka(sp)-p")
+
+
+def _jailed_pair(ka: int, freed_ka: int = 0) -> GameState:
+    """Player 0 active at rank 1 (no phantom), player 1 jailed for 2 months."""
+    state = _state(_player(ka=ka))
+    inmate = _player(name="q", ka=freed_ka, wanted=Wanted(jail_months=2))
+    return replace(
+        state, players=(state.players[0], inmate), clock=Clock(active_player=0, player_count=2)
+    )
+
+
+def _basic_release(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ka(1)": v["ka"], "rnd(1)": v["r"]}
+    b["p"] = Q_21130.assign(b)
+    if Q_21135.holds(b):
+        return b["ka(1)"]
+    return Q_21140.assign(b)
+
+
+def _engine_release(v: Values) -> Any:
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True
+        return 1 if interaction.key == "locations.pol.free_prompt" else 0
+
+    run = _drive(HANDLERS["pol.free"], _jailed_pair(v["ka"]), draws=(0.5, v["r"]), answer=answer)
+    assert run.draws_used == 2
+    return run.state.players[0].ka
+
+
+# --- :21252-21255 pol, the freed player's thanks --------------------------------------
+Q_21252 = q(21252, "y>ka(x)")
+Q_21253 = q(21253, "y>ka(x)ory<0")
+Q_21255_KX = q(21255, "ka(x)=ka(x)-y")
+Q_21255_KSP = q(21255, "ka(sp)=ka(sp)+y")
+
+
+def _basic_thanks(v: Values) -> Any:
+    b = {"sp": 1, "x": 2, "y": v["y"], "ka(1)": 1000, "ka(2)": v["kax"]}
+    if Q_21252.holds(b) or Q_21253.holds(b):
+        return "asked again"
+    return (Q_21255_KSP.assign(b), Q_21255_KX.assign(b))
+
+
+def _engine_thanks(v: Values) -> Any:
+    asks = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True
+        if interaction.key == "locations.pol.free_prompt":
+            return 1
+        asks.append(interaction)
+        if len(asks) > 1:
+            raise _AskedAgain
+        return v["y"]
+
+    # The price (3000) is paid first, so the rescuer starts at 4000 and holds 1000.
+    try:
+        run = _drive(
+            HANDLERS["pol.free"], _jailed_pair(4000, v["kax"]), draws=(0.5, 0.0), answer=answer
+        )
+    except _AskedAgain:
+        return "asked again"
+    return (run.state.players[0].ka, run.state.players[1].ka)
+
+
+# --- :14010-14050 aut, the showroom, the trade-in and the sale --------------------------
+Q_14010_X = q(14010, "x=2")
+Q_14010_LN = q(14010, "ln=2")
+Q_14010_X2 = q(14010, "x=x+1")
+Q_14030 = q(14030, "(y-1)>x")
+Q_14035_P = q(14035, "p=3000+1000*(y-1)")
+Q_14035 = q(14035, "ka(sp)<p")
+Q_14040 = q(14040, "tm(sp)=0")
+Q_14045_Q = q(14045, "q=1000+1000*tm(sp)")
+Q_14045_IF = q(14045, "tm(sp)=5")
+Q_14045_STOLEN = q(14045, "q=1000")
+Q_14050_KA = q(14050, "ka(sp)=ka(sp)-p+q")
+Q_14050_MS = q(14050, "ms=tr(y)-tr(tm(sp))+ms")
+Q_14050_TM = q(14050, "tm(sp)=y")
+
+
+def _basic_car_sale(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ln": v["ln"], "y": v["y"], "q": 0}
+    b.update({"ka(1)": v["ka"], "tm(1)": v["tm"], "ms": 3})
+    b.update({f"tr({i})": w["tr"] for i, w in enumerate(_VEHICLES)})
+    b["x"] = Q_14010_X.assign(b)
+    if Q_14010_LN.holds(b):
+        b["x"] = Q_14010_X2.assign(b)
+    if Q_14030.holds(b):
+        return "read again"
+    b["p"] = Q_14035_P.assign(b)
+    if Q_14035.holds(b):
+        return (b["ka(1)"], b["ms"], b["tm(1)"])
+    if not Q_14040.holds(b):
+        b["q"] = Q_14045_Q.assign(b)
+        if Q_14045_IF.holds(b):
+            b["q"] = Q_14045_STOLEN.assign(b)
+    b["ka(1)"] = Q_14050_KA.assign(b)
+    b["ms"] = Q_14050_MS.assign(b)
+    return (b["ka(1)"], b["ms"], Q_14050_TM.assign(b))
+
+
+def _engine_car_sale(v: Values) -> Any:
+    asked: list[Any] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True  # :14047 the trade-in taken
+        asked.append(interaction)
+        if len(asked) > 1:
+            return 0  # the showroom again (a refused sale): leave
+        if not interaction.min <= v["y"] <= interaction.max:
+            raise _AskedAgain
+        return v["y"]
+
+    player = _player(ka=v["ka"], vehicle=v["tm"], ms=3, last_location=v["ln"])
+    try:
+        run = _drive(HANDLERS["aut.buy"], _state(player), answer=answer)
+    except _AskedAgain:
+        return "read again"
+    p = run.state.players[0]
+    return (p.ka, p.ms, p.vehicle)
+
+
+# --- :14100-14110 aut, the crowd and the lock ------------------------------------------
+Q_14100 = q(14100, "ln<>4andint(rnd(1)*3)<>0")
+Q_14110 = q(14110, "int(rnd(1)*(in/40+kr/30))=0")
+
+
+def _basic_car_theft(v: Values) -> Any:
+    b: dict[str, Any] = {"ln": v["ln"], "rnd(1)": v["r0"]}
+    if Q_14100.holds(b):
+        return "crowded"
+    b.update({"rnd(1)": v["r"], "in": v["in"], "kr": v["kr"]})
+    return "caught" if Q_14110.holds(b) else "stolen"
+
+
+def _engine_car_theft(v: Values) -> Any:
+    thief = Gangster(name="t", energie=40, kraft=v["kr"], intelligenz=v["in"])
+    player = _player(last_location=v["ln"], roster=(thief,))
+    try:
+        run = _drive(
+            HANDLERS["aut.steal"], _state(player), draws=(v["r0"], v["r"]), answer=lambda i: 1
+        )
+    except _FightStarted:
+        return "caught"
+    if run.draws_used == 1:
+        assert run.state.players[0].vehicle == 0
+        return "crowded"
+    assert run.state.players[0].vehicle == 5
+    return "stolen"
+
+
+# --- :18015-18052 sub, the ticket, the manual, the catch and the loot ----------------
+Q_18025 = q(18025, "ka(sp)<50")
+Q_18030 = q(18030, "ka(sp)=ka(sp)-50")
+Q_18040 = q(18040, "int(rnd(1)*15)=10")
+Q_18041 = q(18041, "int(rnd(1)*(in/10))")
+Q_18045 = q(18045, "int(rnd(1)*4)-(w=2)-(la<>9)")
+Q_18047 = q(18047, "ka(sp)=ka(sp)+50")
+Q_18049 = q(18049, "ka(sp)=ka(sp)+100")
+Q_18050 = q(18050, "ka(sp)=ka(sp)+500")
+Q_18051 = q(18051, "ka(sp)=ka(sp)+800")
+#: :18045's ``on ... goto18047,18048,18049,18050,18051``; 0 falls through to :18046, and
+#: :18046 and :18048 pay nothing.
+_SUB_LOOT = {1: Q_18047, 3: Q_18049, 4: Q_18050, 5: Q_18051}
+
+
+def _basic_pickpocket(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ka(1)": v["ka"], "w": v["w"], "la": v["la"], "in": v["in"]}
+    if v["w"] == 2:  # :18010 ``onwgoto18035,18015``
+        if Q_18025.holds(b):
+            return ("broke", b["ka(1)"])
+        b["ka(1)"] = Q_18030.assign(b)
+    b["rnd(1)"] = v["r0"]
+    if Q_18040.holds(b):
+        return ("manual", b["ka(1)"])
+    b["rnd(1)"] = v["r1"]
+    if not Q_18041.holds(b):
+        return ("caught", b["ka(1)"])
+    b["rnd(1)"] = v["r2"]
+    index = int(Q_18045.expr(b))
+    if index in _SUB_LOOT:
+        b["ka(1)"] = _SUB_LOOT[index].assign(b)
+    return (f"loot {index}", b["ka(1)"])
+
+
+_SUB_ITEMS = ("handbag", "camera", "pearls", "watch", "wallet", "diamond")
+
+
+def _engine_pickpocket(v: Values) -> Any:
+    thief = Gangster(name="t", energie=40, kraft=30, intelligenz=v["in"])
+    player = _player(ka=v["ka"], last_la=v["la"], last_location=1, roster=(thief,))
+    key = "sub.train" if v["w"] == 2 else "sub.platform"
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, Confirm):
+            return True
+        if isinstance(interaction, PromptChoice):
+            return 2  # surrender at the arrest (:26030 key 3)
+        return 1  # the thief (:1145)
+
+    run = _drive(HANDLERS[key], _state(player), (v["r0"], v["r1"], v["r2"]), answer)
+    keys = [m.key for m in run.shown]
+    player_after = run.state.players[0]
+    ka = player_after.ka
+    if "system.not_enough_money" in keys:
+        return ("broke", ka)
+    if "locations.sub.loot_manual" in keys:
+        assert game.safe_skill(player_after) == 5
+        return ("manual", ka)
+    if "locations.sub.caught" in keys:
+        return ("caught", ka)
+    (item,) = [k.rsplit("_", 1)[1] for k in keys if k.startswith("locations.sub.loot_")]
+    return (f"loot {_SUB_ITEMS.index(item)}", ka)
+
+
+# --- :19015-19040 bhf, the mail train, and the heist payout :20050-20060 ------------------
+Q_19015 = q(19015, "tp(sp)<>1")
+Q_19016 = q(19016, "gz(sp)<3")
+Q_19016_TP = q(19016, "tp(sp)=0")
+Q_20050_P = q(20050, "p=int(rnd(1)*3000)+4000-500*(la=10andln=1)")
+Q_20050_X = q(20050, "x=tp(sp)")
+Q_20051 = q(20051, "(x=1andla=9)or(x=2andla=10andln=2)or(x=3andla=13)")
+Q_20051_TP = q(20051, "tp(sp)=0")
+Q_20051_P = q(20051, "p=p+3000")
+Q_20060 = q(20060, "ka(sp)=ka(sp)+p")
+
+
+def _basic_mail_train(v: Values) -> Any:
+    """The station (``la=9``, ``ln=1``); the guards' fight is won (:19030)."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": v["tp"], "gz(1)": v["gz"], "ka(1)": 1000}
+    b.update({"la": 9, "ln": 1})
+    if Q_19015.holds(b):
+        return ("no train", b["ka(1)"], b["tp(1)"])
+    if Q_19016.holds(b):
+        return ("too few", b["ka(1)"], Q_19016_TP.assign(b))
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_20050_P.assign(b)
+    b["x"] = Q_20050_X.assign(b)
+    if Q_20051.holds(b):
+        b["tp(1)"] = Q_20051_TP.assign(b)
+        b["p"] = Q_20051_P.assign(b)
+    return ("robbed", Q_20060.assign(b), b["tp(1)"])
+
+
+def _engine_mail_train(v: Values) -> Any:
+    player = _player(
+        ka=1000,
+        last_la=9,
+        last_location=1,
+        tip_target=v["tp"],
+        roster=tuple(_gangster() for _ in range(v["gz"])),
+    )
+    run = _drive(
+        HANDLERS["bhf.mail_train"],
+        _state(player),
+        draws=(v["r"],),
+        fight=CombatResult(winner=1, losses=(0, 3)),
+    )
+    keys = [m.key for m in run.shown]
+    after = run.state.players[0]
+    outcome = (
+        "no train"
+        if "locations.bhf.no_train" in keys
+        else "too few"
+        if "locations.bhf.too_few" in keys
+        else "robbed"
+    )
+    return (outcome, after.ka, game.tip_target(after))
+
+
+# --- :20009-20060 ban, the hold-up, through the heist payout -----------------------------
+Q_20009 = q(20009, "gz(sp)=1")
+Q_20010 = q(20010, "int(rnd(1)*3)=0")
+Q_20012 = q(20012, "gz(0)=3-(ln=1)")
+
+
+def _basic_holdup(v: Values) -> Any:
+    """The bank (``la=10``) on tile ``ln``; the guards' fight, if any, is won (:20015)."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": v["tp"], "gz(1)": v["gz"], "ka(1)": 1000}
+    b.update({"la": 10, "ln": v["ln"]})
+    if Q_20009.holds(b):
+        return ("alone", b["ka(1)"], b["tp(1)"])
+    b["rnd(1)"] = v["r0"]
+    fought = not Q_20010.holds(b)
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_20050_P.assign(b)
+    b["x"] = Q_20050_X.assign(b)
+    if Q_20051.holds(b):
+        b["tp(1)"] = Q_20051_TP.assign(b)
+        b["p"] = Q_20051_P.assign(b)
+    return ("robbed", fought, Q_20060.assign(b), b["tp(1)"])
+
+
+def _engine_holdup(v: Values) -> Any:
+    player = _player(
+        ka=1000,
+        rank=3,
+        last_la=10,
+        last_location=v["ln"],
+        tip_target=v["tp"],
+        roster=tuple(_gangster() for _ in range(v["gz"])),
+    )
+    run = _drive(
+        HANDLERS["ban.holdup"],
+        _state(player),
+        draws=(v["r0"], v["r"]),
+        fight=CombatResult(winner=1, losses=(0, 3)),
+    )
+    keys = [m.key for m in run.shown]
+    after = run.state.players[0]
+    if "locations.ban.alone" in keys:
+        return ("alone", after.ka, game.tip_target(after))
+    fought = "locations.ban.guards" in keys
+    return ("robbed", fought, after.ka, game.tip_target(after))
+
+
+def _basic_bank_guards(v: Values) -> Any:
+    return Q_20012.assign({"ln": v["ln"]})
+
+
+def _engine_bank_guards(v: Values) -> Any:
+    player = _player(rank=3, last_la=10, last_location=v["ln"], roster=(_gangster(),) * 2)
+    # :20010's roll 0.5: int(0.5*3)=1, the guards fight.
+    gen = HANDLERS["ban.holdup"](Ctx(state=_state(player), rng=StubRng((0.5,))))
+    interaction = next(gen)
+    while not isinstance(interaction, StartCombat):
+        interaction = gen.send(Ack)
+    gen.close()
+    assert interaction.scenario is not None and interaction.scenario.sides is not None
+    return len(interaction.scenario.sides[1])
+
+
+# --- :2002-2003, :23000-23030, :24000-24020 the map win flows ---------------------------
+Q_2002 = q(2002, "tp(sp)=3")
+Q_2003 = q(2003, "tp(sp)=5")
+Q_23010 = q(23010, "gz(sp)<3")
+Q_23010_TP = q(23010, "tp(sp)=0")
+Q_24020_KA = q(24020, "ka(sp)=ka(sp)+7000")
+Q_24020_AG = q(24020, "ag(sp)=ag(sp)or1")
+Q_24020_TP = q(24020, "tp(sp)=0")
+
+
+def _basic_armed(v: Values) -> Any:
+    """The cells ``:2002``/``:2003`` poke off the street code for the held tip."""
+    b = {"sp": 1, "tp(1)": v["tp"]}
+    return {cell for cell, quote in ((569, Q_2002), (861, Q_2003)) if quote.holds(b)}
+
+
+def _engine_armed(v: Values) -> Any:
+    return win_flows.armed_cells(_state(_player(tip_target=v["tp"])))
+
+
+def _win_flow(cell: int) -> Callable[[Ctx], Any]:
+    """The special-cell hook for a move onto ``cell``."""
+    return functools.partial(
+        HANDLERS[SPECIAL_CELL_HOOK_KEY], cell=cell, la={569: 13, 861: 14}[cell]
+    )
+
+
+def _basic_transport(v: Values) -> Any:
+    """The cash transport (``la=13``, ``ln=1``) with tip 3; the escort's fight is won."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": 3, "gz(1)": v["gz"], "ka(1)": 1000}
+    b.update({"la": 13, "ln": 1})
+    if Q_23010.holds(b):
+        return ("too few", b["ka(1)"], Q_23010_TP.assign(b))
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_20050_P.assign(b)
+    b["x"] = Q_20050_X.assign(b)
+    if Q_20051.holds(b):
+        b["tp(1)"] = Q_20051_TP.assign(b)
+        b["p"] = Q_20051_P.assign(b)
+    return ("robbed", Q_20060.assign(b), b["tp(1)"])
+
+
+def _engine_transport(v: Values) -> Any:
+    player = _player(ka=1000, tip_target=3, roster=tuple(_gangster() for _ in range(v["gz"])))
+    run = _drive(
+        _win_flow(569), _state(player), draws=(v["r"],), fight=CombatResult(winner=1, losses=(0, 3))
+    )
+    after = run.state.players[0]
+    outcome = "robbed" if any(m.key == "locations.ban.loot" for m in run.shown) else "too few"
+    return (outcome, after.ka, game.tip_target(after))
+
+
+def _basic_mayor(v: Values) -> Any:
+    """The mayor hit with tip 5; both fights are won."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": 5, "ka(1)": v["ka"], "ag(1)": v["ag"]}
+    return (Q_24020_KA.assign(b), Q_24020_AG.assign(b), Q_24020_TP.assign(b))
+
+
+def _engine_mayor(v: Values) -> Any:
+    player = _player(ka=v["ka"], tip_target=5, contraband=_marks(v["ag"]))
+    run = _drive(_win_flow(861), _state(player), fight=CombatResult(winner=1, losses=(0, 1)))
+    after = run.state.players[0]
+    return (after.ka, _ag(after), game.tip_target(after))
+
+
+# --- :27020-27045 the gang war duel's consequences ----------------------------------------
+Q_27020_A = q(27020, "a=ks(s)")
+Q_27020_B = q(27020, "b=ks(1-(s=1))")
+Q_27025 = q(27025, "p=int(rnd(1)*ka(b)/6)+int(ka(b)/4)")
+Q_27028 = q(27028, "tm(b)=0")
+Q_27031_TMA = q(27031, "tm(a)=tm(b)")
+Q_27031_TMB = q(27031, "tm(b)=0")
+Q_27035_KAA = q(27035, "ka(a)=ka(a)+p")
+Q_27035_KAB = q(27035, "ka(b)=ka(b)-p")
+Q_27035_AGA = q(27035, "ag(a)=ag(a)or(ag(b)and1)")
+Q_27035_AGB = q(27035, "ag(b)=ag(b)and254")
+Q_27040_X = q(27040, "x=tk(tm(a))-ta(a)")
+Q_27040_IF = q(27040, "x>ta(b)")
+Q_27040_CAP = q(27040, "x=ta(b)")
+Q_27041_TAA = q(27041, "ta(a)=ta(a)+x")
+Q_27041_TAB = q(27041, "ta(b)=ta(b)-x")
+Q_27045 = q(27045, "ms=ms-10")
+
+
+def _basic_gang_war(v: Values) -> Any:
+    """sp=1 attacks us=2 (``ks(1)=us:ks(2)=sp``); side ``s`` wins; faithful scoring."""
+    b: dict[str, Any] = {"sp": 1, "s": v["s"], "ks(1)": 2, "ks(2)": 1, "x8": 1.0, "ms": 21}
+    for i, (ka, tm, ta, ag, gf) in enumerate(v["players"], start=1):
+        b.update({f"ka({i})": ka, f"tm({i})": tm, f"ta({i})": ta, f"ag({i})": ag})
+        b[f"gf({i})"] = gf
+    for i, vehicle in enumerate(_VEHICLES):
+        b[f"tk({i})"] = vehicle["tank"]
+    b["a"] = Q_27020_A.assign(b)
+    b["b"] = Q_27020_B.assign(b)
+    a, lo = int(b["a"]), int(b["b"])
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_27025.assign(b)
+    if not Q_27028.holds(b) and v["ans"] == "j":  # :27031 ifx$="j"then
+        b[f"tm({a})"] = Q_27031_TMA.assign(b)
+        b[f"tm({lo})"] = Q_27031_TMB.assign(b)
+    ka_a, ka_b = Q_27035_KAA.assign(b), Q_27035_KAB.assign(b)
+    ag_a, ag_b = Q_27035_AGA.assign(b), Q_27035_AGB.assign(b)
+    b.update({f"ka({a})": ka_a, f"ka({lo})": ka_b, f"ag({a})": ag_a, f"ag({lo})": ag_b})
+    b["x"] = Q_27040_X.assign(b)
+    if Q_27040_IF.holds(b):
+        b["x"] = Q_27040_CAP.assign(b)
+    ta_a, ta_b = Q_27041_TAA.assign(b), Q_27041_TAB.assign(b)
+    b.update({f"ta({a})": ta_a, f"ta({lo})": ta_b})
+    # :27041 x=3:gosub1160:y=sp:sp=b:x=-1:gosub1160:sp=y
+    for scored, x in ((1, 3), (lo, -1)):
+        b.update({"sp": scored, "x": x})
+        b[f"gf({scored})"] = Q_1160.assign(b)
+        if Q_1160_CAP.holds(b):
+            b[f"gf({scored})"] = 100
+        if Q_1161_FLOOR.holds(b):
+            b[f"gf({scored})"] = 0
+    ms = Q_27045.assign(b)
+    return tuple(
+        (b[f"ka({i})"], b[f"tm({i})"], b[f"ta({i})"], b[f"ag({i})"], b[f"gf({i})"]) for i in (1, 2)
+    ) + (ms,)
+
+
+def _engine_gang_war(v: Values) -> Any:
+    players = tuple(
+        _player(
+            name=f"p{i}",
+            ka=ka,
+            vehicle=tm,
+            gf=gf,
+            ms=21,
+            contraband=replace(_marks(ag), alcohol_barrels=ta),
+        )
+        for i, (ka, tm, ta, ag, gf) in enumerate(v["players"])
+    )
+    state = GameState(
+        players=players,
+        clock=Clock(active_player=0, player_count=2, month=4),
+        config=Config(formula_params={**_PARAMS, "score_mult": 1.0}),
+    )
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            return 2  # the defender, us=2
+        if isinstance(interaction, Confirm):
+            return v["ans"] == "j"
+        return None
+
+    run = _drive(
+        HANDLERS["turn.gang_war"],
+        state,
+        draws=(v["r"],),
+        answer=answer,
+        fight=CombatResult(winner=v["s"], losses=(0, 0)),
+    )
+    after = run.state.players
+    return tuple(
+        (p.ka, p.vehicle, game.contraband(p).alcohol_barrels, _ag(p), p.gf) for p in after
+    ) + (after[0].ms,)
+
+
+#: ``(ka, tm, ta, ag, gf)`` of the attacker and the defender: cash a multiple of 6 and
+#: not, on foot or driving, barrels below, at and above a tank, each passport bit,
+#: and a score at the clamp.
+_GANG_WAR_SEATS = (
+    ((6000, 0, 0, 0, 50.0), (7, 3, 40, 3, 50.0)),
+    ((1, 1, 180, 1, 99.0), (6001, 4, 10, 0, 0.5)),
+    ((0, 4, 30, 2, 100.0), (0, 0, 0, 1, 0.0)),
+    ((1001, 3, 200, 3, 0.0), (5, 1, 120, 2, 99.0)),
+)
+
+
+# --- :27100-27150 the prison brawl ----------------------------------------------------
+Q_27115 = q(27115, "ka(sp)<3000")
+Q_27120 = q(27120, "ka(sp)=ka(sp)-3000")
+Q_27140 = q(27140, "x=int(rnd(1)*2)+1")
+Q_27145 = q(27145, "gs(us)=gs(us)+x")
+Q_27150_MS = q(27150, "ms=ms-10")
+Q_27150_X = q(27150, "x=2")
+
+
+def _basic_prison_brawl(v: Values) -> Any:
+    """sp=1 pays for the brawl against the jailed us=2 ("j" at :1110); side ``s`` wins."""
+    b: dict[str, Any] = {"sp": 1, "us": 2, "s": v["s"], "x8": 1.0, "ms": 21}
+    b.update({"ka(1)": v["ka"], "gf(1)": v["gf"], "gs(2)": v["gs"], "rnd(1)": v["r"]})
+    if Q_27115.holds(b):  # :27115 goto1125 -- nothing changes
+        return (b["ka(1)"], b["gs(2)"], b["gf(1)"], b["ms"])
+    b["ka(1)"] = Q_27120.assign(b)
+    if b["s"] != 2:  # :27135 ifs=2goto27146
+        b["x"] = Q_27140.assign(b)
+        b["gs(2)"] = Q_27145.assign(b)
+    b["ms"] = Q_27150_MS.assign(b)
+    b["x"] = Q_27150_X.assign(b)
+    b["gf(1)"] = Q_1160.assign(b)
+    if Q_1160_CAP.holds(b):
+        b["gf(1)"] = 100
+    if Q_1161_FLOOR.holds(b):
+        b["gf(1)"] = 0
+    return (b["ka(1)"], b["gs(2)"], b["gf(1)"], b["ms"])
+
+
+def _engine_prison_brawl(v: Values) -> Any:
+    players = (
+        _player(name="p0", ka=v["ka"], gf=v["gf"], ms=21),
+        _player(name="p1", wanted=Wanted(jail_months=v["gs"])),
+    )
+    state = GameState(
+        players=players,
+        clock=Clock(active_player=0, player_count=2, month=4),
+        config=Config(formula_params={**_PARAMS, "score_mult": 1.0}),
+    )
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            return 2  # the jailed defender, us=2
+        if isinstance(interaction, Confirm):
+            return True  # :1110 "j"
+        return None
+
+    run = _drive(
+        HANDLERS["turn.gang_war"],
+        state,
+        draws=(v["r"],) if v["s"] == 1 and v["ka"] >= 3000 else (),
+        answer=answer,
+        fight=CombatResult(winner=v["s"], losses=(0, 0)),
+    )
+    attacker, jailed = run.state.players
+    return (attacker.ka, game.wanted(jailed).jail_months, attacker.gf, attacker.ms)
+
+
+# --- :20100-20150 ban, the night safe-crack ----------------------------------------
+Q_20100 = q(20100, "in>=40andkr>=15andbt>=20")
+Q_20110_RD = q(20110, "rd(i)=1+i")
+Q_20110_CD = q(20110, "cd(i)=int(rnd(1)*10)")
+Q_20111_Y = q(20111, "y=20+int(in/10)+3*(ln=1)+s9(sp)")
+Q_20111_S9 = q(20111, "s9(sp)=s9(sp)-1")
+Q_20111_CAP = q(20111, "s9(sp)<0")
+Q_20116_X = q(20116, "x=x-133")
+Q_20116_RD = q(20116, "rd(x)=rd(x)+1")
+Q_20116_WRAP = q(20116, "rd(x)=10")
+Q_20125 = q(20125, "int(rnd(1)*(in/8))=0orrd(x)<>cd(x)")
+Q_20130 = q(20130, "rd(i)=cd(i)")
+Q_20135_Y = q(20135, "y=y-1")
+Q_20135 = q(20135, "y>0")
+
+
+def _basic_safe_gate(v: Values) -> Any:
+    return (
+        "trained" if Q_20100.holds({"in": v["in"], "kr": v["kr"], "bt": v["bt"]}) else "untrained"
+    )
+
+
+def _engine_safe_gate(v: Values) -> Any:
+    boss = _gangster(kr=v["kr"], in_=v["in"], bt=v["bt"])
+    player = _player(rank=3, last_la=10, last_location=3, roster=(boss,))
+    run = _drive(HANDLERS["ban.safe"], _state(player), answer=lambda _: 0)  # :20104 y=0
+    keys = [m.key for m in run.shown]
+    return "trained" if "locations.ban.safe_who" in keys else "untrained"
+
+
+#: The cracker's strategy, the same on both sides: turn each dial to the code in turn
+#: (F1, F3, F5 are keys 133, 134, 135), then keep turning the third.
+def _safe_keys(code: Sequence[int]) -> list[int]:
+    keys = [133 + i for i in range(3) for _ in range((code[i] - (1 + i)) % 10)]
+    return keys + [135] * 60
+
+
+def _safe_draws(v: Values) -> list[float]:
+    slips = v["slips"]
+    return [*v["code"], *(slips[i % len(slips)] for i in range(60))]
+
+
+def _basic_safe(v: Values) -> Any:
+    """:20110-20135: the dials, the code, the tries, then each press."""
+    draws = _safe_draws(v)
+    b: dict[str, Any] = {"sp": 1, "in": v["in"], "ln": v["ln"], "s9(1)": v["s9"]}
+    for i in range(3):  # :20110 ``fori=0to2``
+        b["i"] = i
+        b["rnd(1)"] = draws[i]
+        b[f"rd({i})"] = Q_20110_RD.assign(b)
+        b[f"cd({i})"] = Q_20110_CD.assign(b)
+    b["y"] = Q_20111_Y.assign(b)
+    b["s9(1)"] = Q_20111_S9.assign(b)
+    if Q_20111_CAP.holds(b):
+        b["s9(1)"] = 0
+    keys = _safe_keys([int(b[f"cd({i})"]) for i in range(3)])
+    presses = 0
+    while True:
+        b["x"] = keys[presses]  # :20115
+        b["rnd(1)"] = draws[3 + presses]
+        presses += 1
+        b["x"] = Q_20116_X.assign(b)
+        x = int(b["x"])
+        b[f"rd({x})"] = Q_20116_RD.assign(b)
+        if Q_20116_WRAP.holds(b):
+            b[f"rd({x})"] = 0
+        if not Q_20125.holds(b):
+            opened = True
+            for i in range(3):  # :20130 ``fori=0to2:ifrd(i)=cd(i)thennext``
+                b["i"] = i
+                if not Q_20130.holds(b):
+                    opened = False
+                    break
+            if opened:
+                outcome = "cracked"
+                break
+        b["y"] = Q_20135_Y.assign(b)
+        if not Q_20135.holds(b):
+            outcome = "failed"
+            break
+    dials = tuple(int(b[f"rd({i})"]) for i in range(3))
+    return (outcome, presses, int(b["s9(1)"]), dials)
+
+
+def _engine_safe(v: Values) -> Any:
+    from engine.substates import SUBSTATES
+
+    cracker = _gangster(in_=v["in"])
+    player = _player(rank=3, last_la=10, last_location=v["ln"], roster=(cracker,))
+    player = replace(player, values={**player.values, "safe_skill": v["s9"]})
+    draws = _safe_draws(v)
+    keys = _safe_keys([int(r * 10) for r in v["code"]])
+    outcome: list[Any] = []
+
+    def handler(ctx: Ctx) -> Any:
+        outcome.append((yield from SUBSTATES["safe_crack"](ctx, {"intelligenz": v["in"]})))
+        return []
+
+    pressed = iter(keys)
+    run = _drive(handler, _state(player), draws, lambda _: next(pressed) - 133)
+    dials = run.shown[-1].params
+    return (
+        outcome[0],
+        len(run.asked),
+        game.safe_skill(run.state.players[0]),
+        (dials["d1"], dials["d2"], dials["d3"]),
+    )
+
+
+# --- :17210-17592 sgl, Jack's gang, the payout and what follows -----------------------
+Q_17210 = q(17210, "gz(0)=3-2*(gz(sp)>5)")
+Q_17500 = q(17500, "int(rnd(1)*3)=0")
+Q_17505 = q(17505, "p=int(rnd(1)*200)+800-300*(ln=2)-200*(ln=7)-200*(ln=9)+600*(w=2)")
+Q_17530 = q(17530, "p=int(rnd(1)*100)+100")
+Q_17550 = q(17550, "ka(sp)=ka(sp)+p")
+Q_17575 = q(17575, "p=int(rnd(1)*100)+300")
+Q_17578 = q(17578, "ka(sp)=ka(sp)+p")
+Q_17590 = q(17590, "p=int(rnd(1)*100)+200")
+
+
+def _basic_jack_count(v: Values) -> Any:
+    return Q_17210.assign({"sp": 1, "gz(1)": v["gz"]})
+
+
+def _engine_jack_count(v: Values) -> Any:
+    # Tile 1 refuses protection (:17200), so Jack's gang fights; count its men.
+    player = _player(rank=2, last_la=7, last_location=1, roster=(_gangster(),) * v["gz"])
+    gen = HANDLERS["sgl.protection"](Ctx(state=_state(player), rng=StubRng(())))
+    interaction = next(gen)
+    while not isinstance(interaction, StartCombat):
+        interaction = gen.send(Ack)
+    gen.close()
+    assert interaction.scenario is not None and interaction.scenario.sides is not None
+    return len(interaction.scenario.sides[1])
+
+
+def _jack_won(w: int) -> CombatResult:
+    """A won Jack fight (:17210) whose last shooter carries weapon ``w`` (:30215).
+    Protection pays at once on tiles 2, 3 and 8 (``w=3``); elsewhere it goes through
+    this fight."""
+    return CombatResult(winner=1, losses=(0, 3), last_shooter=Fighter(weapon=w))
+
+
+def _sgl_w(v: Values) -> int:
+    return 3 if v["ln"] in (2, 3, 8) else v["w"]
+
+
+def _basic_extortion(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "ln": v["ln"], "w": _sgl_w(v), "ka(1)": 1000}
+    b["rnd(1)"] = v["r0"]
+    small = Q_17500.holds(b)
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_17530.assign(b) if small else Q_17505.assign(b)
+    return Q_17550.assign(b)
+
+
+def _engine_extortion(v: Values) -> Any:
+    player = _player(rank=2, ka=1000, last_la=7, last_location=v["ln"])
+    run = _drive(
+        HANDLERS["sgl.protection"],
+        _state(player),
+        draws=(v["r0"], v["r"]),
+        answer=lambda i: 0,
+        fight=_jack_won(v["w"]),
+    )
+    return run.state.players[0].ka
+
+
+def _basic_settle(v: Values) -> Any:
+    """Take the small payment (:17530), then wreck the shop (:17575) or finish the owner
+    (:17590); any fight is won, and the till or the pockets go to :17578."""
+    b: dict[str, Any] = {"sp": 1, "ln": v["ln"], "ka(1)": 1000, "rnd(1)": v["r"]}
+    b["p"] = Q_17530.assign(b)
+    b["ka(1)"] = Q_17550.assign(b)
+    b["rnd(1)"] = v["r2"]
+    b["p"] = Q_17575.assign(b) if v["choice"] == 2 else Q_17590.assign(b)
+    return Q_17578.assign(b)
+
+
+def _engine_settle(v: Values) -> Any:
+    player = _player(rank=2, ka=1000, last_la=7, last_location=v["ln"])
+    run = _drive(
+        HANDLERS["sgl.protection"],
+        _state(player),
+        draws=(0.0, v["r"], v["r2"]),
+        answer=lambda i: v["choice"] - 1,
+        fight=_jack_won(3),
+    )
     return run.state.players[0].ka
 
 
@@ -518,7 +1662,7 @@ def _train_answer(venue: int) -> Callable[[Any], Any]:
             and interaction.key == "locations.waf.venue_prompt"
         ):
             return venue
-        return 0  # the gangster pick: the only gangster
+        return 1  # the gangster pick (:1145, 1-based): the only gangster
 
     return answer
 
@@ -604,11 +1748,13 @@ def _engine_buy(v: Values) -> Any:
     player = _player(rank=6, gf=v["gf"], last_location=ln, roster=(_gangster(weapon=v["old"]),))
 
     def answer(interaction: Any) -> Any:
+        if interaction.key == "turn.picker.prompt":
+            return 1  # the only gangster (:1145, 1-based)
         if isinstance(interaction, PromptInt):
             return v["x"]
         if isinstance(interaction, Confirm):
             return True
-        return 0
+        raise AssertionError(f"unexpected prompt {interaction!r}")
 
     run = _drive(HANDLERS["waf.buy"], _state(player, score_mult=v["x8"]), draws, answer)
     p = run.state.players[0]
@@ -641,7 +1787,7 @@ def _engine_completion(v: Values) -> Any:
         answer=lambda i: 1,  # the croupier's trick
         fight=SimpleNamespace(winner=1, losses=(0, 0)),
     )
-    assert run.state.players[0].jobs == Job(), "the contract did not complete"
+    assert game.job(run.state.players[0]) == Job(), "the contract did not complete"
     return run.state.players[0].gf - 50
 
 
@@ -711,8 +1857,7 @@ def _recruit_state(hired: Iterable[int], ln: int) -> GameState:
     player = _player(rank=5, last_location=ln)
     return replace(
         _state(player),
-        map=MapState(tenancy={1: 0}),
-        flags=Flags(hired_gangsters=tuple(sorted(hired))),
+        values={**game.tenancy_values({1: 0}), **game.hired_values(hired)},
     )
 
 
@@ -854,7 +1999,7 @@ def _engine_batch(v: Values) -> Any:
         ka=v["ka"],
         roster=tuple(_gangster() for _ in range(v["gz"])),
     )
-    state = replace(_state(player), map=MapState(tenancy={1: 0}))
+    state = with_tenancy(_state(player), ln=1, owner=0)
     answers = iter(v["answers"])
     run = _drive(
         HANDLERS["pub.recruit"],
@@ -904,7 +2049,8 @@ def _engine_casino(v: Values) -> Any:
     return run.state.players[0].ka
 
 
-# --- :12020-12035 pub alcohol buy ---------------------------------------------------------
+# --- :12010-12035 pub alcohol buy ---------------------------------------------------------
+Q_12010 = q(12010, "ln=4orln=5")
 Q_12020_X = q(12020, "x=int(rnd(1)*200)+100")
 Q_12020_P = q(12020, "p=int(rnd(1)*5)+5")
 Q_12025_Q = q(12025, "q=tk(tm(sp))-ta(sp)")
@@ -916,6 +2062,9 @@ Q_12035_KA = q(12035, "ka(sp)=ka(sp)-p*y")
 
 def _basic_alcohol_buy(v: Values) -> Any:
     b: dict[str, Any] = {"sp": 1, "tm(1)": v["vehicle"], "ta(1)": v["ta"], "ka(1)": v["ka"]}
+    b["ln"] = v["ln"]
+    if not Q_12010.holds(b):
+        return "no buy"
     b.update({f"tk({i})": veh["tank"] for i, veh in enumerate(_VEHICLES)})
     b["rnd(1)"] = v["r_x"]
     b["x"] = Q_12020_X.assign(b)
@@ -933,7 +2082,7 @@ def _basic_alcohol_buy(v: Values) -> Any:
 def _engine_alcohol_buy(v: Values) -> Any:
     player = _player(
         ka=v["ka"],
-        last_location=4,
+        last_location=v["ln"],
         vehicle=v["vehicle"],
         contraband=Contraband(alcohol_barrels=v["ta"]),
     )
@@ -943,9 +2092,11 @@ def _engine_alcohol_buy(v: Values) -> Any:
         draws=(v["r_x"], v["r_p"]),
         answer=lambda i: min(v["want"], i.max),
     )
+    if "locations.pub.drink_offer" not in [m.key for m in run.shown]:
+        return "no buy"  # :12015's roll instead: refused, or the sell offer
     offered = run.asked[0].max
     p = run.state.players[0]
-    return (offered, p.ka, p.contraband.alcohol_barrels)
+    return (offered, p.ka, game.contraband(p).alcohol_barrels)
 
 
 # --- :12050/:12075 pub alcohol sell -------------------------------------------------------
@@ -969,7 +2120,7 @@ def _engine_alcohol_sell(v: Values) -> Any:
         HANDLERS["pub.drink"], _state(player), draws=(0.75, v["r"]), answer=lambda i: v["y"]
     )
     p = run.state.players[0]
-    return (p.ka, p.contraband.alcohol_barrels)
+    return (p.ka, game.contraband(p).alcohol_barrels)
 
 
 # --- :12215-12225 pub tip price and tip id -----------------------------------------------
@@ -999,7 +2150,7 @@ def _engine_tip(v: Values) -> Any:
         draws=(0.0, v["r_p"], v["r_tp"]),
         answer=lambda i: i.key == "locations.pub.tip_confirm",
     )
-    tips = [e.tip_type for e in run.effects if isinstance(e, TipSet)]
+    tips = [e.tip_type for e in run.effects if is_effect(e, TipSet)]
     return (run.state.players[0].ka, tips[0] if tips else None)
 
 
@@ -1034,7 +2185,7 @@ def _engine_job(v: Values) -> Any:
         draws=(0.5, v["r_type"], v["r_pay"]),
         answer=lambda i: True,
     )
-    (job,) = [e for e in run.effects if isinstance(e, JobSet)]
+    (job,) = [e for e in run.effects if is_effect(e, JobSet)]
     return (job.type, job.pending_pay, job.months_left)
 
 
@@ -1058,7 +2209,7 @@ def _engine_shop_buy(v: Values) -> Any:
     player = _player(ka=v["ka"], last_location=1)
     run = _drive(HANDLERS["kdh.trade"], _state(player), (v["r"],), lambda i: True)
     p = run.state.players[0]
-    return (p.ka, p.business.shop_tile)
+    return (p.ka, game.business(p).shop_tile)
 
 
 def _basic_shop_sell(v: Values) -> Any:
@@ -1256,13 +2407,13 @@ PORTS: list[Port] = [
     Port(
         "per-turn score truncation",
         (Q_1013,),
-        "movement.start_free_turn",
-        # Values whose gf*100 is exact or far from a whole number, where IEEE and C64
-        # floats agree. Near a whole cent the engine snaps the float drift first (see
-        # movement._SCORE_SNAP_DECIMALS), which this float evaluator does not model.
+        f"HANDLERS[{SCORE_TRUNCATION_HOOK_KEY!r}]",
+        # Exact and far-from-a-cent scores, and whole cents the C64 keeps (51.2, .29)
+        # or cuts (25.4 to 25.39, 12.34 to 12.33, .01 to 0), double drift included.
         _grid(
             gf=(0, 0.0078125, 0.125, 0.5, 11.1, 25.1953125, 25.5, 33.337, 51.25, 88.8)
             + (99.9990234375, 100, 101.5, -0.0078125, -0.125, -2.9990234375, -3.5, -12.345)
+            + (25.4, 12.34, 51.2, 0.29, 0.57, 1.13, 0.01, 99.99, 1.2 * 21, 8.4 * 3, -25.4)
         ),
         _basic_truncate,
         _engine_truncate,
@@ -1305,6 +2456,259 @@ PORTS: list[Port] = [
         ),
         _basic_rent,
         _engine_rent,
+    ),
+    Port(
+        "the marks fade",
+        (Q_4055, Q_4055_AG, Q_4056, Q_4056_AG),
+        "HANDLERS['upkeep.turn_start'] (marks fade)",
+        _grid(ag=range(4), r0=(0.0, 0.1249, 0.125, 0.5, 0.9990234375), r1=(0.0, 0.125, 0.7)),
+        _basic_decay,
+        _engine_decay,
+    ),
+    Port(
+        "ble passport",
+        (Q_22010, Q_22014, Q_22020_KA, Q_22020_AG),
+        "HANDLERS['ble.passport']",
+        _grid(gz=(1, 2, 5, 10), ka=(0, 999, 1000, 1999, 2000, 5000, 10**6), ag=range(4)),
+        _basic_passport,
+        _engine_passport,
+    ),
+    Port(
+        "ble counterfeit money",
+        (Q_22105, Q_22106, Q_22110, Q_22120_KA, Q_22120_AG),
+        "HANDLERS['ble.counterfeit']",
+        # q <= 0 leaves, q above 5000 or the cash is asked again; odd q leaves a
+        # half-width last bucket in int(rnd(1)*q/2).
+        _grid(
+            q=(-5000, -1, 0, 1, 2, 3, 7, 100, 999, 1000, 1001, 4999, 5000, 5001, 99999),
+            ka=(-50, 0, 1, 1000, 5000, 10**6),
+            ag=(0, 1, 2, 3),
+            r=R,
+        ),
+        _basic_counterfeit,
+        _engine_counterfeit,
+    ),
+    Port(
+        "chief-bribe months age",
+        (Q_4050,),
+        "HANDLERS['upkeep.turn_start'] (chief-bribe months)",
+        _grid(pl=(-3, -1, 0, 1, 2, 7)),
+        _basic_bribe_aging,
+        _engine_bribe_aging,
+    ),
+    Port(
+        "pol chief bribe",
+        (Q_21011, Q_21011_ZERO, Q_21015, Q_21020_KA, Q_21020_PL),
+        "HANDLERS['pol.bribe']",
+        # negative counts pay out (faithful); the cash check is strict.
+        _grid(
+            x=(-40, -3, -2, -1, 0, 1, 2, 3, 10, 40),
+            ka=(0, 999, 1000, 2999, 3000, 10**6),
+            pl=(-2, 0, 2),
+        ),
+        _basic_chief,
+        _engine_chief,
+    ),
+    Port(
+        "pol release price",
+        (Q_21130, Q_21135, Q_21140),
+        "HANDLERS['pol.free'] (the guards' price)",
+        _grid(ka=(0, 2999, 3000, 3500, 4999, 5000, 10**6), r=R),
+        _basic_release,
+        _engine_release,
+    ),
+    Port(
+        "aut car sale",
+        (Q_14010_X, Q_14010_LN, Q_14010_X2, Q_14030, Q_14035_P, Q_14035, Q_14040)
+        + (Q_14045_Q, Q_14045_IF, Q_14045_STOLEN, Q_14050_KA, Q_14050_MS, Q_14050_TM),
+        "HANDLERS['aut.buy']",
+        # the cash check ignores the trade-in: ka=4999 with a talbot cannot buy the buick.
+        _grid(
+            ln=(1, 2, 3, 4),
+            y=(1, 2, 3, 4, 5),
+            tm=range(6),
+            ka=(0, 2999, 3000, 4999, 5000, 6000, 10**6),
+        ),
+        _basic_car_sale,
+        _engine_car_sale,
+    ),
+    Port(
+        "aut car theft",
+        (Q_14100, Q_14110),
+        "HANDLERS['aut.steal'] (the crowd and the steal roll)",
+        # 3*in+4*kr is the integer bound: 120 (in=40 or kr=30 alone) is always caught.
+        _grid(
+            ln=(1, 2, 4),
+            r0=(0.0, 0.3, 0.9990234375),
+            r=R,
+            **{"in": (0, 40, 99)},
+            kr=(0, 30, 99),
+        ),
+        _basic_car_theft,
+        _engine_car_theft,
+    ),
+    Port(
+        "sgl jack's gang",
+        (Q_17210,),
+        "HANDLERS['sgl.protection'] (the size of Jack's gang)",
+        _grid(gz=range(1, 11)),
+        _basic_jack_count,
+        _engine_jack_count,
+    ),
+    Port(
+        "sgl payout",
+        (Q_17500, Q_17505, Q_17530, Q_17550),
+        "HANDLERS['sgl.protection'] (sgl._extort)",
+        # w is the last shooter's weapon after Jack's fight: 2 pays +600.
+        _grid(ln=range(1, 10), w=range(9), r0=(0.0, 0.3, 0.375, 0.9990234375), r=R),
+        _basic_extortion,
+        _engine_extortion,
+    ),
+    Port(
+        "sgl shop wrecked, owner finished",
+        (Q_17530, Q_17550, Q_17575, Q_17590, Q_17578),
+        "HANDLERS['sgl.protection'] (sgl._demolish, sgl._kill_owner)",
+        _grid(ln=range(1, 10), choice=(2, 3), r=(0.0, 0.5), r2=R),
+        _basic_settle,
+        _engine_settle,
+    ),
+    Port(
+        "sub pickpocketing",
+        (Q_18025, Q_18030, Q_18040, Q_18041, Q_18045, Q_18047, Q_18049, Q_18050, Q_18051),
+        "HANDLERS['sub.platform'], HANDLERS['sub.train'] (sub.pickpocket)",
+        # r0=0.7 is the manual (int(0.7*15)=10); in=10 and below is always caught.
+        _grid(
+            w=(1, 2),
+            la=(8, 9),
+            ka=(49, 50, 1000),
+            r0=(0.0, 0.7, 0.9990234375),
+            r1=R,
+            r2=(0.0, 0.25, 0.5, 0.75, 0.9990234375),
+            **{"in": (0, 5, 10, 11, 40, 99)},
+        ),
+        _basic_pickpocket,
+        _engine_pickpocket,
+    ),
+    Port(
+        "bhf mail train",
+        (
+            Q_19015,
+            Q_19016,
+            Q_19016_TP,
+            Q_20050_P,
+            Q_20050_X,
+            Q_20051,
+            Q_20051_TP,
+            Q_20051_P,
+            Q_20060,
+        ),
+        "HANDLERS['bhf.mail_train'] (ban.heist_payout)",
+        _grid(tp=range(6), gz=range(5), r=R),
+        _basic_mail_train,
+        _engine_mail_train,
+    ),
+    Port(
+        "ban hold-up",
+        (Q_20009, Q_20010, Q_20050_P, Q_20050_X, Q_20051, Q_20051_TP, Q_20051_P, Q_20060),
+        "HANDLERS['ban.holdup'] (ban.heist_payout)",
+        _grid(ln=range(1, 6), tp=range(6), gz=(1, 2), r0=(0.0, 0.3, 0.5, 0.9990234375), r=R),
+        _basic_holdup,
+        _engine_holdup,
+    ),
+    Port(
+        "ban guards",
+        (Q_20012,),
+        "HANDLERS['ban.holdup'] (the number of guards)",
+        _grid(ln=range(1, 6)),
+        _basic_bank_guards,
+        _engine_bank_guards,
+    ),
+    Port(
+        "win cells armed",
+        (Q_2002, Q_2003),
+        "win_flows.armed_cells (the city's armed guards)",
+        _grid(tp=range(6)),
+        _basic_armed,
+        _engine_armed,
+    ),
+    Port(
+        "win cash transport",
+        (
+            Q_23010,
+            Q_23010_TP,
+            Q_20050_P,
+            Q_20050_X,
+            Q_20051,
+            Q_20051_TP,
+            Q_20051_P,
+            Q_20060,
+        ),
+        "HANDLERS['turn.special_cell'] on 569 (win_flows.cash_transport)",
+        _grid(gz=range(5), r=R),
+        _basic_transport,
+        _engine_transport,
+    ),
+    Port(
+        "win mayor hit",
+        (Q_24020_KA, Q_24020_AG, Q_24020_TP),
+        "HANDLERS['turn.special_cell'] on 861 (win_flows.mayor_hit)",
+        _grid(ka=(0, 1000), ag=range(4)),
+        _basic_mayor,
+        _engine_mayor,
+    ),
+    Port(
+        "gang war duel",
+        (Q_27020_A, Q_27020_B, Q_27025, Q_27028, Q_27031_TMA, Q_27031_TMB)
+        + (Q_27035_KAA, Q_27035_KAB, Q_27035_AGA, Q_27035_AGB)
+        + (Q_27040_X, Q_27040_IF, Q_27040_CAP, Q_27041_TAA, Q_27041_TAB, Q_27045),
+        "HANDLERS['turn.gang_war'] (gang_war.gang_war, gang_war.plunder)",
+        _grid(
+            s=(1, 2),
+            players=_GANG_WAR_SEATS + tuple(seats[::-1] for seats in _GANG_WAR_SEATS),
+            r=R,
+            ans=("j", "n"),
+        ),
+        _basic_gang_war,
+        _engine_gang_war,
+    ),
+    Port(
+        "prison brawl",
+        (Q_27115, Q_27120, Q_27140, Q_27145, Q_27150_MS, Q_27150_X),
+        "HANDLERS['turn.gang_war'] (gang_war._prison_brawl)",
+        _grid(s=(1, 2), ka=(2999, 3000, 3001, 9000), gs=(1, 4), gf=(50.0, 98.5, 0.0), r=R),
+        _basic_prison_brawl,
+        _engine_prison_brawl,
+    ),
+    Port(
+        "ban safe gate",
+        (Q_20100,),
+        "HANDLERS['ban.safe'] (the boss's stats)",
+        _grid(**{"in": (39, 40, 99)}, kr=(14, 15), bt=(19, 20)),
+        _basic_safe_gate,
+        _engine_safe_gate,
+    ),
+    Port(
+        "ban safe-crack",
+        (Q_20110_RD, Q_20110_CD, Q_20111_Y, Q_20111_S9, Q_20111_CAP, Q_20116_X, Q_20116_RD)
+        + (Q_20116_WRAP, Q_20125, Q_20130, Q_20135_Y, Q_20135),
+        "SUBSTATES['safe_crack'] (ban.safe_crack)",
+        _grid(
+            **{"in": (0, 7, 8, 12, 40, 63, 99)},
+            ln=(1, 3),
+            s9=(0, 1, 5),
+            code=((0.0, 0.0, 0.0), (0.1, 0.2, 0.3), (0.9990234375, 0.5, 0.25)),
+            slips=((0.5,), (0.0,), (0.0, 0.5), (0.125, 0.9990234375, 0.3)),
+        ),
+        _basic_safe,
+        _engine_safe,
+    ),
+    Port(
+        "pol thank-you",
+        (Q_21252, Q_21253, Q_21255_KX, Q_21255_KSP),
+        "HANDLERS['pol.free'] (the freed player's thanks)",
+        _grid(y=(-5, -1, 0, 1, 499, 500, 501, 10**6), kax=(0, 1, 500)),
+        _basic_thanks,
+        _engine_thanks,
     ),
     Port(
         "arms-deal payout",
@@ -1406,9 +2810,10 @@ PORTS: list[Port] = [
     ),
     Port(
         "pub alcohol buy",
-        (Q_12020_X, Q_12020_P, Q_12025_Q, Q_12025_CAP, Q_12030, Q_12035_TA, Q_12035_KA),
-        "HANDLERS['pub.drink'] (buy, ln=4)",
+        (Q_12010, Q_12020_X, Q_12020_P, Q_12025_Q, Q_12025_CAP, Q_12030, Q_12035_TA, Q_12035_KA),
+        "HANDLERS['pub.drink'] (buy, ln=4 and the station pub's ln=5)",
         _grid(
+            ln=(3, 4, 5, 6),
             vehicle=range(len(_VEHICLES)),
             ta=(0, 30),
             r_x=(0.0, 0.5, 0.9990234375),
@@ -1474,6 +2879,79 @@ PORTS: list[Port] = [
         _NEW_GAME_GRID,
         _basic_new_game,
         _engine_new_game,
+    ),
+    Port(
+        "police squad",
+        (Q_26000, Q_26010_W, Q_26010_E),
+        "police.police_fight",
+        # an odd rank gives int(rnd(1)*ra/2) a half-width top bucket
+        _grid(ra=range(1, 11), r0=R, r1=(0.0, 0.5, 0.9990234375)),
+        _basic_squad,
+        _engine_squad,
+    ),
+    Port(
+        "police chief-bribe auto-pay",
+        (Q_26021, Q_26037, Q_26038_KA, Q_26038),
+        "police.caught (auto-pay)",
+        _grid(
+            pl=(0, 1, 3),
+            p=(0, 520, 52724),
+            ka=(0, 519, 520, 10**6),
+            r0=(0.0, 0.4990234375, 0.5, 0.9990234375),
+            r1=(0.0, 0.1990234375, 0.2, 0.9990234375),
+        ),
+        _basic_autopay,
+        _engine_autopay,
+    ),
+    Port(
+        "police bribe",
+        (Q_26035, Q_26037, Q_26038_KA, Q_26038),
+        "police.caught (bribe)",
+        _grid(
+            ra=range(1, 11),
+            ka=(0, 999, 1000, 3000, 5499, 5500, 10**6),
+            r=(0.0, 0.1990234375, 0.2, 0.9990234375),
+        ),
+        _basic_bribe,
+        _engine_bribe,
+    ),
+    Port(
+        "police flight",
+        (Q_26040,),
+        "police.caught (flight)",
+        _grid(sp=(1, 2, 3, 4), r=R + (0.18, 0.19, 0.27, 0.28, 0.31, 0.32)),
+        _basic_flight,
+        _engine_flight,
+    ),
+    Port(
+        "the map roadblock",
+        (Q_2041, Q_6015, Q_6016, Q_6017, Q_6018, Q_6036, Q_110_BR, Q_2030),
+        "HANDLERS['turn.roadblock']",
+        _grid(
+            ra=(3, 4, 10),
+            ms=(0, 19, 20, 40),
+            r0=(0.0, 0.1990234375, 0.2),
+            r1=(0.0, 0.3330078125, 0.333984375, 0.9990234375),
+            ag=range(4),
+            ta=(0, 3),
+            po=(500,),
+            x=(1, -40),
+        ),
+        _basic_roadblock,
+        _engine_roadblock,
+    ),
+    Port(
+        "trial and lawyer",
+        (Q_26045, Q_26050, Q_26061, Q_26062_KA, Q_26062_Y, Q_26065, Q_26065_FLOOR),
+        "police.sentence",
+        _grid(
+            ra=(1, 2, 3, 4, 5, 6, 9, 10),
+            x=(-5, 0, 1, 999, 1000, 1500, 2999, 3000, 9999, 20000),
+            ka=(0, 1000, 10**6),
+            r=R,
+        ),
+        _basic_trial,
+        _engine_trial,
     ),
     Port(
         "combat side anchors",
@@ -1575,8 +3053,9 @@ def test_every_quote_belongs_to_a_port() -> None:
     assert [quote for quote in QUOTES if quote not in used] == []
 
 
-# A quote must start at a statement or condition boundary and end at one.
-_BEFORE = r"(?:^|:|\bif|then)\s*"
+# A quote must start at a statement or condition boundary and end at one. ``on`` opens
+# the selector expression of an ``on ... goto`` (:18045).
+_BEFORE = r"(?:^|:|\bif|then|\bon)\s*"
 _AFTER = r"\s*(?:$|:|then|goto|gosub)"
 
 

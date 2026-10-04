@@ -1,0 +1,36 @@
+# aut (Automobil-Haendler) — classic-theme strings (VERBATIM German).
+#
+# DATA, not code: handlers/aut.py emits these KEYS and the theme resolves them. The menu
+# is the SEQ file src/aut (research-data/pass-2/location-dialogue.yaml, aut), with its
+# 40-column wrap padding; the rest is mf-prg.bas:14006-14131, printed as the listing
+# prints it. A number the source prints between strings is a bare placeholder: the c64
+# number style prints the spaces C64 PRINT puts around it (_format.yaml). A screen that ends
+# in :1100's "taste druecken!" pause gets it from the client.
+locations:
+  aut:
+    entry_prompt: "EIN UMFANGREICHES SORTIMENT DER         FLOTTESTEN SCHLITTEN."
+    menu:
+      buy: "WAGEN KAUFEN"
+      steal: "AUTO 'ORGANISIEREN'"
+      leave: "WIEDER GEHEN"
+
+    # --- buy (14006-14052) ---
+    showroom: "der verkaeufer zeigt dir eine auswahl\nder modelle. zum kauf die entsprechende\nnummerntaste (0=ende) druecken!"   # 14006-14008
+    # 14014 chr$(49+i)" "tm$(i+1), then tab(11);3000+1000*i"$"
+    model: "{number:mid$} {name}\n{price}$"
+    # 14020's getx$ prints nothing: the prompt under the list repeats 14008's line.
+    model_prompt: "nummerntaste (0=ende) druecken!"
+    trade_in_offer: "man bietet dir{amount}$ fuer deine alte\nschaukel."   # 14046-14047
+    confirm: "ok (j/n)?"                                                   # 1110
+    sold: "der verkaeufer reicht dir schluessel\nund papiere."              # 14051-14052
+
+    # --- steal (14100-14131) ---
+    crowded: "es sind zuviele leute hier!"                                 # 14100
+    steal_prompt: "wer soll den wagen aufbrechen:"                         # 14101
+    # 14115-14116; {$a0} is a shifted space, shown blank.
+    stolen: "yeah! die karre ist offen! du machst\ndich damit aus dem staub."
+    # 14115-14117: "{left} und musst lei- " goes back over the full stop and fills the
+    # row to column 39.
+    stolen_old_car_left: "yeah! die karre ist offen! du machst\ndich damit aus dem staub und musst lei-\nder deinen alten wagen stehen lassen."
+    caught: "leider erwischt dich der besitzer der\nkarre!"                   # 14120
+    owner_killed: "nach dem mord an dem besitzer musst du\nverschwinden und den wagen stehen\nlassen!"   # 14130-14131

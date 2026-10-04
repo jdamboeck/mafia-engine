@@ -1,0 +1,19 @@
+# The police fight that comes before an arrest (mf-prg.bas:26000-26010).
+#
+# The squad's size, weapon and energy depend on the arrested player's rank, so the
+# police capture (handlers/police.py) rolls them per fight and hands them to the fight
+# helper as overrides; the values here are their bases at rank 1:
+#   gz(0)=5+int(rnd(1)*ra(sp)/2)       -> 5 plus a rank roll
+#   w=5-2*(ra(sp)>5)                   -> revolver (5), maschinenpistole (7) above rank 5
+#   e=20+2*(ra(sp)-1)-int(rnd(1)*21)   -> 20 plus 2 per rank above 1, minus a roll
+# The backdrop is the caller's kf$ ("ks" or "kb"); "ks" is the default.
+#
+# No declarable consequence: a win scores 2 and a loss leads into the arrest, both in
+# the capture module.
+key: police_fight
+enemies:
+  count: 5            # gz(0)=5+... — :26000
+  weapon: 5           # revolver — :26010
+  vitality: 20        # e=20+... — :26010
+  name: die polizei   # bn$(0)="die polizei" — :26000
+grid: ks

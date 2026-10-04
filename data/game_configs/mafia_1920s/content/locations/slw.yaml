@@ -1,24 +1,20 @@
 # slw (Schlupfwinkel / motel) — location shell (declarative layer).
 #
-# Ports the slw menu from mf-prg.bas:10000-10105. Three options; the two rent
-# options share ONE procedural handler ("slw.rent") and differ only by their
-# guard (the shell owns guard evaluation / denial; the handler is entered
-# only when the guard passes).
+# Ports the slw menu from mf-prg.bas:10000-10105. Three options, always all
+# offered (the source prints the file's options with no precondition, :3030);
+# each rent option refuses inside its handler, as the source does:
 #
-#   rent      — guard uk(ln)=0  (room free);              on_denied -> no_room
-#   pay_rent  — guard uk(ln)=sp (you are the tenant);     on_denied -> not_resident
-#   leave     — guardless; a no-op return to the map.
+# The options in the source's order, :10005 `onwgoto10010,10100`:
+#   rent      — slw.rent: refuses a room anyone holds (:10010)
+#   pay_rent  — slw.pay_rent: refuses anyone but the tenant (:10100)
+#   leave     — costs 5 movement points (:3045) back to the map.
 key: slw
 options:
   - id: rent
-    guard: {var: tenancy, op: '=', value: 0}
-    on_denied: "locations.slw.no_room"
     handler: "slw.rent"
   - id: pay_rent
-    guard: {var: tenancy, op: '=', value: {var: sp}}
-    on_denied: "locations.slw.not_resident"
-    handler: "slw.rent"
+    handler: "slw.pay_rent"
   - id: leave
     resolve:
       consequences:
-        - {type: ms_change, amount: 0}
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

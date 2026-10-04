@@ -1,8 +1,12 @@
 # Theme settings (not templates) — the reserved `_format` key (engine/strings.py).
 #
-# numbers: c64 prints every int/float param the way the C64's str$ does, minus the
-# sign-position space for a non-negative: 22.0 prints "22", -0.9 prints "-.9",
-# 0.5 prints ".5". A template whose source line prints via mid$(str$(..),2) asks
-# for that form with {n:mid$} (see upkeep.rank_promotion, game_end.standings_header).
+# numbers: c64 prints every int/float param the way the C64's PRINT does: str$'s
+# sign position (a space, or "-"), the digits, then a trailing space (PRINT's
+# cursor-right): 22.0 prints " 22 ", -0.9 prints "-.9 ". So the source's
+# print"du hast"p"$" is the template "du hast{p}$" ("du hast 500 $"). A template
+# whose source prints through str$ or mid$(str$(..),2) asks for that form with
+# {n:str$} or {n:mid$} (see upkeep.rank_promotion, game_end.standings_header);
+# {tab(N)} is the source's tab(N). The port's own text, which no source line
+# prints (client.*, fightlab.*), uses {n:raw}: no C64 padding.
 _format:
   numbers: c64

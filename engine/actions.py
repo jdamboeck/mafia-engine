@@ -23,13 +23,14 @@ Pure data + stdlib only; the ``engine/`` package imports nothing from ``server``
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Generator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from engine.state import GameState
 
 if TYPE_CHECKING:  # avoid importing the shell/driver at module load (layering + cycles)
-    from engine.locations import Location
+    from engine.locations import Location, Option
 
 #: The mutually-exclusive outcomes of running one option. ``"error"`` is reserved for a
 #: future recoverable runtime error (see the module docstring); bugs raise instead.
@@ -125,30 +126,80 @@ def run_option(
 
     ``ln`` (the within-location tile index) is threaded into the guard evaluation context
     exactly as :func:`engine.locations.available_options` does (via
-    :func:`engine.conditions.build_context`), so ``ln``-sensitive guards such as
-    ``tenancy`` resolve against the tile actually entered. Handlers read ``ln`` off state
+    :func:`engine.conditions.build_context`), so a guard variable that reads the tile
+    resolves against the tile actually entered. Handlers read ``ln`` off state
     (the active player's ``last_location`` seam), so ``ln`` here only feeds the guard.
+
+    :func:`step_option` is the generator form (the engine turn runner's): the same
+    dispatch, with the handler's interactions yielded instead of pulled.
 
     Imports of the shell/driver/consequence machinery are LOCAL to keep this module's
     top-level import graph minimal (it defines the result types those modules depend on).
     """
-    # Local imports (see docstring): avoids a top-level dependency on the shell/driver.
-    from engine.conditions import build_context, evaluate
-    from engine.consequences import effects_from_dicts
-    from engine.effects import commit
-    from engine.events import (
-        LocationActionCancelled,
-        LocationActionCompleted,
-        OptionDenied,
-    )
     from engine.interactions import run
 
+    option = _find_option(location, option_id)
+    settled = _settle_without_handler(location, option, state, ln)
+    if settled is not None:
+        return settled
+    if input_source is None:
+        raise ValueError(
+            f"option {option_id!r} on location {location.key!r} has a handler; "
+            "run_option requires an input_source to drive it"
+        )
+    # _parse_option guarantees exactly one of handler/consequences; consequences is None here.
+    assert option.handler is not None, f"option {option_id!r} has neither handler nor consequences"
+    result = run(option.handler, input_source, state=state, rng=rng)
+    return _with_lifecycle(result, location, option_id)
+
+
+def step_option(
+    location: "Location",
+    option_id: str,
+    state: GameState,
+    *,
+    ln: int | None,
+    rng=None,
+    observe_ai: bool = False,
+) -> Generator[Any, Any, EngineResult[GameState]]:
+    """The generator form of :func:`run_option`: yield the handler's interactions.
+
+    The same dispatch and the same result, but a handler option runs through
+    :func:`engine.interactions.step`, so its prompts, sub-states and fights reach
+    whoever drives this generator (the engine turn runner composes it with
+    ``yield from``). ``observe_ai`` is ``step``'s. A guard denial or a consequence
+    option yields nothing.
+    """
+    from engine.interactions import step
+
+    option = _find_option(location, option_id)
+    settled = _settle_without_handler(location, option, state, ln)
+    if settled is not None:
+        return settled
+    assert option.handler is not None, f"option {option_id!r} has neither handler nor consequences"
+    result = yield from step(option.handler, state, rng, observe_ai=observe_ai)
+    return _with_lifecycle(result, location, option_id)
+
+
+def _find_option(location: "Location", option_id: str) -> "Option":
+    """The option ``option_id`` of ``location``; an unknown id is a :class:`ValueError`."""
     option = next((o for o in location.options if o.id == option_id), None)
     if option is None:
         raise ValueError(
             f"unknown option id {option_id!r} for location {location.key!r}; "
             f"known: {[o.id for o in location.options]}"
         )
+    return option
+
+
+def _settle_without_handler(
+    location: "Location", option: "Option", state: GameState, ln: int | None
+) -> EngineResult[GameState] | None:
+    """A guard denial or a consequence option's result; ``None`` for a handler option."""
+    from engine.conditions import build_context, evaluate
+    from engine.consequences import effects_from_dicts
+    from engine.effects import commit
+    from engine.events import LocationActionCompleted, OptionDenied
 
     # --- guard (same evaluation path as available_options) ------------------ #
     context = build_context(state, ln)
@@ -158,7 +209,7 @@ def run_option(
             events=[
                 OptionDenied(
                     location_key=location.key,
-                    option_id=option_id,
+                    option_id=option.id,
                     reason_key=option.on_denied,
                 )
             ],
@@ -166,7 +217,7 @@ def run_option(
             status="blocked",
             payload=DeniedResult(
                 location_key=location.key,
-                option_id=option_id,
+                option_id=option.id,
                 reason_key=option.on_denied,
                 guard=option.guard,
             ),
@@ -178,20 +229,18 @@ def run_option(
         commit_result = commit(state, effects)
         return EngineResult(
             state=commit_result.state,
-            events=[LocationActionCompleted(location_key=location.key, option_id=option_id)],
+            events=[LocationActionCompleted(location_key=location.key, option_id=option.id)],
             effects=commit_result.effects,
             status="completed",
         )
+    return None
 
-    # --- handler option: delegate to the driver, then append lifecycle ------ #
-    if input_source is None:
-        raise ValueError(
-            f"option {option_id!r} on location {location.key!r} has a handler; "
-            "run_option requires an input_source to drive it"
-        )
-    # _parse_option guarantees exactly one of handler/consequences; consequences is None here.
-    assert option.handler is not None, f"option {option_id!r} has neither handler nor consequences"
-    result = run(option.handler, input_source, state=state, rng=rng)
+
+def _with_lifecycle(
+    result: EngineResult[Any], location: "Location", option_id: str
+) -> EngineResult[GameState]:
+    """Append the generic location lifecycle event to a handler option's result."""
+    from engine.events import LocationActionCancelled, LocationActionCompleted
 
     if result.status == "cancelled":
         lifecycle = LocationActionCancelled(location_key=location.key, option_id=option_id)

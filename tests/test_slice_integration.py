@@ -8,9 +8,9 @@ the whole spine with **no terminal client** in sight.
       -> walk the real city map into slw (by movement, not teleport)
       -> RENT a room at a positive-rent tile (-100 cash, tenancy + months set)
       -> the negative-rent QUIRK: renting fnm(1) == -50 CREDITS the player (+100)
-      -> guard denials reached on the map: rent-occupied + pay-rent-not-resident
+      -> refusals inside the handlers: rent-occupied + pay-rent-not-resident
       -> the 0-month quiet cancel (zero effects, cash untouched)
-      -> walk to the pub -> recruit DENIED at rank 1 (the slice's headline)
+      -> walk to the pub -> recruit REFUSED at rank 1 (the slice's headline)
       -> determinism: the same seed reproduces the whole final state.
 
 HEADLESSNESS IS THE POINT. This file imports **nothing** from ``clients/`` (U10, the
@@ -32,9 +32,8 @@ The composition it proves (the "how you play a turn" the orchestrator owns):
   the state unchanged); on a driver-cancel it returns the ORIGINAL, unchanged state. Effects persist
   across the trajectory ONLY by adopting ``state = result.state`` after each driven
   handler.
-* The shell (``available_options``) owns guard denial (KTD-8): a denied option is
-  EXCLUDED and its handler never runs / commits zero effects; the caller reads the
-  excluded option's ``on_denied`` key.
+* The menus are fixed, as the source's are: every option is offered and a refusal
+  happens inside its handler, which commits zero effects (#122).
 """
 
 from __future__ import annotations
@@ -51,6 +50,7 @@ from engine.interactions import PromptInt, ShowMessage, run
 from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, UP, load_city, try_move
 from tests.helpers import deadline, with_player, with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -67,6 +67,11 @@ _PUB_SHELL = _CONFIG_DIR / "content" / "locations" / "pub.yaml"
 # A fixed seed for the whole trajectory. Setup rolls give: cash 5500 (in the
 # 5000..7000 band), rank 1, ms 25 (on foot), po 18.
 SEED = 42
+
+
+def _tenancy(state) -> dict[int, int]:
+    """Every rented motel tile as ``{ln: tenant}`` (the global ``uk(ln)`` values)."""
+    return {ln: tenant for ln in range(1, 10) if (tenant := game.tenant(state, ln)) is not None}
 
 
 # --------------------------------------------------------------------------- #
@@ -95,6 +100,10 @@ class _Recorder:
     @property
     def types(self) -> list[type]:
         return [type(i) for i in self.seen]
+
+    @property
+    def keys(self) -> list[str]:
+        return [i.key for i in self.seen]
 
 
 def _load_city():
@@ -172,7 +181,7 @@ def _play_trajectory():
     assert r_enter.payload.kind == "enter"
     assert r_enter.payload.la == 1 and r_enter.payload.ln == 2
     assert p.po == 181  # po does NOT move onto the door
-    assert p.ms == 19  # ms -= 5 on entry
+    assert p.ms == 24  # no charge at the door: :2060 ms=ms-5 follows the visit
     assert p.last_location == 2  # the ln seam populated by real entry
     obs["po_after_slw_walk"] = p.po
     obs["ms_after_slw_walk"] = p.ms
@@ -185,16 +194,16 @@ def _play_trajectory():
     p = state.players[0]
     # fnm(2) == base == 50 -> 2 months cost 100; cash drops by exactly 100.
     assert p.ka == ka_before_rent - 100
-    assert state.map.tenancy[2] == 0  # tenancy set to sp (active player index 0)
-    assert p.rented_months == 2
+    assert game.tenant(state, 2) == 0  # tenancy set to sp (active player index 0)
+    assert game.rented_months(p) == 2
     # The FULL presented interaction sequence, straight off the recording input_source
     # (#43): quote -> months prompt -> success. Before narration was delivered this
     # had to be observed out-of-band by hand-driving the generator, which proved the
     # handler YIELDED the messages but not that any client could receive them.
     assert rent_rec.types == [ShowMessage, PromptInt, ShowMessage]
     obs["cash_after_positive_rent"] = p.ka
-    obs["tenancy_after_rent"] = dict(state.map.tenancy)
-    obs["rented_months_after_rent"] = p.rented_months
+    obs["tenancy_after_rent"] = _tenancy(state)
+    obs["rented_months_after_rent"] = game.rented_months(p)
 
     # ================================================================= #
     # PREMIUM TILE: renting fnm(1) == 150 costs triple the base rate.     #
@@ -214,31 +223,33 @@ def _play_trajectory():
     neg_state = neg_result.state
     # MoneyChange(-(x*p)) = -(2 * 150) = -300 -> cash DECREASES.
     assert neg_state.players[0].ka == ka_before_neg - 300
-    assert neg_state.map.tenancy[1] == 0
+    assert game.tenant(neg_state, 1) == 0
     obs["cash_after_premium_rent"] = neg_state.players[0].ka
     obs["premium_rent_delta"] = neg_state.players[0].ka - ka_before_neg
 
     # ================================================================= #
-    # B. Guard denials (zero effects; handler NEVER entered — KTD-8).     #
-    #    Read the EXCLUDED option's on_denied key straight off the shell.  #
+    # B. Refusals inside the handlers (zero effects). The menu is fixed:  #
+    #    both options are offered and refuse as :10010/:10100 print.      #
     # ================================================================= #
-    # Rent-occupied: tile 2 taken by a DIFFERENT player -> rent excluded.
+    # Rent-occupied: tile 2 taken by a DIFFERENT player -> :10010 refuses.
     occupied = _fresh_state()
     occupied = with_player(occupied, 0, last_location=2)
     # tile 2 owned by player 1 (not the active 0)
     occupied = with_tenancy(occupied, {2: 1})
-    avail_occ = {o.id for o in available_options(slw, occupied, ln=2)}
-    assert "rent" not in avail_occ  # guard tenancy==0 fails -> excluded
-    assert _opt(slw, "rent").on_denied == "locations.slw.no_room"
+    occ_rec = _Recorder()
+    occ_result = _drive_option(slw, "rent", occupied, ln=2, recorder=occ_rec)
+    assert occ_result.effects == []
+    assert occ_rec.keys == ["locations.slw.no_room"]
 
-    # Pay-rent-not-resident: tile owned by a NON-active player -> pay_rent excluded.
+    # Pay-rent-not-resident: tile owned by a NON-active player -> :10100 refuses.
     not_resident = _fresh_state()
     not_resident = with_player(not_resident, 0, last_location=2)
     # someone who isn't the active player
     not_resident = with_tenancy(not_resident, {2: 99})
-    avail_nr = {o.id for o in available_options(slw, not_resident, ln=2)}
-    assert "pay_rent" not in avail_nr  # guard tenancy==sp fails -> excluded
-    assert _opt(slw, "pay_rent").on_denied == "locations.slw.not_resident"
+    nr_rec = _Recorder()
+    nr_result = _drive_option(slw, "pay_rent", not_resident, ln=2, recorder=nr_rec)
+    assert nr_result.effects == []
+    assert nr_rec.keys == ["locations.slw.not_resident"]
 
     # ================================================================= #
     # C. 0-month quiet cancel (:10030) — ZERO effects, cash UNCHANGED.    #
@@ -251,10 +262,10 @@ def _play_trajectory():
     assert cancel_result.status == "completed"  # a quiet return, not a driver-cancel
     assert cancel_result.effects == []  # atomic: nothing applied
     assert cancel_result.state.players[0].ka == ka_before_cancel  # unchanged
-    assert 2 not in cancel_result.state.map.tenancy  # no tenancy set
+    assert game.tenant(cancel_result.state, 2) is None  # no tenancy set
 
     # ================================================================= #
-    # D. Walk to the pub -> recruit DENIED at rank 1 (the HEADLINE).      #
+    # D. Walk to the pub -> recruit REFUSED at rank 1 (the HEADLINE).     #
     #    Real walk: po=474 --LEFT--> 473 --UP--> door 433 (la=2, ln=1).   #
     # ================================================================= #
     p = state.players[0]
@@ -275,18 +286,19 @@ def _play_trajectory():
     obs["po_after_pub_walk"] = p.po
     obs["ms_after_pub_walk"] = p.ms
 
-    avail_pub = {o.id for o in available_options(pub, state, ln=1)}
-    assert "recruit" not in avail_pub  # guard rank>4 fails at rank 1 -> EXCLUDED
-    assert _opt(pub, "recruit").on_denied == "locations.pub.rank_too_low"
-    # No handler ran, so no effects were committed on the denial (nothing to adopt).
+    recruit_rec = _Recorder()
+    recruit_result = _drive_option(pub, "recruit", state, ln=1, recorder=recruit_rec)
+    # :12100-12102 -- rank 1 is refused inside the handler; nothing committed.
+    assert recruit_rec.keys == ["locations.pub.rank_too_low"]
+    assert recruit_result.effects == []
 
     # --- final-state fingerprint (for determinism) ------------------------- #
     p = state.players[0]
     obs["final_cash"] = p.ka
     obs["final_po"] = p.po
     obs["final_ms"] = p.ms
-    obs["final_rented_months"] = p.rented_months
-    obs["final_tenancy"] = dict(state.map.tenancy)
+    obs["final_rented_months"] = game.rented_months(p)
+    obs["final_tenancy"] = _tenancy(state)
     obs["final_rank"] = p.rank
     return obs
 
@@ -311,7 +323,7 @@ def test_vertical_slice_end_to_end():
     assert obs["premium_rent_delta"] == -300
 
     # Walk bookkeeping.
-    assert obs["po_after_slw_walk"] == 181 and obs["ms_after_slw_walk"] == 19
+    assert obs["po_after_slw_walk"] == 181 and obs["ms_after_slw_walk"] == 24
     assert obs["po_after_pub_walk"] == 473
 
     # Final fingerprint reflects only the positive-rent effects on the main line
@@ -391,8 +403,8 @@ _SMOKE_ARGV = [
     "b:y",
 ]
 _SMOKE_PLAYERS = [("a", "x"), ("b", "y")]
-#: The turn (0-based, over both players) whose map screen starts with the mid-game
-#: ``p``: half of the 72 turns a two-player 1928 game has.
+#: The turn (0-based, over both players) whose turn menu takes the mid-game ``p``:
+#: half of the 72 turns a two-player 1928 game has.
 _SMOKE_SAVE_TURN = 36
 #: The second casino visit happens on the first turn from here on that can reach
 #: sph within one turn's movement -- strictly AFTER the save, so run B draws on
@@ -406,19 +418,22 @@ def _smoke_plan():
     ``play()`` key for key.
 
     Returns ``(lines, mid_save_at, last_save_at)``: ``lines`` is the exact stdin body
-    after ``main()``'s title ack (the setup prompts are skipped by the flags); the two
+    after ``main()``'s title ack and the house-rules offer (:data:`_BEFORE_UPKEEP`; the
+    setup prompts are skipped by the flags); the two
     indices point at the mid-game and final-turn ``p`` keys.
 
-    Per turn: an optional ``p`` on the map, an optional casino visit (walk into the
+    Per turn: an optional ``p`` at the turn menu, its walk key, an optional casino visit (walk into the
     sph door, splash ack, ``play``, poker, wager 100), then stepping moves to the
     turn-over, its ack, the standings ack on a round wrap, and the result-screen ack
     (``game_over``) or the next turn's upkeep ack -- exactly
     ``tests.test_client_loop.burn_turn_keys``, plus the visits and saves. sph moves
-    nobody and spends no ``ms`` (only the door step does, inside ``try_move``), and an
+    nobody and spends no ``ms`` (only the door's 5 do, after the visit), and an
     idle player's upkeep asks nothing (``test_idle_upkeep_never_asks_across_the_game``),
     so the walk needs no RNG to stay in step with the real run.
     """
-    from engine.movement import advance_turn
+    from engine.effects import MsChange, commit
+    from engine.movement import ENTER_COST
+    from tests.helpers import MENU_WALK_KEY, next_turn_by_hand
     from tests.test_client_loop import (
         MOVE_KEYS as _MOVE_KEYS,
     )
@@ -428,7 +443,6 @@ def _smoke_plan():
         walk_keys_to_cell,
     )
 
-    vehicles = _CONFIG.module.load_vehicles(_CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
     city_raw = load_city_raw()
     city = load_city(city_raw)
     sph_door = find_door_cell(city_raw, "sph")
@@ -443,12 +457,15 @@ def _smoke_plan():
             keys.append(key)
             kind = getattr(result.payload, "kind", None)
             if kind == "enter":
-                return keys + ["", "0", "0", "100"], state, result.payload.turn_over
+                # :2060 ms=ms-5 after the visit, as the turn runner charges it.
+                state = commit(state, [MsChange(-ENTER_COST)]).state
+                over = state.players[state.clock.active_player].ms <= 0
+                return keys + ["", "0", "0", "100"], state, over
             if kind != "step" or result.payload.turn_over:
                 return None  # the walk needs more than this turn's movement
         return None
 
-    lines: list[str] = [""]  # the first turn's upkeep ack (the title ack is prepended)
+    lines: list[str] = [""]  # the first turn's upkeep ack (_BEFORE_UPKEEP is prepended)
     mid_save_at = last_save_at = None
     visits = 0
     turn = 0
@@ -459,6 +476,8 @@ def _smoke_plan():
         if turn == 71:  # the last turn of 36 rounds x 2 players
             last_save_at = len(lines)
             lines.append("p")
+        # The saves above fall at the turn menu; then walk (:1021 "2").
+        lines.append(MENU_WALK_KEY)
         turn_over = False
         visit = None
         if visits == 0 or (visits == 1 and turn >= _SMOKE_SECOND_VISIT_FROM):
@@ -481,7 +500,7 @@ def _smoke_plan():
             steps += 1
             assert steps < 200, "turn never ended"
         lines.append("x")  # the turn-over ack
-        state, game_over = advance_turn(state, vehicles)
+        state, game_over = next_turn_by_hand(state)
         turn += 1
         if state.clock.active_player == 0:
             lines.append("x")  # the round-standings ack
@@ -519,7 +538,8 @@ def _drive_main(argv: list[str], lines: list[str]) -> str:
 
 def _scores(screen: str) -> dict[str, float]:
     """The ``punkte`` column of a standings table: player name -> score."""
-    rows = re.findall(r"^(\S+) +-?\d+\$ +(-?[0-9.e+-]+)$", screen, flags=re.MULTILINE)
+    # :4510 PRINTs the cash and the score with the C64's sign and trailing spaces.
+    rows = re.findall(r"^(\S+) +-?\d+ \$ +(-?[0-9.e+-]+) $", screen, flags=re.MULTILINE)
     return {name: float(score) for name, score in rows}
 
 
@@ -535,13 +555,18 @@ _TIE = "diesmal haben mehrere"
 _DEALT = "du begibst dich an den spieltisch"
 
 
+#: A new game's keys before its first upkeep: the title ack, and Enter at the
+#: house-rules offer (every rule faithful).
+_BEFORE_UPKEEP = ["", ""]
+
+
 @pytest.fixture(scope="module")
 def smoke_run_a(tmp_path_factory):
     """Run A, once per module: the uninterrupted game through ``main()``, every key.
     Its final-turn ``p`` leaves the last save in ``a.jsonl``."""
     lines, mid, _last = _smoke_plan()
     a_save = tmp_path_factory.mktemp("smoke_a") / "a.jsonl"
-    out = _drive_main([*_SMOKE_ARGV, "--save", str(a_save)], [""] + lines)
+    out = _drive_main([*_SMOKE_ARGV, "--save", str(a_save)], _BEFORE_UPKEEP + lines)
     return {"lines": lines, "mid": mid, "out": out, "save": a_save}
 
 
@@ -585,13 +610,15 @@ class TestClientSmokeSetupToEnding:
         lines, mid = smoke_run_a["lines"], smoke_run_a["mid"]
         b_save = tmp_path / "b.jsonl"
         # Run B, first half: the same keys up to and including the mid-game p, then q.
-        out_b1 = _drive_main([*_SMOKE_ARGV, "--save", str(b_save)], [""] + lines[: mid + 1] + ["q"])
-        mid_save = load_game(b_save)
+        out_b1 = _drive_main(
+            [*_SMOKE_ARGV, "--save", str(b_save)], _BEFORE_UPKEEP + lines[: mid + 1] + ["q"]
+        )
+        mid_save = load_game(b_save, _CONFIG.registries)
         # Run B, second half: --load, then the SAME remaining keys (a load shows no
         # title and no upkeep). Its final-turn p overwrites the loaded file.
         out_b2 = _drive_main(["--load", str(b_save)], lines[mid + 1 :])
 
-        last_a = load_game(smoke_run_a["save"])
+        last_a = load_game(smoke_run_a["save"], _CONFIG.registries)
         # The split is not vacuous: one casino hand before the save, one after it.
         assert out_b1.lower().count(_DEALT) == 1
         assert out_b2.lower().count(_DEALT) == 1
@@ -608,7 +635,7 @@ class TestClientSmokeSetupToEnding:
         from engine.persistence import load_game
 
         size = smoke_run_a["save"].stat().st_size
-        saved = load_game(smoke_run_a["save"])
+        saved = load_game(smoke_run_a["save"], _CONFIG.registries)
         # The final-turn p ran on the last map screen (after player b's upkeep).
         assert saved.state.clock.active_player == 1
         assert (saved.state.clock.year, saved.state.clock.month) == (1927, 11)

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state
 
-**Building the first vertical slice** — unit-by-unit against a plan (derive the *current*
+**Porting unit-by-unit against plans** (derive the *current*
 status, active plan, and open work per point 1 below; don't read a fixed status here).
 The project bootstrap (U0) is done: there is a Python skeleton, a `pytest` + `Makefile`
 toolchain, and a durable per-unit tracking board.
@@ -50,10 +50,16 @@ commit + branch conventions, and how to pick up the next unit. Then:
    and the C64 Numbers and Recruit Cap plan (`2026-09-27-001-…`, U1–U5 — C64 `str$`
    formatter checked against a VICE capture, theme-selected number style with classic
    on `c64` and the `:4215` rank screen's lost minus, recruit cap checked at `:12145`;
-   closed #98/#105).
+   closed #98/#105),
+   and the Full Game plan (`2026-09-27-003-…`, U1–U38 — engine/config seam with
+   config-registered effects, declared value-map state and an engine turn runner;
+   save schema 2; house rules; all 12 locations, the police chain, both win flows,
+   the early win, gang war and prison brawl; C64 `:1013` rounding and `PRINT`
+   spacing; the line-block coverage ledger and two end-to-end runs; closed #108–#145).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
-3. **Work lands on** the `feat/vertical-slice` branch off `main` (per `docs/AGENTS.md`).
+3. **Work lands on** the feature branch the active plan names in its `branch:`
+   frontmatter, off `main` (per `docs/AGENTS.md`).
 4. **Setup / green-tree gate:** `pip install -e '.[dev]'` then `make check` (→ `pytest` +
    lint + hard pyright; on an externally managed system Python run it through uv — see
    `docs/AGENTS.md`). Never dispatch a subagent or commit on a red tree.
@@ -163,9 +169,9 @@ Other cross-cutting invariants:
   **give them distinct names** in the port.
 - There are 12 menu locations **plus 2 map-triggered event flows** (`la=13` cash
   transport at cell 569, `la=14` mayor hit at cell 861) — no menu, they carry the two
-  win flags `x5%`/`x6%`. The first vertical slice deliberately builds 5 of the 12
-  (`kdh`, `pub`, `slw`, `sph`, `waf`) and ships the year-end ending only; the other
-  7 locations and both event flows are next-slice work, not unfinished slice work.
+  win flags `x5%`/`x6%`. Whether each is ported is recorded line block by line block
+  in `docs/coverage-ledger.yaml`, kept in sync with the code by
+  `tests/test_coverage_ledger.py` — read it there, not here.
 - `ln` (within-location tile index 1–9) is a **first-class handler input** (it changes
   rent price, which pub serves alcohol, racket outcomes) — not just an option index.
 - `ms` (movement points) doubles as a **turn-end control signal**: handlers set `ms=0`

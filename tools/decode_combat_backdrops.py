@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""One-shot decoder: emit the three in-slice combat backdrop configs (U4).
+"""One-shot decoder: emit the combat backdrop configs.
 
 Mirrors ``tools/decode_city_map.py`` exactly for the byte format — the combat
-backdrops ``ks``/``kp``/``km`` (research ``src/ks``, ``src/kp``, ``src/km``) are the
+backdrops (research ``src/ks``, ``src/kp``, ``src/km``, ``src/ksgl``, ...) are the
 SAME 2003-byte C64 screen-file layout as ``src/karte``: 1000 screen-code bytes + 1000
 color-RAM bytes, both stored bottom-up/right-to-left, plus 3 mode bytes
 (border/background/textcolor). The bl loader stores it reversed, so the row-major
@@ -40,9 +40,10 @@ RESEARCH_ROOT = ENGINE_ROOT.parent / "research"
 SRC = RESEARCH_ROOT / "src"
 OUT_DIR = ENGINE_ROOT / "data" / "game_configs" / "mafia_1920s" / "content" / "combat"
 
-#: The three in-slice combat backdrops (kdh debt-default/collect, and the two other
-#: combat-triggering entry points this slice's Assumptions name — ks/kp/km).
-BACKDROPS = ("ks", "kp", "km")
+#: The combat backdrops the fights load by their ``kf$`` name: ``ks``/``kp``/``km``
+#: (the first slice's fights) and ``ksgl``/``kpzug``/``kb``/``kg``/``kgtp`` (the full
+#: game's locations, win flows and gang war), generated all at once.
+BACKDROPS = ("ks", "kp", "km", "ksgl", "kpzug", "kb", "kg", "kgtp")
 
 
 def decode_backdrop(path: Path) -> tuple[list[int], list[int], int]:

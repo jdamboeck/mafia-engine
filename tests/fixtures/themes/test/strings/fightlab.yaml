@@ -1,0 +1,7 @@
+# The test theme's fight-lab keys: it rewords the debug dump's hit verdict and the
+# watch frame label, and leaves every other fightlab key to classic.
+fightlab:
+  debug:
+    verdict_hit: "TREFFER"
+  watch:
+    frame: "-- zug {index:raw} von {last:raw} ({kind}:{action}) --"

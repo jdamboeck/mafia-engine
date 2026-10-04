@@ -2,13 +2,10 @@
 
 Ports all four of the pub's menu actions from ``mf-prg.bas:12000-12335``:
 
-- ``pub.drink`` (``12010-12075``) — alcohol trade. Only pub tile ``ln=4`` serves; the
-  ``ln=5`` branch (``:12010``'s ``ifln=4orln=5goto12020``) is unreachable and
-  deliberately not ported. Tracing the source: ``ln=5`` is set ONLY by the ``bhf``
-  (train station) handler's option 1 ("visit the station pub", ``mf-prg.bas:19010``:
-  ``ln=5:la=2:goto3000``) — ``bhf`` is not an implemented location in this config, so
-  ``ln=5`` is unreachable via any map entry. Every other pub tile (1/2/3, and any
-  ``ln`` not otherwise reached) falls into the 50%-refusal-or-sell-offer
+- ``pub.drink`` (``12010-12075``) — alcohol trade. Tiles ``ln=4`` and ``ln=5`` sell
+  (``:12010 ifln=4orln=5goto12020``). No map door has ``ln=5``: that tile is the railway
+  station's pub, which ``bhf``'s first option opens (``:19010 ln=5:la=2:goto3000``,
+  ``handlers/bhf.py``). Every other tile falls into the 50%-refusal-or-sell-offer
   branch (``:12015``).
 - ``pub.tip`` (``12200-12252``) — buy a heist rumour. Rank-gated; 2/3 chance the
   informer has nothing; the roll picks one of 5 flavour texts (tip type 1-5, stored on
@@ -65,21 +62,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from engine.effects import (
-    BarrelChange,
-    GangsterMarkHired,
-    JobSet,
-    MoneyChange,
-    MsChange,
-    RosterAppend,
-    TipClear,
-    TipSet,
-)
+from engine.effects import MoneyChange, MsChange, RosterAppend
+from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from ..gangster import Gangster
+from ..state import contraband, hired_ids, tenant
 
-from ..setup import load_gangster_candidates, load_vehicles, score_and_rank
+from ..setup import load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -100,18 +90,19 @@ _MAX_OFFERS = 3
 #: Pub tile that never has recruits available (mf-prg.bas:12107's `orln=3`).
 _NO_RECRUIT_TILE = 3
 
-#: Alcohol tile: only this ``ln`` serves (mf-prg.bas:12010; ln=5 is dead code, see
-#: module docstring). Every other pub tile falls into the 50% refusal-or-sell branch.
-_ALCOHOL_TILE = 4
+#: Alcohol tiles: these ``ln`` sell (mf-prg.bas:12010 ``ifln=4orln=5goto12020``; 5 is
+#: the station pub, see module docstring). Every other tile falls into the 50%
+#: refusal-or-sell branch.
+_ALCOHOL_TILES = frozenset({4, 5})
 
 #: The five heist-tip flavour text keys, 1-based to match ``tp(sp)`` (mf-prg.bas:12226
 #: ``ontp(sp)goto12230,12235,12240,12245,12250``).
 _TIP_TEXT_KEYS = {
-    1: "locations.pub.tip_postzug",
-    2: "locations.pub.tip_bank",
-    3: "locations.pub.tip_geldtransport",
-    4: "locations.pub.tip_waffenschmuggel",
-    5: "locations.pub.tip_buergermeister",
+    1: "locations.pub.tip_postzug",  # :12230-12231
+    2: "locations.pub.tip_bank",  # :12235-12236
+    3: "locations.pub.tip_geldtransport",  # :12240-12242
+    4: "locations.pub.tip_waffenschmuggel",  # :12245-12246
+    5: "locations.pub.tip_buergermeister",  # :12250-12252
 }
 
 #: The arms-deal tip id (mf-prg.bas:12245-12249, :4060 ``iftp(sp)=4``) — the only tip
@@ -174,8 +165,8 @@ def pub_drink(ctx):
 
     Steps (faithful to the BASIC line block):
 
-    1. ``:12010`` — only ``ln == _ALCOHOL_TILE`` serves; every other tile falls to (2).
-       BUY path (tile 4): ``:12020-12035``.
+    1. ``:12010`` — ``ln`` 4 or 5 serves; every other tile falls to (2).
+       BUY path (tiles 4 and 5): ``:12020-12035``.
        a. Roll stock ``x`` (100-299 barrels) and price ``p`` (5-9$/barrel).
        b. Cap the offer by the vehicle's free capacity: ``x = min(x, tank - barrels)``.
        c. Prompt a quantity in ``[0, x]``; 0 is a quiet abort (``:12029``).
@@ -193,7 +184,7 @@ def pub_drink(ctx):
     ln = active.last_location  # ln seam (see module docstring)
     params = ctx.state.config.formula_params
 
-    if ln == _ALCOHOL_TILE:
+    if ln in _ALCOHOL_TILES:  # :12010 ``ifln=4orln=5goto12020``
         # --- BUY path: :12020-12035 ---------------------------------------
         # :12020 `x=int(rnd(1)*200)+100` (stock) and `p=int(rnd(1)*5)+5` (price).
         stock = ctx.rng.hit(params["pub_alcohol_stock_min"], params["pub_alcohol_stock_max"])
@@ -205,7 +196,7 @@ def pub_drink(ctx):
         # `q=tk(tm(sp))-ta(sp)`.
         vehicles = _vehicles()
         capacity = vehicles[active.vehicle]["tank"]
-        free = capacity - active.contraband.alcohol_barrels
+        free = capacity - contraband(active).alcohol_barrels
         if free < stock:
             stock = free
 
@@ -236,7 +227,7 @@ def pub_drink(ctx):
     price = ctx.rng.hit(params["pub_alcohol_sell_price_min"], params["pub_alcohol_sell_price_max"])
     yield ShowMessage("locations.pub.sell_offer", {"price": price})
     y = yield PromptInt(
-        "locations.pub.sell_quantity_prompt", min=0, max=max(active.contraband.alcohol_barrels, 0)
+        "locations.pub.sell_quantity_prompt", min=0, max=max(contraband(active).alcohol_barrels, 0)
     )
     if y == 0:
         return []
@@ -326,9 +317,8 @@ def pub_tip(ctx):
 def pub_recruit(ctx):
     """Recruit gangsters from the 30-candidate pool — ports ``mf-prg.bas:12100-12175``.
 
-    Guards, in order (the shell ALSO gates entry on rank>4 and gang_size<10 for the
-    menu-availability UX (the shell owns entry guards), but every guard is re-checked here so the handler
-    is correct standalone and each denial's message/order is independently provable):
+    Guards, in order (the shell offers the option unconditionally, as the source's
+    menu does, so every refusal happens here):
 
     1. ``:12100-12102`` — rank guard ``ra(sp) > 4``.
     2. ``:12103-12104`` — housing guard: the player must hold at least one of the 5
@@ -353,13 +343,14 @@ def pub_recruit(ctx):
     active = ctx.state.players[sp]
     ln = active.last_location  # ln seam (see module docstring)
 
-    # :12100-12102 — rank guard.
+    # :12100-12102 — rank guard; :12101 prints the rank's name, ``ra$(ra(sp))``.
     if active.rank <= 4:
-        yield ShowMessage("locations.pub.rank_too_low", {"rank": active.rank})
+        ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
+        yield ShowMessage("locations.pub.rank_too_low", {"rank": ranks[active.rank - 1]})
         return []
 
     # :12103-12104 — housing guard: at least one of 5 apartment slots (uk(i)=sp).
-    if not any(ctx.state.map.tenancy.get(i) == sp for i in range(1, 6)):
+    if not any(tenant(ctx.state, i) == sp for i in range(1, 6)):
         yield ShowMessage("locations.pub.recruit_no_housing")
         return []
 
@@ -369,7 +360,7 @@ def pub_recruit(ctx):
         return []
 
     candidates = _gangster_candidates()
-    hired = ctx.state.flags.hired_gangsters
+    hired = hired_ids(ctx.state)
 
     # :12106 — offer pool: unhired candidates, capped at 3.
     pool = sum(1 for i in range(len(candidates)) if i not in hired)
@@ -484,9 +475,11 @@ def pub_job(ctx):
     active = ctx.state.players[sp]
     params = ctx.state.config.formula_params
 
-    # :12300 — rank guard, INVERTED vs. recruit's (rank <= 3 gets the offer).
+    # :12300 — rank guard, INVERTED vs. recruit's (rank <= 3 gets the offer); :12301
+    # prints the rank's name, ``ra$(ra(sp))``.
     if active.rank > _JOB_MAX_RANK:
-        yield ShowMessage("locations.pub.job_rank_too_high", {"rank": active.rank})
+        ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
+        yield ShowMessage("locations.pub.job_rank_too_high", {"rank": ranks[active.rank - 1]})
         return []
 
     # :12302 — 1-in-5 nobody has work.

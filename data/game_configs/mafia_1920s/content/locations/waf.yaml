@@ -14,4 +14,4 @@ options:
   - id: leave
     resolve:
       consequences:
-        - {type: ms_change, amount: 0}
+        - {type: ms_change, amount: -5}   # :3045 ifw=awthenms=ms-5:return

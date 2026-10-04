@@ -30,9 +30,9 @@ Faithfulness notes
 Cancellability rule
 -------------------
 Only whole-action aborts use ``cancellable=True`` (the driver's atomic discard). Every
-"return to an earlier menu" (afford-fail, stat-gate fail, trade-in decline) is an
-IN-HANDLER loop, because a driver-cancel unwinds the entire handler and cannot resume at
-an inner menu.
+"return to an earlier menu" (afford-fail, stat-gate fail, a gangster pick of 0, trade-in
+decline) is an IN-HANDLER loop, because a driver-cancel unwinds the entire handler and
+cannot resume at an inner menu.
 
 ``ln`` seam
 -----------
@@ -47,9 +47,18 @@ from engine.interactions import Confirm, LoadSubState, PromptChoice, PromptInt, 
 from engine.locations import register
 from engine.substates import register_substate
 
-from ..setup import load_weapons, score_and_rank
+from ..setup import load_weapons, pick_gangster, score_and_rank
 
 __all__ = ["waf_buy", "waf_train", "weapon_spec"]
+
+#: The buy gates of ``mf-prg.bas:13050-13060`` in the order the source tests them,
+#: each with its refusal line: a weapon's ``requires`` map says the minimum per stat,
+#: this says which stat is checked first when several fall short.
+_STAT_GATES = (
+    ("intelligenz", "locations.waf.too_dumb"),  # 13050
+    ("kraft", "locations.waf.too_weak"),  # 13055
+    ("brutalitaet", "locations.waf.not_brutal"),  # 13060
+)
 
 
 def _weapons():
@@ -111,7 +120,8 @@ def waf_buy(ctx):
         # 13011-13013 — stock range from the tile ln.
         if ln == 1:
             lo, hi = 3, 7
-            # 13011 — grenade roll: 1-in-3 AND rank > gate, extends stock to grenades (13091).
+            # 13011 — grenade roll: 1-in-3 AND rank > gate, extends stock to grenades
+            # (:13090-13091, the news and `b=8`).
             if (
                 ctx.rng.range(params["grenade_roll"]) == 0
                 and active.rank > params["grenade_rank_gate"]
@@ -136,9 +146,7 @@ def waf_buy(ctx):
             yield ShowMessage("system.not_enough_money")
             continue
 
-        # 13035 — spec sheet (sub-state), then pick the gangster to arm (0 cancels back).
-        yield LoadSubState("weapon_spec", {"weapon": weapons[x], "index": x})
-
+        # 13035 — spec sheet (sub-state), then pick the gangster to arm (0 goes back).
         gangster_picked = yield from _pick_gangster_and_arm(ctx, active, weapons, x, params)
         if gangster_picked:
             return []
@@ -146,46 +154,43 @@ def waf_buy(ctx):
 
 
 def _pick_gangster_and_arm(ctx, active, weapons, x, params):
-    """Pick a gangster, run the stat gates, settle the trade-in + purchase.
+    """Show the weapon, pick a gangster, run the stat gates, settle the trade-in + purchase.
 
     Returns ``True`` when the purchase settled (the buy is done), ``False`` when the flow
-    returned to the weapon list (gangster cancel or trade-in decline) so ``waf.buy`` loops.
+    returned to the weapon list (a picked 0 or a trade-in decline) so ``waf.buy`` loops.
     Yields interactions to the driver via ``yield from``.
     """
     new_price = weapons[x]["price"]
-    # 1130 — the original's gangster picker returns y=0 immediately when the player owns
-    # no gangster (gz(sp)=0), which at 13035 (ify=0goto13010) loops back to the weapon
-    # list. Mirror that here rather than presenting an unanswerable empty PromptChoice.
-    if not active.roster:
-        return False
-    while True:  # 13035 gangster-pick loop (stat-gate fail returns here)
-        # 13035 gosub 1130 — pick which owned gangster; y=0 cancels back to the list.
-        y = yield PromptChoice(
-            "locations.waf.gangster_prompt",
-            options=[g.name for g in active.roster],
-            cancellable=True,
-        )
+    while True:  # 13035 — a failed stat gate comes back here (goto13035)
+        # :13035 ``gosub13500:print"{clr}{down}fuer welchen gangster:":gosub1130:ify=0goto13010``
+        # — the spec sheet, the question, the shared picker. A 0, or an empty gang
+        # (:1130), goes back to the weapon list; an empty answer cancels the buy.
+        yield LoadSubState("weapon_spec", {"weapon": weapons[x], "index": x})
+        yield ShowMessage("locations.waf.gangster_prompt")
+        y = yield from pick_gangster(ctx, cancellable=True)
+        if y is None:
+            return False
         g = active.roster[y]
 
-        # 13050-13060 — three per-gangster stat gates. A failed gate shows its
-        # reason and returns to the gangster pick.
-        if g.attrs["intelligenz"] < weapons[x]["req_int"]:
-            yield ShowMessage("locations.waf.too_dumb")
-            continue
-        if g.attrs["kraft"] < weapons[x]["req_kraft"]:
-            yield ShowMessage("locations.waf.too_weak")
-            continue
-        if g.attrs["brutalitaet"] < weapons[x]["req_brut"]:
-            yield ShowMessage("locations.waf.not_brutal")
+        # 13050-13060 — three per-gangster stat gates, checked in source order against
+        # the weapon's `requires` map. The first failed gate shows its reason and
+        # returns to the gangster pick.
+        requires = weapons[x]["requires"]
+        refusal = next(
+            (key for stat, key in _STAT_GATES if g.attrs[stat] < requires.get(stat, 0)),
+            None,
+        )
+        if refusal is not None:
+            yield ShowMessage(refusal)
             continue
 
         old = g.weapon  # gw(sp,y) — the gangster's CURRENT weapon (0 = unarmed)
-        # x8 == the score weight (Config.score_mult); the buy-score modifies gf DIRECTLY
+        # x8 == the score weight (formula_params["score_mult"]); the buy-score modifies gf DIRECTLY
         # by ±x8 (13065/13072/13073) and does NOT go through gosub 1160, so it neither
         # recomputes rank nor clamps: an unclamped ScoreChange, not ScoreAndRank. Only the
         # gf<100 / gf>0 guards bound it, so gf=99,x8=2 upgrading reaches 101 and stays
         # there until the next gosub 1160 (ScoreAndRank) clamps it.
-        x8 = ctx.state.config.score_mult
+        x8 = ctx.state.config.formula_params["score_mult"]
 
         if old == 0:
             # 13065 — no old weapon: q=0. `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` with the C64
@@ -193,7 +198,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             # previously unarmed gangster raises the gang's notoriety.
             q = 0
             if active.gf < 100:
-                ctx.apply(ScoreChange(x8, clamp=False))
+                ctx.apply(ScoreChange(x8, floor=None, cap=None))
         else:
             # 13070-13071 — trade-in offer on the OLD weapon's price, yes/no confirm.
             # :13070 `q=int(wp(gw(sp,y))/1.5)`
@@ -208,10 +213,10 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             #   :13073 downgrade  `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)` -> DOWN by 2*x8 (while gf>0)
             if x > old:
                 if active.gf < 100:
-                    ctx.apply(ScoreChange(x8, clamp=False))
+                    ctx.apply(ScoreChange(x8, floor=None, cap=None))
             else:
                 if active.gf > 0:
-                    ctx.apply(ScoreChange(-2 * x8, clamp=False))
+                    ctx.apply(ScoreChange(-2 * x8, floor=None, cap=None))
 
         # 13075 — settle: cash += q - new_price; assign the weapon to the gangster.
         # :13075 `ka(sp)=ka(sp)+q-wp(x)`
@@ -240,12 +245,11 @@ def waf_train(ctx):
         yield ShowMessage("locations.waf.no_gangster")
         return []
 
-    # 13101-13102 — pick which gangster to train (0 cancels the whole action).
-    y = yield PromptChoice(
-        "locations.waf.train_prompt",
-        options=[g.name for g in active.roster],
-        cancellable=True,
-    )
+    # :13101 ``print"wen soll ich trainieren:"``, :13102 ``gosub1130:ify=0thenreturn``.
+    yield ShowMessage("locations.waf.train_prompt")
+    y = yield from pick_gangster(ctx, cancellable=True)
+    if y is None:
+        return []
 
     # 13103-13107 — venue: rank >= 5 offers (s)chiesstand vs (t)rainingscamp; below, range only.
     is_camp = False

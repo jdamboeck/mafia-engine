@@ -1,0 +1,7 @@
+# counter_game's declared value maps: names, types and defaults
+# (read by engine.config_loader.load_state_schema).
+player:
+  counter: {type: int, default: 0}
+  label: {type: str, default: "none"}
+global:
+  round_bonus: {type: float, default: 0.0}

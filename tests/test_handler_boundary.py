@@ -11,8 +11,8 @@ This file is that contract's proof. It asserts the write fails at every depth a
 handler can actually reach:
 
 * a top-level field on a nested dataclass  (``player.ka``),
-* a field one level deeper                 (``player.wanted.x5``),
-* a nested collection                      (``config.formula_params``, ``map.tenancy``),
+* a key of a declared value map           (``player.values["wanted.x5"]``),
+* a nested collection                      (``config.formula_params``, ``state.values``),
 * the top-level player collection          (``state.players``).
 
 The positive controls at the bottom matter just as much: reads still work, and a
@@ -38,6 +38,7 @@ sys.path.insert(0, str(_CONFIG_DIR))
 from setup import new_game  # noqa: E402  # pyright: ignore[reportMissingImports]  # resolved via the sys.path insert above
 
 from engine.effects import MoneyChange, commit  # noqa: E402
+import data.game_configs.mafia_1920s.state as game  # noqa: E402
 
 SEED = 42
 
@@ -58,15 +59,16 @@ def test_top_level_player_field_write_raises():
         state.players[0].ka = 999
 
 
-def test_nested_dataclass_field_write_raises():
-    """One level deeper — the win flags a handler must set through an effect."""
+def test_value_map_write_raises():
+    """One level deeper — the win flags live in the player's value map, which a
+    handler must change through an effect."""
     state = _state()
-    with pytest.raises(FrozenInstanceError):
-        state.players[0].wanted.x5 = True
+    with pytest.raises(TypeError):
+        state.players[0].values["wanted.x5"] = True  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
 
 
 def test_clock_field_write_raises():
-    """The turn/calendar state is off-limits too (advance_turn returns a new state)."""
+    """The turn/calendar state is off-limits too (only the turn runner's effects move it)."""
     state = _state()
     with pytest.raises(FrozenInstanceError):
         state.clock.active_player = 1
@@ -82,11 +84,11 @@ def test_nested_config_mapping_write_raises():
         state.config.formula_params["fnm"] = {}
 
 
-def test_map_tenancy_mapping_write_raises():
-    """Tenancy moves only via SetTenancy — never by writing the mapping."""
+def test_global_value_map_write_raises():
+    """Tenancy moves only via SetTenancy — never by writing the global value map."""
     state = _state()
     with pytest.raises(TypeError):
-        state.map.tenancy[1] = 0
+        state.values["tenancy.1"] = 0  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
 
 
 def test_players_collection_is_not_appendable():
@@ -107,7 +109,7 @@ def test_a_mutable_collection_cannot_be_smuggled_in_at_construction():
     Handing a plain dict/list to a state dataclass must not reopen the write path —
     the graph coerces it to a read-only form.
     """
-    from engine.state import Config, MapState
+    from engine.state import Config, Player
 
     cfg = Config(formula_params={"fnm": {1: -50}})
     with pytest.raises(TypeError):
@@ -116,9 +118,9 @@ def test_a_mutable_collection_cannot_be_smuggled_in_at_construction():
     with pytest.raises(TypeError):
         cfg.formula_params["fnm"][1] = 0
 
-    m = MapState(grid=[[1, 2], [3, 4]])  # pyright: ignore[reportArgumentType]  # a list on purpose: the coercion is the subject
-    with pytest.raises(AttributeError):
-        m.grid.append([5, 6])  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
+    p = Player(values={"debt.amount": 0})  # a plain dict on purpose: the coercion is the subject
+    with pytest.raises(TypeError):
+        p.values["debt.amount"] = 5  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
 
 
 # --------------------------------------------------------------------------- #
@@ -127,8 +129,8 @@ def test_a_mutable_collection_cannot_be_smuggled_in_at_construction():
 def test_reads_still_work_at_every_depth():
     state = _state()
     assert isinstance(state.players[0].ka, int)
-    assert state.players[0].wanted.x5 is False
-    assert state.map.tenancy.get(1) is None
+    assert game.wanted(state.players[0]).x5 is False
+    assert game.tenant(state, 1) is None
     assert "fnm" in state.config.formula_params
 
 

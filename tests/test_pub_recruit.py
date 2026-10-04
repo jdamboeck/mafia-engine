@@ -43,15 +43,19 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.effects import GangsterMarkHired, MoneyChange, RosterAppend
-from engine.locations import HANDLERS
-from engine.state import Clock, Config, Flags, GameState, MapState, Player
+from engine.effects import MoneyChange, RosterAppend
+from data.game_configs.mafia_1920s.effects import GangsterMarkHired
+from engine.locations import HANDLERS, available_options, load_location
+from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import StubRng, run_pure, scripted as _scripted
+import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
 
+_PUB_SHELL = _CONFIG_DIR / "content" / "locations" / "pub.yaml"
+_RANKS = yaml.safe_load((_CONFIG_DIR / "entities" / "ranks.yaml").read_text())["ranks"]
 _GANGSTERS = yaml.safe_load((_CONFIG_DIR / "entities" / "gangsters.yaml").read_text())["gangsters"]
 
 
@@ -84,8 +88,7 @@ def _state(
         players=(player,),
         clock=Clock(active_player=0, player_count=1),
         config=Config(formula_params={}),
-        map=MapState(tenancy=tenancy),
-        flags=Flags(hired_gangsters=hired_gangsters),
+        values={**game.tenancy_values(tenancy), **game.hired_values(hired_gangsters)},
     )
     return state
 
@@ -112,6 +115,31 @@ def test_rank_too_low_denies_before_any_rng():
     assert result.status == "completed"
     assert result.effects == []
     assert rng.calls == []
+
+
+def test_rank_too_low_prints_the_rank_name():
+    """``:12101`` ``print"als "ra$(ra(sp))" kannst du noch"`` -- the rank's NAME."""
+    st = _state(rank=4)
+    src = _scripted()
+    run_pure(HANDLERS["pub.recruit"], src, state=st, rng=_StubRng())
+    (message,) = src.messages()
+    assert message.key == "locations.pub.rank_too_low"
+    assert message.params == {"rank": _RANKS[3]}
+
+
+def test_pub_menu_offers_all_five_options_at_any_rank():
+    """The pub always shows its five options (``aw=5``, ``:3030`` prints them all).
+
+    ``:12005`` ``onwgoto12010,12100,12200,12300`` dispatches every one; the recruit
+    refusals happen inside ``:12100-12105``, so a low rank or a full gang never hides
+    the option or moves the later ones up a place (#122).
+    """
+    shell = load_location(yaml.safe_load(_PUB_SHELL.read_text(encoding="utf-8")))
+    for rank in (1, 4, 5, 10):
+        roster = tuple(Gangster(name=f"g{i}") for i in range(10))
+        for st in (_state(rank=rank), _state(rank=rank, roster=roster)):
+            ids = [o.id for o in available_options(shell, st, ln=1)]
+            assert ids == ["drink", "recruit", "tip", "job", "leave"]
 
 
 def test_rank_exactly_5_passes_the_rank_guard():
@@ -229,7 +257,7 @@ def test_hire_settles_money_roster_and_hired_flag():
     assert result.state.players[0].ka == 97000
     assert result.state.players[0].roster == (st.players[0].roster[0], _gangster(0))
     assert result.state.players[0].roster[1].energie == 5
-    assert result.state.flags.hired_gangsters == (0,)
+    assert game.hired_ids(result.state) == (0,)
 
 
 def test_decline_offer_costs_nothing_and_does_not_mark_hired():
@@ -240,7 +268,7 @@ def test_decline_offer_costs_nothing_and_does_not_mark_hired():
     assert result.effects == []
     assert result.state.players[0].ka == 100000
     assert len(result.state.players[0].roster) == 1
-    assert result.state.flags.hired_gangsters == ()
+    assert game.hired_ids(result.state) == ()
 
 
 def test_broke_path_shows_not_enough_money_no_state_change():
@@ -259,7 +287,7 @@ def test_multi_candidate_batch_hires_both():
     result = run_pure(HANDLERS["pub.recruit"], _scripted(True, True), state=st, rng=rng)
     assert result.status == "completed"
     assert len(result.state.players[0].roster) == 3  # boss + 2 hires
-    assert result.state.flags.hired_gangsters == (0, 1)
+    assert game.hired_ids(result.state) == (0, 1)
     assert result.state.players[0].ka == 100000 - 3000 - 2000  # candidate 0 + candidate 1 prices
 
 

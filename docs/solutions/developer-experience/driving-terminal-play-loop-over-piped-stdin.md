@@ -1,7 +1,7 @@
 ---
 title: "Driving the terminal play() loop in tests: the pre-map acks eat stdin lines"
 date: 2026-07-17
-updated: 2026-09-26
+updated: 2026-09-28
 category: developer-experience
 module: clients/terminal
 problem_type: developer_experience
@@ -41,19 +41,25 @@ unmerged as of this writing — the SHA may be rewritten on merge).
 ## Guidance
 
 **1. Lines are read before the map loop.** A new game's `play()` reads one line
-for the title screen's "press a key" and one for the first turn-start upkeep
-screen's ack, *before* the map loop (`TerminalSession.map_turn`) reads its first
-key. The setup prompts between them read one line each too, unless
-`end_year`/`score_weight` are passed to `play()`, and every later turn change
-adds one more upkeep ack. A scripted stdin whose first line is the first
-movement key is therefore off — the acks eat it, every later key shifts, and the
-walk lands on the wrong screen. **Prepend the blank ack lines to every scripted
-stdin body** (`tests/helpers.py::make_walk_script` prepends the two):
+for the title screen's "press a key", one for the house-rules offer (Enter keeps
+every rule faithful; shown whenever the config's catalogue has a switch), one for
+the first turn-start upkeep screen's ack and one for the turn menu's choice (`2`
+walks), *before* the map-move prompt (`TerminalSession.map_prompt`) reads its first
+key. The setup prompts between the title and the house-rules offer read one line
+each too, unless `end_year`/`score_weight` are passed to `play()`, and every later
+turn change adds one more upkeep ack and one more turn-menu key. A scripted stdin
+whose first line is the first movement key is therefore off — the acks eat it,
+every later key shifts, and the walk lands on the wrong screen. **Prepend the blank
+ack lines to every scripted stdin body** (`tests/helpers.py::NEW_GAME_ACKS` holds
+the three acks, and `tests/helpers.py::make_walk_script` prepends them and the walk):
 
 ```python
+NEW_GAME_ACKS = ["", "", ""]  # title, house-rules offer, first upkeep
+
+
 def make_walk_script(keys):
-    # title ack, upkeep ack, then one key per line.
-    return io.StringIO("\n".join(["", ""] + keys) + "\n")
+    # the new game's acks, the turn menu's walk, then one key per line.
+    return io.StringIO("\n".join([*NEW_GAME_ACKS, MENU_WALK_KEY] + keys) + "\n")
 ```
 
 **2. To reach a deep screen, don't hardcode a key sequence — walk the engine.**
@@ -132,7 +138,7 @@ Reaching turn-over and asserting quit-vs-advance (shape from `tests/test_termina
 ```python
 keys = self._walk_to_turn_over() + ["q"]        # walk, then the key under test
 out = io.StringIO()
-monkeypatch.setattr(sys, "stdin", make_walk_script(keys))   # prepends the two acks
+monkeypatch.setattr(sys, "stdin", make_walk_script(keys))   # prepends the acks and the walk
 monkeypatch.setattr(sys, "stdout", out)
 state, _rng = play(seed=42, end_year=1930, score_weight=1.0)
 output = out.getvalue()

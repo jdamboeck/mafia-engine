@@ -27,12 +27,19 @@ ARTIFACTS, not versioned game content, so :func:`save`/:func:`load` are director
 on a load whose ``snapshot_shape_version`` mismatches, every snapshot is discarded and the
 recording is rebuilt from index 0 at the current version.
 
+**House rules.** A recording stores the house-rules map its rules bundle was built
+under (:attr:`~engine.combat.RulesBundle.house_rules`). :func:`load` refuses a file with
+no map, and :func:`load`/:func:`replay` refuse rules built under a different map, naming
+the first entry that differs (:class:`HouseRulesError`). The map is compared as opaque
+data: the engine never reads a switch by its id.
+
 ``engine/`` imports nothing from ``server``/``clients``/config.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -61,6 +68,7 @@ __all__ = [
     "HandoffEvent",
     "Recording",
     "ReplayReport",
+    "HouseRulesError",
     "record_fight",
     "replay",
     "save",
@@ -147,7 +155,25 @@ def _event_from_dict(raw: dict) -> Event:
     cls = _EVENT_KINDS.get(kind) if isinstance(kind, str) else None
     if cls is None:
         raise ValueError(f"unknown recording event kind {kind!r}")
+    snapshot = raw.get("snapshot")
+    if isinstance(snapshot, dict) and isinstance(snapshot.get("sides"), list):
+        raw = {**raw, "snapshot": {**snapshot, "sides": _owned_sides(snapshot["sides"])}}
     return cls(**raw)
+
+
+def _owned_sides(sides: list) -> list:
+    """Snapshot ``sides`` with every fighter's ``owner`` filled in (KTD-14).
+
+    A recording made before fighters had owners stores none; such a fighter is
+    unowned, so it reads as ``None``, the shape the live board snapshots today. The
+    scenario's fighters get the same default from :class:`~engine.state.Fighter`.
+    """
+    return [
+        [{**f, "owner": f.get("owner")} if isinstance(f, dict) else f for f in side]
+        if isinstance(side, list)
+        else side
+        for side in sides
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -164,10 +190,13 @@ class Recording:
     assert it reproduced the same outcome. ``schema_version`` stamps the snapshot shape
     (reused :data:`engine.effects.SCHEMA_VERSION`).
 
+    ``house_rules`` is the house-rules map the fight's rules bundle was built under;
+    ``None`` only on a hand-built recording, which :func:`replay` refuses.
+
     JSON serialization (:func:`save`) emits ``events`` + ``schema_version`` + the
-    scenario's serializable fields (sides/grid/dir_memory/seed — NOT its formula
-    functions, which JSON cannot carry). :func:`load` rebuilds the scenario shell; a
-    caller re-attaches live ``rules`` at :func:`replay` time.
+    house-rules map + the scenario's serializable fields (sides/grid/dir_memory/seed —
+    NOT its formula functions, which JSON cannot carry). :func:`load` rebuilds the
+    scenario shell; a caller re-attaches live ``rules`` at :func:`replay` time.
     """
 
     events: list = field(default_factory=list)
@@ -175,6 +204,32 @@ class Recording:
     winner: int | None = None
     losses: tuple[int, int] | None = None
     schema_version: int = SCHEMA_VERSION
+    house_rules: Mapping[str, str] | None = None
+
+
+class HouseRulesError(ValueError):
+    """A recording stores no house-rules map, or rules built under another map.
+
+    R21: a fight replays only under the choices it was recorded under. The message
+    is one line and names the first entry (by id) that differs.
+    """
+
+
+def _check_house_rules(stored: Mapping[str, str] | None, rules: Any) -> None:
+    """Refuse ``rules`` unless it was built under the ``stored`` map."""
+    if stored is None:
+        raise HouseRulesError("the recording stores no house-rules map")
+    if rules is None:
+        return
+    supplied = rules.house_rules
+    for rule_id in sorted(set(stored) | set(supplied)):
+        if stored.get(rule_id) != supplied.get(rule_id):
+            made = repr(stored[rule_id]) if rule_id in stored else "it unset"
+            have = repr(supplied[rule_id]) if rule_id in supplied else "it unset"
+            raise HouseRulesError(
+                f"house rule {rule_id!r} differs: the recording was made with {made}, "
+                f"the supplied rules have {have}"
+            )
 
 
 @dataclass(frozen=True)
@@ -361,7 +416,13 @@ def record_fight(
     same-fight/same-seed equality test).
     """
     from engine.combat import CombatResult
-    from engine.fight_loop import _build_fight, _drive_fight, _no_input_source
+    from engine.fight_loop import (
+        _build_fight,
+        _drive_fight,
+        _no_input_source,
+        owner_vitality,
+        roster_vitality,
+    )
     from engine.interactions import StartCombat
     from engine.rng import Rng
 
@@ -378,6 +439,8 @@ def record_fight(
         rng = Rng(seed=scenario.seed)
 
     fight = _build_fight(StartCombat(scenario=scenario), rng=rng)
+    # The map the fight runs under: the bundle's, or none chosen for a bundle-less fight.
+    house_rules = dict(fight._rules.house_rules)
     recorder = _Recorder(fight, rng)
     # Drive the CALLER's drivers mapping directly (not a copy), so a policy that
     # reassigns ``drivers[side]`` between activations (a mid-fight handoff) is
@@ -388,8 +451,15 @@ def record_fight(
         scenario=scenario,
         winner=winner,
         losses=fight.losses,
+        house_rules=house_rules,
     )
-    return CombatResult(winner=winner, losses=fight.losses), recording
+    return CombatResult(
+        winner=winner,
+        losses=fight.losses,
+        last_shooter=fight.last_shooter,
+        roster_vitality=roster_vitality(fight),
+        owner_vitality=owner_vitality(fight),
+    ), recording
 
 
 # --------------------------------------------------------------------------- #
@@ -485,7 +555,15 @@ def replay(recording: "Recording", *, rules: Any = None) -> "ReplayReport":
     change may not flip the outcome; the per-activation check catches it anyway). The
     board is compared at the same point the recorder took it: after the activation
     advances, or before :meth:`finish` on the winning shot.
+
+    Raises :class:`HouseRulesError` before replaying anything when the recording
+    stores no house-rules map, or the rules it runs under (``rules``, else the
+    scenario's) were built under a different map.
     """
+    _check_house_rules(
+        recording.house_rules,
+        rules if rules is not None else getattr(recording.scenario, "rules", None),
+    )
     rng = _ReplayRng()
     fight = _rebuild_fight(recording.scenario, rng, rules=rules)
 
@@ -570,6 +648,7 @@ def _recording_to_dict(recording: "Recording") -> dict:
     """
     return {
         "schema_version": recording.schema_version,
+        "house_rules": (dict(recording.house_rules) if recording.house_rules is not None else None),
         "winner": recording.winner,
         "losses": json_safe(recording.losses) if recording.losses is not None else None,
         "scenario": _scenario_to_dict(recording.scenario),
@@ -618,6 +697,9 @@ def _recording_from_dict(raw: dict) -> "Recording":
     caller's :func:`load` then rebuilds snapshots via :func:`_replay_and_snapshot`. When
     versions match, snapshots are kept as-is.
     """
+    house_rules = raw.get("house_rules")
+    if not isinstance(house_rules, dict):
+        raise HouseRulesError("the recording stores no house-rules map")
     events = [_event_from_dict(dict(e)) for e in raw["events"]]
     losses = tuple(raw["losses"]) if raw.get("losses") is not None else None
     return Recording(
@@ -626,6 +708,7 @@ def _recording_from_dict(raw: dict) -> "Recording":
         winner=raw.get("winner"),
         losses=losses,
         schema_version=raw.get("schema_version", SCHEMA_VERSION),
+        house_rules=house_rules,
     )
 
 
@@ -646,10 +729,14 @@ def load(path: Any, *, rules: Any = None) -> "Recording":
 
     ``rules`` re-attaches the live formula bundle to the scenario shell (JSON dropped the
     formula functions). Needed whenever the loaded recording will be replayed OR rebuilt.
+
+    Raises :class:`HouseRulesError` when the file stores no house-rules map, or when
+    ``rules`` was built under a map other than the stored one.
     """
     with open(path, encoding="utf-8") as fh:
         raw = json.load(fh)
     recording = _recording_from_dict(raw)
+    _check_house_rules(recording.house_rules, rules)
     if rules is not None and recording.scenario is not None:
         recording.scenario = replace(recording.scenario, rules=rules)
 
@@ -722,4 +809,5 @@ def _replay_and_snapshot(recording: "Recording") -> "Recording":
         winner=recording.winner,
         losses=recording.losses,
         schema_version=SCHEMA_VERSION,
+        house_rules=recording.house_rules,
     )

@@ -107,19 +107,18 @@ def _coerce_readonly(instance, *field_names) -> None:
 
 __all__ = [
     "Combatant",
-    "Job",
-    "Debt",
-    "Business",
-    "Contraband",
-    "Wanted",
     "Player",
-    "MapState",
     "Fighter",
     "CombatState",
     "Clock",
     "Config",
-    "Flags",
+    "FAITHFUL",
+    "INTENT",
+    "HOUSE_RULE_SETTINGS",
     "GameState",
+    "StateSchema",
+    "StateSchemaError",
+    "ValueSpec",
     # NOTE: `freeze`, `json_safe`, and `tuple_replace` are deliberately NOT exported.
     # docs/design/config-and-content-contract.md § Handler API admits only "engine
     # helpers for shared BASIC subroutines" (not-enough-money, gangster picker,
@@ -222,138 +221,47 @@ class Combatant:
 
 
 @dataclass(frozen=True)
-class Job:
-    """A pending job/contract for a player.
-
-    Field semantics confirmed against the source (mf-prg.bas:12308-12335,25550-25560):
-    ``type`` is ``jo(sp)`` (the accepted job's type id; 0 = no job), ``pending_pay`` is
-    ``jl(sp)`` (the lump sum paid out when the job completes — despite the source
-    comment "monthly pay", it is a single payout on completion, not a per-turn wage),
-    and ``months_left`` is ``jd(sp)``
-    (the remaining-duration counter, decremented once per elapsed month and completing
-    the job at 0, :25550).
-    """
-
-    type: int = 0
-    pending_pay: int = 0
-    months_left: int = 0
-
-
-@dataclass(frozen=True)
-class Debt:
-    """Per-player debt.
-
-    Renamed from the original ``kr(sp)`` to avoid colliding with the gangster
-    stat ``kraft``.
-
-    ``amount`` is ``kr(sp)`` (the outstanding loan-shark balance). ``months`` is
-    ``kz(sp)`` — a grace-period counter set to 6 on borrowing (mf-prg.bas:15030) and
-    0 on full repayment (:15075).
-
-    The upkeep tick (``kz(sp)=kz(sp)+(kz(sp)>0)``, :4305) **DECREMENTS** the counter
-    once per elapsed month while positive, and reaching 0 triggers the debt-collector
-    encounter (:4350). This is the C64 ``true=-1`` reading (#47: C64 true is -1) — see
-    the COUNTER DIRECTION section of
-    ``data/game_configs/mafia_1920s/handlers/upkeep.py`` for the three source lines
-    that pin it. The ``>0`` guard makes 0 a fixed point, which is what makes a won
-    collectors fight recur every turn.
-    """
-
-    amount: int = 0
-    months: int = 0
-
-
-@dataclass(frozen=True)
-class Business:
-    """Per-player shop/business ownership.
-
-    ``shop_tile`` is a tile, not an ownership flag: the original tracks ownership by
-    WHICH ``kdh`` tile the player bought (an ``ln`` value), and shop-income/sale logic
-    needs the tile to compute income, so a boolean would be lossy. ``0`` means "no shop"
-    (``ln`` is 1-based in the source, so 0 is not a valid owned tile).
-    """
-
-    shop_tile: int = 0  # 0 = none; else the owned kdh tile's ln
-    shop_capital: int = 0
-
-
-@dataclass(frozen=True)
-class Contraband:
-    """Per-player contraband holdings (original per-player bitfield ``ag``)."""
-
-    fake_papers: int = 0
-    counterfeit: int = 0
-    alcohol_barrels: int = 0  # ta(sp) — alcohol barrel stock (mf-prg.bas:1219,12035,12075)
-
-
-@dataclass(frozen=True)
-class Wanted:
-    """Per-player wanted state; also carries the two win flags."""
-
-    jail_months: int = 0
-    bribe_months: int = 0
-    x5: bool = False  # win flag — cash-transport event
-    x6: bool = False  # win flag — mayor-hit event
-
-
-@dataclass(frozen=True)
 class Player:
-    """A single player: identity, resources, roster, and owned subsystems.
+    """A single player: the genre-level fields the engine operates on, plus ``values``.
 
-    ``roster[0]`` is ALWAYS the player's own boss/persona gangster (matching
+    The engine keeps only what any game in the genre has: identity, cash, score, rank,
+    map position, vehicle, movement points, the roster, the location-entry context and
+    the previous tile.
+    Everything else a player carries is this game's state, and it lives in ``values``,
+    a frozen map the config declares (:class:`StateSchema`). The engine saves and
+    restores it without naming a key.
+
+    ``roster[0]`` is ALWAYS the player's own boss/persona combatant (matching
     ``mf-prg.bas:300``: ``gz(i)=1`` gives the player exactly one gangster at setup,
     named after the player, ``gn$(i,1)=sp$(i)`` — first-array-slot, i.e. index 0 here).
-    There is no separate parallel "player stat" representation: the boss's
-    kraft/intelligenz/brutalitaet/energie/weapon live entirely on this one
-    ``Combatant`` entry, and every roster-length check (``gz(sp)``, e.g. the pub's
-    10-gangster cap at :12105) counts the boss too. Later hires are appended after
-    it. :func:`data.game_configs.mafia_1920s.setup.new_game` and every roster read
-    site (``engine/conditions.py``'s ``gang_size``,
-    ``data/game_configs/mafia_1920s/handlers/waf.py``) rely on this — there is no
-    separate index shift.
+    There is no separate parallel "player stat" representation: the boss's stats live
+    entirely on this one ``Combatant`` entry, and every roster-length check (``gz(sp)``)
+    counts the boss too. Later hires are appended after it; there is no separate index
+    shift.
     """
 
     name: str = ""
-    gang_name: str = ""
     ka: int = 0  # cash (rolled 5000-7000 at setup, mf-prg.bas:315)
     gf: float = 0.0  # score/notoriety 0-100 (mf-prg.bas:1209)
     rank: int = 1  # ra(i) — rank 1..10, starts 1 "anfaenger" (mf-prg.bas:220)
-    nr: int = 1  # next-rank counter, starts 1 (mf-prg.bas:220)
     po: int = 18  # start map position (mf-prg.bas:220, po(i)=18)
     vehicle: int = 0  # transport type index (tm)
-    speed: int = 0
     ms: int = 0  # movement points (mf-prg.bas:1012); ms=0 forces turn end
     roster: tuple[Combatant, ...] = ()  # roster[0] is always the boss (see class docstring)
-    jobs: Job = field(default_factory=Job)
-    debt: Debt = field(default_factory=Debt)
-    business: Business = field(default_factory=Business)
-    contraband: Contraband = field(default_factory=Contraband)
-    wanted: Wanted = field(default_factory=Wanted)
-    tip_target: int = 0
-    safe_skill: int = 0
     last_location: int = 0  # ln — within-location tile index 1..9 of the last entry
     last_la: int = 0  # la — location id of the last entry (0 = none)
-    rented_months: int = 0  # um(sp) — prepaid rented months accumulator (mf-prg.bas:10040)
+    #: ``ll(sp)`` — the ``(la, ln)`` of the last location visit that ENDED this turn:
+    #: the turn runner writes it after each location visit returns (mf-prg.bas:2055
+    #: ``gosub3000:ll(sp)=20*la+ln``) and clears it to ``(0, 0)`` at the turn start
+    #: (:1012 ``ll(sp)=0``). Map sequencing, like ``po``; separate from the entry
+    #: context above, which door entry writes BEFORE the handler runs.
+    previous_tile: tuple[int, int] = (0, 0)
+    #: This player's game state, declared by the config (:class:`StateSchema`): a
+    #: frozen ``name -> value`` map the engine saves and restores without naming a key.
+    values: Mapping[str, Any] = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
-        _coerce_readonly(self, "roster")
-
-
-@dataclass(frozen=True)
-class MapState:
-    """The city map (40 wide × 25 tall) and its per-tile/special-cell data.
-
-    Distinct coordinate space from the combat grid (40×13) — never conflate.
-    """
-
-    grid: tuple[tuple[int, ...], ...] = ()  # 40×25 city map
-    tenancy: Mapping[int, int] = field(
-        default_factory=lambda: _EMPTY_MAP
-    )  # per-tile tenancy by ln (orig uk)
-    special_cells: Mapping[int, int] = field(default_factory=lambda: _EMPTY_MAP)  # e.g. 569, 861
-
-    def __post_init__(self):
-        _coerce_readonly(self, "grid", "tenancy", "special_cells")
+        _coerce_readonly(self, "roster", "values", "previous_tile")
 
 
 @dataclass(frozen=True)
@@ -408,6 +316,13 @@ class Fighter:
     #: POSITION, which is only correct while side 1's order happens to equal roster
     #: order — an assumption nothing enforces and a scenario can break outright.
     roster_id: int | None = None
+    #: Which player's roster this fighter came from, as that player's index; ``None``
+    #: for an NPC. With ``roster_id`` it names the gangster a fight's outcome is written
+    #: back to, so a fight between two players' rosters writes each side's damage to
+    #: its own owner. Fight setup sets it; the engine carries it through and never
+    #: interprets it. A side-1 roster fighter with no owner (a fight built by hand)
+    #: writes back to the active player, as every fight did before owners existed.
+    owner: int | None = None
 
     def __post_init__(self):
         _coerce_readonly(self, "attrs", "equipment")
@@ -481,42 +396,48 @@ class Clock:
     end_year: int = 1978  # x9 — game-end year, validated [1928,1978] (mf-prg.bas:172)
     active_player: int = 0  # sp — active player index
     player_count: int = 1  # sz — player count, validated [1,4] (mf-prg.bas:206)
+    #: Where the engine turn runner (``engine.turns``) re-enters this turn: one of
+    #: ``engine.turns.PHASES``. The runner writes it at its resumable points: the
+    #: turn start (``"upkeep"``, with the rotation) and the open free turn
+    #: (``"walking"``). ``"walking"`` is also the default, for a state the runner has
+    #: not driven yet: a freshly set-up game, which a client enters at the turn start
+    #: explicitly, and a hand-built state resumed on the map. Every save writes it.
+    turn_phase: str = "walking"
+
+
+#: A house rule's two settings: the original's behaviour, or the intended one.
+FAITHFUL = "faithful"
+INTENT = "intent"
+HOUSE_RULE_SETTINGS = (FAITHFUL, INTENT)
 
 
 @dataclass(frozen=True)
 class Config:
-    """Rules/params (frozen per game at build time conceptually)."""
+    """Rules/params (frozen per game at build time conceptually).
 
-    score_mult: float = 1.0  # x8 — score-gain weight [0.1,2.0] (mf-prg.bas:176); scales gf += x*x8
-    action_costs: Mapping[str, int] = field(default_factory=lambda: _EMPTY_MAP)
-    formula_params: Mapping = field(default_factory=lambda: _EMPTY_MAP)
+    ``formula_params`` is opaque config data the engine never inspects: the config
+    fills it at setup and reads it back in its own formulas and handlers.
 
-    def __post_init__(self):
-        _coerce_readonly(self, "action_costs", "formula_params")
-
-
-@dataclass(frozen=True)
-class Flags:
-    """Global flags, distinct from the per-player bitfields above.
-
-    ``hired_gangsters`` ports ``sg(i)`` (mf-prg.bas:12106,12110,12165) — the GLOBAL
-    (not per-player) set of the 30 recruit-candidate ids (0-based here; the source's
-    ``i`` is 1-based) already hired by ANY player this game. It lives on ``Flags``
-    rather than on ``Player`` because the source array has no player dimension: once
-    a candidate is hired by one player, every player's recruit roll skips them
-    (the pub's ``pub.recruit``). A tuple, not a ``set``/``frozenset``: every
-    other read-only COLLECTION field in this module is a tuple or
-    ``MappingProxyType`` so ``json_safe``/persistence's generic walkers handle it
-    for free; a bare Python ``set`` is not JSON-serializable and would need its own
-    special-cased round-trip.
+    ``house_rules`` is the game's house-rules map (docs/design/config-and-content-contract.md
+    § House rules): a switchable catalogue entry's id -> :data:`FAITHFUL` or
+    :data:`INTENT`, chosen at setup and fixed for the game. The engine never reads a
+    switch by its id; the config does, through the state. The map is frozen like the
+    rest of the graph, and :func:`engine.effects.apply` refuses any effect that changes
+    ``state.config``, so no effect can write it. A save stores it and a save without it
+    is refused (:class:`engine.persistence.MissingHouseRulesError`).
     """
 
-    graphics_mode: int = 0
-    loaded: bool = False
-    hired_gangsters: tuple[int, ...] = ()
+    formula_params: Mapping = field(default_factory=lambda: _EMPTY_MAP)
+    house_rules: Mapping[str, str] = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
-        _coerce_readonly(self, "hired_gangsters")
+        _coerce_readonly(self, "formula_params", "house_rules")
+        for rule_id, setting in self.house_rules.items():
+            if setting not in HOUSE_RULE_SETTINGS:
+                raise ValueError(
+                    f"house rule {rule_id!r} is set to {setting!r}; "
+                    f"expected one of {list(HOUSE_RULE_SETTINGS)}"
+                )
 
 
 @dataclass(frozen=True)
@@ -524,11 +445,144 @@ class GameState:
     """Top-level game state aggregating all subsystems."""
 
     players: tuple[Player, ...] = ()
-    map: MapState = field(default_factory=MapState)
     combat: CombatState = field(default_factory=CombatState)
     clock: Clock = field(default_factory=Clock)
     config: Config = field(default_factory=Config)
-    flags: Flags = field(default_factory=Flags)
+    #: Game state with no player dimension, declared by the config
+    #: (:class:`StateSchema`): the same kind of frozen map as :attr:`Player.values`.
+    values: Mapping[str, Any] = field(default_factory=lambda: _EMPTY_MAP)
 
     def __post_init__(self):
-        _coerce_readonly(self, "players")
+        _coerce_readonly(self, "players", "values")
+
+
+# --------------------------------------------------------------------------- #
+# Declared value maps — the config's state schema                             #
+# --------------------------------------------------------------------------- #
+#: The value types a schema may declare, by the name a config writes.
+_VALUE_TYPES: dict[str, type] = {"int": int, "float": float, "bool": bool, "str": str}
+
+
+class StateSchemaError(ValueError):
+    """A malformed state schema, or saved values that do not fit the schema."""
+
+
+@dataclass(frozen=True)
+class ValueSpec:
+    """One declared value-map key: its ``name``, value ``type`` and ``default``."""
+
+    name: str
+    type: type
+    default: Any
+
+
+def _fits(spec_type: type, value: Any) -> bool:
+    # Exact type: ``True`` is an int to Python and ``1 == 1.0``, but a bool in an int
+    # key or an int in a float key is the drift a save must not carry.
+    return type(value) is spec_type
+
+
+def _parse_specs(section: Any, where: str) -> Mapping[str, ValueSpec]:
+    if not isinstance(section, Mapping):
+        raise StateSchemaError(f"state.{where} must be a mapping of name -> {{type, default}}")
+    specs: dict[str, ValueSpec] = {}
+    for name, raw in section.items():
+        if not isinstance(raw, Mapping):
+            raise StateSchemaError(f"state.{where}.{name} must be a mapping with type and default")
+        unknown = set(raw) - {"type", "default"}
+        if unknown:
+            raise StateSchemaError(f"state.{where}.{name} has unknown field(s) {sorted(unknown)}")
+        type_name = raw.get("type")
+        if type_name not in _VALUE_TYPES:
+            raise StateSchemaError(
+                f"state.{where}.{name} declares type {type_name!r}; "
+                f"expected one of {sorted(_VALUE_TYPES)}"
+            )
+        if "default" not in raw:
+            raise StateSchemaError(f"state.{where}.{name} declares no default")
+        value_type = _VALUE_TYPES[type_name]
+        default = raw["default"]
+        if value_type is float and type(default) is int:
+            default = float(default)  # YAML writes ``0`` for a float's zero
+        if not _fits(value_type, default):
+            raise StateSchemaError(
+                f"state.{where}.{name}: default {default!r} is not a {type_name}"
+            )
+        specs[name] = ValueSpec(name=name, type=value_type, default=default)
+    return MappingProxyType(specs)
+
+
+def _load_values(specs: Mapping[str, ValueSpec], raw: Any, where: str) -> Mapping[str, Any]:
+    if not isinstance(raw, Mapping):
+        raise StateSchemaError(f"{where}: saved values must be a mapping")
+    unknown = sorted(set(raw) - set(specs))
+    if unknown:
+        raise StateSchemaError(
+            f"{where}: saved key(s) {unknown} are not declared in the config's state schema"
+        )
+    loaded: dict[str, Any] = {}
+    for name, spec in specs.items():
+        if name not in raw:
+            loaded[name] = spec.default
+            continue
+        value = raw[name]
+        if not _fits(spec.type, value):
+            raise StateSchemaError(
+                f"{where}: saved key {name!r} holds {value!r}, not a {spec.type.__name__}"
+            )
+        loaded[name] = value
+    return MappingProxyType(loaded)
+
+
+@dataclass(frozen=True)
+class StateSchema:
+    """The config's declared value maps: names, types and defaults.
+
+    ``player`` declares the keys of every :attr:`Player.values`; ``global_`` those of
+    :attr:`GameState.values`. A config writes it as ``state_schema.yaml`` beside its
+    ``config.yaml`` (read by :func:`engine.config_loader.load_state_schema`)::
+
+        player:
+          counter: {type: int, default: 0}
+        global:
+          round_bonus: {type: float, default: 0.0}
+
+    On load a missing key takes its declared default and an unknown key is refused,
+    so a later change can add a key without a save-format bump.
+    """
+
+    player: Mapping[str, ValueSpec] = field(default_factory=lambda: _EMPTY_MAP)
+    global_: Mapping[str, ValueSpec] = field(default_factory=lambda: _EMPTY_MAP)
+
+    @classmethod
+    def from_dict(cls, raw: Any) -> "StateSchema":
+        """Parse a config's state schema; ``None`` declares two empty maps."""
+        if raw is None:
+            return cls()
+        if not isinstance(raw, Mapping):
+            raise StateSchemaError("state must be a mapping with 'player' and/or 'global'")
+        unknown = set(raw) - {"player", "global"}
+        if unknown:
+            raise StateSchemaError(
+                f"state has unknown section(s) {sorted(unknown)}; expected 'player', 'global'"
+            )
+        return cls(
+            player=_parse_specs(raw.get("player", {}), "player"),
+            global_=_parse_specs(raw.get("global", {}), "global"),
+        )
+
+    def player_defaults(self) -> Mapping[str, Any]:
+        """A fresh player's value map: every declared key at its default."""
+        return MappingProxyType({n: s.default for n, s in self.player.items()})
+
+    def global_defaults(self) -> Mapping[str, Any]:
+        """A fresh game's global value map: every declared key at its default."""
+        return MappingProxyType({n: s.default for n, s in self.global_.items()})
+
+    def load_player_values(self, raw: Any, *, where: str = "player") -> Mapping[str, Any]:
+        """Restore one saved player map: default-fill, refuse unknown or mistyped keys."""
+        return _load_values(self.player, raw, where)
+
+    def load_global_values(self, raw: Any, *, where: str = "global") -> Mapping[str, Any]:
+        """Restore the saved global map: default-fill, refuse unknown or mistyped keys."""
+        return _load_values(self.global_, raw, where)

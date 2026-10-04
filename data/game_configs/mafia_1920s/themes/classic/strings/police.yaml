@@ -1,0 +1,37 @@
+# police capture and trial — classic-theme strings (VERBATIM German).
+#
+# DATA, not code: handlers/police.py emits these KEYS and the theme resolves them.
+# Ported from the research text corpus (research-data/pass-1/game-text.yaml, lines
+# 26000-26075) and mf-prg.bas:26000-26080 (:26070's line, which the corpus misses, from
+# the listing). A number the source prints between strings takes the spaces C64 PRINT
+# puts around it, except before "$", as the other screens do. Every screen that ends in
+# :1100's "taste druecken!" pause gets it from the client.
+police:
+  # :26020 — the arrest, printed on every entry to the caught menu.
+  caught: "du bist von der polizei gefasst worden."
+  # :26022-26023 — the menu.
+  menu: "was nun:"
+  menu_bribe: "1 polizisten bestechen"
+  menu_flee: "2 fluchtversuch"
+  menu_surrender: "3 ergeben"
+  # :26035 — the price; :1110 asks "ok (j/n)?" after it.
+  bribe_demand: "sie verlangen{price}$."
+  confirm: "ok (j/n)?"
+  # :26039 — the bribe taken.
+  let_go: "die bullen lassen dich gehen!"
+  # :26041 — the flight made good.
+  escaped: "du bist gerade noch einmal entkommen!"
+  # :26042-26043 — the flight failed.
+  flight_failed: "die polizisten schnappen dich\ndu musst dich ergeben!"
+  # :26050 — the trial.
+  trial: "deine gerichtsverhandlung..."
+  # :26055 — the lawyer offer, answered j/n (:1115).
+  lawyer_offer: "willst du einen anwalt (j/n) ?"
+  # :26060 — the lawyer's fee.
+  lawyer_prompt: "wieviel legst du an (0-10000$)"
+  # :26070 — the lawyer got the sentence to 0.
+  acquitted: "du wirst freigesprochen!"
+  # :26071-26072 — the lawyer cut the sentence.
+  lawyer_result: "dein anwalt boxt eine strafe von\nnur{months}monat(en) heraus."
+  # :26075 — the sentence with no lawyer.
+  sentenced: "du wanderst fuer{months}monat(e) hinter\ngitter!"

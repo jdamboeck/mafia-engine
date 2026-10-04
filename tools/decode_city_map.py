@@ -44,10 +44,26 @@ KARTE = RESEARCH_ROOT / "src" / "karte"
 DATA_STRUCTURES = RESEARCH_ROOT / "research-data" / "pass-2" / "data-structures.yaml"
 OUT = ENGINE_ROOT / "data" / "game_configs" / "mafia_1920s" / "content" / "map" / "city.yaml"
 
-# Dynamic event-overlay cells (mf-prg.bas:2002-2003); la 13/14 win flows.
+# Dynamic event-overlay cells (mf-prg.bas:2002-2003); la 13/14 win flows. Both are
+# plain street (code 156) on the karte; ``armed`` is the guard (the engine's guard DSL,
+# over the config's guard variables) under which the overlay is poked off the street
+# code for the active player: ``:2002 iftp(sp)=3thenpokebr+569,135``,
+# ``:2003 iftp(sp)=5thenpokebr+861,130``. Only then does a step reach :2045/:2046.
 SPECIAL_CELLS = [
-    {"cell": 569, "la": 13, "flow": "cash_transport", "win_flag": "x5"},
-    {"cell": 861, "la": 14, "flow": "mayor_hit", "win_flag": "x6"},
+    {
+        "cell": 569,
+        "la": 13,
+        "flow": "cash_transport",
+        "win_flag": "x5",
+        "armed": {"var": "tip", "op": "=", "value": 3},
+    },
+    {
+        "cell": 861,
+        "la": 14,
+        "flow": "mayor_hit",
+        "win_flag": "x6",
+        "armed": {"var": "tip", "op": "=", "value": 5},
+    },
 ]
 
 

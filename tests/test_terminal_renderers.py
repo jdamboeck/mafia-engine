@@ -338,6 +338,16 @@ class TestRenderCombatMessage:
         render_combat_message(_payload(message=msg), _FakeResolver(), buf, _COLORS)
         assert "treffer!" in buf.getvalue()
 
+    def test_a_hit_shows_the_damage_in_the_classic_theme(self) -> None:
+        """:30350 ``print"{rvon}treffer! energie -"mid$(str$(y),2)"!"``: the damage y."""
+        from engine.strings import Resolver
+
+        buf = _out()
+        msg = {"hit": True, "damage": 7, "target_side": 2, "target_index": 0, "downed": False}
+        resolver = Resolver.from_config("data/game_configs/mafia_1920s")
+        render_combat_message(_payload(message=msg), resolver, buf, _COLORS)
+        assert "treffer! energie -7!" in buf.getvalue()
+
     def test_no_message_writes_nothing(self) -> None:
         buf = _out()
         render_combat_message(_payload(message=None), _FakeResolver(), buf, _COLORS)
@@ -363,31 +373,52 @@ class TestFighterPanelIsAttributeAgnostic:
     the defect lives in ``clients/``.
     """
 
-    #: The panel exactly as it rendered BEFORE the wire change, captured from the
-    #: real classic theme. Byte-for-byte — the change must be invisible to a player.
-    EXPECTED = "\x1b[38;2;178;178;178mhero\x1b[39m\nwaffe: revolver\nenergie: 20\nkraft: 30\nbrutalitaet: 44\n"
-
     def _weapons(self):
         return ["haende", "messer", "knueppel", "schlagkette", "wurfsterne", "revolver"]
 
-    def test_panel_is_byte_identical_to_the_pre_u2_rendering(self) -> None:
-        """The captured baseline, reproduced through the REAL theme and a real Fighter."""
-        from engine.state import Fighter, json_safe
+    def _classic_panel(self, fighter) -> str:
+        from engine.state import json_safe
         from engine.strings import Resolver
 
         buf = _out()
-        fighter = Fighter(
-            name="hero",
-            weapon=5,
-            vitality=20,
-            attrs={"kraft": 30, "brutalitaet": 44},
-            position=10,
-        )
         resolver = Resolver.from_config("data/game_configs/mafia_1920s")
         render_fighter_panel(
             {"fighter": json_safe(fighter)}, resolver, self._weapons(), buf, _COLORS
         )
-        assert buf.getvalue() == self.EXPECTED
+        return buf.getvalue()
+
+    def test_the_classic_panel_shows_the_zero_padded_ge_fields(self) -> None:
+        """:30116 gosub1300: the name, :1315's ``e``/``k``/``i``/``b`` fields as
+        :1365-1385 build ``ge$`` (``mid$(str$(..),2)``, a ``0`` before a single digit),
+        then :1320's ``w:`` weapon. Through the REAL theme and a real Fighter."""
+        from engine.state import Fighter
+
+        fighter = Fighter(
+            name="hero",
+            weapon=5,
+            vitality=5,
+            attrs={"kraft": 30, "intelligenz": 7, "brutalitaet": 44},
+            position=10,
+        )
+        assert self._classic_panel(fighter) == (
+            "\x1b[38;2;178;178;178mhero\x1b[39m\ne05 k30 i07 b44\nw:revolver\n"
+        )
+
+    def test_a_fighter_lacking_a_panel_stat_shows_no_stat_line(self) -> None:
+        """A CPU enemy carries no ``intelligenz`` (:30245 fixes only kr/bt): the stat
+        line is left out, not the screen taken down; the weapon still shows."""
+        from engine.state import Fighter
+
+        enemy = Fighter(
+            name="eintreiber",
+            weapon=3,
+            vitality=30,
+            attrs={"kraft": 30, "brutalitaet": 30},
+            position=10,
+        )
+        assert self._classic_panel(enemy) == (
+            "\x1b[38;2;178;178;178meintreiber\x1b[39m\nw:schlagkette\n"
+        )
 
     def test_a_game_with_different_attributes_renders_its_own(self) -> None:
         """An invented game's attributes render with no renderer change (the claim).

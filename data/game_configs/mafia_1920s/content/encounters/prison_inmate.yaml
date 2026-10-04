@@ -1,0 +1,17 @@
+# The fellow inmate of the prison brawl (mf-prg.bas:27125-27130), whom the attacker
+# pays to beat up a jailed rival's boss.
+#
+#   27125 bn$(0)="mr.bonebreaker":gz(0)=1:gw(0,1)=3:ec(1)=50:ks(2)=0
+#   27130 z1=gw(us,1):z2=gz(us):gw(us,1)=0:gz(us)=1:ks(1)=us:kf$="kg":gosub30000
+#
+# ks(2)=0 makes side 2 the CPU's (:30110 ifks(s)=0thengosub30400), with the fixed CPU
+# stats of :30245 (ifks(s)=0thenbt=30:kr=30). :27125 sets gw(0,1)/ec(1) itself instead
+# of :5000's loop, to the same effect. No declarable consequence: the sentence and the
+# energy zeroing (:27135-27146) are in handlers/gang_war.py.
+key: prison_inmate
+enemies:
+  count: 1                # gz(0)=1 — :27125
+  weapon: 3               # gw(0,1)=3, schlagkette — :27125
+  vitality: 50            # ec(1)=50 — :27125
+  name: mr.bonebreaker    # bn$(0)="mr.bonebreaker" — :27125
+grid: kg                  # kf$="kg" — :27130

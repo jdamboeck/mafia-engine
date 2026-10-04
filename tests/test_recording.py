@@ -31,6 +31,7 @@ from engine.combat import RulesBundle
 from engine.effects import SCHEMA_VERSION
 from engine.fight_loop import AiDriver, PolicyDriver, simulate
 from engine.recording import (
+    HouseRulesError,
     load,
     record_fight,
     ReplayReport,
@@ -79,7 +80,7 @@ def _kdh_ambush_scenario() -> Scenario:
             ),
         ),
     )
-    return Scenario(sides=sides, grid=(), rules=build_rules(), dir_memory={0: -1}, seed=42)
+    return Scenario(sides=sides, grid=(), rules=build_rules({}), dir_memory={0: -1}, seed=42)
 
 
 @pytest.fixture
@@ -268,7 +269,7 @@ def test_replaying_against_an_altered_damage_formula_diverges(ambush_recording):
 def test_a_faithful_replay_against_the_live_rules_does_not_diverge(ambush_recording):
     """The control for the detector: replaying against the UNCHANGED live rules is clean."""
     _, recording = ambush_recording
-    assert replay(recording, rules=build_rules()).diverged is False
+    assert replay(recording, rules=build_rules({})).diverged is False
 
 
 # --------------------------------------------------------------------------- #
@@ -293,7 +294,7 @@ def test_shape_drift_discards_snapshots_rebuilds_and_matches_every_state(
         event["snapshot"] = {"garbled": True}
     path.write_text(json.dumps(raw), encoding="utf-8")
 
-    loaded = load(path, rules=build_rules())
+    loaded = load(path, rules=build_rules({}))
 
     # Every snapshot is re-stamped at the current version and rebuilt from the log.
     assert all(
@@ -308,6 +309,56 @@ def test_shape_drift_discards_snapshots_rebuilds_and_matches_every_state(
 
 
 # --------------------------------------------------------------------------- #
+# KTD-14: a fighter's owner — absent from a recording made before owners        #
+# --------------------------------------------------------------------------- #
+def _drop_owner(value):
+    """``value`` with every fighter's ``owner`` key removed, as an older file stores it."""
+    if isinstance(value, dict):
+        return {k: _drop_owner(v) for k, v in value.items() if k != "owner"}
+    if isinstance(value, list):
+        return [_drop_owner(v) for v in value]
+    return value
+
+
+def test_a_recording_without_owners_still_replays_unchanged(ambush_recording, tmp_path):
+    """Every existing recording is the active player against NPCs and stores no
+    ``owner``: it loads with every fighter unowned, replays without diverging, and its
+    snapshots compare equal to the ones the live fight makes now."""
+    _, recording = ambush_recording
+    path = tmp_path / "before_owners.json"
+    save(recording, path)
+    raw = _drop_owner(json.loads(path.read_text(encoding="utf-8")))
+    assert "owner" not in json.dumps(raw)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load(path, rules=build_rules({}))
+
+    assert loaded.scenario is not None and loaded.scenario.sides is not None
+    assert [f.owner for side in loaded.scenario.sides for f in side] == [None, None]
+    assert [e.snapshot for e in loaded.events] == [e.snapshot for e in recording.events]
+    assert replay(loaded) == ReplayReport(diverged=False)
+
+
+def test_a_fighters_owner_round_trips_through_a_recording(tmp_path):
+    """A recorded fight with a player-owned side stores each fighter's ``owner``."""
+    scenario = _kdh_ambush_scenario()
+    assert scenario.sides is not None
+    hero, ambusher = scenario.sides[0][0], scenario.sides[1][0]
+    owned = replace(
+        scenario,
+        sides=((replace(hero, owner=0),), (replace(ambusher, roster_id=2, owner=1),)),
+    )
+    _, recording = record_fight(owned, {1: AiDriver(), 2: AiDriver()})
+    path = tmp_path / "owned.json"
+    save(recording, path)
+
+    loaded = load(path, rules=build_rules({}))
+    assert loaded.scenario is not None and loaded.scenario.sides is not None
+    assert [f.owner for side in loaded.scenario.sides for f in side] == [0, 1]
+    assert replay(loaded).diverged is False
+
+
+# --------------------------------------------------------------------------- #
 # A recording round-trips through serialization unchanged                       #
 # --------------------------------------------------------------------------- #
 def test_a_recording_round_trips_through_serialization_unchanged(ambush_recording, tmp_path):
@@ -317,7 +368,7 @@ def test_a_recording_round_trips_through_serialization_unchanged(ambush_recordin
     first, second = tmp_path / "roundtrip.json", tmp_path / "resaved.json"
 
     save(recording, first)
-    reloaded = load(first, rules=build_rules())
+    reloaded = load(first, rules=build_rules({}))
     save(reloaded, second)
 
     assert second.read_text(encoding="utf-8") == first.read_text(encoding="utf-8")
@@ -438,3 +489,68 @@ def test_an_observed_fight_records_the_same_transcript_and_replays_without_diver
     report = replay(watched)
     assert report.diverged is False
     assert report.at_index is None
+
+
+# --------------------------------------------------------------------------- #
+# House rules (U38, R21, KTD-9): a recording stores its map; replay compares it  #
+# --------------------------------------------------------------------------- #
+#: A made-up house-rules map. The engine carries the map as opaque data and never
+#: reads a switch by its id, so the ids need not be real catalogue entries here.
+_UNDER = {"alpha": "faithful", "beta": "intent"}
+
+
+def _recorded_under(house_rules: dict, tmp_path) -> tuple:
+    """The shared ambush recorded under ``house_rules`` and saved; (path, recording)."""
+    scenario = replace(_kdh_ambush_scenario(), rules=build_rules(house_rules))
+    _, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
+    path = tmp_path / "under.json"
+    save(recording, path)
+    return path, recording
+
+
+def test_a_recording_stores_the_map_it_was_made_under_and_replays_under_it(tmp_path):
+    path, recording = _recorded_under(_UNDER, tmp_path)
+    assert json.loads(path.read_text(encoding="utf-8"))["house_rules"] == _UNDER
+    loaded = load(path, rules=build_rules(dict(_UNDER)))
+    assert loaded.house_rules is not None and dict(loaded.house_rules) == _UNDER
+    assert replay(loaded) == ReplayReport(diverged=False)
+    assert replay(recording, rules=build_rules(dict(_UNDER))) == ReplayReport(diverged=False)
+
+
+def test_a_recording_made_under_one_map_refuses_to_load_under_another(tmp_path):
+    path, _ = _recorded_under(_UNDER, tmp_path)
+    with pytest.raises(HouseRulesError) as exc:
+        load(path, rules=build_rules({"alpha": "faithful", "beta": "faithful"}))
+    assert str(exc.value) == (
+        "house rule 'beta' differs: the recording was made with 'intent', "
+        "the supplied rules have 'faithful'"
+    )
+
+
+def test_a_recording_refuses_to_replay_under_another_map(tmp_path):
+    _, recording = _recorded_under(_UNDER, tmp_path)
+    with pytest.raises(HouseRulesError, match="house rule 'alpha' differs"):
+        replay(recording, rules=build_rules({"alpha": "intent", "beta": "intent"}))
+
+
+def test_an_entry_one_map_lacks_is_named_as_unset(tmp_path):
+    path, _ = _recorded_under(_UNDER, tmp_path)
+    with pytest.raises(HouseRulesError) as exc:
+        load(path, rules=build_rules({"alpha": "faithful"}))
+    assert str(exc.value) == (
+        "house rule 'beta' differs: the recording was made with 'intent', "
+        "the supplied rules have it unset"
+    )
+
+
+@pytest.mark.parametrize("with_rules", [True, False])
+def test_a_recording_with_no_map_is_refused(ambush_recording, tmp_path, with_rules):
+    _, recording = ambush_recording
+    path = tmp_path / "no-map.json"
+    save(recording, path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    del raw["house_rules"]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    with pytest.raises(HouseRulesError) as exc:
+        load(path, rules=build_rules({}) if with_rules else None)
+    assert str(exc.value) == "the recording stores no house-rules map"

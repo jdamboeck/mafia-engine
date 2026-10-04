@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from engine.config_loader import load_config, load_game_config
+import data.game_configs.mafia_1920s.state as game
 
 CONFIG_ROOT = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -59,7 +60,7 @@ def test_starting_values_in_range():
     assert p.ka in CASH_ROLLS
     assert p.po == 18
     assert p.rank == 1
-    assert p.nr == 1
+    assert game.next_rank(p) == 1
     assert p.vehicle == 0
     assert p.ms == 25  # on-foot tr(0)
 
@@ -114,16 +115,23 @@ def test_cheat_branch_absent_cash_band():
 # --- engine_api ------------------------------------------------------------
 
 
-def test_load_config_accepts_v1():
+def test_load_config_accepts_v2():
     cfg = load_config(CONFIG_PATH)
-    assert cfg["engine_api"] == 1
+    assert cfg["engine_api"] == 2
 
 
-def test_load_config_rejects_wrong_version(tmp_path):
+def test_a_config_declaring_engine_api_1_is_refused_with_a_clear_message(tmp_path):
+    """KTD-5: the engine speaks engine_api 2 only; the real config, set back to 1, is
+    refused naming both versions -- before any other check."""
+    text = CONFIG_PATH.read_text(encoding="utf-8")
+    assert "\nengine_api: 2\n" in text
     p = tmp_path / "config.yaml"
-    p.write_text("engine_api: 2\n")
-    with pytest.raises((ValueError, RuntimeError)):
+    p.write_text(text.replace("\nengine_api: 2\n", "\nengine_api: 1\n"), encoding="utf-8")
+    with pytest.raises(ValueError) as exc:
         load_config(p)
+    message = str(exc.value)
+    assert "unsupported engine_api 1" in message
+    assert "only accepts engine_api == 2" in message
 
 
 def test_load_config_rejects_missing_version(tmp_path):
@@ -172,6 +180,18 @@ def test_score_weight_out_of_range(weight):
         new_game(seed=1, end_year=1978, score_weight=weight, players=[("P", "G")])
 
 
+@pytest.mark.parametrize("player", [("", "G"), ("P", ""), ("A" * 14, "G"), ("P", "B" * 14)])
+def test_a_name_empty_or_over_13_characters_is_refused(player):
+    # :291 ``ifx$=""orlen(x$)>13``: the input routine asks again for both names.
+    with pytest.raises(ValueError, match="1 to 13 characters"):
+        new_game(seed=1, end_year=1978, score_weight=1.0, players=[player])
+
+
+def test_a_name_of_13_characters_is_taken():
+    gs = new_game(seed=1, end_year=1978, score_weight=1.0, players=[("A" * 13, "B" * 13)])
+    assert gs.players[0].name == "A" * 13
+
+
 def test_player_count_zero():
     with pytest.raises(ValueError):
         new_game(seed=1, end_year=1978, score_weight=1.0, players=[])
@@ -196,7 +216,7 @@ def test_multiplayer_ok():
     )
     assert gs.clock.player_count == 2
     assert gs.clock.end_year == 1950
-    assert gs.config.score_mult == 0.5
+    assert gs.config.formula_params["score_mult"] == 0.5
     assert gs.players[1].roster[0].name == "B"
 
 
@@ -234,16 +254,15 @@ def test_new_game_starts_january_1925():
 
 
 def test_ae5_end_year_1928_game_over_on_36th_round():
-    """AE5: from Jan 1925 with end year 1928 and one player, each advance_turn is a
-    full round (one month); game_over fires first on the 36th call (Jan 1928)."""
-    from engine.movement import advance_turn
+    """AE5: from Jan 1925 with end year 1928 and one player, each turn is a full round
+    (one month); game_over fires first on the 36th turn (Jan 1928)."""
+    from tests.helpers import next_turn_by_hand
 
-    vehicles = load_vehicles(VEHICLES_PATH)
     st = new_game(seed=1, end_year=1928, score_weight=1.0, players=[("Al", "Capones")])
     for call in range(1, 36):
-        st, over = advance_turn(st, vehicles)
+        st, over = next_turn_by_hand(st)
         assert over is False, f"game_over too early, on call {call}"
-    st, over = advance_turn(st, vehicles)
+    st, over = next_turn_by_hand(st)
     assert over is True
     assert (st.clock.year, st.clock.month) == (1928, 0)
 

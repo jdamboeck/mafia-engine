@@ -6,10 +6,15 @@
 # the numeric params the engine reads at new-game setup and in the slw handler.
 
 # Engine<->Config API version (docs/design/config-and-content-contract.md). The engine's load_config accepts
-# ONLY version 1 and rejects anything else with a clear error.
-engine_api: 1
+# ONLY the version it speaks (2) and rejects anything else with a clear error.
+engine_api: 2
 
+# The config's id. A save records it and is refused under a config with another id.
 name: "mafia_1920s"
+
+# This config's own content version. A save records it and is refused under another,
+# so bump it when a content change would make an existing save load wrongly.
+content_version: 8
 description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 
 # Entity tables live in sibling files under entities/.
@@ -140,6 +145,188 @@ formula_params:
   slw_late_rent_fine_base: 200
   slw_late_rent_fine_spread: 100
 
+  # ble (Blueten-Eddie) — mf-prg.bas:22000-22120.
+  ble_passport_price: 1000   # per gangster, boss included: x=gz(sp):p=1000*x (:22010)
+  ble_passport_score: 1      # x=1:gosub1160 (:22020)
+  ble_counterfeit_max: 5000  # ifq>5000orq>ka(sp) asks again (:22106)
+  # p=int(rnd(1)*q/2)+q+100 (:22110), drawn as range(q)//spread + q + bonus
+  ble_counterfeit_spread: 2
+  ble_counterfeit_bonus: 100
+  ble_counterfeit_score: 1   # x=1:gosub1160 (:22120)
+  # the marks fade at upkeep: ifint(rnd(1)*8)=0 clears each one (:4055 passport,
+  # :4056 counterfeit)
+  marks_decay_roll: 8
+
+  # Police capture and trial — mf-prg.bas:26000-26080 (handlers/police.py). The police
+  # fight's base count/weapon/energy are content/encounters/police_fight.yaml's.
+  police_count_rank_divisor: 2   # gz(0)=5+int(rnd(1)*ra(sp)/2) (:26000)
+  police_weapon_senior: 7        # w=5-2*(ra(sp)>5): maschinenpistole above rank 5 (:26010)
+  police_weapon_senior_rank: 5
+  police_energy_per_rank: 2      # e=20+2*(ra(sp)-1)-int(rnd(1)*21) (:26010)
+  police_energy_spread: 21
+  police_menu_skip_roll: 2       # ifpl(sp)andint(rnd(1)*2)<>0goto26037 (:26021)
+  police_bribe_base: 500         # p=500+500*ra(sp) (:26035)
+  police_bribe_per_rank: 500
+  police_bribe_fail_roll: 5      # ifint(rnd(1)*5)=0goto26045 (:26038)
+  police_flight_divisor: 11      # ifint(rnd(1)*tr(sp)/11)=0 -> caught (:26040)
+  police_lawyer_rank: 5          # ifra(sp)<5goto26075: no lawyer below rank 5 (:26050)
+  police_lawyer_step: 1000       # y=int(rnd(1)*(x/1000+1))+1 (:26062)
+  police_jail_cell: 911          # po(sp)=911 (:26080)
+  police_score_free: 2           # x=2:gosub1160 (:26015, :26036, :26041, :26045)
+  police_score_caught: -5        # x=-5:gosub1160 (:26040)
+  police_score_sentenced: -10    # x=-10:gosub1160 (:26080)
+
+  # pol (Polizei-Praesidium) — mf-prg.bas:21000-21255 (handlers/pol.py).
+  pol_chief_price: 1000         # p=1000*x per month (:21011)
+  pol_chief_score: 2            # x=2:gosub1160 (:21020)
+  pol_back_exit_cell: 911       # po(sp)=911, the back exit (:21030)
+  # the station's door: an empty month answer keeps x, the map step into it (:2015-2018)
+  pol_door_cell: 910
+  pol_phantom_roll: 3           # ifint(rnd(1)*3)=0andra(sp)>4: the phantom inmate (:21105)
+  pol_phantom_min_rank: 4
+  # p=500*int(rnd(1)*5)+3000 -> 3000,3500,...,5000 (:21130)
+  pol_release_choices: 5
+  pol_release_step: 500
+  pol_release_base: 3000
+  pol_free_score: 2             # x=2:gosub1160 for the rescuer (:21255)
+  pol_gang_cap: 10              # ifgz(sp)=10: the phantom thanks and goes (:21205)
+  # the freed phantom: gn$="knasti":gw=0:ge$="05100540" (:21210; ge$ is en,kr,in,bt, :1350)
+  pol_inmate: {name: knasti, weapon: 0, energie: 5, kraft: 10, intelligenz: 5, brutalitaet: 40}
+
+  # aut (Automobil-Haendler) — mf-prg.bas:14000-14131 (handlers/aut.py). The models are
+  # entities/vehicles.yaml's; the owner's fight is content/encounters/aut_owner.yaml.
+  aut_models: 3                 # x=2 (:14010): models 1..x+1 in the showroom
+  aut_extra_model_tile: 2       # ifln=2thenx=x+1 (:14010): a fourth model on tile 2
+  aut_price_base: 3000          # p=3000+1000*(y-1) (:14035)
+  aut_price_step: 1000
+  aut_trade_in_base: 1000       # q=1000+1000*tm(sp) (:14045)
+  aut_trade_in_step: 1000
+  aut_stolen_vehicle: 5         # tm(sp)=5, the citroen (:14118)
+  aut_trade_in_stolen: 1000     # iftm(sp)=5thenq=1000 (:14045)
+  aut_crowd_roll: 3             # ifln<>4andint(rnd(1)*3)<>0: too crowded (:14100)
+  aut_no_crowd_tile: 4
+  # ifint(rnd(1)*(in/40+kr/30))=0 -> caught (:14110)
+  aut_steal_in_divisor: 40
+  aut_steal_kr_divisor: 30
+
+  # sgl (Einfacher Laden, the protection racket) — mf-prg.bas:17000-17592
+  # (handlers/sgl.py). The fights are content/encounters/sgl_*.yaml.
+  sgl_rank_floor: 1              # ifra(sp)>1goto17007 (:17005)
+  sgl_threat_brutalitaet: 30     # ifbt<30 -> no impression (:17016), the boss's bt
+  sgl_threat_tiles: [1, 7, 9]    # ifln=1orln=7orln=9goto17500 (:17017)
+  sgl_sob_tiles: [1, 4, 5]       # ifln=1orln=4orln=5goto17500 (:17100)
+  sgl_protection_tiles: [2, 3, 8]  # ifln=2orln=3orln=8goto17500 (:17200)
+  sgl_police_tiles: [1, 3, 6]    # (ln=1orln=3orln=6)andin>=30 (:17300)
+  sgl_police_intelligenz: 30
+  sgl_jack_big_gang: 5           # gz(0)=3-2*(gz(sp)>5): 5 of Jack's men above 5 (:17210)
+  sgl_score: 2                   # x=2:gosub1160 (:17500)
+  sgl_small_roll: 3              # ifint(rnd(1)*3)=0goto17530 (:17500)
+  sgl_small_min: 100             # p=int(rnd(1)*100)+100 (:17530)
+  sgl_small_spread: 100
+  sgl_pay_min: 800               # p=int(rnd(1)*200)+800-300*(ln=2)-200*(ln=7)-200*(ln=9)+600*(w=2)
+  sgl_pay_spread: 200            # (:17505). C64 true is -1, so each -k*(ln=..) term
+  sgl_bonus_tiles: [2, 7, 9]     # adds k: the (ln=2), (ln=7), (ln=9) terms, in order
+  sgl_bonus_amounts: [300, 200, 200]
+  sgl_sob_weapon: 2              # w=2: the sob-story reply (:17515), and +600*(w=2)
+  sgl_sob_amount: -600           # is 600*(-1): 600 LESS when w=2 (:17505)
+  sgl_demolish_tiles: [2, 6, 7, 8]  # ifln<>2andln<>6andln<>7andln<>8goto17575 (:17570)
+  sgl_demolish_min: 300          # p=int(rnd(1)*100)+300 (:17575)
+  sgl_demolish_spread: 100
+  sgl_kill_tiles: [1, 4]         # ifln<>1andln<>4goto17590 (:17580)
+  sgl_kill_min: 200              # p=int(rnd(1)*100)+200 (:17590)
+  sgl_kill_spread: 100
+  sgl_settle_score: 1            # x=1:gosub1160 (:17578, and :17592 before it)
+
+  # sub (Subway-Station) — mf-prg.bas:18000-18052 (handlers/sub.py).
+  sub_ticket_price: 50           # ifka(sp)<50goto1125 / ka(sp)=ka(sp)-50 (:18025-18030)
+  sub_score: 1                   # x=1:gosub1160, paid before the outcome (:18039)
+  sub_manual_roll: 15            # ifint(rnd(1)*15)=10goto18052 (:18040)
+  sub_manual_hit: 10
+  sub_manual_tries: 5            # s9(sp)=5, the safecracker bonus (:18052)
+  sub_catch_divisor: 10          # ifint(rnd(1)*(in/10))goto18045: 0 is caught (:18041)
+  # onint(rnd(1)*4)-(w=2)-(la<>9)goto18047,... (:18045): C64 true is -1, so +1 on the
+  # train (w=2) and +1 away from the railway station (la=9)
+  sub_loot_roll: 4
+  sub_loot_option: 2
+  sub_loot_station_la: 9
+  # the loot by index: the theme key suffix and the cash it brings (:18046-18051)
+  sub_loot: [[handbag, 0], [camera, 50], [pearls, 0], [watch, 100], [wallet, 500], [diamond, 800]]
+
+  # bhf (Bahnhof, railway station) — mf-prg.bas:19000-19050 (handlers/bhf.py).
+  bhf_pub_la: 2                  # ln=5:la=2:goto3000, the station pub (:19010)
+  bhf_pub_ln: 5
+  bhf_pickpocket_w: 1            # w=1:goto18035 (:19050)
+  bhf_mail_train_tip: 1          # iftp(sp)<>1then... (:19015)
+  bhf_mail_train_gang: 3         # ifgz(sp)<3then... tp(sp)=0 (:19016)
+
+  # ban (Bank/Postamt) — mf-prg.bas:20000-20060 (handlers/ban.py). The guards are
+  # content/encounters/ban_guards.yaml.
+  ban_rank_min: 3                # ifra(sp)<3then..."werde erst '"ra$(3)"'!" (:20003)
+  ban_alone_gang: 1              # ifgz(sp)=1then..."du brauchst einen begleiter!" (:20009)
+  ban_fight_roll: 3              # ifint(rnd(1)*3)=0goto20050: no fight (:20010)
+  ban_main_tile: 1               # gz(0)=3-(ln=1): 4 guards (:20012); -500*(la=10andln=1)
+  ban_main_bonus: 500            # is -500*(-1), C64 true: +500 on tile 1 (:20050)
+  ban_tip: 2                     # (x=2andla=10andln=2): the pub's tip 2 pays on tile 2
+  ban_tip_tile: 2                # only (:20051)
+  # The night safe-crack (:20100-20150). The boss's stats gate it (:20100
+  # ``ifin>=40andkr>=15andbt>=20``); the cracker's intelligence drives the tries and the
+  # slips; three code dials of 10 digits start at 1, 2, 3 (:20110 ``rd(i)=1+i``).
+  ban_safe_intelligenz: 40
+  ban_safe_kraft: 15
+  ban_safe_brutalitaet: 20
+  ban_safe_dials: [1, 2, 3]      # rd(i)=1+i, i=0to2 (:20110)
+  ban_safe_digits: 10            # cd(i)=int(rnd(1)*10); ifrd(x)=10thenrd(x)=0 (:20116)
+  ban_safe_tries: 20             # y=20+int(in/10)+3*(ln=1)+s9(sp) (:20111); C64 true is
+  ban_safe_tries_divisor: 10     # -1, so 3 tries fewer on the main tile (ban_main_tile)
+  ban_safe_main_tile_tries: 3
+  ban_safe_slip_divisor: 8       # ifint(rnd(1)*(in/8))=0 ... thensysso,7 (:20125)
+  ban_safe_score: -1             # x=-1:gosub1160 before the payout (:20150)
+  # The heist payout (:20050-20060), the bank's, shared with the mail train and the cash
+  # transport:
+  # p=int(rnd(1)*3000)+4000-500*(la=10andln=1); a matching tip clears it and adds 3000
+  # (:20051); x=4:gosub1160 (:20060).
+  heist_pay_min: 4000
+  heist_pay_spread: 3000
+  heist_tip_bonus: 3000
+  heist_score: 4
+
+  # The map win flows — mf-prg.bas:23000-23030, :24000-24020 (handlers/win_flows.py).
+  # The fights are content/encounters/win_*.yaml; the tips that arm the two cells are
+  # content/map/city.yaml's ``armed`` guards (:2002-2003).
+  win_transport_min_gang: 3      # ifgz(sp)<3then..."du hast zuwenig gangster!" (:23010)
+  win_transport_score: 4         # x=4:gosub1160, before the payout's own (:23030)
+  win_transport_tip: 3           # (x=3andla=13): the payout's tip bonus (:20051)
+  win_mayor_reward: 7000         # ka(sp)=ka(sp)+7000 (:24020)
+
+  # The gang war — mf-prg.bas:27000-27045 (handlers/gang_war.py).
+  # :27001 ifja<1925+4/12: refused before the round ja reaches 1925+4/12, which the
+  # header shows as 1925-5 (checked in VICE: four additions of 1/12 compare >= it).
+  # The year and the 0-based month (Clock.month) the gate opens on.
+  gang_war_from_year: 1925
+  gang_war_from_month: 4
+  gang_war_grid: ks              # kf$="ks" (:27020)
+  # p=int(rnd(1)*ka(b)/6)+int(ka(b)/4) (:27025), the loser's cash ka(b)
+  gang_war_plunder_spread: 6
+  gang_war_plunder_base: 4
+  gang_war_winner_score: 3       # x=3:gosub1160 (:27041), faithfully to sp, the attacker
+  gang_war_loser_score: -1       # sp=b:x=-1:gosub1160 (:27041)
+  gang_war_cost: 10              # ms=ms-10 (:27045)
+  # The prison brawl — mf-prg.bas:27100-27150 (handlers/gang_war.py); the inmate is
+  # content/encounters/prison_inmate.yaml.
+  prison_brawl_price: 3000       # er verlangt 3000 $ / ifka(sp)<3000 / ka(sp)-3000 (:27110-27120)
+  prison_brawl_boss_weapon: 0    # gw(us,1)=0, haende (:27130)
+  prison_brawl_extension: 2      # x=int(rnd(1)*2)+1: 1 or 2 months (:27140)
+  prison_brawl_score: 2          # x=2:gosub1160, to sp, the attacker (:27150)
+  prison_brawl_cost: 10          # ms=ms-10 (:27150)
+
+  # The map roadblock — mf-prg.bas:2041, :6000-6036 (handlers/roadblock.py).
+  # ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3 (:2041)
+  roadblock_every: 20
+  roadblock_roll: 5
+  roadblock_min_rank: 3          # ra(sp)>3: ranks above 3 only
+  roadblock_pass_roll: 3         # ifint(rnd(1)*3)=0goto6025: a clean pass (:6015)
+  map_screen_base: 52224         # br=52224 (:110); p=br+po(sp)+x at a map step (:2030)
+
 # New-game setup constants (mf-prg.bas:220,300-315,350). These mirror the
 # BASIC setup; this config's setup.py is the authoritative porting site. Kept here so
 # the values are visible/tunable as config data.
@@ -163,3 +350,6 @@ input_ranges:
   end_year: {min: 1928, max: 1978}   # x9
   score_weight: {min: 0.1, max: 2.0} # x8
   player_count: {min: 1, max: 4}     # sz
+  # sp$/bn$, a player's and a gang's name: the input routine asks again for an empty
+  # name or one over 13 characters (:291 `ifx$=""orlen(x$)>13`).
+  name_length: {min: 1, max: 13}

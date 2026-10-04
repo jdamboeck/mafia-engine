@@ -13,59 +13,51 @@ the U4 driver's buffer: ``ctx.apply`` enqueues; the buffer commits atomically (f
 from __future__ import annotations
 
 import dataclasses
-from types import MappingProxyType
 
 import pytest
 
 from engine.effects import (
     SCHEMA_VERSION,
     AssignWeapon,
-    BarrelChange,
     CommitResult,
-    DebtChange,
-    DebtClear,
     EnergyChange,
     FlagSet,
-    GangsterMarkHired,
-    Jail,
-    JobClear,
-    JobSet,
     MoneyChange,
     MsChange,
-    RankCommit,
-    RentAccrue,
     RosterAppend,
     RosterTruncate,
-    ScoreAndRank,
     ScoreChange,
     SetEntryContext,
-    SetTenancy,
     SetPosition,
-    ShopChange,
     SpawnFighter,
     StatChange,
     StatChangeCapped,
     Teleport,
-    TipClear,
-    TipSet,
-    WantedChange,
     apply,
     commit,
 )
-from engine.interactions import CANCEL, PromptInt, run
-from engine.state import (
-    Business,
-    Clock,
-    Debt,
-    Fighter,
-    Flags,
-    GameState,
-    Job,
-    MapState,
-    Player,
-    tuple_replace,
+from data.game_configs.mafia_1920s.effects import (
+    BarrelChange,
+    DebtChange,
+    DebtClear,
+    GangsterMarkHired,
+    Jail,
+    JobClear,
+    JobSet,
+    RankCommit,
+    RentAccrue,
+    ScoreAndRank,
+    SetTenancy,
+    ShopChange,
+    TipClear,
+    TipSet,
 )
+from engine.interactions import CANCEL, PromptInt, run
+from engine.state import Clock, Config, Fighter, GameState, Player, tuple_replace
+from data.game_configs.mafia_1920s.state import Business, Debt, Job
 from data.game_configs.mafia_1920s.gangster import Gangster
+from tests.helpers import with_tenancy
+import data.game_configs.mafia_1920s.state as game
 
 
 # --------------------------------------------------------------------------- #
@@ -92,7 +84,8 @@ def make_state(active_player: int = 0):
     return GameState(
         players=(p0, p1),
         clock=Clock(active_player=active_player, player_count=2),
-        flags=Flags(),
+        config=Config(formula_params={"score_mult": 1.0}),  # x8, set by new_game
+        values=game.SCHEMA.global_defaults(),
     )
 
 
@@ -114,8 +107,8 @@ def _with_second_gangster(state, gangster):
 # --------------------------------------------------------------------------- #
 def test_effects_are_frozen_and_versioned():
     e = MoneyChange(-500)
-    assert e.SCHEMA_VERSION == 1
-    assert SCHEMA_VERSION == 1
+    assert e.SCHEMA_VERSION == 2
+    assert SCHEMA_VERSION == 2
     with pytest.raises(dataclasses.FrozenInstanceError):
         e.amount = 1  # pyright: ignore[reportAttributeAccessIssue]  # the write is the test: it must raise
 
@@ -134,49 +127,58 @@ def test_money_change_and_purity():
 
 
 # --------------------------------------------------------------------------- #
-# score_change clamp [0, 100]                                                 #
+# score_change — a caller-supplied [floor, cap] bound                          #
 # --------------------------------------------------------------------------- #
 def test_score_change_caps_at_100():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(200.0, clamp=True))
+    out = apply(state, ScoreChange(200.0, floor=0.0, cap=100.0))
     assert out.players[0].gf == 100.0
 
 
 def test_score_change_floors_at_0():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(-200.0, clamp=True))
+    out = apply(state, ScoreChange(-200.0, floor=0.0, cap=100.0))
     assert out.players[0].gf == 0.0
 
 
 def test_score_change_normal_delta_lands_exactly():
     state = make_state()  # gf starts at 50
-    out = apply(state, ScoreChange(25.0, clamp=True))
+    out = apply(state, ScoreChange(25.0, floor=0.0, cap=100.0))
     assert out.players[0].gf == 75.0
 
 
 def test_score_change_unclamped_leaves_0_to_100():
-    """``clamp=False`` is the weapon-buy score (``:13065``/``:13072``/``:13073``),
+    """No bound is the weapon-buy score (``:13065``/``:13072``/``:13073``),
     which changes gf with no bound: only ``gosub 1160-1161`` clamps."""
     state = make_state()  # gf starts at 50
-    assert apply(state, ScoreChange(60.0, clamp=False)).players[0].gf == 110.0
-    assert apply(state, ScoreChange(-53.5, clamp=False)).players[0].gf == -3.5
+    assert apply(state, ScoreChange(60.0, floor=None, cap=None)).players[0].gf == 110.0
+    assert apply(state, ScoreChange(-53.5, floor=None, cap=None)).players[0].gf == -3.5
 
 
-def test_score_change_cannot_be_built_without_choosing_the_clamp():
+def test_score_change_cannot_be_built_without_choosing_the_bound():
     """A port of a direct ``gf(sp)=...`` line that writes ``ScoreChange(x)`` must not
-    silently get the :1160/:1161 clamp no such line has: the constructor refuses it."""
-    with pytest.raises(TypeError, match="clamp"):
-        ScoreChange(1.0)  # pyright: ignore[reportCallIssue]  # the missing clamp is the test: it must raise
-    with pytest.raises(TypeError, match="clamp"):
-        ScoreChange(1.0, 0)  # pyright: ignore[reportCallIssue]  # a positional clamp is the test: it must raise
+    silently get a bound no such line has, nor lose one a ``gosub 1160`` port needs:
+    the constructor refuses a missing bound."""
+    with pytest.raises(TypeError, match="floor"):
+        ScoreChange(1.0)  # pyright: ignore[reportCallIssue]  # the missing bound is the test: it must raise
+    with pytest.raises(TypeError, match="cap"):
+        ScoreChange(1.0, floor=0.0)  # pyright: ignore[reportCallIssue]  # the missing cap is the test: it must raise
+    with pytest.raises(TypeError):
+        ScoreChange(1.0, 0, 0.0, 100.0)  # pyright: ignore[reportCallIssue]  # a positional bound is the test: it must raise
+
+
+def test_score_change_bounds_one_side_only():
+    state = make_state()  # gf starts at 50
+    assert apply(state, ScoreChange(60.0, floor=0.0, cap=None)).players[0].gf == 110.0
+    assert apply(state, ScoreChange(-60.0, floor=None, cap=100.0)).players[0].gf == -10.0
 
 
 def test_score_and_rank_clamps_an_out_of_range_gf():
     """A gf left above 100 by an unclamped change is clamped at the next ``:1160``."""
-    state = apply(make_state(), ScoreChange(51.0, clamp=False))  # gf 101
+    state = apply(make_state(), ScoreChange(51.0, floor=None, cap=None))  # gf 101
     out = apply(state, ScoreAndRank(amount=0.0, rank_divisor=11.1))
     assert out.players[0].gf == 100.0
-    assert out.players[0].nr == 10
+    assert game.next_rank(out.players[0]) == 10
 
 
 # --------------------------------------------------------------------------- #
@@ -297,6 +299,27 @@ def test_stat_change_rejects_energie_which_is_the_vitality_slot():
     state = make_state()
     with pytest.raises(ValueError, match="energie"):
         apply(state, StatChange("energie", 5))
+
+
+def test_stat_change_validates_against_the_config_declared_names():
+    """The valid targets are whatever the config declared, not an engine list.
+
+    Re-declaring replaces the set (a config reload does exactly this), so a name the
+    new declaration drops is refused and a name it adds is accepted.
+    """
+    from engine.effects import STAT_NAMES, declare_stat_names
+
+    before = frozenset(STAT_NAMES)
+    try:
+        declare_stat_names(["kraft"])
+        state = make_state()
+        assert apply(state, StatChange("kraft", 1)).players[0].roster[0].attrs["kraft"] == 21
+        with pytest.raises(ValueError, match="brutalitaet"):
+            apply(state, StatChange("brutalitaet", 1))
+        with pytest.raises(ValueError, match="brutalitaet"):
+            apply(state, StatChangeCapped("brutalitaet", 1, cap=99))
+    finally:
+        declare_stat_names(before)
 
 
 def test_stat_change_targets_the_right_gangster_index():
@@ -453,26 +476,26 @@ def test_spawn_fighter_purity():
 def test_barrel_change_adds_to_alcohol_stock():
     state = make_state()  # contraband.alcohol_barrels defaults to 0
     out = apply(state, BarrelChange(10))
-    assert out.players[0].contraband.alcohol_barrels == 10
+    assert game.contraband(out.players[0]).alcohol_barrels == 10
 
 
 def test_barrel_change_negative_amount_subtracts():
     state = apply(make_state(), BarrelChange(10))
     out = apply(state, BarrelChange(-4))
-    assert out.players[0].contraband.alcohol_barrels == 6
+    assert game.contraband(out.players[0]).alcohol_barrels == 6
 
 
 def test_barrel_change_targets_explicit_player():
     state = make_state()
     out = apply(state, BarrelChange(5, player=1))
-    assert out.players[1].contraband.alcohol_barrels == 5
-    assert out.players[0].contraband.alcohol_barrels == 0  # untouched
+    assert game.contraband(out.players[1]).alcohol_barrels == 5
+    assert game.contraband(out.players[0]).alcohol_barrels == 0  # untouched
 
 
 def test_barrel_change_purity():
     state = make_state()
     out = apply(state, BarrelChange(10))
-    assert state.players[0].contraband.alcohol_barrels == 0  # original untouched
+    assert game.contraband(state.players[0]).alcohol_barrels == 0  # original untouched
     assert out is not state
 
 
@@ -482,32 +505,32 @@ def test_barrel_change_purity():
 def test_tip_set_stores_the_tip_type():
     state = make_state()  # tip_target defaults to 0
     out = apply(state, TipSet(tip_type=4))
-    assert out.players[0].tip_target == 4
+    assert game.tip_target(out.players[0]) == 4
 
 
 def test_tip_set_targets_explicit_player():
     state = make_state()
     out = apply(state, TipSet(tip_type=2, player=1))
-    assert out.players[1].tip_target == 2
-    assert out.players[0].tip_target == 0  # untouched
+    assert game.tip_target(out.players[1]) == 2
+    assert game.tip_target(out.players[0]) == 0  # untouched
 
 
 def test_tip_clear_resets_to_zero():
     state = apply(make_state(), TipSet(tip_type=4))
     out = apply(state, TipClear())
-    assert out.players[0].tip_target == 0
+    assert game.tip_target(out.players[0]) == 0
 
 
 def test_tip_clear_targets_explicit_player():
     state = apply(make_state(), TipSet(tip_type=3, player=1))
     out = apply(state, TipClear(player=1))
-    assert out.players[1].tip_target == 0
+    assert game.tip_target(out.players[1]) == 0
 
 
 def test_tip_set_and_clear_purity():
     state = make_state()
     out = apply(state, TipSet(tip_type=4))
-    assert state.players[0].tip_target == 0  # original untouched
+    assert game.tip_target(state.players[0]) == 0  # original untouched
     assert out is not state
 
 
@@ -572,7 +595,7 @@ def test_rent_accrue_takes_a_negative_month_for_the_countdown():
     # mf-prg.bas:4046 ``um(sp)=um(sp)-1`` reuses the signed um(sp) accumulator.
     state = apply(make_state(), RentAccrue(3))
     out = apply(state, RentAccrue(-1))
-    assert out.players[0].rented_months == 2
+    assert game.rented_months(out.players[0]) == 2
 
 
 # --------------------------------------------------------------------------- #
@@ -581,39 +604,39 @@ def test_rent_accrue_takes_a_negative_month_for_the_countdown():
 def test_job_set_stores_type_pay_and_duration():
     state = make_state()  # jobs defaults to Job() -- type=0
     out = apply(state, JobSet(type=2, pending_pay=1200, months_left=2))
-    assert out.players[0].jobs == Job(type=2, pending_pay=1200, months_left=2)
+    assert game.job(out.players[0]) == Job(type=2, pending_pay=1200, months_left=2)
 
 
 def test_job_set_targets_explicit_player():
     state = make_state()
     out = apply(state, JobSet(type=4, pending_pay=2200, months_left=1, player=1))
-    assert out.players[1].jobs == Job(type=4, pending_pay=2200, months_left=1)
-    assert out.players[0].jobs == Job()  # untouched
+    assert game.job(out.players[1]) == Job(type=4, pending_pay=2200, months_left=1)
+    assert game.job(out.players[0]) == Job()  # untouched
 
 
 def test_job_set_purity():
     state = make_state()
     out = apply(state, JobSet(type=1, pending_pay=2000, months_left=3))
-    assert state.players[0].jobs == Job()  # original untouched
+    assert game.job(state.players[0]) == Job()  # original untouched
     assert out is not state
 
 
 def test_job_clear_resets_to_default():
     state = apply(make_state(), JobSet(type=3, pending_pay=2000, months_left=2))
     out = apply(state, JobClear())
-    assert out.players[0].jobs == Job()
+    assert game.job(out.players[0]) == Job()
 
 
 def test_job_clear_targets_explicit_player():
     state = apply(make_state(), JobSet(type=2, pending_pay=1000, months_left=2, player=1))
     out = apply(state, JobClear(player=1))
-    assert out.players[1].jobs == Job()
+    assert game.job(out.players[1]) == Job()
 
 
 def test_job_clear_purity():
     state = apply(make_state(), JobSet(type=1, pending_pay=2000, months_left=3))
     out = apply(state, JobClear())
-    assert state.players[0].jobs == Job(type=1, pending_pay=2000, months_left=3)
+    assert game.job(state.players[0]) == Job(type=1, pending_pay=2000, months_left=3)
     assert out is not state
 
 
@@ -623,32 +646,32 @@ def test_job_clear_purity():
 def test_gangster_mark_hired_adds_to_global_flags():
     state = make_state()
     out = apply(state, GangsterMarkHired(candidate_id=3))
-    assert out.flags.hired_gangsters == (3,)
+    assert game.hired_ids(out) == (3,)
 
 
 def test_gangster_mark_hired_accumulates():
     state = apply(make_state(), GangsterMarkHired(candidate_id=3))
     out = apply(state, GangsterMarkHired(candidate_id=29))
-    assert out.flags.hired_gangsters == (3, 29)
+    assert game.hired_ids(out) == (3, 29)
 
 
 def test_gangster_mark_hired_is_not_per_player():
     # Global, not player-scoped -- no `player` field exists on the effect at all.
     state = apply(make_state(), GangsterMarkHired(candidate_id=0))
-    assert state.flags.hired_gangsters == (0,)
+    assert game.hired_ids(state) == (0,)
     assert not hasattr(GangsterMarkHired(candidate_id=0), "player")
 
 
 def test_gangster_mark_hired_dedupes_defensively():
     state = apply(make_state(), GangsterMarkHired(candidate_id=5))
     out = apply(state, GangsterMarkHired(candidate_id=5))
-    assert out.flags.hired_gangsters == (5,)  # not (5, 5)
+    assert game.hired_ids(out) == (5,)  # not (5, 5)
 
 
 def test_gangster_mark_hired_purity():
     state = make_state()
     out = apply(state, GangsterMarkHired(candidate_id=1))
-    assert state.flags.hired_gangsters == ()  # original untouched
+    assert game.hired_ids(state) == ()  # original untouched
     assert out is not state
 
 
@@ -691,9 +714,11 @@ def test_assign_weapon_purity():
 # flag_set                                                                    #
 # --------------------------------------------------------------------------- #
 def test_flag_set_global_works():
+    """FlagSet writes a key of the declared global value map."""
     state = make_state()
-    out = apply(state, FlagSet("graphics_mode", 2))
-    assert out.flags.graphics_mode == 2
+    out = apply(state, FlagSet("hired.2", True))
+    assert out.values["hired.2"] is True
+    assert state.values["hired.2"] is False  # purity
 
 
 def test_flag_set_unknown_flag_raises_value_error():
@@ -705,7 +730,7 @@ def test_flag_set_unknown_flag_raises_value_error():
 def test_flag_set_non_global_scope_raises_not_implemented():
     state = make_state()
     with pytest.raises(NotImplementedError):
-        apply(state, FlagSet("loaded", True, scope="player"))
+        apply(state, FlagSet("hired.2", True, scope="player"))
 
 
 # --------------------------------------------------------------------------- #
@@ -747,24 +772,15 @@ def test_negative_gangster_index_raises_not_wraps():
 
 
 # --------------------------------------------------------------------------- #
-# deferred effects raise NotImplementedError                                  #
+# jail — a config effect that sets the sentence (gs(sp))                       #
 # --------------------------------------------------------------------------- #
-@pytest.mark.parametrize(
-    "effect",
-    [
-        WantedChange(1),
-        Jail(3),
-        # U2 groundwork (KTD-7): declared now, activated in a later unit each.
-        # BarrelChange/TipSet/TipClear graduated to real application in U8,
-        # RosterAppend in U9, JobSet/JobClear in U10, and DebtChange/DebtClear/
-        # ShopChange in U11 (see the sections above and below) — none of these
-        # eight are deferred any longer.
-    ],
-)
-def test_deferred_effects_raise_not_implemented(effect):
+def test_jail_sets_the_target_players_jail_months():
     state = make_state()
-    with pytest.raises(NotImplementedError):
-        apply(state, effect)
+    out = apply(state, Jail(3))
+    assert game.wanted(out.players[0]).jail_months == 3
+    # an absolute set, not a delta: a second sentence replaces the first
+    assert game.wanted(apply(out, Jail(2)).players[0]).jail_months == 2
+    assert game.wanted(state.players[0]).jail_months == 0  # input untouched
 
 
 # --------------------------------------------------------------------------- #
@@ -773,45 +789,45 @@ def test_deferred_effects_raise_not_implemented(effect):
 def test_debt_change_adds_to_debt_amount():
     state = make_state()  # debt defaults to Debt() -- amount=0, months=0
     out = apply(state, DebtChange(amount=500, months=6))
-    assert out.players[0].debt == Debt(amount=500, months=6)
+    assert game.debt(out.players[0]) == Debt(amount=500, months=6)
 
 
 def test_debt_change_months_none_leaves_months_untouched():
     state = apply(make_state(), DebtChange(amount=1000, months=6))
     out = apply(state, DebtChange(amount=-400))
-    assert out.players[0].debt == Debt(amount=600, months=6)
+    assert game.debt(out.players[0]) == Debt(amount=600, months=6)
 
 
 def test_debt_change_targets_explicit_player():
     state = make_state()
     out = apply(state, DebtChange(amount=200, months=6, player=1))
-    assert out.players[1].debt == Debt(amount=200, months=6)
-    assert out.players[0].debt == Debt()  # untouched
+    assert game.debt(out.players[1]) == Debt(amount=200, months=6)
+    assert game.debt(out.players[0]) == Debt()  # untouched
 
 
 def test_debt_change_purity():
     state = make_state()
     out = apply(state, DebtChange(amount=500, months=6))
-    assert state.players[0].debt == Debt()  # original untouched
+    assert game.debt(state.players[0]) == Debt()  # original untouched
     assert out is not state
 
 
 def test_debt_clear_zeroes_amount_and_months():
     state = apply(make_state(), DebtChange(amount=500, months=6))
     out = apply(state, DebtClear())
-    assert out.players[0].debt == Debt(amount=0, months=0)
+    assert game.debt(out.players[0]) == Debt(amount=0, months=0)
 
 
 def test_debt_clear_targets_explicit_player():
     state = apply(make_state(), DebtChange(amount=300, months=6, player=1))
     out = apply(state, DebtClear(player=1))
-    assert out.players[1].debt == Debt()
+    assert game.debt(out.players[1]) == Debt()
 
 
 def test_debt_clear_purity():
     state = apply(make_state(), DebtChange(amount=500, months=6))
     out = apply(state, DebtClear())
-    assert state.players[0].debt == Debt(amount=500, months=6)  # original untouched
+    assert game.debt(state.players[0]) == Debt(amount=500, months=6)  # original untouched
     assert out is not state
 
 
@@ -821,44 +837,44 @@ def test_debt_clear_purity():
 def test_shop_change_sets_tile():
     state = make_state()  # business defaults to Business() -- shop_tile=0
     out = apply(state, ShopChange(tile=3))
-    assert out.players[0].business.shop_tile == 3
+    assert game.business(out.players[0]).shop_tile == 3
 
 
 def test_shop_change_tile_zero_clears_ownership():
     state = apply(make_state(), ShopChange(tile=3))
     out = apply(state, ShopChange(tile=0))
-    assert out.players[0].business.shop_tile == 0
+    assert game.business(out.players[0]).shop_tile == 0
 
 
 def test_shop_change_capital_delta_adds():
     state = apply(make_state(), ShopChange(tile=3))
     out = apply(state, ShopChange(capital_delta=500))
-    assert out.players[0].business == Business(shop_tile=3, shop_capital=500)
+    assert game.business(out.players[0]) == Business(shop_tile=3, shop_capital=500)
 
 
 def test_shop_change_capital_delta_negative_subtracts():
     state = apply(make_state(), ShopChange(tile=3, capital_delta=1000))
     out = apply(state, ShopChange(capital_delta=-400))
-    assert out.players[0].business.shop_capital == 600
+    assert game.business(out.players[0]).shop_capital == 600
 
 
 def test_shop_change_tile_and_capital_delta_together():
     state = make_state()
     out = apply(state, ShopChange(tile=2, capital_delta=750))
-    assert out.players[0].business == Business(shop_tile=2, shop_capital=750)
+    assert game.business(out.players[0]) == Business(shop_tile=2, shop_capital=750)
 
 
 def test_shop_change_targets_explicit_player():
     state = make_state()
     out = apply(state, ShopChange(tile=4, player=1))
-    assert out.players[1].business.shop_tile == 4
-    assert out.players[0].business == Business()  # untouched
+    assert game.business(out.players[1]).shop_tile == 4
+    assert game.business(out.players[0]) == Business()  # untouched
 
 
 def test_shop_change_purity():
     state = make_state()
     out = apply(state, ShopChange(tile=3))
-    assert state.players[0].business == Business()  # original untouched
+    assert game.business(state.players[0]) == Business()  # original untouched
     assert out is not state
 
 
@@ -928,10 +944,10 @@ def test_commit_unknown_effect_raises_type_error():
         commit(state, [MoneyChange(-1), object()])
 
 
-def test_commit_deferred_effect_raises_not_implemented():
+def test_commit_surfaces_an_effects_apply_error():
     state = make_state()
     with pytest.raises(NotImplementedError):
-        commit(state, [WantedChange(1)])
+        commit(state, [MoneyChange(-1), FlagSet("x", 1, scope="player")])
 
 
 # --------------------------------------------------------------------------- #
@@ -1086,11 +1102,11 @@ def test_a_weapon_effect_updates_a_blueprint_field():
 
 
 def test_a_tenancy_effect_rebuilds_a_readonly_mapping():
-    """R2: a rebuilt mapping is read-only and leaves the source mapping alone."""
-    st = dataclasses.replace(_two_player_state(), map=MapState(tenancy=MappingProxyType({1: 0})))
+    """R2: a rebuilt global value map is read-only and leaves the source map alone."""
+    st = with_tenancy(_two_player_state(), ln=1, owner=0)
     new = apply(st, SetTenancy(2, player=1))
 
-    assert new.map.tenancy == {1: 0, 2: 1}
-    assert dict(st.map.tenancy) == {1: 0}  # purity
+    assert (game.tenant(new, 1), game.tenant(new, 2)) == (0, 1)
+    assert dict(st.values) == {"tenancy.1": 0}  # purity
     with pytest.raises(TypeError):
-        new.map.tenancy[3] = 9  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise
+        new.values["tenancy.3"] = 9  # pyright: ignore[reportIndexIssue]  # the write is the test: it must raise

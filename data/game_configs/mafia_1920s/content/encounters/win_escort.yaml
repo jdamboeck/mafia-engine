@@ -1,0 +1,14 @@
+# The cash transport's police escort (mf-prg.bas:23025), after "leider wird der
+# geldtransport von einer polizeieskorte begleitet!" (:23015-23020).
+#
+#   23025 bn$(0)="eskorte":gz(0)=10:e=50:w=7:kf$="kgtp":gosub5000:ifs=2goto26020
+#
+# No declarable consequence: a loss goes to the arrest (:26020), a win to the score,
+# the win flag and the heist payout (:23030), all in handlers/win_flows.py.
+key: win_escort
+enemies:
+  count: 10           # gz(0)=10 — :23025
+  weapon: 7           # w=7, maschinenpistole — :23025
+  vitality: 50        # e=50 — :23025
+  name: eskorte       # bn$(0)="eskorte" — :23025
+grid: kgtp            # kf$="kgtp" — :23025

@@ -50,7 +50,7 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
-from engine.state import CombatState, Fighter
+from engine.state import HOUSE_RULE_SETTINGS, CombatState, Fighter
 
 if TYPE_CHECKING:
     from engine.combat_ai import AiTarget
@@ -180,12 +180,42 @@ class CombatResult:
         :attr:`CombatFight.losses`. A handler narrates these rather than deriving a
         loss count from ``winner``, which is wrong for any multi-fighter side.
 
-    Deliberately carries **no** ``state``/``sides``: the contract is precisely winner +
-    losses; the post-fight board is not part of it.
+    ``last_shooter``
+        The fighter who fired the fight's last shot, as it stood when it fired, or
+        ``None`` if nobody fired. A shot is any fire order in one of the four
+        directions, hit or miss (``mf-prg.bas:30215`` ``w=gw(ks(s),f)`` runs for every
+        one), so for a fight won by a kill it is the fighter who landed the killing
+        blow. A caller that reads the shooter's equipment after the fight (the source
+        leaves its weapon in ``w``) reads it here.
+
+    ``roster_vitality``
+        Side 1's ``vitality`` when the fight ended, as ``(roster_id, vitality)`` pairs
+        in roster order, for every fighter that came from a roster slot. The fight's
+        energy write-back (one :class:`~engine.effects.EnergyChange` per changed
+        fighter) is BUFFERED into the invoking action, so a handler that runs a second
+        fight in the same action does not see it in ``ctx.state``; it builds that
+        fight's player side from these values instead. Empty when nothing reported it
+        (a result built by hand).
+
+    ``owner_vitality``
+        The same closing values for every fighter a player owns (KTD-14), on either
+        side, as ``(owner, ((roster_id, vitality), ...))`` per owner;
+        :meth:`vitality_of` reads one owner's pairs. A fight between two players'
+        rosters reports both gangs here. Empty when no fighter has an owner.
+
+    Deliberately carries **no** ``state``/``sides``: the contract is winner + losses +
+    the last shooter + the closing vitalities; the post-fight board is not part of it.
     """
 
     winner: int
     losses: tuple[int, int]
+    last_shooter: Fighter | None = None
+    roster_vitality: tuple[tuple[int, int], ...] = ()
+    owner_vitality: tuple[tuple[int, tuple[tuple[int, int], ...]], ...] = ()
+
+    def vitality_of(self, owner: int) -> tuple[tuple[int, int], ...]:
+        """``owner``'s closing ``(roster_id, vitality)`` pairs; empty if it owns no fighter."""
+        return dict(self.owner_vitality).get(owner, ())
 
 
 # --------------------------------------------------------------------------- #
@@ -221,6 +251,18 @@ class RulesBundle:
         ((label, bound), ...)``, one ``rng.range(bound)`` per entry in draw order. A
         bound of 0 is never drawn. The game's formula draws WITH these bounds, so the
         two cannot disagree. The engine never calls them.
+    ``house_rules``
+        The game's house-rules map the formulas were built under (a switch id ->
+        :data:`~engine.state.FAITHFUL` / :data:`~engine.state.INTENT`), frozen. Plain
+        data the engine never reads by id: a recording stores it and a replay compares
+        it (:mod:`engine.recording`), so a fight never replays under other choices.
+    ``direction_memory_per_side``
+        Whose direction memory an AI fighter reads and writes. ``False`` (the default)
+        keys it by the fighter's number alone, as the reference title's ``ri(f)`` does
+        (``mf-prg.bas:30492``): when both sides are AI-driven, fighter ``f`` of one
+        side and fighter ``f`` of the other share one memory. ``True`` gives each
+        side's fighters their own. A neutral mechanism setting: the game sets it,
+        from whatever rule it likes; the engine never reads a house rule by its id.
     There is deliberately **no** ``vitality`` entry: the depleting
     resource is the engine's :attr:`~engine.state.Fighter.vitality` SLOT, which the
     engine reads and writes directly. A bundle field naming which attrs key held it
@@ -237,6 +279,17 @@ class RulesBundle:
     damage_fn: Any = None
     hit_draws: Any = None
     damage_draws: Any = None
+    house_rules: Mapping[str, str] = field(default_factory=lambda: _EMPTY_ROLES)
+    direction_memory_per_side: bool = False
+
+    def __post_init__(self) -> None:
+        for rule_id, setting in self.house_rules.items():
+            if setting not in HOUSE_RULE_SETTINGS:
+                raise ValueError(
+                    f"house rule {rule_id!r} is set to {setting!r}; "
+                    f"expected one of {list(HOUSE_RULE_SETTINGS)}"
+                )
+        object.__setattr__(self, "house_rules", MappingProxyType(dict(self.house_rules)))
 
     def required_keys(self) -> tuple[str, ...]:
         """Every ``attrs`` key this bundle will read off a combatant.
@@ -375,6 +428,7 @@ class CombatFight:
         self._result_flag: int = combat.result_flag
         self.finished: bool = False
         self.dir_memory: dict = dict(combat.dir_memory)
+        self._last_shooter: Fighter | None = None
         # No engine-side default that NAMES an attribute: a bundle-less fight is a
         # fight with no formulas, which is a caller error the moment a shot is fired.
         # (The reference title's bundle lives in its own config, never here.)
@@ -443,6 +497,11 @@ class CombatFight:
     def losses(self) -> tuple[int, int]:
         """Per-side downed counts — ``v(1)``/``v(2)`` (``mf-prg.bas:30310``)."""
         return (self._losses[0], self._losses[1])
+
+    @property
+    def last_shooter(self) -> Fighter | None:
+        """The fighter who fired the last shot so far, or ``None`` (see :class:`CombatResult`)."""
+        return self._last_shooter
 
     @property
     def result_flag(self) -> int:
@@ -617,8 +676,8 @@ class CombatFight:
           ``hit_roles`` attribute and its equipment.
         - ``30255`` — the damage roll: the bundle's ``damage_fn`` on the ATTACKER's
           ``damage_roles`` attribute and its equipment.
-        - ``30260``/``30275`` — subtract from the target's ``vitality``, clamped at 0.
-        - ``30300-30310`` — at 0 energy the target is marked down and the side's
+        - ``:30260``/``:30275`` — subtract from the target's ``vitality``, clamped at 0.
+        - ``:30300-30310`` — at 0 energy the target is marked down and the side's
           loss counter increments.
 
         Returns a small result dict — ``hit``, ``damage``, ``target_side``,
@@ -636,6 +695,9 @@ class CombatFight:
             return miss
 
         attacker = self.active
+        # :30215 ``w=gw(ks(s),f)`` — every fire order, hit or miss, leaves its
+        # shooter's weapon behind.
+        self._last_shooter = attacker
         enemy_side = self.hostile_to(self.active_side)[0]
         equipment = self.equipment_stats(attacker)
 
@@ -738,7 +800,7 @@ class CombatFight:
             if forced_move or melee:
                 return self._ai_choose_step(view, target)
 
-        # 30420/30421/30425: fire only along a shared column or row.
+        # :30420-30425: fire only along a shared column or row.
         if target.x == 0:
             direction = target.y  # 30420: x=y, fire vertically
         elif target.y != 0:
@@ -833,7 +895,7 @@ class CombatFight:
         if action == "move":
             committed = self.try_move(argument)
             if committed and record_dir_memory:
-                self.dir_memory[self.active_fighter - 1] = argument  # 30492: ri(f)=p
+                self.dir_memory[self._dir_memory_key()] = argument  # 30492: ri(f)=p
             return committed
         return "__unknown__"
 
@@ -930,7 +992,21 @@ class CombatFight:
         so a freshly-spawned enemy will not open the fight by stepping right. That is the
         original's behaviour, faithfully kept.
         """
-        return self.dir_memory.get(self.active_fighter - 1, -1) != -step
+        return self.dir_memory.get(self._dir_memory_key(), -1) != -step
+
+    def _dir_memory_key(self) -> int:
+        """The active fighter's key in :attr:`dir_memory`.
+
+        The fighter's 0-based number, as ``ri(f)`` indexes it (side 2 -- the only CPU
+        side the source has -- is seeded under these keys, ``mf-prg.bas:30020``). With
+        the bundle's ``direction_memory_per_side`` a side-1 fighter keeps its own
+        memory under a negative key (``-1 - index``), unseeded, so it reads the same
+        ``-1`` a seeded fighter starts with.
+        """
+        index = self.active_fighter - 1
+        if self._rules.direction_memory_per_side and self.active_side == 1:
+            return -1 - index
+        return index
 
     def surrender(self) -> int:
         """The active side gives up; return the winning (opposing) side.
