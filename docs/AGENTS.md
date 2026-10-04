@@ -87,7 +87,8 @@ the next unit.
 
 ## Branch / worktree convention
 
-- Default: work on the feature branch **`feat/vertical-slice`** off `main`. The
+- Default: work on the feature branch the active plan names in its `branch:`
+  frontmatter, off `main`. The
   orchestrator commits each unit here.
 - Units run **serially** (one subagent at a time), so a single feature branch is
   the baseline. Per-unit git worktrees are the escalation only if units are ever
