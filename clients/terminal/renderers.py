@@ -370,7 +370,8 @@ def render_combat_message(payload: dict, resolver: Any, out: TextIO, colors: Col
             else:
                 text = resolver.resolve("combat.hit_enemy_down")
         else:
-            text = resolver.resolve("combat.hit")
+            # :30350 ``print"{rvon}treffer! energie -"mid$(str$(y),2)"!"``: the damage.
+            text = resolver.resolve("combat.hit", {"damage": message.get("damage", 0)})
     else:
         return
     out.write(f"{colors.fg('yellow')}{text}{RESET_FG}\n")

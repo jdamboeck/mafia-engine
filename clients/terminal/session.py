@@ -419,7 +419,8 @@ def _render_location_menu(
 
     # --- render location screen ---
     render_screen_clear(out)
-    # Location ASCII art splash (if available)
+    # Location ASCII art splash (if available): the location's picture
+    # (:3007 `syslh,lk$(la)+"-pic"`), drawn for the terminal.
     art = location_art(location_key)
     if art is not None:
         for line in art:
@@ -663,9 +664,13 @@ class TerminalSession:
         return self.state, self.rng
 
     def start_new_game(self) -> None:
-        """Title screen, setup prompts, the new game and its first upkeep, then the turns."""
+        """Title screen, setup prompts, the new game and its first upkeep, then the turns.
+
+        The source's order (``:30`` ``gosub100:gosub170:gosub200:goto1000``): the title,
+        the end year and score weight, the players, then the turns.
+        """
         out, resolver = self.out, self.resolver
-        # Title screen
+        # Title screen; it waits for a key (:154 `getx$:ifx$=""goto154`).
         out.write(CLEAR)
         out.write(title_screen(self.colors))
         out.flush()

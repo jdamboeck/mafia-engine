@@ -32,8 +32,8 @@ locations:
     # --- the payout (17505-17551) ---
     reply_pays: "'i..i..ich z..zahle ja schon! hi..hier\nsind{p}$!'"       # 17511-17512
     reply_sob: "'deine arme ma (schnief)! gib ihr die\n{p}$ hier!'"        # 17515
-    reply_enough: "'ich habe{p}dollar, reicht das?'"                       # 17520
-    reply_forged: "'verdammt! wer hat mir nur blueten\nfuer{p}$ angedreht...?'"   # 17525-17526
+    reply_enough: "'ich habe{p}dollar, reicht das?'"                       # :17520
+    reply_forged: "'verdammt! wer hat mir nur blueten\nfuer{p}$ angedreht...?'"   # :17525-17526
     reply_small: "'ich habe leider nur{p}$!"                                 # 17530 (no closing quote)
     after_menu: "was machst du:"                                             # 17550
     after_take: "1 angebotenes geld nehmen"                                  # 17550

@@ -21,10 +21,10 @@ locations:
     thief_prompt: "welchen spieler setzt du als dieb ein:"                 # 18035
     stealing: "du stiehlst..."                                             # 18039
     caught: "...nichts! denn du wirst erwischt!"                           # 18042
-    loot_handbag: "...eine handtasche - nichts wertvolles!"                # 18046
-    loot_camera: "...'nen fotoapparat! er bringt 50 $."                    # 18047
-    loot_pearls: "...eine falsche perlenkette!"                            # 18048
-    loot_watch: "...eine armbanduhr fuer 100 $!"                           # 18049
-    loot_wallet: "...'ne brieftasche mit 500 $!"                           # 18050
-    loot_diamond: "...einen diamanten! der ist 800 $ wert!"                # 18051
-    loot_manual: "...eine anleitung -der safeknacker- ??!"                 # 18052
+    loot_handbag: "...eine handtasche - nichts wertvolles!"                # :18046
+    loot_camera: "...'nen fotoapparat! er bringt 50 $."                    # :18047
+    loot_pearls: "...eine falsche perlenkette!"                            # :18048
+    loot_watch: "...eine armbanduhr fuer 100 $!"                           # :18049
+    loot_wallet: "...'ne brieftasche mit 500 $!"                           # :18050
+    loot_diamond: "...einen diamanten! der ist 800 $ wert!"                # :18051
+    loot_manual: "...eine anleitung -der safeknacker- ??!"                 # :18052

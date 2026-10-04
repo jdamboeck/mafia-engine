@@ -35,7 +35,7 @@ locations:
     tip_confirm: "ok (j/n)?"
     tip_postzug: "'im postzug soll demnaechst eine grosse ladung diamanten transportiert werden!'"
     tip_bank: "'die bank an der hauptstrasse erhaelt in naechster zeit 500 kg goldbarren!'"
-    tip_geldtransport: "'ein geldtransport wird durch unsere stadt fahren. es ist ein blauer wagen, du wirst ihn sehen!'"
+    tip_geldtransport: "'ein geldtransport wird durch unsere stadt fahren. es ist ein blauer wagen wagen, du wirst ihn sehen!'"
     tip_waffenschmuggel: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"
     tip_buergermeister: "'psst...ich habe da einen sehr wichtigen auftrag! der buergermeister soll umgelegt werden, er hat aber leibwaechter!'"
     arms_deal_offer: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"

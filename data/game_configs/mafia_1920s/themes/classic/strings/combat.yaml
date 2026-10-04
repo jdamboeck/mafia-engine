@@ -13,19 +13,18 @@ combat:
   # 30145: illegal move target (occupied/scenery/out of bounds) -- re-prompt.
   illegal_move: "(das geht nicht)"
 
-  # 30235: "{rvon}verfehlt!" -- the shot missed.
+  # :30235 "{rvon}verfehlt!" -- the shot missed.
   miss: "verfehlt!"
 
-  # 30305: "treffer! spieler <i> ist am ende!" -- a player-side fighter is knocked out.
+  # :30305 "treffer! spieler <i> ist am ende!" -- a player-side fighter is knocked out.
   hit_player_down: "treffer! spieler{index}ist am ende!"
 
-  # 30300: "der gegner ist tot!" -- an enemy/NPC fighter is knocked out.
+  # :30300 "der gegner ist tot!" -- an enemy/NPC fighter is knocked out.
   hit_enemy_down: "der gegner ist tot!"
 
-  # A hit that does not knock the target down -- no verbatim original line covers
-  # this case narratively (the source prints nothing between the muzzle flash and the
-  # next activation), so this is a presentation-only addition, not ported text.
-  hit: "treffer!"
+  # :30350 "treffer! energie -"mid$(str$(y),2)"!" -- a hit that does not knock the
+  # target down, with the damage y it did.
+  hit: "treffer! energie -{damage:mid$}!"
 
   # 30500: "{rvon} sieger: <gang>!!!" -- the winner banner. {name} = winning side's name.
   winner_banner: "sieger: {name}!!!"

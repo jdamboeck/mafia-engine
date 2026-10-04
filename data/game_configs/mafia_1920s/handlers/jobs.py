@@ -141,7 +141,8 @@ def job_shift(ctx):
         else:
             yield ShowMessage("job.shift_bouncer_trouble")
             # :25035 -- the 1-of-3 variant SELECTION stays in Python; the definitions
-            # live in the declared encounter.
+            # live in the declared encounter. :25045 ``gosub5000:goto25500``: the fight,
+            # then the outcome.
             winner = yield from _fight(ctx, _BOUNCER_ENCOUNTER, variant=ctx.rng.range(3))
             won = winner == 1
 

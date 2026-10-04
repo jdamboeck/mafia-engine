@@ -46,6 +46,9 @@ Rules (KTD-9)
 - **Source.** ``../research/src/decompiled_basic/mf-prg.bas``. When it is absent (CI)
   the real-tree test is skipped with a reason naming the path, never passed.
 
+The same scan yields every citation, quoted or not (:func:`citations_in_file`), which
+``tests/test_coverage_ledger.py`` matches against the source's line blocks.
+
 The scanned roots are :data:`ROOTS`. ``tests/test_ports.py`` checks its inventory quotes
 itself (:func:`tests.test_ports.test_quote_is_verbatim`); its comments are scanned here.
 """
@@ -263,6 +266,20 @@ def quotes_in_block(
 ) -> list[tuple[int, Citation, str]]:
     """The ``(line index, citation, fragment)`` triples in one block of text.
 
+    See :func:`scan_block`, which also returns the block's citations.
+    """
+    return scan_block(lines, any_fence=any_fence, lead=lead)[0]
+
+
+def scan_block(
+    lines: Sequence[str], *, any_fence: bool, lead: bool = False
+) -> tuple[list[tuple[int, Citation, str]], list[tuple[int, Citation]]]:
+    """The quotes and the citations in one block of text.
+
+    The quotes are ``(line index, citation, fragment)`` triples; the citations are
+    ``(line index, citation)`` pairs, one per citation token, quoted or not, a bare
+    number continuing an open group (``mf-prg.bas:30106``, ``30108``) included.
+
     A block is one comment, docstring paragraph or Markdown paragraph: consecutive
     non-blank lines, comment markers already blanked. An open citation carries across
     its line breaks, so a quote that wraps onto the next line is still paired. ``lead``
@@ -277,12 +294,14 @@ def quotes_in_block(
     tokens.sort(key=lambda token: token[1])
 
     found: list[tuple[int, Citation, str]] = []
+    cited: list[tuple[int, Citation]] = []
     group: Citation | None = None
     group_end = 0
     for kind, start, end, value in tokens:
         gap = text[group_end:start]
         if kind == "cite":
             assert isinstance(value, Citation)
+            cited.append((text.count("\n", 0, start), value))
             joined = group is not None and _GROUP_GAP.fullmatch(gap)
             group = _merge(group if joined else None, value)
             group_end = end
@@ -291,6 +310,7 @@ def quotes_in_block(
             # ``mf-prg.bas:30106``, ``30108``: a bare number continues an open group.
             assert isinstance(value, Citation)
             if group is not None and _GROUP_GAP.fullmatch(gap):
+                cited.append((text.count("\n", 0, start), value))
                 group = _merge(group, value)
                 group_end = end
             else:
@@ -300,7 +320,7 @@ def quotes_in_block(
         if group is not None and _pairs_across(gap, value):
             found.append((text.count("\n", 0, start), group, value))
         group = None
-    return found
+    return found, cited
 
 
 def quotes_in_text(text: str, *, any_fence: bool, lead: bool = False) -> list[tuple[Citation, str]]:
@@ -341,8 +361,27 @@ def _unmark(comment: str) -> str:
     return " " * marker.end() + comment[marker.end() :]
 
 
+@dataclass(frozen=True)
+class Cited:
+    """A citation found in a file, quoted or not, and where it was found."""
+
+    path: str
+    lineno: int
+    citation: Citation
+
+
 def quotes_in_file(path: str, text: str) -> list[Quote]:
-    """Every quote in one file; ``path`` is only recorded, never read.
+    """Every quote in one file; ``path`` is only recorded, never read."""
+    return scan_file(path, text)[0]
+
+
+def citations_in_file(path: str, text: str) -> list[Cited]:
+    """Every citation in one file, quoted or not (the coverage ledger's input)."""
+    return scan_file(path, text)[1]
+
+
+def scan_file(path: str, text: str) -> tuple[list[Quote], list[Cited]]:
+    """Every quote and every citation in one file; ``path`` is only recorded, never read.
 
     Each line splits into a code part and a ``#`` comment part (Markdown is all one
     part); consecutive non-blank parts of the same kind form a block.
@@ -352,16 +391,18 @@ def quotes_in_file(path: str, text: str) -> list[Quote]:
     # kind -> (lines of the open block, line number of its first line)
     streams: dict[str, tuple[list[str], int]] = {}
     quotes: list[Quote] = []
+    cited: list[Cited] = []
 
     def close(kind: str) -> None:
         lines, first = streams.pop(kind, ([], 0))
         if not lines:
             return
         any_fence = kind != "code"
-        for index, citation, fragment in quotes_in_block(
-            lines, any_fence=any_fence, lead=kind == "comment"
-        ):
+        found, citations = scan_block(lines, any_fence=any_fence, lead=kind == "comment")
+        for index, citation, fragment in found:
             quotes.append(Quote(path, first + index, citation, fragment))
+        for index, citation in citations:
+            cited.append(Cited(path, first + index, citation))
 
     for lineno, line in enumerate(text.splitlines(), start=1):
         if suffix == ".md":
@@ -383,7 +424,8 @@ def quotes_in_file(path: str, text: str) -> list[Quote]:
     for kind in list(streams):
         close(kind)
     quotes.sort(key=lambda quote: quote.lineno)
-    return quotes
+    cited.sort(key=lambda found: found.lineno)
+    return quotes, cited
 
 
 # --------------------------------------------------------------------------- #
@@ -822,6 +864,24 @@ def test_the_tree_scan_reads_the_real_catalogue() -> None:
             q.fragment == entry["quote"] and q.citation.label() == entry["citation"].lstrip(":")
             for q in held
         ), entry["id"]
+
+
+def test_every_citation_is_found_quoted_or_not() -> None:
+    text = (
+        "# :30108 toggles the side; ``mf-prg.bas:30106``, ``30108``\n"
+        "x = 1  # at 12:30, a[1:10]\n"
+        "# 13065 — no old weapon\n"
+        '"""Ports ``:4000-4090`` and :2035/2040."""\n'
+    )
+    found = [(c.lineno, c.citation.label()) for c in citations_in_file("m.py", text)]
+    assert found == [
+        (1, "30108"),
+        (1, "30106"),
+        (1, "30108"),
+        (3, "13065"),
+        (4, "4000-4090"),
+        (4, "2035,2040"),
+    ]
 
 
 def test_skips_with_a_reason_when_the_source_is_absent(tmp_path: Path) -> None:

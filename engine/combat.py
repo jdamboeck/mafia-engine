@@ -676,8 +676,8 @@ class CombatFight:
           ``hit_roles`` attribute and its equipment.
         - ``30255`` — the damage roll: the bundle's ``damage_fn`` on the ATTACKER's
           ``damage_roles`` attribute and its equipment.
-        - ``30260``/``30275`` — subtract from the target's ``vitality``, clamped at 0.
-        - ``30300-30310`` — at 0 energy the target is marked down and the side's
+        - ``:30260``/``:30275`` — subtract from the target's ``vitality``, clamped at 0.
+        - ``:30300-30310`` — at 0 energy the target is marked down and the side's
           loss counter increments.
 
         Returns a small result dict — ``hit``, ``damage``, ``target_side``,
@@ -800,7 +800,7 @@ class CombatFight:
             if forced_move or melee:
                 return self._ai_choose_step(view, target)
 
-        # 30420/30421/30425: fire only along a shared column or row.
+        # :30420-30425: fire only along a shared column or row.
         if target.x == 0:
             direction = target.y  # 30420: x=y, fire vertically
         elif target.y != 0:

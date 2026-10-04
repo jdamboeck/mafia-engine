@@ -120,7 +120,8 @@ def waf_buy(ctx):
         # 13011-13013 — stock range from the tile ln.
         if ln == 1:
             lo, hi = 3, 7
-            # 13011 — grenade roll: 1-in-3 AND rank > gate, extends stock to grenades (13091).
+            # 13011 — grenade roll: 1-in-3 AND rank > gate, extends stock to grenades
+            # (:13090-13091, the news and `b=8`).
             if (
                 ctx.rng.range(params["grenade_roll"]) == 0
                 and active.rank > params["grenade_rank_gate"]

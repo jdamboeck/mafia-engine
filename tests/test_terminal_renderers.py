@@ -338,6 +338,16 @@ class TestRenderCombatMessage:
         render_combat_message(_payload(message=msg), _FakeResolver(), buf, _COLORS)
         assert "treffer!" in buf.getvalue()
 
+    def test_a_hit_shows_the_damage_in_the_classic_theme(self) -> None:
+        """:30350 ``print"{rvon}treffer! energie -"mid$(str$(y),2)"!"``: the damage y."""
+        from engine.strings import Resolver
+
+        buf = _out()
+        msg = {"hit": True, "damage": 7, "target_side": 2, "target_index": 0, "downed": False}
+        resolver = Resolver.from_config("data/game_configs/mafia_1920s")
+        render_combat_message(_payload(message=msg), resolver, buf, _COLORS)
+        assert "treffer! energie -7!" in buf.getvalue()
+
     def test_no_message_writes_nothing(self) -> None:
         buf = _out()
         render_combat_message(_payload(message=None), _FakeResolver(), buf, _COLORS)

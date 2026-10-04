@@ -350,3 +350,6 @@ input_ranges:
   end_year: {min: 1928, max: 1978}   # x9
   score_weight: {min: 0.1, max: 2.0} # x8
   player_count: {min: 1, max: 4}     # sz
+  # sp$/bn$, a player's and a gang's name: the input routine asks again for an empty
+  # name or one over 13 characters (:291 `ifx$=""orlen(x$)>13`).
+  name_length: {min: 1, max: 13}

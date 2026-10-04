@@ -143,6 +143,20 @@ def main(argv: list[str] | None = None) -> None:
         players = []
         for spec in args.players:
             name, _, gang = spec.partition(":")
+            # :291 ``ifx$=""orlen(x$)>13``: the setup asks again for an empty name or
+            # one over 13 characters; here the flag is refused in the same bounds.
+            bounds = ranges["name_length"]
+            for value in (name, gang or name):
+                if not bounds["min"] <= len(value) <= bounds["max"]:
+                    parser.error(
+                        text(
+                            "bad_name",
+                            spec=spec,
+                            value=value,
+                            min=bounds["min"],
+                            max=bounds["max"],
+                        )
+                    )
             players.append((name, gang or name))
     # Only KNOWN failures are caught here. A LoadError is raised before play()
     # draws anything; KeyboardInterrupt unwinds through play()'s finally (which shows

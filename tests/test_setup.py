@@ -180,6 +180,18 @@ def test_score_weight_out_of_range(weight):
         new_game(seed=1, end_year=1978, score_weight=weight, players=[("P", "G")])
 
 
+@pytest.mark.parametrize("player", [("", "G"), ("P", ""), ("A" * 14, "G"), ("P", "B" * 14)])
+def test_a_name_empty_or_over_13_characters_is_refused(player):
+    # :291 ``ifx$=""orlen(x$)>13``: the input routine asks again for both names.
+    with pytest.raises(ValueError, match="1 to 13 characters"):
+        new_game(seed=1, end_year=1978, score_weight=1.0, players=[player])
+
+
+def test_a_name_of_13_characters_is_taken():
+    gs = new_game(seed=1, end_year=1978, score_weight=1.0, players=[("A" * 13, "B" * 13)])
+    assert gs.players[0].name == "A" * 13
+
+
 def test_player_count_zero():
     with pytest.raises(ValueError):
         new_game(seed=1, end_year=1978, score_weight=1.0, players=[])

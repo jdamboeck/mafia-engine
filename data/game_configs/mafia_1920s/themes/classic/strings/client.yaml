@@ -100,5 +100,6 @@ client:
     help_theme: "The theme to word the game in: a theme of the game config, or the path of a theme directory (default {theme})."
     load_clash: "--load resumes a saved game; it cannot be combined with {flags}"
     out_of_range: "{flag} must be in [{min:raw}, {max:raw}], got {value:raw}"
+    bad_name: "--player {spec}: a player or gang name is {min:raw} to {max:raw} characters, got '{value}'"
     config_error: "cannot load game config {config_dir}: {error}"
     theme_error: "cannot load theme {theme}: {error}"

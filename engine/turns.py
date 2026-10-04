@@ -587,7 +587,9 @@ class TurnRunner:
 
         ``:3040 ifw<1orw>awgoto3040``: any other answer is ignored and the menu is
         asked again. With no options offered there is nothing to wait for, and the
-        visit ends.
+        visit ends. The chosen option runs in its own location's code, which the
+        source picks by ``la`` (``:3105``, and for 11-13 ``:3110``
+        ``onla-10goto21000,22000,23000``); here the shell's option names its handler.
         """
         options = available_options(shell, self.state, ln)
         player = self.state.clock.active_player

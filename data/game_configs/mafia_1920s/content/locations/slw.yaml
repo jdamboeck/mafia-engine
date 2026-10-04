@@ -4,6 +4,7 @@
 # offered (the source prints the file's options with no precondition, :3030);
 # each rent option refuses inside its handler, as the source does:
 #
+# The options in the source's order, :10005 `onwgoto10010,10100`:
 #   rent      — slw.rent: refuses a room anyone holds (:10010)
 #   pay_rent  — slw.pay_rent: refuses anyone but the tenant (:10100)
 #   leave     — costs 5 movement points (:3045) back to the map.

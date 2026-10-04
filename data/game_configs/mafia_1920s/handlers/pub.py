@@ -98,11 +98,11 @@ _ALCOHOL_TILES = frozenset({4, 5})
 #: The five heist-tip flavour text keys, 1-based to match ``tp(sp)`` (mf-prg.bas:12226
 #: ``ontp(sp)goto12230,12235,12240,12245,12250``).
 _TIP_TEXT_KEYS = {
-    1: "locations.pub.tip_postzug",
-    2: "locations.pub.tip_bank",
-    3: "locations.pub.tip_geldtransport",
-    4: "locations.pub.tip_waffenschmuggel",
-    5: "locations.pub.tip_buergermeister",
+    1: "locations.pub.tip_postzug",  # :12230-12231
+    2: "locations.pub.tip_bank",  # :12235-12236
+    3: "locations.pub.tip_geldtransport",  # :12240-12242
+    4: "locations.pub.tip_waffenschmuggel",  # :12245-12246
+    5: "locations.pub.tip_buergermeister",  # :12250-12252
 }
 
 #: The arms-deal tip id (mf-prg.bas:12245-12249, :4060 ``iftp(sp)=4``) — the only tip

@@ -793,6 +793,14 @@ def new_game(
     pc = ranges["player_count"]
     if not (pc["min"] <= len(players) <= pc["max"]):
         raise ValueError(f"player count must be in [{pc['min']}, {pc['max']}], got {len(players)}")
+    # :290-292, the input routine for both names (``:210``/``:215`` ``gosub290``):
+    # :291 ``ifx$=""orlen(x$)>13`` asks again for an empty name or one over 13 characters.
+    nl = ranges["name_length"]
+    for name in (text for player in players for text in player):
+        if not (nl["min"] <= len(name) <= nl["max"]):
+            raise ValueError(
+                f"a player or gang name must be {nl['min']} to {nl['max']} characters, got {name!r}"
+            )
 
     # --- entity tables -----------------------------------------------------
     vehicles = load_vehicles(cfg_dir / cfg["entities"]["vehicles"])

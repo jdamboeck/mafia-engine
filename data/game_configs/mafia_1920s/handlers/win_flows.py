@@ -32,7 +32,8 @@ and the win flag ``x5`` (``:23030``), then the bank's payout (``goto20050``,
 :func:`~.ban.heist_payout`): 4000..6999 $, and the held tip 3 matches ``(x=3andla=13)``
 so it is cleared and 3000 more paid (7000..9999 $), and +4 score again. The tip is gone,
 so the cell is no longer armed; a later tip 3 arms it again and the flow can be won
-again (the flag stays set).
+again (the flag stays set). It has no location menu: ``:3008`` ``ifla=13goto3045``
+skips the menu for la=13, and the flow is entered from the map anyway.
 
 **The mayor hit** (``:24000-24020``, cell 861, tip 5): no heading and no gang check; two
 fights on "ks", the 5 bodyguards (``win_mayor_1.yaml``), then the mayor

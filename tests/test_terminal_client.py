@@ -458,6 +458,17 @@ class TestSetupFlags:
         assert state.clock.end_year == 1940
         assert state.config.formula_params["score_mult"] == 0.5
 
+    @pytest.mark.parametrize("spec", ["", ":gang", "a" * 14, "name:" + "g" * 14])
+    def test_a_player_name_over_13_characters_or_empty_is_rejected(self, monkeypatch, capsys, spec):
+        # :291 ``ifx$=""orlen(x$)>13`` bounds both names; the flag is refused, not run.
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        with pytest.raises(SystemExit) as exc:
+            main(["--player", spec])
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
+        assert "1 to 13 characters" in captured.err
+
     @pytest.mark.parametrize(
         "argv",
         [
