@@ -32,8 +32,7 @@ blocks:
   - {start: 1100, end: 1100, player_facing: true, status: ported}
   - {start: 1110, end: 1110, player_facing: true, status: ported}
   - {start: 1115, end: 1120, player_facing: true, status: ported}
-  - {start: 1125, end: 1125, player_facing: true, status: ported, screen: deferred,
-     screen_reason: "The refusal \"du hast zu wenig kies!\" and its :1100 key pause: game logic cites the goto1125 refusals, but no theme string or client cites :1125. U5 settles whether the screen is missing or only its citation (#153)."}
+  - {start: 1125, end: 1125, player_facing: true, status: ported}
   - {start: 1130, end: 1140, player_facing: true, status: ported}
   - {start: 1145, end: 1155, player_facing: true, status: ported}
   - {start: 1160, end: 1165, player_facing: false, status: ported}
@@ -60,10 +59,9 @@ blocks:
   - {start: 3007, end: 3008, player_facing: false, status: ported}
   - {start: 3010, end: 3012, player_facing: false, status: ported}
   - {start: 3015, end: 3035, player_facing: true, status: ported, screen: deferred,
-     screen_reason: "The location screen read from the disk file (title, description, numbered menu at :3025-3030): game logic cites the load, but no theme string or client cites :3015-3035. U5 settles whether the screen is missing or only its citation (#153)."}
+     screen_reason: "The location screen read from disk: the client shows the description and the options, but not the title (:3025), and numbers the options from 0 where :3030 prints them from 1 and :3040 reads 1..aw (#159)."}
   - {start: 3040, end: 3040, player_facing: true, status: ported}
-  - {start: 3045, end: 3105, player_facing: true, status: ported, screen: deferred,
-     screen_reason: "The leave option's return and the {clr} before the dispatch (:3050 print\"{clr}\"): game logic cites the dispatch, but no theme string or client cites :3045-3105. U5 settles whether the screen is missing or only its citation (#153)."}
+  - {start: 3045, end: 3105, player_facing: true, status: ported}
   - {start: 3110, end: 3110, player_facing: false, status: ported}
   - {start: 4000, end: 4046, player_facing: true, status: ported}
   - {start: 4050, end: 4090, player_facing: false, status: ported}
@@ -192,8 +190,7 @@ blocks:
   - {start: 20102, end: 20111, player_facing: true, status: ported}
   - {start: 20115, end: 20130, player_facing: true, status: ported}
   - {start: 20135, end: 20142, player_facing: true, status: ported}
-  - {start: 20150, end: 20150, player_facing: true, status: ported, screen: deferred,
-     screen_reason: "The opened-safe picture (sysbl,\"trs2\") and its key wait (wait198,1) after a cracked safe: the port goes from the last dial's *klick* straight to the loot, so neither reaches the player. Found by the U4 audit, not in the plan's list; deferred to U5's issue (#153)."}
+  - {start: 20150, end: 20150, player_facing: true, status: ported}
   - {start: 21000, end: 21005, player_facing: false, status: ported}
   - {start: 21010, end: 21030, player_facing: true, status: ported}
   - {start: 21100, end: 21116, player_facing: true, status: ported}

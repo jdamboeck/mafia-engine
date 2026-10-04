@@ -50,7 +50,15 @@ from data.game_configs.mafia_1920s.state import SCHEMA, tip_target, values_of
 from engine.combat import CombatResult
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
-from engine.interactions import CANCEL, Ctx, PromptChoice, PromptInt, StartCombat
+from engine.interactions import (
+    CANCEL,
+    Acknowledge,
+    Ctx,
+    PromptChoice,
+    PromptInt,
+    ShowMessage,
+    StartCombat,
+)
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from tests.helpers import StubRng, run_pure, scripted
@@ -465,7 +473,7 @@ def test_no_press_reveals_a_match_before_the_end():
     st = _state(roster=(_BOSS,))
     # press F5 eleven times: 4 (right, slips), 5..9, 0..3 (wrong), 4 (right, clicks)
     draws = (*_CODE, _SLIP, *(_NO_SLIP,) * 10, 1234)
-    result, source, _ = _run("safe", st, answers=(1, *(_F5,) * 11), draws=draws)
+    result, source, _ = _run("safe", st, answers=(1, *(_F5,) * 11, None), draws=draws)
     shown = _safe_messages(source)
     assert shown[0] == ("dials", _dials(1, 2, 3))
     assert shown[1] == ("slip", _dials(1, 2, 4))  # the right digit, sounding wrong
@@ -479,7 +487,7 @@ def test_no_press_reveals_a_match_before_the_end():
     # Dials that start on the code: the first press moves one off it, and the safe
     # opens only when a full turn of dial 3 brings it back with a click.
     draws = (1, 2, 3, *(_NO_SLIP,) * 10, 1234)
-    result, source, _ = _run("safe", st, answers=(1, *(_F5,) * 10), draws=draws)
+    result, source, _ = _run("safe", st, answers=(1, *(_F5,) * 10, None), draws=draws)
     shown = _safe_messages(source)
     assert shown[0] == ("dials", _dials(1, 2, 3))
     assert [k for k, _ in shown[1:]] == ["slip"] * 9 + ["click"]
@@ -502,7 +510,7 @@ def test_aborting_or_a_wrong_input_mid_crack_follows_the_source():
     result, _, rng = _run("safe", st, answers=(CANCEL,))
     assert result.status == "cancelled" and result.effects == [] and rng.calls == []
 
-    answers = (1, CANCEL, 3, -1, "f5", None, _F5)
+    answers = (1, CANCEL, 3, -1, "f5", None, _F5, None)
     result, source, _ = _run("safe", st, answers=answers, draws=(*_CODE, _NO_SLIP, 1234))
     prompts = _dial_prompts(source)
     assert len(prompts) == 6 and not any(p.cancellable for p in prompts)
@@ -556,14 +564,26 @@ def test_the_score_clamp_changes_the_net_as_the_two_effect_order_predicts(gf, af
     (:1160-1161): from 0 the dip is lost and the net is +4, not +3; near 100 the
     payout's +4 is cut."""
     st = _state(gf=gf, roster=(_BOSS,))
-    result, _, _ = _run("safe", st, answers=(1, _F5), draws=(*_CODE, _NO_SLIP, 1234))
+    result, _, _ = _run("safe", st, answers=(1, _F5, None), draws=(*_CODE, _NO_SLIP, 1234))
     assert result.effects == [SafeSkillSet(0), _score(-1), MoneyChange(5234), _score(4)]
     assert result.state.players[0].gf == after
+
+
+def test_a_cracked_safe_shows_the_open_safe_and_waits_for_a_key():
+    """:20150 ``sysbl,"trs2":poke198,0:wait198,1``: the opened safe, then a key, then the loot."""
+    st = _state(ln=1, tip=0, roster=(_BOSS,))
+    result, source, _ = _run("safe", st, answers=(1, _F5, None), draws=(*_CODE, _NO_SLIP, 1234))
+    shown = [i for i in source.seen if isinstance(i, (Acknowledge, ShowMessage))]
+    keys = [i.key for i in shown]
+    opened = keys.index("locations.ban.safe_opened")
+    assert isinstance(shown[opened], Acknowledge)
+    assert keys.index(f"{_SAFE}click") < opened < keys.index("locations.ban.loot")
+    assert result.effects == [SafeSkillSet(0), _score(-1), MoneyChange(5734), _score(4)]
 
 
 def test_a_cracked_safe_pays_the_banks_tile_terms():
     """:20150 ``goto20050``: the bank's payout, +500 on tile 1, tip 2 on tile 2."""
     for ln, tip, p, head in ((1, 0, 5734, []), (2, 2, 8234, [TipClear()])):
         st = _state(ln=ln, tip=tip, roster=(_BOSS,))
-        result, _, _ = _run("safe", st, answers=(1, _F5), draws=(*_CODE, _NO_SLIP, 1234))
+        result, _, _ = _run("safe", st, answers=(1, _F5, None), draws=(*_CODE, _NO_SLIP, 1234))
         assert result.effects == [SafeSkillSet(0), _score(-1), *head, MoneyChange(p), _score(4)]

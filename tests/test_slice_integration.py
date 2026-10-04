@@ -460,7 +460,8 @@ def _smoke_plan():
                 # :2060 ms=ms-5 after the visit, as the turn runner charges it.
                 state = commit(state, [MsChange(-ENTER_COST)]).state
                 over = state.players[state.clock.active_player].ms <= 0
-                return keys + ["", "0", "0", "100"], state, over
+                # the hand's result waits for a key (:16035/:16040 ``goto1100``)
+                return keys + ["", "0", "0", "100", ""], state, over
             if kind != "step" or result.payload.turn_over:
                 return None  # the walk needs more than this turn's movement
         return None

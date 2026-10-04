@@ -49,6 +49,7 @@ from engine.interactions import (
     Heading,
     LocationMenu,
     MapMove,
+    OptionDone,
     PromptChoice,
     PromptInt,
     TurnMenu,
@@ -157,8 +158,9 @@ class ScreenPlayer:
         if isinstance(screen, CombatScreen):
             self.combat_activations += 1
             return combat_keys(screen)
-        if isinstance(screen, (Acknowledge, Heading)):
-            return "x"  # any key that is not the quit key
+        if isinstance(screen, (Acknowledge, Heading, OptionDone)):
+            # any key that is not the quit key (OptionDone: :1100's wait after a result)
+            return "x"
         raise AssertionError(f"no answer for {screen!r}")
 
     @staticmethod

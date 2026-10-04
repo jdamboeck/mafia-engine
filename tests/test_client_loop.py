@@ -367,6 +367,42 @@ class TestSlwRentThroughClient:
         # 3 months * 50$/month = 150$ deducted from the 5500$ starting cash.
         assert "cash 5350$" in output
 
+    def test_picking_an_option_clears_the_menu_before_its_handler(self, monkeypatch):
+        """:3050 ``print"{clr}"``: the pick clears the location screen; the rent quote
+        (:10020) opens a fresh one instead of printing under the menu."""
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)
+        state = new_state(42)
+        cell = find_door_cell(city_raw, "slw", ln=2)
+        keys = walk_keys_across_turns(state, city, cell) + ["", "0", "3"]
+
+        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        quote = output.index("pro monat kostet das")
+        menu = output.rindex("ICH MOECHTE MEINE MIETE BEZAHLEN", 0, quote)
+        assert CLEAR in output[menu:quote], "the handler printed under the location menu"
+
+    @pytest.mark.parametrize(
+        ("months", "result"),
+        [("3", "guten tag, der herr!"), ("999", "du hast zu wenig kies!")],
+        ids=["10045-success", "1125-refusal"],
+    )
+    def test_a_location_result_waits_for_a_key(self, monkeypatch, months, result):
+        """:10045 ``...:goto1100`` and :1125 ``print"{down}du hast zu wenig kies!":goto1100``:
+        the result stays on screen until a key, before the map comes back."""
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)
+        state = new_state(42)
+        cell = find_door_cell(city_raw, "slw", ln=2)
+        keys = walk_keys_across_turns(state, city, cell) + ["", "0", months, ""]
+
+        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        shown = output.index(result)
+        cleared = output.find(CLEAR, shown)
+        assert cleared != -1, "the map never came back"
+        assert "press any key" in output[shown:cleared], "the result was cleared without a key"
+
 
 # --------------------------------------------------------------------------- #
 # pub drink (alcohol trade) + tip through the client — U8                     #
@@ -1962,7 +1998,8 @@ class TestSaveAndLoad:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
-        return walk, walk + ["", "0", "0", "100", walk[-1], "", "0", "0", "100"]
+        # each hand's result waits for a key (:16035/:16040 ``goto1100``)
+        return walk, walk + ["", "0", "0", "100", "", walk[-1], "", "0", "0", "100", ""]
 
     def test_loaded_game_continues_exactly_like_uninterrupted_play(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
@@ -1970,7 +2007,7 @@ class TestSaveAndLoad:
         walk, k1 = self._k1()
         # K2: enter sph again (po is unchanged by an entry, so the last walk key
         # re-enters) and gamble again -- RNG draws AFTER the save point -- then quit.
-        k2 = [walk[-1], "", "0", "0", "200", "q"]
+        k2 = [walk[-1], "", "0", "0", "200", "", "q"]
         save = tmp_path / "a.jsonl"
 
         out_a, (state_a, rng_a) = _run_session(

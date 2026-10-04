@@ -38,7 +38,9 @@ order (``la=10``; ``ln`` is the tile, 1..5):
 - ``:20105-20107`` the stethoscope text, then the minigame, the :func:`safe_crack`
   sub-state (``:20110-20135``), which returns :data:`CRACKED` or :data:`FAILED`.
   Sub-states may not start fights, so this handler acts on the outcome:
-- cracked, ``:20150 x=-1:gosub1160:goto20050``: the score dip, then the bank's payout
+- cracked, ``:20150 sysbl,"trs2":poke198,0:wait198,1``: the opened safe
+  (:data:`SAFE_OPENED_SCREEN`) and a key; then ``x=-1:gosub1160:goto20050``: the score
+  dip, then the bank's payout
   (as the hold-up's, ``:20050-20060``, with its own ``x=4:gosub1160``) — two score
   effects in the source's order, each clamped to 0..100 on its own (``:1160-1161``);
 - failed, ``:20141-20142`` "'teufel...! da ist was schiefgegangen! es kommt jemand!'",
@@ -62,7 +64,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.effects import MoneyChange
-from engine.interactions import LoadSubState, PromptChoice, ShowMessage
+from engine.interactions import Acknowledge, LoadSubState, PromptChoice, ShowMessage
 from engine.locations import register
 from engine.substates import register_substate
 
@@ -73,12 +75,23 @@ from .police import Arrest, caught, police_fight
 from .sgl import revisit_trap
 from .sub import door_cells
 
-__all__ = ["CRACKED", "FAILED", "ban_holdup", "ban_safe", "heist_payout", "safe_crack"]
+__all__ = [
+    "CRACKED",
+    "FAILED",
+    "SAFE_OPENED_SCREEN",
+    "ban_holdup",
+    "ban_safe",
+    "heist_payout",
+    "safe_crack",
+]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
 #: The guards at the door (``:20012-20015``): variant 0 is 3 men, variant 1 (tile 1) 4.
 _GUARDS = load_encounter(_CONFIG_DIR / "content" / "encounters" / "ban_guards.yaml")
+
+#: The opened-safe picture after a cracked safe (``:20150`` ``sysbl,"trs2"``) and its key.
+SAFE_OPENED_SCREEN = "locations.ban.safe_opened"
 
 #: The police fight's backdrop after a failed crack (``:20142 kf$="kb"``).
 _POLICE_GRID = "kb"
@@ -177,7 +190,9 @@ def ban_safe(ctx):
         "safe_crack", {"intelligenz": active.roster[y].attrs["intelligenz"]}
     )
     if outcome == CRACKED:
-        # :20150 ``x=-1:gosub1160:goto20050`` — the dip, then the payout's ``x=4``.
+        # :20150 ``sysbl,"trs2":poke198,0:wait198,1:poke198,0`` — the opened safe, and
+        # a key; then ``x=-1:gosub1160:goto20050`` — the dip, then the payout's ``x=4``.
+        yield Acknowledge(SAFE_OPENED_SCREEN)
         ctx.apply(score_and_rank(params["ban_safe_score"], params))
         yield from _bank_payout(ctx)
         return []
