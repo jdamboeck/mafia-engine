@@ -53,14 +53,16 @@ from ..effects import SafeSkillSet
 from ..setup import pick_gangster, score_and_rank
 from .police import Arrest, caught
 
-__all__ = ["pickpocket", "sub_platform", "sub_train"]
+__all__ = ["door_cells", "pickpocket", "sub_platform", "sub_train"]
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
 
 @cache
-def _door_cells() -> dict[tuple[int, int], int]:
-    """The city's door table (``content/map/city.yaml``), keyed by ``(la, ln)``."""
+def door_cells() -> dict[tuple[int, int], int]:
+    """The city's door table (``content/map/city.yaml``), keyed by ``(la, ln)``: the
+    cell a step onto a location tile reached, for the stale ``p`` capture reads (``:2030``
+    ``p=br+po(sp)+x``). Shared with the bank's safe-crack (``:20142``)."""
     raw = yaml.safe_load((_CONFIG_DIR / "content" / "map" / "city.yaml").read_text("utf-8"))
     return {(door["la"], door["ln"]): door["cell"] for door in raw["doors"]}
 
@@ -120,7 +122,7 @@ def pickpocket(ctx, *, w: int, paid: int = 0):
     if ctx.rng.range(max(intelligenz, 1)) < params["sub_catch_divisor"]:
         # :18042 ``print"{down}...nichts! denn du wirst erwischt!":gosub1100:goto26020``
         yield ShowMessage("locations.sub.caught")
-        door = _door_cells()[(active.last_la, active.last_location)]
+        door = door_cells()[(active.last_la, active.last_location)]
         yield from caught(ctx, Arrest(p=params["map_screen_base"] + door, cash=active.ka - paid))
         return []
 

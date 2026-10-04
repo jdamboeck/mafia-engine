@@ -6,8 +6,9 @@
 # reads the previous tile ll(sp), which is not a single-literal guard.
 #
 #   holdup — ban.holdup: the daytime hold-up (:20009-20015, :20050-20060)
-#   safe   — ban.safe: the night safe-crack (:20100-20150); for now only the rank gate
-#            and the trap, then nothing (handlers/ban.py)
+#   safe   — ban.safe: the night safe-crack (:20100-20150): the boss's stats, the
+#            cracker, the dial minigame (a sub-state), then the payout or the police
+#            on "kb" (handlers/ban.py)
 #   leave  — costs 5 movement points (:3045) back to the map, before any of the above
 #            is reached: leaving never meets the rank gate or the trap.
 key: ban

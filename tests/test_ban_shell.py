@@ -68,6 +68,24 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
             {"p": 5234},
             "du hast es geschafft! deine beute\nbetraegt 5234$!",
         ),
+        "locations.ban.safe_untrained": ({}, "du musst noch trainieren!"),
+        "locations.ban.safe_who": ({}, "wer soll den kasten knacken:"),
+        "locations.ban.safe_stethoscope": (
+            {},
+            "'hhm. mal sehen. ich versuch's mit dem\nstethoskop...' (drehen der coderaeder"
+            "\nmit f1, f3 und f5!)",
+        ),
+        "locations.ban.safe_dials": ({"d1": 1, "d2": 2, "d3": 3}, "1  2  3"),
+        "locations.ban.safe_turn": ({}, "f1, f3, f5:"),
+        "locations.ban.safe_f1": ({}, "f1"),
+        "locations.ban.safe_f3": ({}, "f3"),
+        "locations.ban.safe_f5": ({}, "f5"),
+        "locations.ban.safe_click": ({"d1": 1, "d2": 2, "d3": 4}, "1  2  4   *klick*"),
+        "locations.ban.safe_slip": ({"d1": 0, "d2": 2, "d3": 4}, "0  2  4"),
+        "locations.ban.safe_failed": (
+            {},
+            "'teufel...! da ist was schiefgegangen!\nes kommt jemand!'",
+        ),
         # :20004 jumps into the shop's trap: its screen is the shop's.
         "locations.sgl.police_waiting": ({}, "vor dem laden erwartet dich die\npoliyei!"),
     }

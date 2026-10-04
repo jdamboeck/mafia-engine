@@ -331,3 +331,17 @@ house_rules:
       Either the fourth guard on tile 1 or the fixed "drei" may be the slip; the source
       sets both on purpose and nothing says which was meant.
     switch: false
+
+  - id: safe_gate_checks_the_boss
+    citation: ":20100"
+    quote: "a=sp:b=1:gosub1350:ifin>=40andkr>=15andbt>=20goto20102"
+    faithful: >-
+      The night safe-crack is refused ("du musst noch trainieren!", :20101) unless the
+      boss (gangster 1) has intelligence 40, strength 15 and brutality 20, before the
+      cracker is picked (:20104). The cracker may be anyone in the gang: the picker
+      loads their stats (:1155), and only their intelligence sets the tries (:20111)
+      and the slips (:20125), so a weak cracker gets in on a trained boss.
+    no_intent: >-
+      The gate may be meant for the boss, who plans the break-in, or for the cracker;
+      the source loads the boss on purpose (``b=1``) and nothing says which was meant.
+    switch: false

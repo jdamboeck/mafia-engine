@@ -268,6 +268,19 @@ formula_params:
   ban_main_bonus: 500            # is -500*(-1), C64 true: +500 on tile 1 (:20050)
   ban_tip: 2                     # (x=2andla=10andln=2): the pub's tip 2 pays on tile 2
   ban_tip_tile: 2                # only (:20051)
+  # The night safe-crack (:20100-20150). The boss's stats gate it (:20100
+  # ``ifin>=40andkr>=15andbt>=20``); the cracker's intelligence drives the tries and the
+  # slips; three code dials of 10 digits start at 1, 2, 3 (:20110 ``rd(i)=1+i``).
+  ban_safe_intelligenz: 40
+  ban_safe_kraft: 15
+  ban_safe_brutalitaet: 20
+  ban_safe_dials: [1, 2, 3]      # rd(i)=1+i, i=0to2 (:20110)
+  ban_safe_digits: 10            # cd(i)=int(rnd(1)*10); ifrd(x)=10thenrd(x)=0 (:20116)
+  ban_safe_tries: 20             # y=20+int(in/10)+3*(ln=1)+s9(sp) (:20111); C64 true is
+  ban_safe_tries_divisor: 10     # -1, so 3 tries fewer on the main tile (ban_main_tile)
+  ban_safe_main_tile_tries: 3
+  ban_safe_slip_divisor: 8       # ifint(rnd(1)*(in/8))=0 ... thensysso,7 (:20125)
+  ban_safe_score: -1             # x=-1:gosub1160 before the payout (:20150)
   # The heist payout (:20050-20060), the bank's, shared with the mail train and the cash
   # transport:
   # p=int(rnd(1)*3000)+4000-500*(la=10andln=1); a matching tip clears it and adds 3000

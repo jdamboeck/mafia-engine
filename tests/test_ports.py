@@ -1193,6 +1193,115 @@ def _engine_bank_guards(v: Values) -> Any:
     return len(interaction.scenario.sides[1])
 
 
+# --- :20100-20150 ban, the night safe-crack ----------------------------------------
+Q_20100 = q(20100, "in>=40andkr>=15andbt>=20")
+Q_20110_RD = q(20110, "rd(i)=1+i")
+Q_20110_CD = q(20110, "cd(i)=int(rnd(1)*10)")
+Q_20111_Y = q(20111, "y=20+int(in/10)+3*(ln=1)+s9(sp)")
+Q_20111_S9 = q(20111, "s9(sp)=s9(sp)-1")
+Q_20111_CAP = q(20111, "s9(sp)<0")
+Q_20116_X = q(20116, "x=x-133")
+Q_20116_RD = q(20116, "rd(x)=rd(x)+1")
+Q_20116_WRAP = q(20116, "rd(x)=10")
+Q_20125 = q(20125, "int(rnd(1)*(in/8))=0orrd(x)<>cd(x)")
+Q_20130 = q(20130, "rd(i)=cd(i)")
+Q_20135_Y = q(20135, "y=y-1")
+Q_20135 = q(20135, "y>0")
+
+
+def _basic_safe_gate(v: Values) -> Any:
+    return (
+        "trained" if Q_20100.holds({"in": v["in"], "kr": v["kr"], "bt": v["bt"]}) else "untrained"
+    )
+
+
+def _engine_safe_gate(v: Values) -> Any:
+    boss = _gangster(kr=v["kr"], in_=v["in"], bt=v["bt"])
+    player = _player(rank=3, last_la=10, last_location=3, roster=(boss,))
+    run = _drive(HANDLERS["ban.safe"], _state(player), answer=lambda _: 0)  # :20104 y=0
+    keys = [m.key for m in run.shown]
+    return "trained" if "locations.ban.safe_who" in keys else "untrained"
+
+
+#: The cracker's strategy, the same on both sides: turn each dial to the code in turn
+#: (F1, F3, F5 are keys 133, 134, 135), then keep turning the third.
+def _safe_keys(code: Sequence[int]) -> list[int]:
+    keys = [133 + i for i in range(3) for _ in range((code[i] - (1 + i)) % 10)]
+    return keys + [135] * 60
+
+
+def _safe_draws(v: Values) -> list[float]:
+    slips = v["slips"]
+    return [*v["code"], *(slips[i % len(slips)] for i in range(60))]
+
+
+def _basic_safe(v: Values) -> Any:
+    """:20110-20135: the dials, the code, the tries, then each press."""
+    draws = _safe_draws(v)
+    b: dict[str, Any] = {"sp": 1, "in": v["in"], "ln": v["ln"], "s9(1)": v["s9"]}
+    for i in range(3):  # :20110 ``fori=0to2``
+        b["i"] = i
+        b["rnd(1)"] = draws[i]
+        b[f"rd({i})"] = Q_20110_RD.assign(b)
+        b[f"cd({i})"] = Q_20110_CD.assign(b)
+    b["y"] = Q_20111_Y.assign(b)
+    b["s9(1)"] = Q_20111_S9.assign(b)
+    if Q_20111_CAP.holds(b):
+        b["s9(1)"] = 0
+    keys = _safe_keys([int(b[f"cd({i})"]) for i in range(3)])
+    presses = 0
+    while True:
+        b["x"] = keys[presses]  # :20115
+        b["rnd(1)"] = draws[3 + presses]
+        presses += 1
+        b["x"] = Q_20116_X.assign(b)
+        x = int(b["x"])
+        b[f"rd({x})"] = Q_20116_RD.assign(b)
+        if Q_20116_WRAP.holds(b):
+            b[f"rd({x})"] = 0
+        if not Q_20125.holds(b):
+            opened = True
+            for i in range(3):  # :20130 ``fori=0to2:ifrd(i)=cd(i)thennext``
+                b["i"] = i
+                if not Q_20130.holds(b):
+                    opened = False
+                    break
+            if opened:
+                outcome = "cracked"
+                break
+        b["y"] = Q_20135_Y.assign(b)
+        if not Q_20135.holds(b):
+            outcome = "failed"
+            break
+    dials = tuple(int(b[f"rd({i})"]) for i in range(3))
+    return (outcome, presses, int(b["s9(1)"]), dials)
+
+
+def _engine_safe(v: Values) -> Any:
+    from engine.substates import SUBSTATES
+
+    cracker = _gangster(in_=v["in"])
+    player = _player(rank=3, last_la=10, last_location=v["ln"], roster=(cracker,))
+    player = replace(player, values={**player.values, "safe_skill": v["s9"]})
+    draws = _safe_draws(v)
+    keys = _safe_keys([int(r * 10) for r in v["code"]])
+    outcome: list[Any] = []
+
+    def handler(ctx: Ctx) -> Any:
+        outcome.append((yield from SUBSTATES["safe_crack"](ctx, {"intelligenz": v["in"]})))
+        return []
+
+    pressed = iter(keys)
+    run = _drive(handler, _state(player), draws, lambda _: next(pressed) - 133)
+    dials = run.shown[-1].params
+    return (
+        outcome[0],
+        len(run.asked),
+        game.safe_skill(run.state.players[0]),
+        (dials["d1"], dials["d2"], dials["d3"]),
+    )
+
+
 # --- :17210-17592 sgl, Jack's gang, the payout and what follows -----------------------
 Q_17210 = q(17210, "gz(0)=3-2*(gz(sp)>5)")
 Q_17500 = q(17500, "int(rnd(1)*3)=0")
@@ -2277,6 +2386,29 @@ PORTS: list[Port] = [
         _grid(ln=range(1, 6)),
         _basic_bank_guards,
         _engine_bank_guards,
+    ),
+    Port(
+        "ban safe gate",
+        (Q_20100,),
+        "HANDLERS['ban.safe'] (the boss's stats)",
+        _grid(**{"in": (39, 40, 99)}, kr=(14, 15), bt=(19, 20)),
+        _basic_safe_gate,
+        _engine_safe_gate,
+    ),
+    Port(
+        "ban safe-crack",
+        (Q_20110_RD, Q_20110_CD, Q_20111_Y, Q_20111_S9, Q_20111_CAP, Q_20116_X, Q_20116_RD)
+        + (Q_20116_WRAP, Q_20125, Q_20130, Q_20135_Y, Q_20135),
+        "SUBSTATES['safe_crack'] (ban.safe_crack)",
+        _grid(
+            **{"in": (0, 7, 8, 12, 40, 63, 99)},
+            ln=(1, 3),
+            s9=(0, 1, 5),
+            code=((0.0, 0.0, 0.0), (0.1, 0.2, 0.3), (0.9990234375, 0.5, 0.25)),
+            slips=((0.5,), (0.0,), (0.0, 0.5), (0.125, 0.9990234375, 0.3)),
+        ),
+        _basic_safe,
+        _engine_safe,
     ),
     Port(
         "pol thank-you",

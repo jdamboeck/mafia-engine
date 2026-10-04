@@ -666,6 +666,10 @@ _FAITHFUL_ONLY_TESTS = {
         "tests.test_ban",
         "test_tile_1_sends_four_guards_while_the_text_says_three",
     ),
+    "safe_gate_checks_the_boss": (
+        "tests.test_ban",
+        "test_the_safe_crack_gate_reads_the_boss_and_the_minigame_the_cracker",
+    ),
 }
 
 

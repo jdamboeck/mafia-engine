@@ -13,8 +13,21 @@
     20051 if(x=1andla=9)or(x=2andla=10andln=2)or(x=3andla=13)thentp(sp)=0:p=p+3000
     20055-20060 du hast es geschafft! deine beute betraegt p $!:ka(sp)=ka(sp)+p:x=4:gosub1160
 
+    20100 a=sp:b=1:gosub1350:ifin>=40andkr>=15andbt>=20goto20102
+    20101 print"{clr}{down}{gry2}du musst noch trainieren!":goto1100
+    20104 print"...wer soll den kasten knacken:":gosub1130:ify=0thenreturn
+    20110 sysbl,"trs1":pokesi+24,15:fori=0to2:rd(i)=1+i:cd(i)=int(rnd(1)*10):next
+    20111 y=20+int(in/10)+3*(ln=1)+s9(sp):s9(sp)=s9(sp)-1:ifs9(sp)<0thens9(sp)=0
+    20115 getx$:x=asc(x$+chr$(0)):ifx<133orx>135goto20115
+    20116 x=x-133:rd(x)=rd(x)+1:ifrd(x)=10thenrd(x)=0
+    20125 ifint(rnd(1)*(in/8))=0orrd(x)<>cd(x)thensysso,7:goto20135
+    20130 sysso,8:fori=0to2:ifrd(i)=cd(i)thennext:gosub1190:goto20150
+    20135 y=y-1:ify>0goto20115
+    20141-20142 'teufel...! da ist was schiefgegangen! es kommt jemand!':kf$="kb":goto26000
+    20150 sysbl,"trs2":poke198,0:wait198,1:poke198,0:x=-1:gosub1160:goto20050
+
 Through ``run_pure`` with the strict ``StubRng``; every refusal leaves the state as it
-was. Option 2 (``:20100``, the safe-crack) is the next unit's: only its prologue runs.
+was.
 """
 
 from __future__ import annotations
@@ -24,14 +37,20 @@ from pathlib import Path
 
 import pytest
 
-from data.game_configs.mafia_1920s.effects import Jail, JobClear, ScoreAndRank, TipClear
+from data.game_configs.mafia_1920s.effects import (
+    Jail,
+    JobClear,
+    SafeSkillSet,
+    ScoreAndRank,
+    TipClear,
+)
 from data.game_configs.mafia_1920s.gangster import Gangster
 from data.game_configs.mafia_1920s.setup import load_combat_backdrop
 from data.game_configs.mafia_1920s.state import SCHEMA, tip_target, values_of
 from engine.combat import CombatResult
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
-from engine.interactions import Ctx, StartCombat
+from engine.interactions import CANCEL, Ctx, PromptChoice, PromptInt, StartCombat
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from tests.helpers import StubRng, run_pure, scripted
@@ -61,7 +80,9 @@ def _rules() -> dict[str, str]:
     }
 
 
-def _state(*, ln: int = 3, tip: int = 0, previous=(0, 0), **fields) -> GameState:
+def _state(
+    *, ln: int = 3, tip: int = 0, previous=(0, 0), safe_skill: int = 0, **fields
+) -> GameState:
     fields.setdefault("ka", 10_000)
     fields.setdefault("gf", 50.0)
     fields.setdefault("ms", 20)
@@ -69,7 +90,10 @@ def _state(*, ln: int = 3, tip: int = 0, previous=(0, 0), **fields) -> GameState
     fields.setdefault("roster", _GANG2)
     player = Player(
         name="alcapone",
-        values={**SCHEMA.player_defaults(), **values_of(tip_target=tip)},
+        values={
+            **SCHEMA.player_defaults(),
+            **values_of(tip_target=tip, safe_skill=safe_skill),
+        },
         last_la=_LA,
         last_location=ln,
         previous_tile=previous,
@@ -183,14 +207,6 @@ def test_the_trap_reads_the_tile_not_the_location():
         result, source, _ = _run("holdup", st)
         assert source.message_keys() == ["locations.ban.alone"], previous
         assert result.effects == [] and result.state == st
-
-
-def test_the_safe_crack_does_nothing_yet_past_the_prologue():
-    """Option 2 (:20100) is the next unit's: past the rank and the trap, nothing."""
-    st = _state()
-    result, source, _ = _run("safe", st)
-    assert result.effects == [] and result.state == st
-    assert source.seen == []
 
 
 # --------------------------------------------------------------------------- #
@@ -339,3 +355,213 @@ def test_the_capture_sees_the_cash_the_hold_up_left(ka, paid):
         assert "system.not_enough_money" in _keys(source)
         assert result.effects[-1] == Teleport(911)
         assert not any(isinstance(e, MoneyChange) for e in result.effects)
+
+
+# --------------------------------------------------------------------------- #
+# The night safe-crack — :20100-20150                                          #
+# --------------------------------------------------------------------------- #
+#: A boss exactly at the gate (:20100 ``in>=40andkr>=15andbt>=20``).
+_BOSS = Gangster(name="boss", energie=40, kraft=15, intelligenz=40, brutalitaet=20)
+#: The code draws (:20110 ``cd(i)=int(rnd(1)*10)``): one press of F5 (dial 3, 3 -> 4)
+#: matches all three dials, which start at 1, 2, 3.
+_CODE = (1, 2, 4)
+_F1, _F5 = 0, 2
+#: The :20125 roll ``int(rnd(1)*(in/8))``, drawn as ``range(in)``: below 8 is a slip.
+_SLIP, _NO_SLIP = 0, 8
+_SAFE = "locations.ban.safe_"
+
+
+def _safe_messages(source) -> list[tuple[str, dict]]:
+    """The minigame's screens: the dials, and each press's feedback."""
+    return [
+        (m.key.removeprefix(_SAFE), m.params)
+        for m in source.messages()
+        if m.key in (f"{_SAFE}dials", f"{_SAFE}slip", f"{_SAFE}click")
+    ]
+
+
+def _dials(d1: int, d2: int, d3: int) -> dict:
+    return {"d1": d1, "d2": d2, "d3": d3}
+
+
+def _dial_prompts(source) -> list[PromptChoice]:
+    return [i for i in source.seen if isinstance(i, PromptChoice)]
+
+
+@pytest.mark.parametrize("stat", ["intelligenz", "kraft", "brutalitaet"])
+def test_a_boss_short_of_any_safe_stat_must_train(stat):
+    """:20100 tests the boss (``b=1``) on all three stats; :20101 "du musst noch
+    trainieren!". Nothing is drawn, nobody is picked, nothing changes."""
+    stats = {"kraft": 15, "intelligenz": 40, "brutalitaet": 20}
+    stats[stat] -= 1
+    boss = Gangster(name="boss", energie=40, **stats)
+    ace = Gangster(name="ace", energie=40, kraft=99, intelligenz=99, brutalitaet=99)
+    st = _state(roster=(boss, ace))
+    result, source, rng = _run("safe", st)
+    assert source.message_keys() == ["locations.ban.safe_untrained"]
+    assert result.effects == [] and result.state == st
+    assert rng.calls == []
+
+
+def test_the_safe_crack_gate_reads_the_boss_and_the_minigame_the_cracker(monkeypatch):
+    """House rule ``safe_gate_checks_the_boss``: a trained boss lets a cracker of
+    intelligence 7 in (:20104 picks gangster 2), whose ``in`` sets the tries (:20111,
+    20 + int(7/10) = 20) and always slips (:20125, int(rnd(1)*7/8) is 0): 20 presses,
+    the matching one included, sound wrong, and the crack fails."""
+    _fights(monkeypatch, "police", winner=1)
+    weak = Gangster(name="weak", energie=40, kraft=99, intelligenz=7, brutalitaet=99)
+    st = _state(roster=(_BOSS, weak))
+    presses = (_F5,) * 20
+    # the code, a slip roll per press, then the police squad's two rolls (:26000-26010)
+    draws = (*_CODE, *(6,) * 20, 0, 0)
+    result, source, rng = _run("safe", st, answers=(2, *presses), draws=draws)
+    assert rng.calls[3:23] == [("range", 7)] * 20
+    assert len(_dial_prompts(source)) == 20
+    assert [k for k, _ in _safe_messages(source)] == ["dials", *["slip"] * 20]
+    assert "locations.ban.safe_failed" in source.message_keys()
+    assert result.effects == [SafeSkillSet(0), _score(2)]  # :26015, the police fought off
+
+
+@pytest.mark.parametrize(
+    ("intelligenz", "ln", "bonus", "tries"),
+    [
+        (40, 3, 0, 24),
+        (49, 2, 0, 24),
+        (50, 3, 0, 25),
+        (40, 1, 0, 21),
+        (99, 1, 5, 31),
+        (40, 3, 1, 25),
+    ],
+)
+def test_the_tries_are_20_plus_a_tenth_of_in_less_3_on_tile_1_plus_the_manual(
+    monkeypatch, intelligenz, ln, bonus, tries
+):
+    """:20111 ``y=20+int(in/10)+3*(ln=1)+s9(sp)`` (C64 true is -1), then
+    ``s9(sp)=s9(sp)-1:ifs9(sp)<0thens9(sp)=0``: the manual's bonus wears off by one per
+    attempt. Turning only the first dial never opens a code of 0, 0, 0, clicks or not
+    (:20130 checks all three), so every try is spent."""
+    _fights(monkeypatch, "police", winner=1)
+    cracker = Gangster(name="c", energie=40, kraft=15, intelligenz=intelligenz, brutalitaet=20)
+    st = _state(ln=ln, safe_skill=bonus, roster=(cracker,))
+    draws = (0, 0, 0, *(_NO_SLIP,) * tries, 0, 0)
+    result, source, _ = _run("safe", st, answers=(1, *(_F1,) * tries), draws=draws)
+    assert len(_dial_prompts(source)) == tries
+    assert result.effects[0] == SafeSkillSet(max(bonus - 1, 0))
+    feedback = [k for k, _ in _safe_messages(source)][1:]
+    # dial 1 runs 2, 3, ..., 9, 0: the click sounds on the 9th press of each turn
+    assert [i for i, k in enumerate(feedback, start=1) if k == "click"] == list(
+        range(9, tries + 1, 10)
+    )
+
+
+def test_no_press_reveals_a_match_before_the_end():
+    """:20125: a slip sounds as a wrong digit does, so the press that sets the last
+    dial right can sound wrong, and the safe stays shut (:20130 checks only on a
+    click). The feedback is the dials on screen and the sound; the code is never
+    shown. The dials can even start on the code (:20110 ``rd(i)=1+i``) and nothing
+    opens until a press clicks."""
+    st = _state(roster=(_BOSS,))
+    # press F5 eleven times: 4 (right, slips), 5..9, 0..3 (wrong), 4 (right, clicks)
+    draws = (*_CODE, _SLIP, *(_NO_SLIP,) * 10, 1234)
+    result, source, _ = _run("safe", st, answers=(1, *(_F5,) * 11), draws=draws)
+    shown = _safe_messages(source)
+    assert shown[0] == ("dials", _dials(1, 2, 3))
+    assert shown[1] == ("slip", _dials(1, 2, 4))  # the right digit, sounding wrong
+    assert [k for k, _ in shown[2:11]] == ["slip"] * 9
+    assert shown[11] == ("click", _dials(1, 2, 4))
+    assert len(shown) == 12
+    assert all(set(params) == {"d1", "d2", "d3"} for _, params in shown)
+    assert source.message_keys()[-1] == "locations.ban.loot"
+    assert result.effects == [SafeSkillSet(0), _score(-1), MoneyChange(5234), _score(4)]
+
+    # Dials that start on the code: the first press moves one off it, and the safe
+    # opens only when a full turn of dial 3 brings it back with a click.
+    draws = (1, 2, 3, *(_NO_SLIP,) * 10, 1234)
+    result, source, _ = _run("safe", st, answers=(1, *(_F5,) * 10), draws=draws)
+    shown = _safe_messages(source)
+    assert shown[0] == ("dials", _dials(1, 2, 3))
+    assert [k for k, _ in shown[1:]] == ["slip"] * 9 + ["click"]
+    assert shown[-1] == ("click", _dials(1, 2, 3))
+
+
+def test_aborting_or_a_wrong_input_mid_crack_follows_the_source():
+    """:20115 ``ifx<133orx>135goto20115``: the minigame takes only F1, F3, F5; any other
+    key, a cancel included, is ignored (the source has no way out once the dials
+    turn). Before it, the picker's 0 leaves (:20104 ``ify=0thenreturn``) with nothing
+    drawn or changed, as a cancel there does."""
+    st = _state(roster=(_BOSS,))
+    result, source, rng = _run("safe", st, answers=(0,))
+    assert result.effects == [] and result.state == st and rng.calls == []
+    assert source.message_keys()[0] == "locations.ban.safe_who"
+    assert not _dial_prompts(source)
+    picker = [i for i in source.seen if isinstance(i, PromptInt)]
+    assert len(picker) == 1 and picker[0].cancellable
+
+    result, _, rng = _run("safe", st, answers=(CANCEL,))
+    assert result.status == "cancelled" and result.effects == [] and rng.calls == []
+
+    answers = (1, CANCEL, 3, -1, "f5", None, _F5)
+    result, source, _ = _run("safe", st, answers=answers, draws=(*_CODE, _NO_SLIP, 1234))
+    prompts = _dial_prompts(source)
+    assert len(prompts) == 6 and not any(p.cancellable for p in prompts)
+    assert [k for k, _ in _safe_messages(source)] == ["dials", "click"]
+    assert result.effects == [SafeSkillSet(0), _score(-1), MoneyChange(5234), _score(4)]
+
+
+@pytest.mark.parametrize(("ln", "door"), [(1, 95), (2, 437), (3, 442), (4, 657), (5, 865)])
+def test_a_failed_crack_reaches_the_police_fight_on_kb(monkeypatch, ln, door):
+    """:20140-20142 "'teufel...! da ist was schiefgegangen! es kommt jemand!'", then
+    ``kf$="kb":goto26000``. Option 2 sets no ``p``, so capture gets the map step's
+    (:2030 ``p=br+po(sp)+x``): 52224 plus the tile's door cell."""
+    module = sys.modules[HANDLERS["ban.safe"].__module__]
+    entered = []
+
+    def police_fight(ctx, arrest, *, grid=None):
+        entered.append((arrest, grid))
+        return "fought_off"
+        yield  # a generator, as police_fight is
+
+    monkeypatch.setattr(module, "police_fight", police_fight)
+    weak = Gangster(name="weak", energie=40, kraft=15, intelligenz=0, brutalitaet=20)
+    st = _state(ln=ln, roster=(_BOSS, weak))
+    tries = 20 - (3 if ln == 1 else 0)
+    draws = (*_CODE, *(0,) * tries)
+    result, source, _ = _run("safe", st, answers=(2, *(_F5,) * tries), draws=draws)
+    assert source.message_keys()[-1] == "locations.ban.safe_failed"
+    assert [(a.p, a.cash, a.gang_size, grid) for a, grid in entered] == [
+        (52224 + door, None, None, "kb")
+    ]
+    assert result.effects == [SafeSkillSet(0)]
+
+
+def test_a_failed_crack_fights_the_police_on_kb(monkeypatch):
+    """The real :26000 police fight runs on "kb" (:20142 ``kf$="kb"``)."""
+    fought = _fights(monkeypatch, "police", winner=1)
+    weak = Gangster(name="weak", energie=40, kraft=15, intelligenz=0, brutalitaet=20)
+    st = _state(roster=(_BOSS, weak))
+    draws = (*_CODE, *(0,) * 20, 0, 0)
+    result, _, _ = _run("safe", st, answers=(2, *(_F5,) * 20), draws=draws)
+    assert [(k, kw["grid"]) for k, kw in fought] == [("police_fight", "kb")]
+    assert result.effects == [SafeSkillSet(0), _score(2)]
+
+
+@pytest.mark.parametrize(
+    ("gf", "after"),
+    [(50.0, 53.0), (0.0, 4.0), (0.5, 4.0), (99.5, 100.0), (100.0, 100.0), (98.0, 100.0)],
+)
+def test_the_score_clamp_changes_the_net_as_the_two_effect_order_predicts(gf, after):
+    """:20150 ``x=-1:gosub1160`` then :20060 ``x=4:gosub1160``, each clamped to 0..100
+    (:1160-1161): from 0 the dip is lost and the net is +4, not +3; near 100 the
+    payout's +4 is cut."""
+    st = _state(gf=gf, roster=(_BOSS,))
+    result, _, _ = _run("safe", st, answers=(1, _F5), draws=(*_CODE, _NO_SLIP, 1234))
+    assert result.effects == [SafeSkillSet(0), _score(-1), MoneyChange(5234), _score(4)]
+    assert result.state.players[0].gf == after
+
+
+def test_a_cracked_safe_pays_the_banks_tile_terms():
+    """:20150 ``goto20050``: the bank's payout, +500 on tile 1, tip 2 on tile 2."""
+    for ln, tip, p, head in ((1, 0, 5734, []), (2, 2, 8234, [TipClear()])):
+        st = _state(ln=ln, tip=tip, roster=(_BOSS,))
+        result, _, _ = _run("safe", st, answers=(1, _F5), draws=(*_CODE, _NO_SLIP, 1234))
+        assert result.effects == [SafeSkillSet(0), _score(-1), *head, MoneyChange(p), _score(4)]
