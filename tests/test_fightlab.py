@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import re
+import sys
 from pathlib import Path
 
 import pytest
@@ -424,3 +425,143 @@ def test_unknown_weapon_id_fails_at_load_naming_the_id(tmp_path):
         fightlab.load_scenario(bad)
     # The id itself is named — not a bare KeyError, and not a fight-time surprise.
     assert "999" in str(exc.value)
+
+
+# --------------------------------------------------------------------------- #
+# Text is the theme's: --theme rewords the lab, and fightlab.py holds no English #
+# --------------------------------------------------------------------------- #
+#: A theme directory outside the config: it rewords the debug dump's hit verdict and
+#: the watch frame label, and leaves every other key to classic.
+_TEST_THEME = Path(__file__).resolve().parent / "fixtures" / "themes" / "test"
+_FIGHTLAB_PY = Path(fightlab.__file__)
+
+
+def _main(monkeypatch, argv: list[str], stdin: str) -> str:
+    """``fightlab.main(argv)`` over ``stdin``; return its stdout."""
+    from tests.helpers import deadline
+
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", io.StringIO(stdin))
+    monkeypatch.setattr(sys, "stdout", out)
+    with deadline(20, "fightlab.main() did not return", exc_type=AssertionError):
+        fightlab.main(argv)
+    return out.getvalue()
+
+
+def _plain(text: str) -> str:
+    """``text`` without its ANSI colour codes."""
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
+def test_a_theme_overriding_a_fightlab_key_changes_the_debug_dump(monkeypatch):
+    """``play --debug --theme PATH``: the theme's ``fightlab.debug.verdict_hit`` words
+    every hit verdict, and the keys it leaves alone still come from classic. Seed 42
+    with side 1 passing: the schuldner's hits are the verdicts."""
+    play = ["play", "--scenario", str(_SCENARIO), "--seed", "42", "--debug"]
+    classic = _main(monkeypatch, play, "p\n" * 80)
+    themed = _main(monkeypatch, [*play, "--theme", str(_TEST_THEME)], "p\n" * 80)
+
+    assert "draw >= 10   -> HIT" in classic
+    assert "draw >= 10   -> TREFFER" in themed
+    assert "-> HIT" not in themed
+    # Only the verdict changed: the same words, line for line, otherwise (the test
+    # theme's palette recolours the board, so colour codes are set aside).
+    assert _plain(themed).replace("-> TREFFER", "-> HIT") == _plain(classic)
+    # The accuracy attribute is the rules bundle's role name.
+    assert "weapon != 0, kraft draw >= 10" in themed
+
+
+def test_theme_flag_loads_that_theme_for_watch(monkeypatch, recording_path):
+    """``watch --theme PATH`` words the frame label in that theme; with no
+    ``--theme``, classic's label. Piped keys are one per line: ``n`` advances one
+    frame, ``q`` quits."""
+    path, _recording = recording_path
+    watch = ["watch", "--recording", str(path)]
+    themed = _main(monkeypatch, [*watch, "--theme", str(_TEST_THEME)], "n\nq\n")
+    assert re.findall(r"-- zug (\d+) von \d+ \(activation:\w+\) --", themed) == ["0", "1"]
+    assert "-- activation" not in themed
+    classic = _main(monkeypatch, watch, "n\nq\n")
+    assert _activation_indices(classic) == [0, 1]
+
+
+#: Code, not text: a lowercase id or dotted path (a theme key, a calc-input key, a
+#: module or file name), optionally dot-led (``.yaml``), or a ``--flag``.
+_CODE_SHAPED = re.compile(r"\.?[a-z_][a-z0-9_]*(\.[a-z0-9_]+)*\.?|--[a-z][a-z-]*")
+#: The two literals with a letter that are code but not code-shaped.
+_CODE_ALLOWED = {"utf-8", "NAME|PATH"}
+#: A theme key (or the dotted start of one an f-string completes).
+_THEME_KEY = re.compile(r"(fightlab|combat)(\.[a-z_]+)*\.?")
+#: Calls and keywords whose string arguments a user reads.
+_OUTPUT_CALLS = {"write", "print", "ValueError"}
+_OUTPUT_KEYWORDS = {"help", "description"}
+
+
+def _docstrings(tree) -> set[int]:
+    import ast
+
+    found = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.FunctionDef, ast.ClassDef)) and node.body:
+            first = node.body[0]
+            if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant):
+                found.add(id(first.value))
+    return found
+
+
+def _surface(node) -> set[int]:
+    """The nodes of an output argument itself: an f-string's text, a ``+`` chain's
+    parts — but not the arguments of a call inside it (a theme key and its params)."""
+    import ast
+
+    if isinstance(node, (ast.Call, ast.Dict)):
+        return set()
+    found = {id(node)}
+    for child in ast.iter_child_nodes(node):
+        found |= _surface(child)
+    return found
+
+
+def _english_literals(source: str) -> list[tuple[int, str]]:
+    """Every string literal in ``source`` a user could read as English.
+
+    Two nets: (1) any literal (docstrings aside) with a letter that is not shaped
+    like code — prose, a capitalised word, punctuation around words; (2) any literal with a letter in it that is fed to an
+    output call (``write``/``print``/``ValueError``) or an argparse ``help=``/
+    ``description=`` — directly, or as part of an f-string or ``+`` chain there —
+    unless it is a theme key. What passes both is a single lowercase word or dotted
+    path not printed directly: an id (a dict key, a role name, a subcommand).
+    """
+    import ast
+
+    tree = ast.parse(source)
+    docstrings = _docstrings(tree)
+    shown: set[int] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+        fed = list(node.args) if name in _OUTPUT_CALLS else []
+        fed += [kw.value for kw in node.keywords if kw.arg in _OUTPUT_KEYWORDS]
+        for arg in fed:
+            shown.update(_surface(arg))
+    found = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            continue
+        if id(node) in docstrings:
+            continue
+        value = node.value
+        if re.search(r"[A-Za-z]", value) is None:
+            continue  # layout: newlines, indents, "?", "-"
+        is_text = not (_CODE_SHAPED.fullmatch(value) or value in _CODE_ALLOWED)
+        is_shown = id(node) in shown and not _THEME_KEY.fullmatch(value)
+        if is_text or is_shown:
+            found.append((node.lineno, value))
+    return found
+
+
+def test_fightlab_holds_no_english_literals():
+    """Every word the fight lab prints is a theme string: ``fightlab.py`` has none."""
+    found = _english_literals(_FIGHTLAB_PY.read_text(encoding="utf-8"))
+    assert found == [], "\n".join(f"fightlab.py:{line}: {value!r}" for line, value in found)

@@ -31,8 +31,13 @@ Invocation (mirrors ``clients/terminal/cli.py``'s argparse)::
     python -m clients.terminal.fightlab play  --scenario PATH [--seed N] [--debug]
     python -m clients.terminal.fightlab watch --recording PATH      [--debug]
 
-No ``--player``, no config-dir, no save flags — the "no game, no save/load UI"
+Both take ``--theme NAME|PATH`` (merged over ``classic``, as in the main client). No
+``--player``, no config-dir, no save flags — the "no game, no save/load UI"
 boundary. Step-through vs. autoplay are runtime keypresses within ``watch``.
+
+**Text.** Every line the tool prints is a theme string (``fightlab.*``, classic's in
+``themes/classic/strings/fightlab.yaml``); the accuracy attribute the debug dump names
+comes from the fight's rules bundle (its ``hit_roles``), never from this module.
 """
 
 from __future__ import annotations
@@ -40,7 +45,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, NoReturn, TextIO
 
 import yaml
 
@@ -52,8 +57,9 @@ from engine.state import FAITHFUL
 from engine.strings import Resolver
 
 from clients.terminal import TerminalInput
-from clients.terminal.palette import Colors, load_palette
-from clients.terminal.session import _read_key
+from clients.terminal.cli import _load_theme
+from clients.terminal.palette import Colors, Palette, load_palette
+from clients.terminal.session import _DEFAULT_THEME, _read_key
 from clients.terminal.renderers import (
     render_combat_grid,
     render_fighter_panel,
@@ -61,6 +67,11 @@ from clients.terminal.renderers import (
 )
 
 _CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+
+
+def _classic() -> Resolver:
+    """The default theme's strings — what a caller that passes no resolver gets."""
+    return Resolver.from_config(_CONFIG_DIR, theme=_DEFAULT_THEME)
 
 
 # --------------------------------------------------------------------------- #
@@ -114,7 +125,9 @@ def _all_faithful_rules() -> Any:
     return combat_rules.build_rules({rule.id: FAITHFUL for rule in offered})
 
 
-def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
+def load_scenario(
+    path: str | Path, *, seed: int | None = None, resolver: Resolver | None = None
+) -> Scenario:
     """Load a scenario file into a complete two-sided :class:`~engine.scenario.Scenario`.
 
     The enemy side is built through :func:`Scenario.from_encounter` off the file's
@@ -131,26 +144,33 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
     The file's ``house_rules:`` map is the one the fight's rules bundle is built under.
     A file with no map, or one whose map does not set exactly the catalogue's switches,
     is refused with a ``ValueError`` naming the problem (R21).
+
+    Every refusal is worded by ``resolver`` (``fightlab.scenario.*``; classic when
+    ``None``).
     """
     from data.game_configs.mafia_1920s import house_rules
 
     setup, combat_rules, Gangster = _config_helpers()
+    resolver = resolver if resolver is not None else _classic()
 
     path = Path(path)
     raw = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
+    def refusal(key: str, **params: Any) -> ValueError:
+        return ValueError(
+            resolver.resolve(f"fightlab.scenario.{key}", {"file": path.name, **params})
+        )
+
     enc_key = raw.get("encounter")
     if not enc_key:
-        raise ValueError(
-            f"scenario {path.name!r}: missing 'encounter' (the enemy side's declaration)"
-        )
+        raise refusal("missing_encounter")
     player_specs = raw.get("player")
     if not player_specs:
-        raise ValueError(f"scenario {path.name!r}: missing 'player' (side 1's fighters)")
+        raise refusal("missing_player")
     try:
         chosen = house_rules.check_stored_map(raw.get("house_rules"), house_rules.CATALOGUE)
     except ValueError as exc:
-        raise ValueError(f"scenario {path.name!r}: {exc}") from None
+        raise refusal("house_rules", error=exc) from None
 
     params = yaml.safe_load((_CONFIG_DIR / "config.yaml").read_text(encoding="utf-8"))[
         "formula_params"
@@ -166,13 +186,11 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
         try:
             equip(weapon)
         except KeyError as exc:
-            raise ValueError(
-                f"scenario {path.name!r}: player[{i}] names unknown weapon id {weapon!r} "
-                f"({exc}); fix the id before the fight"
-            ) from exc
+            raise refusal("unknown_weapon", index=i, weapon=weapon, error=exc) from exc
+        default_name = resolver.resolve("fightlab.scenario.default_fighter", {"index": i})
         roster.append(
             Gangster(
-                name=spec.get("name", f"fighter{i}"),
+                name=spec.get("name", default_name),
                 weapon=weapon,
                 energie=spec.get("energie", 20),
                 kraft=spec.get("kraft", 30),
@@ -202,7 +220,7 @@ def load_scenario(path: str | Path, *, seed: int | None = None) -> Scenario:
 # --------------------------------------------------------------------------- #
 # Real fighter names (NOT the "side {i}" losses placeholder)                   #
 # --------------------------------------------------------------------------- #
-def _side_names_from_scenario(scenario: Any) -> dict[int, str]:
+def _side_names_from_scenario(scenario: Any, resolver: Resolver) -> dict[int, str]:
     """Real per-side display names, read off the scenario's own fighters.
 
     ``render_combat_losses`` labels sides ``"side {i}"`` — a placeholder. The debug
@@ -212,8 +230,13 @@ def _side_names_from_scenario(scenario: Any) -> dict[int, str]:
     """
     names: dict[int, str] = {}
     for i, side in enumerate(scenario.sides or (), start=1):
-        names[i] = side[0].name if side else f"side {i}"
+        names[i] = side[0].name if side else _side_fallback(resolver, i)
     return names
+
+
+def _side_fallback(resolver: Resolver, side: int) -> str:
+    """A side's name when no fighter gives one (``fightlab.side_fallback``)."""
+    return resolver.resolve("fightlab.side_fallback", {"side": side})
 
 
 def _fighter_name(snapshot: Any, side: int, index: int) -> str:
@@ -290,6 +313,7 @@ def render_shot_debug(
     out: TextIO,
     rules: Any,
     replayed: bool = False,
+    resolver: Resolver | None = None,
 ) -> None:
     """Print the concrete shot block (draws, attribute values, damage) for one ActivationEvent.
 
@@ -298,7 +322,16 @@ def render_shot_debug(
     which comes from ``rules`` (the fight's :class:`~engine.combat.RulesBundle`):
     its ``hit_draws``/``damage_draws`` name each draw the game's formula makes. Under
     ``watch``, the block is prefixed ``(replayed)``.
+
+    Every line is worded by ``resolver`` (``fightlab.debug.*``; classic when ``None``).
+    The accuracy attribute the verdict line names is the rules bundle's own
+    ``hit_roles["attacker"]`` — the key the hit test reads — not a name restated here.
     """
+    resolver = resolver if resolver is not None else _classic()
+
+    def line(key: str, indent: int = 2, **params: Any) -> None:
+        out.write(" " * indent + resolver.resolve(f"fightlab.debug.{key}", params) + "\n")
+
     ci = event.calc_inputs
     result = event.result
     equipment = ci.get("equipment") or {}
@@ -324,61 +357,81 @@ def render_shot_debug(
     hit_label, hit_bound, hit_draw = _first_made(hit_draws)
     dmg_label, dmg_bound, dmg_draw = _first_made(dmg_draws)
 
-    prefix = "(replayed) " if replayed else ""
-    hdr_dir = f" {_DIR_LABELS.get(direction, direction)}" if direction is not None else ""
-    out.write(
-        f"{prefix}=== activation {event.index} | side {event.side}, "
-        f"fighter {event.fighter_index + 1} ({actor_name}) -> shoot{hdr_dir} ===\n"
+    prefix = resolver.resolve("fightlab.debug.replayed") if replayed else ""
+    header = {
+        "index": event.index,
+        "side": event.side,
+        "fighter": event.fighter_index + 1,
+        "name": actor_name,
+    }
+    if direction is not None:
+        label = _DIR_KEYS.get(direction)
+        header["direction"] = (
+            resolver.resolve(f"fightlab.direction.{label}") if label is not None else direction
+        )
+        out.write(prefix + resolver.resolve("fightlab.debug.header_aimed", header) + "\n")
+    else:
+        out.write(prefix + resolver.resolve("fightlab.debug.header", header) + "\n")
+    line(
+        "weapon",
+        weapon=weapon_name,
+        ts=ts,
+        tg=tg,
+        range=equipment.get("range"),
     )
-    out.write(f"  weapon: {weapon_name} (ts={ts}, tg={tg}, range={equipment.get('range')})\n")
+    line("hit_heading")
     if rules.hit_draws is None:
-        out.write("  hit check:\n")
-        out.write("    (the rules bundle declares no hit draws — cannot name them)\n")
+        line("no_hit_draws", 4)
     elif hit_draw is None:
         # No declared hit draw was made: the projectile reached no target (left the
         # grid, hit a wall, or found no fighter in line) — the hit check never ran. Say
         # so, rather than printing a misleading "-> None" under a hit-check heading.
-        out.write("  hit check:\n")
-        out.write("    (shot reached no target — no hit check)\n")
+        line("no_target", 4)
     else:
-        out.write("  hit check:\n")
-        out.write(f"    draw = rng.range({hit_label}={hit_bound})          -> {hit_draw[0]}\n")
-        out.write(f"    accuracy attr ({hit_attr})           -> {hit_value}\n")
-        verdict = "HIT" if result.get("hit") else "MISS"
-        out.write(f"    weapon != 0, kraft draw >= 10   -> {verdict}\n")
+        line("hit_draw", 4, label=hit_label, bound=hit_bound, value=hit_draw[0])
+        line("accuracy", 4, attr=hit_attr, value=hit_value)
+        verdict = resolver.resolve(
+            "fightlab.debug.verdict_hit" if result.get("hit") else "fightlab.debug.verdict_miss"
+        )
+        accuracy = rules.hit_roles.get(_ATTACKER, hit_attr)
+        line("verdict", 4, accuracy=accuracy, verdict=verdict)
 
     if result.get("hit"):
         dmg_draw_value = dmg_draw[0] if dmg_draw is not None else None
         damage = result.get("damage")
-        out.write("  damage roll:\n")
-        out.write(f"    draw = rng.range({dmg_label}={dmg_bound})    -> {dmg_draw_value}\n")
-        out.write(f"    damage attr ({dmg_attr})         -> {dmg_value}\n")
+        line("damage_heading")
+        line("damage_draw", 4, label=dmg_label, bound=dmg_bound, value=dmg_draw_value)
+        line("damage_attr", 4, attr=dmg_attr, value=dmg_value)
         if isinstance(dmg_draw_value, int) and isinstance(dmg_value, int):
-            out.write(
-                f"    (draw + attr) // 10 + 1         -> "
-                f"({dmg_draw_value} + {dmg_value}) // 10 + 1 = {damage}\n"
-            )
+            line("damage_sum", 4, draw=dmg_draw_value, value=dmg_value, damage=damage)
         else:
-            out.write(f"    (draw + attr) // 10 + 1         -> {damage}\n")
+            line("damage_only", 4, damage=damage)
 
         tgt_side = result.get("target_side")
         tgt_index = result.get("target_index")
-        tgt_name = _fighter_name(event.snapshot, tgt_side, tgt_index)
-        before = _fighter_vitality(prev_snapshot, tgt_side, tgt_index)
-        after = _fighter_vitality(event.snapshot, tgt_side, tgt_index)
-        out.write(
-            f"  target: side {tgt_side}, fighter {(tgt_index or 0) + 1} ({tgt_name})  "
-            f"energie {before} -> {after}\n"
+        line(
+            "target",
+            side=tgt_side,
+            fighter=(tgt_index or 0) + 1,
+            name=_fighter_name(event.snapshot, tgt_side, tgt_index),
+            before=_fighter_vitality(prev_snapshot, tgt_side, tgt_index),
+            after=_fighter_vitality(event.snapshot, tgt_side, tgt_index),
         )
-    out.write(
-        f"  result: {'hit' if result.get('hit') else 'miss'}, "
-        f"damage={result.get('damage', 0)}, downed={result.get('downed', False)}\n"
+    outcome = "fightlab.debug.outcome_hit" if result.get("hit") else "fightlab.debug.outcome_miss"
+    line(
+        "result",
+        outcome=resolver.resolve(outcome),
+        damage=result.get("damage", 0),
+        downed=result.get("downed", False),
     )
     out.flush()
 
 
-#: The four combat step deltas -> a readable direction label (presentation only).
-_DIR_LABELS = {1: "east", -1: "west", -40: "north", 40: "south"}
+#: The four combat step deltas -> their ``fightlab.direction.*`` theme key.
+_DIR_KEYS = {1: "east", -1: "west", -40: "north", 40: "south"}
+
+#: The participant role whose accuracy attribute the hit test reads (``hit_roles``).
+_ATTACKER = "attacker"
 
 
 def _fighter_vitality(snapshot: Any, side: Any, index: Any) -> Any:
@@ -393,12 +446,15 @@ def _fighter_vitality(snapshot: Any, side: Any, index: Any) -> Any:
     return "?"
 
 
-def _print_divergence(report: Any, out: TextIO) -> None:
+def _print_divergence(report: Any, out: TextIO, resolver: Resolver) -> None:
     """Print a replay divergence (recorded vs. recomputed) side by side."""
-    out.write(f"!! REPLAY DIVERGED at activation {report.at_index}\n")
-    out.write(f"   recorded  : {report.expected}\n")
-    out.write(f"   recomputed: {report.got}\n")
-    out.write("   (a formula changed since this recording — autoplay halted)\n")
+    lines = [
+        resolver.resolve("fightlab.divergence.heading", {"index": report.at_index}),
+        "   " + resolver.resolve("fightlab.divergence.recorded", {"value": report.expected}),
+        "   " + resolver.resolve("fightlab.divergence.recomputed", {"value": report.got}),
+        "   " + resolver.resolve("fightlab.divergence.note"),
+    ]
+    out.write("".join(text + "\n" for text in lines))
     out.flush()
 
 
@@ -417,6 +473,8 @@ def play(
     debug: bool = False,
     stdin: TextIO | None = None,
     out: TextIO | None = None,
+    resolver: Resolver | None = None,
+    palette: Palette | None = None,
 ) -> Any:
     """Drive a scenario file as a human-vs-AI fight; print a losses block on finish.
 
@@ -427,15 +485,16 @@ def play(
     Side 1 is human, side 2 AI (the scenario's default drivers).
 
     Returns the :class:`~engine.combat.CombatResult`. ``--seed`` makes the outcome
-    assertable.
+    assertable. ``resolver``/``palette`` are the theme (classic's when ``None``).
     """
     stdin = stdin if stdin is not None else sys.stdin
     out = out if out is not None else sys.stdout
-    assert out is not None, "no output stream: sys.stdout is None"
+    assert out is not None
+    resolver = resolver if resolver is not None else _classic()
+    palette = palette if palette is not None else load_palette(_CONFIG_DIR, _DEFAULT_THEME)
 
-    scenario = load_scenario(scenario_path, seed=seed)
-    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
-    colors = Colors.detect(load_palette(_CONFIG_DIR, "classic"))
+    scenario = load_scenario(scenario_path, seed=seed, resolver=resolver)
+    colors = Colors.detect(palette)
     weapon_names = _weapon_names()
     inp = TerminalInput(
         resolver=resolver, colors=colors, stdin=stdin, stdout=out, weapon_names=weapon_names
@@ -449,7 +508,7 @@ def play(
 
     # Outcome: a real losses block, using the REAL side names (not "side {i}").
     render_screen_clear(out)
-    names = _side_names_from_scenario(scenario)
+    names = _side_names_from_scenario(scenario, resolver)
     out.write(
         resolver.resolve("combat.winner_banner", {"name": names.get(result.winner, "?")}) + "\n"
     )
@@ -457,7 +516,8 @@ def play(
     for i, count in enumerate(result.losses, start=1):
         out.write(
             resolver.resolve(
-                "combat.losses_line", {"name": names.get(i, f"side {i}"), "count": count}
+                "combat.losses_line",
+                {"name": names.get(i) or _side_fallback(resolver, i), "count": count},
             )
             + "\n"
         )
@@ -472,6 +532,7 @@ def play(
                     prev_snapshot=prev,
                     out=out,
                     rules=scenario.rules,
+                    resolver=resolver,
                 )
             prev = getattr(event, "snapshot", prev)
     out.flush()
@@ -509,7 +570,13 @@ def _render_activation(
     }
     render_screen_clear(out)
     action = getattr(event, "decision", {}).get("action", event.kind)
-    out.write(f"-- activation {index} / {len(recording.events) - 1} | {event.kind}:{action} --\n")
+    frame = {
+        "index": index,
+        "last": len(recording.events) - 1,
+        "kind": event.kind,
+        "action": action,
+    }
+    out.write(resolver.resolve("fightlab.watch.frame", frame) + "\n")
     render_combat_grid(payload, out, colors)
     render_fighter_panel(payload, resolver, weapon_names, out, colors)
     out.flush()
@@ -534,6 +601,8 @@ def watch(
     out: TextIO | None = None,
     key_reader: Any = None,
     sleeper: Any = None,
+    resolver: Resolver | None = None,
+    palette: Palette | None = None,
 ) -> None:
     """Step through a recorded fight: render activation 0, then read keys.
 
@@ -549,9 +618,13 @@ def watch(
     Under ``--debug`` each shot activation prints the ``(replayed)`` block off the
     recorded event; if :func:`engine.recording.replay` reports a divergence, the
     recorded-vs-recomputed values are printed and autoplay is halted.
+
+    ``resolver``/``palette`` are the theme (classic's when ``None``).
     """
     out = out if out is not None else sys.stdout
-    assert out is not None, "no output stream: sys.stdout is None"
+    assert out is not None
+    resolver = resolver if resolver is not None else _classic()
+    palette = palette if palette is not None else load_palette(_CONFIG_DIR, _DEFAULT_THEME)
     key_reader = key_reader if key_reader is not None else _read_key
     if sleeper is None:
         import time
@@ -561,8 +634,7 @@ def watch(
     # Re-attach live rules so a divergence check can re-run the real formulas. They
     # carry the all-faithful map, so a recording made under other choices is refused.
     recording = load_recording(recording_path, rules=_all_faithful_rules())
-    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
-    colors = Colors.detect(load_palette(_CONFIG_DIR, "classic"))
+    colors = Colors.detect(palette)
     weapon_names = _weapon_names()
 
     # The divergence verdict (over the whole recording) — checked once; a diverged
@@ -571,7 +643,7 @@ def watch(
 
     n = len(recording.events)
     if n == 0:
-        out.write("(empty recording)\n")
+        out.write(resolver.resolve("fightlab.watch.empty") + "\n")
         return
 
     def show(index: int) -> None:
@@ -593,9 +665,10 @@ def watch(
                 out=out,
                 rules=recording.scenario.rules,
                 replayed=True,
+                resolver=resolver,
             )
             if report.diverged and report.at_index == index:
-                _print_divergence(report, out)
+                _print_divergence(report, out, resolver)
 
     index = 0
     show(index)
@@ -639,40 +712,79 @@ def watch(
 # argparse entry point (mirrors clients/terminal/cli.py:main)                 #
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> None:
+    # Every line main() prints comes from the theme, so classic is loaded first (the
+    # help text is worded in it). Without it there are no words to phrase the failure
+    # in: the error's own text is shown, as in clients/terminal/cli.py.
+    try:
+        classic = _classic()
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        _die(str(exc))
+
+    def text(key: str, **params: Any) -> str:
+        return classic.resolve(f"fightlab.cli.{key}", params)
+
+    def help_text(key: str, **params: Any) -> str:
+        # argparse %-formats help strings; a literal % in a theme string must not
+        # break --help, so it is escaped before argparse sees it.
+        return text(key, **params).replace("%", "%%")
+
     parser = argparse.ArgumentParser(
-        prog="clients.terminal.fightlab",
-        description="Play, watch, and replay fights with every variable observable.",
+        prog="clients.terminal.fightlab", description=help_text("description")
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_play = sub.add_parser("play", help="play a scenario file as a human-vs-AI fight")
-    p_play.add_argument("--scenario", required=True, help="path to a scenario YAML file")
-    p_play.add_argument(
-        "--seed", type=int, default=None, help="RNG seed (makes the outcome assertable)"
-    )
-    p_play.add_argument("--debug", action="store_true", help="dump each shot's arithmetic")
+    p_play = sub.add_parser("play", help=help_text("help_play"))
+    p_play.add_argument("--scenario", required=True, help=help_text("help_scenario"))
+    p_play.add_argument("--seed", type=int, default=None, help=help_text("help_seed"))
+    p_play.add_argument("--debug", action="store_true", help=help_text("help_debug"))
 
-    p_watch = sub.add_parser("watch", help="step through a recorded fight")
-    p_watch.add_argument("--recording", required=True, help="path to a recording JSON file")
-    p_watch.add_argument("--debug", action="store_true", help="dump each shot's arithmetic")
-    p_watch.add_argument(
-        "--delay",
-        type=float,
-        default=0.0,
-        help="seconds between autoplay frames (default 0 = as fast as possible)",
-    )
+    p_watch = sub.add_parser("watch", help=help_text("help_watch"))
+    p_watch.add_argument("--recording", required=True, help=help_text("help_recording"))
+    p_watch.add_argument("--debug", action="store_true", help=help_text("help_debug"))
+    p_watch.add_argument("--delay", type=float, default=0.0, help=help_text("help_delay"))
+
+    for command in (p_play, p_watch):
+        command.add_argument(
+            "--theme",
+            metavar="NAME|PATH",
+            default=_DEFAULT_THEME,
+            help=help_text("help_theme", theme=_DEFAULT_THEME),
+        )
 
     args = parser.parse_args(argv)
+    # From here on every line is worded in the chosen theme (merged over classic, the
+    # main client's own loader). An unknown or broken theme: one line, no traceback.
+    try:
+        resolver, palette = _load_theme(args.theme, classic)
+    except (OSError, yaml.YAMLError, ValueError) as exc:
+        _die(text("theme_error", theme=args.theme, error=exc))
     try:
         if args.command == "play":
-            play(args.scenario, seed=args.seed, debug=args.debug)
+            play(
+                args.scenario,
+                seed=args.seed,
+                debug=args.debug,
+                resolver=resolver,
+                palette=palette,
+            )
         elif args.command == "watch":
-            watch(args.recording, debug=args.debug, delay=args.delay)
+            watch(
+                args.recording,
+                debug=args.debug,
+                delay=args.delay,
+                resolver=resolver,
+                palette=palette,
+            )
     except ValueError as exc:
         # A scenario or recording the lab refuses (a bad weapon id, a missing or
         # different house-rules map): one readable line, no traceback.
-        print(exc, file=sys.stderr)
-        sys.exit(1)
+        _die(str(exc))
+
+
+def _die(message: str) -> NoReturn:
+    """Print one readable line to stderr and exit non-zero."""
+    print(message, file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == "__main__":  # pragma: no cover - manual entry point
