@@ -41,6 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, main, play
 from clients.terminal.palette import ColorSupport, Colors, load_palette
+from engine.c64_numbers import c64_float
 from engine.config_loader import load_game_config
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
@@ -2221,7 +2222,7 @@ class TestTurnPhases:
         before_map = output.split("move: W/A/S/D")[0]
         assert "25.199999 p." in before_map, "upkeep did not show the untruncated score"
         assert "move: W/A/S/D" in output, "the free turn never opened"
-        assert state.players[1].gf == 25.19
+        assert state.players[1].gf == c64_float(25.19)  # :1013 as the C64 holds it
         assert state.players[0].gf == 0, "a player not on turn was touched"
 
     def test_upkeep_shows_the_promotion_only_when_the_committed_rank_moves(
@@ -2322,7 +2323,7 @@ class TestTurnPhases:
 
         assert "diesmal haben mehrere die gleichen" in output, "no tie at the year end"
         assert "hat gewonnen!" not in output
-        assert state.players[0].gf == state.players[1].gf == 25.2
+        assert state.players[0].gf == state.players[1].gf == c64_float(25.2)
 
 
 # --------------------------------------------------------------------------- #

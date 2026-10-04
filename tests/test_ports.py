@@ -56,6 +56,7 @@ from data.game_configs.mafia_1920s.setup import (
     new_game,
     score_and_rank,
 )
+from engine.c64_numbers import c64_float
 from engine.combat import CombatFight, CombatResult
 from engine.combat_setup import SIDE1_ANCHOR, SIDE2_ANCHOR, placement_position
 from engine.config_loader import load_config, load_game_config
@@ -346,7 +347,12 @@ Q_1013 = q(1013, "gf(sp)=int(gf(sp)*100)/100")
 
 
 def _basic_truncate(v: Values) -> Any:
-    return Q_1013.assign({"sp": 1, "gf(1)": v["gf"]})
+    # The C64 holds gf(sp) and the stored result as 5-byte floats (engine.c64_numbers,
+    # checked against VICE in tests/test_c64_float.py); the evaluator's doubles do the
+    # line in between. That is exact here: int() floors gf*100, which a 32-bit mantissa
+    # times 100 never rounds, and the one division rounds once more at the store
+    # (n/100's 20-bit period rules out a double landing on a 5-byte tie).
+    return c64_float(Q_1013.assign({"sp": 1, "gf(1)": c64_float(v["gf"])}))
 
 
 def _engine_truncate(v: Values) -> Any:
@@ -2402,12 +2408,12 @@ PORTS: list[Port] = [
         "per-turn score truncation",
         (Q_1013,),
         f"HANDLERS[{SCORE_TRUNCATION_HOOK_KEY!r}]",
-        # Values whose gf*100 is exact or far from a whole number, where IEEE and C64
-        # floats agree. Near a whole cent the config snaps the float drift first (see
-        # handlers/turn.py _SCORE_SNAP_DECIMALS), which this float evaluator does not model.
+        # Exact and far-from-a-cent scores, and whole cents the C64 keeps (51.2, .29)
+        # or cuts (25.4 to 25.39, 12.34 to 12.33, .01 to 0), double drift included.
         _grid(
             gf=(0, 0.0078125, 0.125, 0.5, 11.1, 25.1953125, 25.5, 33.337, 51.25, 88.8)
             + (99.9990234375, 100, 101.5, -0.0078125, -0.125, -2.9990234375, -3.5, -12.345)
+            + (25.4, 12.34, 51.2, 0.29, 0.57, 1.13, 0.01, 99.99, 1.2 * 21, 8.4 * 3, -25.4)
         ),
         _basic_truncate,
         _engine_truncate,

@@ -25,6 +25,7 @@ from clients.terminal import CONFIG_DIR
 from data.game_configs.mafia_1920s.handlers.police import ACQUITTED, SENTENCED, Arrest, sentence
 from data.game_configs.mafia_1920s.handlers.turn import JAIL_SCREEN
 from data.game_configs.mafia_1920s.state import Debt, Job
+from engine.c64_numbers import c64_float
 from engine.config_loader import load_game_config
 from engine.interactions import (
     Acknowledge,
@@ -134,7 +135,7 @@ def test_a_jailed_players_score_is_still_truncated():
     seen, runner, _ = _drive(state, entry=UPKEEP, stop=_menu_of(1))
 
     assert _jail_screens(seen) == [(0, 0, 2)]
-    assert runner.state.players[0].gf == 12.34
+    assert runner.state.players[0].gf == c64_float(12.34)  # :1013 as the C64 holds it
 
 
 # --------------------------------------------------------------------------- #

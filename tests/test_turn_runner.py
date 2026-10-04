@@ -21,6 +21,7 @@ import data.game_configs.mafia_1920s.state as game
 from clients.terminal import CLEAR, CONFIG_DIR, play
 from data.game_configs.mafia_1920s.handlers.turn import truncated_score
 from data.game_configs.mafia_1920s.state import Job
+from engine.c64_numbers import c64_float
 from engine.config_loader import load_game_config
 from engine.effects import MsChange, SetMovementPoints, SetScore
 from engine.interactions import (
@@ -306,7 +307,7 @@ def test_the_turn_start_refills_movement_truncates_and_opens_the_free_turn():
     assert outcome == "stopped"
     assert isinstance(seen[-1], MapMove) and seen[-1].player == 0
     assert runner.state.players[0].ms == _VEHICLES[active.vehicle]["tr"]
-    assert runner.state.players[0].gf == 25.19
+    assert runner.state.players[0].gf == c64_float(25.19)  # :1013, as the C64 holds it
     assert runner.state.clock.turn_phase == WALKING
 
 
@@ -335,14 +336,14 @@ def _truncate(state):
     ("gf", "expected"),
     [
         (25.199999, 25.19),  # a real sub-cent part is cut, not rounded
+        (25.4, 25.39),  # the C64 holds 25.4 a little low (tests/test_c64_float.py)
+        (12.34, 12.33),
         (51.2, 51.2),
         (-3.5, -3.5),
         (-0.125, -0.13),  # C64 int() is floor: a negative score goes toward -inf
-        (0.29, 0.29),  # IEEE 0.29*100 is 28.999999999999996: still a fixed point
-        (0.57, 0.57),
-        (1.13, 1.13),
-        (1.2 * 21, 25.2),  # 25.199999999999992: float drift below the cent
-        (8.4 * 3, 25.2),  # 25.200000000000003: float drift above the cent
+        (0.29, 0.29),
+        (1.2 * 21, 25.2),  # 25.199999999999992: double drift below the cent
+        (8.4 * 3, 25.2),  # 25.200000000000003: double drift above the cent
         (0.0, 0.0),
         (100.0, 100.0),
     ],
@@ -350,18 +351,24 @@ def _truncate(state):
 def test_the_truncation_hook_cuts_the_active_players_score(gf, expected):
     state = _with_scores((0.125, gf), active=1)
     new = _truncate(state)
-    assert new.players[1].gf == expected
+    assert new.players[1].gf == c64_float(expected), "not the C64's two-decimal value"
     assert new.players[0].gf == 0.125, "only the active player's score is truncated"
     assert state.players[1].gf == gf, "the input state is untouched (pure)"
 
 
-def test_truncation_keeps_every_two_decimal_score_and_is_idempotent():
-    """Every whole-cent score is a fixed point, and truncating twice equals once."""
-    moved = [k / 100 for k in range(-10000, 10001) if truncated_score(k / 100) != k / 100]
-    assert moved == [], f"{len(moved)} whole-cent scores changed, e.g. {moved[:5]}"
-    for gf in (25.199999, 1.2 * 21, 0.1 * 3, -0.125, 33.337, 0.7 * 36, 99.99999999):
-        once = _truncate(_with_scores((gf,), active=0))
-        assert _truncate(once) == once, gf
+def test_a_job_turn_leaves_the_score_untruncated():
+    """``:1012`` ``ifjo(sp)thengosub25000:goto1010`` jumps past ``:1013``: an employed
+    player's turn works the shift, and the score the free turn would cut stays."""
+    state = _new_game(seed=1)
+    player = state.players[0]
+    values = {**player.values, **game.values_of(Job(type=2, pending_pay=1200, months_left=2))}
+    state = replace(state, players=(replace(player, values=values, gf=25.4),))
+    runner = _runner(state, Rng(1))
+    seen, _ = _drive(runner, runner.run(TURN_START, until=NEXT_PLAYER))
+
+    assert "job.shift_croupier_intro" in _keys(seen), "the job shift never ran"
+    assert truncated_score(25.4) != 25.4, "a free turn would have cut this score"
+    assert runner.state.players[0].gf == 25.4
 
 
 # --------------------------------------------------------------------------- #

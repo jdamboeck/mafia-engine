@@ -49,6 +49,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+from engine.c64_numbers import c64_divide, c64_float
 from engine.effects import SetScore
 from engine.interactions import Acknowledge
 from engine.locations import register
@@ -86,24 +87,29 @@ __all__ = [
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
-#: Decimal places ``gf * 100`` is rounded to before :func:`truncated_score` floors it.
-#: A representation guard, not a rule: IEEE doubles store most whole-cent scores a hair
-#: off (``0.29 * 100`` is ``28.999999999999996``), and a plain floor would take a cent
-#: off such a score every turn. Rounding to 1e-6 of a cent (5e-9 in ``gf``) absorbs
-#: that drift -- at ``gf <= 100`` it is thousands of times the double's own error --
-#: while staying at or below the C64's float resolution there (a 32-bit mantissa is
-#: about 7e-9 at ``gf`` = 25), so no difference the original could hold is erased.
-_SCORE_SNAP_DECIMALS = 6
-
 
 def truncated_score(gf: float) -> float:
-    """``:1013`` ``gf(sp)=int(gf(sp)*100)/100``: the score cut to two decimals.
+    """``:1013`` ``gf(sp)=int(gf(sp)*100)/100``: the score cut to two decimals, as the C64
+    computes it in its 5-byte floats (:mod:`engine.c64_numbers`).
 
-    BASIC ``int`` is floor, so a negative score goes toward -inf (-0.125 becomes
-    -0.13). ``gf * 100`` is rounded to :data:`_SCORE_SNAP_DECIMALS` places first, so
-    every whole-cent score is a fixed point and a second truncation changes nothing.
+    ``gf`` is first held as the C64 would hold it (:func:`~engine.c64_numbers.c64_float`).
+    ``int(gf*100)`` is then the exact floor -- the product fits a double, and the ROM's
+    ``int`` reads it before any rounding -- and ``/100`` is the C64's division
+    (:func:`~engine.c64_numbers.c64_divide`). The result is a 5-byte value, exact as a
+    float. BASIC ``int`` is floor, so a negative score goes toward -inf.
+
+    A whole-cent score is not always kept: the C64's ``25.4`` lies a little below 25.4,
+    so it becomes ``25.39`` (the capture in ``tests/fixtures/c64_float/``), and ``12.34``
+    loses a cent on each of two turns before it holds at ``12.32``.
+
+    The score the port hands in is a double built by ``:1160``'s sums, which the port
+    does not round as the C64 does; a sum the C64 ends a hair below a cent can arrive
+    here a hair above it, and the cent then survives where the original drops it.
+    Only this line is emulated (``tests/test_c64_float.py`` pins how far a replay of
+    the captured sums agrees).
     """
-    return math.floor(round(gf * 100, _SCORE_SNAP_DECIMALS)) / 100
+    cents = math.floor(c64_float(gf) * 100)  # int(gf(sp)*100): a 32-bit mantissa times 100 is exact
+    return c64_divide(cents, 100)
 
 
 #: ``:1011`` ``ra(sp)=10``: the rank the early win needs ("chef der unterwelt").
