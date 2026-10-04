@@ -69,7 +69,7 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
         # :19040 goto20050: the payout's screen is the bank's.
         "locations.ban.loot": (
             {"p": 8234},
-            "du hast es geschafft! deine beute\nbetraegt 8234$!",
+            "du hast es geschafft! deine beute\nbetraegt 8234 $!",
         ),
         # :19050 jumps into the subway's body: its screens are the subway's.
         "locations.sub.thief_prompt": ({}, "welchen spieler setzt du als dieb ein:"),

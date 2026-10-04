@@ -433,7 +433,9 @@ def run_encounter(
     on this game's rules bundle (``build_rules`` under the game's house rules), with
     the fixed CPU stats (``enemy_attrs``, ``mf-prg.bas:30245``), the encounter's
     backdrop and this config's weapon table. The outcome screen (``:30500-30515``)
-    follows every fight, as the source prints it for every caller.
+    follows every fight, as the source prints it for every caller; it names the sides
+    as the source does, by gang: ``bn$(ks(1))``, the player's gang name, and the
+    encounter's ``bn$(0)``.
 
     Runtime overrides, for a fight whose setup depends on the game:
 
@@ -476,7 +478,8 @@ def run_encounter(
     )
     if owner is None:
         result = yield StartCombat(scenario=scenario)
-        player_name = active.name
+        # :30500-30515 print the gangs, bn$(ks(1)): the active player's gang name.
+        player_name = _gang_name(active)
     else:
         result = yield StartCombat(
             scenario=scenario, drivers={1: HumanDriver(player=owner), 2: AiDriver()}

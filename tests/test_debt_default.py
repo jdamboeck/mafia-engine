@@ -66,6 +66,11 @@ _PARAMS = {
 }
 
 
+#: The player's gang name (``bn$(sp)``), distinct from the player's name (``sp$(sp)``):
+#: the fight's outcome screen names the gangs (``:30500-30515``).
+_GANG = "north side"
+
+
 def _state(*, debt=None, ka=100000, roster=None, business=None):
     roster = (
         roster
@@ -78,6 +83,7 @@ def _state(*, debt=None, ka=100000, roster=None, business=None):
         values=game.values_of(
             debt if debt is not None else Debt(),
             business if business is not None else Business(),
+            gang_name=_GANG,
         ),
         roster=roster,
     )
@@ -325,13 +331,14 @@ def test_win_changes_nothing_and_the_fight_recurs_next_turn():
 
     # The fight really resolved — and the PLAYER won it, all five collectors down.
     # Without this the assertions below would also hold for a fight that never ran.
-    assert _winner_banners(source) == ["alcapone"]
+    # :30500-30515 name the gangs, bn$: the player's gang, not the player (sp$).
+    assert _winner_banners(source) == [_GANG]
     losses = [
         (m.params["name"], m.params["count"])
         for m in source.messages()
         if m.key == "combat.losses_line"
     ]
-    assert losses == [("alcapone", 0), ("eintreiber", 5)]
+    assert losses == [(_GANG, 0), ("eintreiber", 5)]
     assert "upkeep.debt_seized" not in source.message_keys()
 
     # Nothing was seized: cash, debt and the expired counter all survive untouched.
@@ -355,7 +362,7 @@ def test_the_fight_actually_re_fires_on_the_following_turn():
     """
     st = _state(debt=Debt(amount=3000, months=0), ka=8000, roster=list(_WINNING_GANG))
     first, first_source = _win_the_collectors_fight(st)
-    assert _winner_banners(first_source) == ["alcapone"]  # turn 1 was a real win
+    assert _winner_banners(first_source) == [_GANG]  # turn 1 was a real win
     assert first.state.players[0].ka == 8000
 
     second_source = _scripted("surrender")

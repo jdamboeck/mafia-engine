@@ -2,15 +2,16 @@
 #
 # DATA, not code: the engine and the config emit KEYS; the theme resolves them. Ported
 # from research-data/pass-1/game-text.yaml (context main-loop) and mf-prg.bas:1015-1022,
-# :1200-1230, :1300-1320. A number the source PRINTs (a sign position, the value, a
-# trailing space) reads "{n}" with a space on either side, as in every template here.
+# :1200-1230, :1300-1320. A number the source PRINTs reads a bare "{n}": the c64 number
+# style prints its sign position and the trailing space itself (see _format.yaml), so a
+# template writes only the spaces the source's own strings hold.
 turn:
   menu:
     # :1015 print" "sp$(sp)" - "bn$(sp)" " (in reverse video)
     header: "{name} - {gang_name}"
     # :1016-1017 "kapital:"ka(sp);tab(25)"jahr:"int(ja)"-"month -- the year and the
-    # month print through mid$(str$(..),2); tab(25) puts "jahr:" at column 25.
-    status: "kapital: {cash:<16}jahr:{year:mid$}-{month:mid$}"
+    # month print through mid$(str$(..),2); {tab(25)} puts "jahr:" at column 25.
+    status: "kapital:{cash}{tab(25)}jahr:{year:mid$}-{month:mid$}"
     # :1020
     prompt: "was willst du tun:"
     # :1020-1022, one per option of content/menus/turn.yaml.
@@ -23,7 +24,7 @@ turn:
   # :1510-1515 print"{clr}{down}{gry3}du sitzt im knast."gs(sp)+1"monat(e) hast" /
   # print"{down}du noch vor dir..." -- {months} is gs(sp)+1, the months before :1500's
   # decrement; the :1100 "taste druecken!" pause is the client's.
-  jail: "du sitzt im knast. {months} monat(e) hast\ndu noch vor dir..."
+  jail: "du sitzt im knast.{months}monat(e) hast\ndu noch vor dir..."
 
   # :1011 syslh,"sieg-pic" -- the victory picture, shown before the ranking (:40000
   # falls into :40100). STAND-IN: the picture has no text in the source corpus
@@ -40,29 +41,29 @@ turn:
     # :1210 print"{down}rang: "ra$(ra(sp))
     rank: "rang: {rank_name}"
     # :1215 print"{down}transportmittel: "tm$(tm(sp))" "ms"s"
-    vehicle: "transportmittel: {vehicle} {movement} s"
+    vehicle: "transportmittel: {vehicle} {movement}s"
     # :1219 print"{down}alkohol:"ta(sp)"faesser"
-    alcohol: "alkohol: {barrels} faesser"
+    alcohol: "alkohol:{barrels}faesser"
     # :1221-1222 "gegenstaende: " then ag$(i)"," for each mark held, the last comma
     # overwritten ("{left} "); ag$ = "papiere","falschgeld" (:50600).
     items_papers: "gegenstaende: papiere"
     items_counterfeit: "gegenstaende: falschgeld"
     items_both: "gegenstaende: papiere,falschgeld"
     # :1225 print"{down}schmiergelder:"pl(sp)"mon.":print"{down}bezahlte miete:"um(sp)"mon."
-    bribes: "schmiergelder: {months} mon."
-    rent: "bezahlte miete: {months} mon."
+    bribes: "schmiergelder:{months}mon."
+    rent: "bezahlte miete:{months}mon."
     # :1230 print"{clr}{down}gangster:":ifgz(sp)=0thenprint"{down}keine!"
     gang_title: "gangster:"
     no_gang: "keine!"
     # :1300-1320 gn$(a,b); "e"left$(x$,2)" k"mid$(x$,3,2)" i"mid$(x$,5,2)" b"right$(x$,2);
     # "w:"wa$(gw(a,b)) -- ge$ holds each stat as two digits (:1385).
-    gangster: "{name}\ne{energie:0>2} k{kraft:0>2} i{intelligenz:0>2} b{brutalitaet:0>2}\nw:{weapon}"
+    gangster: "{name}\ne{energie:mid$0>2} k{kraft:mid$0>2} i{intelligenz:mid$0>2} b{brutalitaet:mid$0>2}\nw:{weapon}"
 
   # The gangster picker (:1130-1155), shared by every location that picks one gangster
   # (setup.pick_gangster); the caller's own question is printed before it.
   picker:
     # :1135 print"{down}"mid$(str$(i),2)" "; then gosub1300: the gangster as :1300-1320
     # prints it (turn.overview.gangster).
-    gangster: "{index:mid$} {name}\ne{energie:0>2} k{kraft:0>2} i{intelligenz:0>2} b{brutalitaet:0>2}\nw:{weapon}"
+    gangster: "{index:mid$} {name}\ne{energie:mid$0>2} k{kraft:mid$0>2} i{intelligenz:mid$0>2} b{brutalitaet:mid$0>2}\nw:{weapon}"
     # :1145 input"{down}nummer:";y
     prompt: "nummer:"

@@ -14,7 +14,7 @@ locations:
       leave: "ZURUECK ANS TAGESLICHT"
 
     # --- the train's ticket (18015-18030) ---
-    ticket: "ein u-bahn-ticket kostet dich\n{price} $."                     # 18015-18020
+    ticket: "ein u-bahn-ticket kostet dich\n{price:mid$} $."                     # 18015-18020
     confirm: "ok (j/n)?"                                                   # 1110
 
     # --- the pickpocketing (18035-18052) ---

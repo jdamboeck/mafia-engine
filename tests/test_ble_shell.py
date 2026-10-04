@@ -58,14 +58,14 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
     cases = {
         "locations.ble.passport_for_one": ({}, "gut, mein sohn. fuer einen pass"),
         "locations.ble.passport_for_many": ({"count": 3}, "gut, mein sohn. fuer 3 paesse"),
-        "locations.ble.passport_price": ({"price": 3000}, "macht das 3000$."),
+        "locations.ble.passport_price": ({"price": 3000}, "macht das 3000 $."),
         "locations.ble.confirm": ({}, "ok (j/n)?"),
         "locations.ble.passport_done": ({}, "hier, noch druckfrisch, he, he!"),
         "locations.ble.counterfeit_reluctant": ({}, "nng...hoechst ungern! wieviel dollar"),
         "locations.ble.counterfeit_prompt": ({}, "willst du anlegen (0-5000)"),
         "locations.ble.counterfeit_offer": (
             {"amount": 1234},
-            "ich gebe dir 1234$ blueten dafuer.",
+            "ich gebe dir 1234 $ blueten dafuer.",
         ),
         "system.not_enough_money": ({}, "du hast zu wenig kies!"),
     }

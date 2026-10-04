@@ -66,7 +66,7 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
         ),
         "locations.ban.loot": (
             {"p": 5234},
-            "du hast es geschafft! deine beute\nbetraegt 5234$!",
+            "du hast es geschafft! deine beute\nbetraegt 5234 $!",
         ),
         "locations.ban.safe_untrained": ({}, "du musst noch trainieren!"),
         "locations.ban.safe_who": ({}, "wer soll den kasten knacken:"),

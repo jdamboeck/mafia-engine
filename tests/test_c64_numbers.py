@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from engine.c64_numbers import c64_str
+from engine.c64_numbers import c64_print, c64_str
 
 CAPTURE = Path(__file__).parent / "fixtures" / "c64_str" / "vice_capture.txt"
 
@@ -160,3 +160,40 @@ def test_non_finite_raises_value_error(value: float) -> None:
     """The C64 has no NaN or infinity to print; refuse rather than invent text."""
     with pytest.raises(ValueError):
         c64_str(value)
+
+
+# --------------------------------------------------------------------------- #
+# PRINT's number form (#141): ``tests/fixtures/c64_print/print_cases.bas`` ran  #
+# in VICE 3.10 and wrote each value as ``n$"|"v"|";str$(v);"|"mid$(str$(v),2)"|"``:#
+# the PRINT form, then ``str$``, then ``mid$(str$(..),2)``. ``print#`` to a file #
+# writes the space that screen PRINT writes as a cursor-right.                 #
+# --------------------------------------------------------------------------- #
+PRINT_CAPTURE = Path(__file__).parent / "fixtures" / "c64_print" / "vice_capture.txt"
+
+
+def _read_print_capture() -> dict[str, tuple[str, str, str]]:
+    rows: dict[str, tuple[str, str, str]] = {}
+    for line in PRINT_CAPTURE.read_text(encoding="ascii").splitlines():
+        if not line:
+            continue
+        label, printed, str_form, mid_form, tail = line.split("\\")
+        assert tail == "", line
+        rows[label] = (printed, str_form, mid_form)
+    return rows
+
+
+PRINTED = _read_print_capture()
+
+
+def test_the_print_capture_covers_both_signs():
+    assert {"5", "-500", "0", "-0.9"} <= set(PRINTED)
+
+
+@pytest.mark.parametrize("label", sorted(PRINTED))
+def test_c64_print_matches_vice(label: str) -> None:
+    """PRINT writes ``str$`` and then one space: `` 5 ``, ``-500 ``, ``-.9 ``."""
+    printed, str_form, mid_form = PRINTED[label]
+    assert c64_print(_literal(label)) == printed
+    assert printed == str_form + " "
+    assert c64_str(_literal(label)) == str_form
+    assert c64_str(_literal(label))[1:] == mid_form

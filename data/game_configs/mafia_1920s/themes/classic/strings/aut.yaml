@@ -3,8 +3,8 @@
 # DATA, not code: handlers/aut.py emits these KEYS and the theme resolves them. The menu
 # is the SEQ file src/aut (research-data/pass-2/location-dialogue.yaml, aut), with its
 # 40-column wrap padding; the rest is mf-prg.bas:14006-14131, printed as the listing
-# prints it. A number the source prints between strings takes the spaces C64 PRINT puts
-# around it, except before "$", as the other locations' strings do. A screen that ends
+# prints it. A number the source prints between strings is a bare placeholder: the c64
+# number style prints the spaces C64 PRINT puts around it (_format.yaml). A screen that ends
 # in :1100's "taste druecken!" pause gets it from the client.
 locations:
   aut:
@@ -20,7 +20,7 @@ locations:
     model: "{number:mid$} {name}\n{price}$"
     # 14020's getx$ prints nothing: the prompt under the list repeats 14008's line.
     model_prompt: "nummerntaste (0=ende) druecken!"
-    trade_in_offer: "man bietet dir {amount}$ fuer deine alte\nschaukel."   # 14046-14047
+    trade_in_offer: "man bietet dir{amount}$ fuer deine alte\nschaukel."   # 14046-14047
     confirm: "ok (j/n)?"                                                   # 1110
     sold: "der verkaeufer reicht dir schluessel\nund papiere."              # 14051-14052
 

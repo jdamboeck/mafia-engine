@@ -68,7 +68,7 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
         "locations.pol.free_entry_phantom": ({"index": 1}, "1 irgendjemanden"),
         "locations.pol.free_price": (
             {"price": 3500},
-            "du brauchst 3500$, um die waerter zu\nbestechen.",
+            "du brauchst 3500 $, um die waerter zu\nbestechen.",
         ),
         "locations.pol.confirm": ({}, "ok (j/n)?"),
         "locations.pol.freed": ({}, "du konntest den gefangenen befreien!"),

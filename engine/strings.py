@@ -29,22 +29,40 @@ through untouched)::
       numbers: c64      # or: plain
 
 - ``plain`` (the default): exactly ``str.format`` (``22.0``, ``-0.9``; ``{n:g}`` works).
-- ``c64``: C64 BASIC's ``str$`` (:func:`engine.c64_numbers.c64_str`) without its
-  leading sign-position space for a non-negative (``22``, ``-.9``, ``.5``, ``3000``).
-  Any explicit format spec then applies to that *text*, so ``{cash:>6}`` right-aligns
-  it; a numeric-only spec (``{n:g}``, ``{n:.2f}``) is a ``ValueError`` under ``c64``.
+- ``c64``: a bare ``{n}`` prints as C64 BASIC's ``PRINT`` writes a number
+  (:func:`engine.c64_numbers.c64_print`): ``str$``'s sign position (a space, or ``-``),
+  the digits, then the cursor-right ``PRINT`` leaves after it, a space. So the source's
+  ``print"du hast"p"$"`` is the template ``"du hast{p}$"`` and prints ``du hast 500 $``
+  (``du hast-500 $`` for a negative): a template does not write the spaces ``PRINT``
+  supplies. A Python format spec applies to that text (``{n:>8}``); a numeric-only spec
+  (``{n:g}``, ``{n:.2f}``) is a ``ValueError`` under ``c64``.
 
 The ``plain`` default applies only when the style is read and is never written into
 :attr:`Resolver.tree`, so an override tree without ``_format`` keeps the base theme's
 style. An unknown style (or a non-mapping ``_format``) raises ``ValueError`` on every
 construction path.
 
-A template asks for BASIC's ``mid$(str$(n),2)`` with the field spec ``mid$``:
-``{n:mid$}`` drops ``str$``'s first character for **any** sign (``-3.5`` prints
-``3.5``, ``22.0`` prints ``22``). Anything after ``mid$`` is a spec for the stripped
-text (``{n:mid$>3}``). Because the template asks for it explicitly, ``mid$`` applies
-under ``plain`` too. (``$`` is not part of Python's format-spec mini-language, so the
-name cannot shadow a real spec.)
+Named field specs
+-----------------
+A template asks for one of the source's other number forms with a named field spec;
+anything after the name is a Python spec for the resulting text (``{n:mid$0>2}``).
+Because the template asks for them explicitly, ``str$`` and ``mid$`` apply under
+``plain`` too. (``$`` is not part of Python's format-spec mini-language, so the names
+cannot shadow a real spec.)
+
+- ``{n:str$}`` is BASIC's ``str$(n)``: the sign position and the digits, no trailing
+  space (``print"a";str$(p)``, and a ``PRINT`` whose cursor-right a ``{left}`` takes
+  back).
+- ``{n:mid$}`` is BASIC's ``mid$(str$(n),2)``: ``str$`` minus its first character for
+  **any** sign (``-3.5`` prints ``3.5``, ``22.0`` prints ``22``).
+- ``{n:raw}`` is the number with no C64 padding at all: ``str$`` without the sign
+  position for a non-negative (``22``, ``-.9``) under ``c64``, ``str.format`` under
+  ``plain``. It is for the port's own text that no source line prints (the client's
+  status bar, the fight lab's dump).
+
+A field ``{tab(N)}`` is BASIC's ``tab(N)``: it pads the line with spaces up to column
+``N`` (0-based, counted from the last newline), or adds nothing when the line is
+already that long. It takes no param, under any style.
 """
 
 from __future__ import annotations
@@ -57,7 +75,9 @@ from typing import Any
 
 import yaml
 
-from engine.c64_numbers import c64_str
+import re
+
+from engine.c64_numbers import c64_print, c64_str
 
 __all__ = ["Resolver", "MissingKeyError"]
 
@@ -94,6 +114,18 @@ NUMBER_STYLES = ("plain", "c64")
 MID_SPEC = "mid$"
 """Field spec for BASIC's ``mid$(str$(n),2)``: ``str$`` minus its sign position."""
 
+STR_SPEC = "str$"
+"""Field spec for BASIC's ``str$(n)``: the sign position and the digits, no trailing space."""
+
+RAW_SPEC = "raw"
+"""Field spec for a number with no C64 padding (the port's own text)."""
+
+_TAB_FIELD = re.compile(r"tab\((\d+)\)")
+"""A ``{tab(N)}`` field: BASIC's ``tab(N)``."""
+
+_TAB_MARK = "\x00tab{}\x00"
+_TAB_MARK_RE = re.compile("\x00tab(\\d+)\x00")
+
 
 def _number_style(tree: dict) -> str:
     """Read ``_format.numbers`` from ``tree`` (``plain`` when absent), validated."""
@@ -112,18 +144,55 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+@dataclass(frozen=True)
+class _Tab:
+    """The value of a ``{tab(N)}`` field: the column it pads to."""
+
+    column: int
+
+
 class _NumberFormatter(string.Formatter):
-    """``str.format`` with int/float fields styled per the theme's number style."""
+    """``str.format`` with int/float fields styled per the theme's number style, the
+    named number specs and ``{tab(N)}`` fields."""
 
     def __init__(self, style: str) -> None:
         self._style = style
 
+    def get_value(self, key: Any, args: Any, kwargs: Any) -> Any:
+        if isinstance(key, str) and (tab := _TAB_FIELD.fullmatch(key)):
+            return _Tab(int(tab.group(1)))
+        return super().get_value(key, args, kwargs)
+
     def format_field(self, value: Any, format_spec: str) -> str:
+        if isinstance(value, _Tab):
+            return _TAB_MARK.format(value.column)
         if format_spec.startswith(MID_SPEC):
             return format(c64_str(value)[1:], format_spec[len(MID_SPEC) :])
+        if format_spec.startswith(STR_SPEC):
+            return format(c64_str(value), format_spec[len(STR_SPEC) :])
+        if format_spec.startswith(RAW_SPEC):
+            rest = format_spec[len(RAW_SPEC) :]
+            if self._style == "c64" and _is_number(value):
+                return format(c64_str(value).removeprefix(" "), rest)
+            return format(value, rest)
         if self._style == "c64" and _is_number(value):
-            return format(c64_str(value).removeprefix(" "), format_spec)
+            return format(c64_print(value), format_spec)
         return format(value, format_spec)
+
+
+def _expand_tabs(text: str) -> str:
+    """Replace each ``{tab(N)}`` mark (left by :class:`_NumberFormatter`) with the
+    spaces that reach column ``N`` of its line."""
+    lines = []
+    for line in text.split("\n"):
+        out = ""
+        rest = line
+        while mark := _TAB_MARK_RE.search(rest):
+            out += rest[: mark.start()]
+            out += " " * max(0, int(mark.group(1)) - len(out))
+            rest = rest[mark.end() :]
+        lines.append(out + rest)
+    return "\n".join(lines)
 
 
 def _kind(value: Any) -> str:
@@ -193,4 +262,5 @@ class Resolver:
             node = node[segment]
         if not isinstance(node, str):
             raise MissingKeyError(f"key {key!r} resolves to a subtree, not a template string")
-        return _NumberFormatter(_number_style(self.tree)).format(node, **(params or {}))
+        text = _NumberFormatter(_number_style(self.tree)).format(node, **(params or {}))
+        return _expand_tabs(text) if "\x00" in text else text

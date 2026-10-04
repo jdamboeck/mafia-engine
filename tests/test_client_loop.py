@@ -990,7 +990,8 @@ class TestKdhLocationThroughClient:
         assert result.status == "completed"
         rendered = out.getvalue()
         assert "deine aktion:" in rendered  # the combat-screen action prompt (U7 wire)
-        assert "waffe:" in rendered  # the fighter panel rendered, i.e. combat ran
+        # The fighter panel (:1300-1320's stat line) rendered, i.e. combat ran.
+        assert re.search(r"e\d\d k\d\d i\d\d b\d\d", rendered)
         # A surrender loses -- no loot, no state change beyond the fight itself
         # (cash reflects the 5300$ purchase + the 1000$ capital deposit from step 4).
         assert result.state.players[0].ka == 100000 - 5300 - 1000
@@ -1157,7 +1158,7 @@ class TestInteractiveCombatThroughTerminalInput:
         transcript = out.getvalue()
         # Per-side losses line rendered from the LAST screen shown before the winning
         # shot (mf-prg.bas:30510-30515's vocabulary, ported via combat.losses_*).
-        assert "verluste" in transcript.lower() or "energie" in transcript.lower()
+        assert "verluste" in transcript.lower() or "\nw:" in transcript  # the panel's weapon
 
     def test_grid_renders_exactly_40_columns_no_wide_chars(self):
         """Mirrors tests/test_terminal_integration.py::TestMapDisplayWidth, but for
@@ -2270,7 +2271,7 @@ class TestTurnPhases:
         upkeep_screen = upkeep_screen[: upkeep_screen.index(press)]
         assert CLEAR not in upkeep_screen, "a screen clear wiped upkeep's messages"
         assert poster in upkeep_screen
-        assert "1000$ schulden" in upkeep_screen, "the debt warning is not on the upkeep screen"
+        assert "1000 $ schulden" in upkeep_screen, "the debt warning is not on the upkeep screen"
 
     def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch, tmp_path):
         from data.game_configs.mafia_1920s.state import Job
@@ -2368,7 +2369,8 @@ class TestC64NumbersOnScreen:
         assert f"\n{gf!r} p." not in output, "the score printed as Python's str"
 
     # :4510 `print"{down}"sp$(i);tab(15);ka(i)"$";tab(26);gf(i)` — a plain PRINT of
-    # gf(i): str$ keeps the minus and drops ".0" and the leading "0.".
+    # gf(i): str$ keeps the minus and drops ".0" and the leading "0.", and PRINT adds
+    # the sign space and the trailing space; tab(26) puts the score's sign at column 26.
     def test_ae2_standings_row_prints_the_score_as_str(self, monkeypatch, tmp_path):
         from dataclasses import replace
 
@@ -2380,8 +2382,8 @@ class TestC64NumbersOnScreen:
 
         standings = output[output.index("spielstand 1925-1\n") :]
         rows = {line.split()[0]: line for line in standings.splitlines()[:6] if "$" in line}
-        assert re.search(r"\$  22(?![.\d])", rows["alcapone"]), rows
-        assert re.search(r"\$  -\.9(?!\d)", rows["moran"]), rows
+        assert re.search(r"^alcapone {7} 5500 \$ {5}22 (?![.\d])", rows["alcapone"]), rows
+        assert re.search(r"^moran {10} 7000 \$ {4}-\.9 (?!\d)", rows["moran"]), rows
 
 
 # --------------------------------------------------------------------------- #

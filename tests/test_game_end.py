@@ -183,7 +183,8 @@ def test_resolved_winner_screen_is_verbatim(mafia_module):
     text = _resolved(msgs)
     assert "spielstand 1925-1" in text
     assert "spieler:        kapital: punkte:" in text
-    assert "alcapone" in text and "5000$" in text and "42" in text
+    # :4510 sp$(i);tab(15);ka(i)"$";tab(26);gf(i): the tabs and PRINT's spacing.
+    assert "\nalcapone        5000 $     42 \n" in text
     assert "alcapone hat gewonnen!" in text
     assert "du warst von allen der brutalste," in text
     assert "gemeinste und schlaueste!" in text

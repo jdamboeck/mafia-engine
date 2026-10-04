@@ -268,7 +268,7 @@ def test_rent_messages_resolve_to_the_source_text():
     # :4610-4620
     assert "du hast deine miete nicht puenktlich" in late
     assert "gezahlt. man hat dir moebel im wert von" in late
-    assert "237$ gepfaendet!" in late
+    assert "von 237 $ gepfaendet!" in late
     evicted = resolver.resolve("upkeep.rent_evicted", {})
     # :4650-4651
     assert "deine wohnung wird dir gekuendigt!" in evicted

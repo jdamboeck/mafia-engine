@@ -17,8 +17,8 @@ locations:
     blackjack: "2 - black jack"
     roulette: "3 - roulette"
     # Wager + resolve (16020, 16026, 16035, 16040).
-    cash: "du hast {cash}$. dein einsatz:"
+    cash: "du hast{cash}$. dein einsatz:"
     wager_prompt: "dein einsatz"
     at_the_table: "du begibst dich an den spieltisch..."
-    won: "du hast {amount}$ gewonnen!"
+    won: "du hast{amount}$ gewonnen!"
     lost: "leider verloren!"

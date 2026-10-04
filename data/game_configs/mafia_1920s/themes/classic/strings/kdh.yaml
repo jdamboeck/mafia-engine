@@ -21,25 +21,25 @@ locations:
 
     # --- repay (15050-15075) ---
     repay_prompt: "wieviel willst du zurueckzahlen"
-    repay_partial: "'ok, du hast jetzt noch {remaining}$ schulden!'"
+    repay_partial: "'ok, du hast jetzt noch{remaining}$ schulden!'"
     repay_full: "'du hast die schulden zurueckgezahlt!'"
 
     # --- trade: buy/sell the loan business (15100-15155) ---
     already_own_a_shop: "'du hast schon ein kreditgeschaeft!'"
     pay_own_debts_first: "'zahle erstmal deine eigenen schulden!'"
     shop_belongs_to: "'der laden gehoert {name}!'"
-    buy_offer: "'der jetzige besitzer verlangt {price}$.'"
+    buy_offer: "'der jetzige besitzer verlangt{price}$.'"
     buy_confirm: "ok (j/n)?"
     bought: "'der laden gehoert nun dir!'"
-    sell_offer: "'ein kaeufer bietet dir {price}$ fuer den laden. willst du verkaufen (j/n) ?'"
+    sell_offer: "'ein kaeufer bietet dir{price}$ fuer den laden. willst du verkaufen (j/n) ?'"
     sell_confirm: "ok (j/n)?"
 
     # --- capital adjust (15200-15220) ---
     not_your_shop: "'dieser laden gehoert dir nicht!'"
-    capital_status: "'du hast {capital}$ im kreditgeschaeft (maximal {max} $).'"
+    capital_status: "'du hast{capital}$ im kreditgeschaeft (maximal {max:mid$} $).'"
     capital_prompt: "um wieviel dollar (- oder +) willst du das geldvolumen erhoehen bzw. verringern"
 
     # --- collect overdue debts (15300-15321) ---
     debts_paid_on_time: "'alle schuldner haben puenktlich gezahlt!'"
     ambush_intro: "'einer deiner klienten hat noch geld. er lauert dir mit einem gewehr auf, als du kassieren willst!'"
-    ambush_loot: "'er hatte noch {amount}$ dabei!'"
+    ambush_loot: "'er hatte noch{amount}$ dabei!'"

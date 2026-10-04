@@ -71,18 +71,18 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
         ),
         "locations.sgl.reply_pays": (
             {"p": 912},
-            "'i..i..ich z..zahle ja schon! hi..hier\nsind 912$!'",
+            "'i..i..ich z..zahle ja schon! hi..hier\nsind 912 $!'",
         ),
         "locations.sgl.reply_sob": (
             {"p": 312},
-            "'deine arme ma (schnief)! gib ihr die\n 312$ hier!'",
+            "'deine arme ma (schnief)! gib ihr die\n 312 $ hier!'",
         ),
         "locations.sgl.reply_enough": ({"p": 850}, "'ich habe 850 dollar, reicht das?'"),
         "locations.sgl.reply_forged": (
             {"p": 999},
-            "'verdammt! wer hat mir nur blueten\nfuer 999$ angedreht...?'",
+            "'verdammt! wer hat mir nur blueten\nfuer 999 $ angedreht...?'",
         ),
-        "locations.sgl.reply_small": ({"p": 150}, "'ich habe leider nur 150$!"),
+        "locations.sgl.reply_small": ({"p": 150}, "'ich habe leider nur 150 $!"),
         "locations.sgl.after_menu": ({}, "was machst du:"),
         "locations.sgl.after_take": ({}, "1 angebotenes geld nehmen"),
         "locations.sgl.after_demolish": ({}, "2 laden demolieren"),
@@ -93,7 +93,7 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
         ),
         "locations.sgl.demolished": (
             {"p": 342},
-            "du hast kleinholz aus dem laden\ngemacht. in der kasse waren 342$!",
+            "du hast kleinholz aus dem laden\ngemacht. in der kasse waren 342 $!",
         ),
         "locations.sgl.owner_arms": (
             {"weapon": "maschinenpistole"},
@@ -101,7 +101,7 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
         ),
         "locations.sgl.owner_dead": (
             {"p": 250},
-            "der aufmuepfige kerl ist hin. 250$\nhatte er der tasche!",
+            "der aufmuepfige kerl ist hin. 250 $\nhatte er der tasche!",
         ),
     }
     for key, (params, text) in cases.items():

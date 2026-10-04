@@ -4,4 +4,4 @@ fightlab:
   debug:
     verdict_hit: "TREFFER"
   watch:
-    frame: "-- zug {index} von {last} ({kind}:{action}) --"
+    frame: "-- zug {index:raw} von {last:raw} ({kind}:{action}) --"

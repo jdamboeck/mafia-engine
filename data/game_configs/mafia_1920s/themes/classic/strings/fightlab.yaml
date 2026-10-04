@@ -29,12 +29,12 @@ fightlab:
     # {error} is the house-rules check's own message.
     house_rules: "scenario {file!r}: {error}"
     # {index} is the fighter's position in 'player', {weapon} the id, {error} the lookup's.
-    unknown_weapon: "scenario {file!r}: player[{index}] names unknown weapon id {weapon!r} ({error}); fix the id before the fight"
+    unknown_weapon: "scenario {file!r}: player[{index:raw}] names unknown weapon id {weapon!r} ({error}); fix the id before the fight"
     # The name of a scenario fighter that gives none. {index} is its position.
-    default_fighter: "fighter{index}"
+    default_fighter: "fighter{index:raw}"
 
   # A side's name when it has no fighter to take one from. {side} is its number.
-  side_fallback: "side {side}"
+  side_fallback: "side {side:raw}"
 
   # The four aim directions, by the step they take on the combat grid.
   direction:
@@ -48,44 +48,44 @@ fightlab:
     # Put before the header under `watch`.
     replayed: "(replayed) "
     # {index} activation, {side}/{fighter} the shooter, {name} its name.
-    header: "=== activation {index} | side {side}, fighter {fighter} ({name}) -> shoot ==="
+    header: "=== activation {index:raw} | side {side:raw}, fighter {fighter:raw} ({name}) -> shoot ==="
     # The same, when the shot's direction is known: {direction} is one of `direction`.
-    header_aimed: "=== activation {index} | side {side}, fighter {fighter} ({name}) -> shoot {direction} ==="
-    weapon: "weapon: {weapon} (ts={ts}, tg={tg}, range={range})"
+    header_aimed: "=== activation {index:raw} | side {side:raw}, fighter {fighter:raw} ({name}) -> shoot {direction} ==="
+    weapon: "weapon: {weapon} (ts={ts:raw}, tg={tg:raw}, range={range:raw})"
     hit_heading: "hit check:"
     no_hit_draws: "(the rules bundle declares no hit draws — cannot name them)"
     no_target: "(shot reached no target — no hit check)"
     # {label}={bound} is the draw as the rules bundle declares it, {value} what it drew.
-    hit_draw: "draw = rng.range({label}={bound})          -> {value}"
+    hit_draw: "draw = rng.range({label}={bound:raw})          -> {value:raw}"
     # {attr} is the accuracy attribute's key, {value} the shooter's value of it.
-    accuracy: "accuracy attr ({attr})           -> {value}"
+    accuracy: "accuracy attr ({attr})           -> {value:raw}"
     # {accuracy} is the rules bundle's accuracy attribute, {verdict} hit or miss below.
     verdict: "weapon != 0, {accuracy} draw >= 10   -> {verdict}"
     verdict_hit: "HIT"
     verdict_miss: "MISS"
     damage_heading: "damage roll:"
-    damage_draw: "draw = rng.range({label}={bound})    -> {value}"
-    damage_attr: "damage attr ({attr})         -> {value}"
+    damage_draw: "draw = rng.range({label}={bound:raw})    -> {value:raw}"
+    damage_attr: "damage attr ({attr})         -> {value:raw}"
     # {draw} the damage draw, {value} the damage attribute's value, {damage} the result.
-    damage_sum: "(draw + attr) // 10 + 1         -> ({draw} + {value}) // 10 + 1 = {damage}"
+    damage_sum: "(draw + attr) // 10 + 1         -> ({draw:raw} + {value:raw}) // 10 + 1 = {damage:raw}"
     # When a draw or the attribute value is missing: only the recorded damage.
-    damage_only: "(draw + attr) // 10 + 1         -> {damage}"
+    damage_only: "(draw + attr) // 10 + 1         -> {damage:raw}"
     # {before} -> {after} is the target's energie.
-    target: "target: side {side}, fighter {fighter} ({name})  energie {before} -> {after}"
+    target: "target: side {side:raw}, fighter {fighter:raw} ({name})  energie {before:raw} -> {after:raw}"
     # {outcome} is outcome_hit or outcome_miss.
-    result: "result: {outcome}, damage={damage}, downed={downed}"
+    result: "result: {outcome}, damage={damage:raw}, downed={downed}"
     outcome_hit: "hit"
     outcome_miss: "miss"
 
   # A replay that no longer matches its recording (watch --debug). The client
   # indents every line after the heading.
   divergence:
-    heading: "!! REPLAY DIVERGED at activation {index}"
-    recorded: "recorded  : {value}"
-    recomputed: "recomputed: {value}"
+    heading: "!! REPLAY DIVERGED at activation {index:raw}"
+    recorded: "recorded  : {value:raw}"
+    recomputed: "recomputed: {value:raw}"
     note: "(a formula changed since this recording — autoplay halted)"
 
   # watch: the frame label. {index} of {last}, {kind}:{action} what the event did.
   watch:
-    frame: "-- activation {index} / {last} | {kind}:{action} --"
+    frame: "-- activation {index:raw} / {last:raw} | {kind}:{action} --"
     empty: "(empty recording)"

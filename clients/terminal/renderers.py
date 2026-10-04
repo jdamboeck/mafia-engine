@@ -268,6 +268,12 @@ def render_fighter_panel(
     a theme that lists an attribute this fighter lacks degrades to a shorter panel
     instead of taking down the screen mid-fight. A theme with no ``panel_vitality``
     key simply omits that line.
+
+    A theme that declares ``combat.panel_stats`` prints the stat block as one template
+    instead, filled with the ``vitality`` slot and every ``attrs`` key, and the weapon
+    after it: the classic theme's ``e05 k10 i07 b03`` line, the source's zero-padded
+    ``ge$`` fields (``:1315``, built at ``:1365-1385``). Then ``panel_vitality`` and
+    ``panel_attrs`` are not used.
     """
     fighter = payload.get("fighter")
     if fighter is None:
@@ -276,6 +282,19 @@ def render_fighter_panel(
     weapon_id = fighter.get("weapon", 0)
     weapon_name = weapon_names[weapon_id] if 0 <= weapon_id < len(weapon_names) else str(weapon_id)
     out.write(f"{colors.fg('light_grey')}{name}{RESET_FG}\n")
+    attrs = fighter.get("attrs") or {}
+    if _theme_has(resolver, "panel_stats"):
+        # One theme template for the whole stat block, then the weapon: the order of
+        # the source's gangster block (:1300-1320).
+        stats = {**attrs, "vitality": fighter.get("vitality", 0)}
+        try:
+            out.write(resolver.resolve("combat.panel_stats", stats) + "\n")
+        except KeyError:
+            # A fighter that lacks a stat the template names (a CPU enemy carries no
+            # intelligenz) shows no stat line, as the source's CPU side has no ge$.
+            pass
+        out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
+        return
     out.write(resolver.resolve("combat.panel_weapon", {"weapon": weapon_name}) + "\n")
 
     # The depleting resource is the engine's ``vitality`` slot; the theme labels it in
@@ -283,7 +302,6 @@ def render_fighter_panel(
     if "vitality" in fighter and _theme_has(resolver, "panel_vitality"):
         out.write(resolver.resolve("combat.panel_vitality", {"value": fighter["vitality"]}) + "\n")
 
-    attrs = fighter.get("attrs") or {}
     for key in _panel_attr_keys(resolver):
         if key not in attrs:
             continue

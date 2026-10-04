@@ -19,7 +19,7 @@ locations:
     too_dumb: "zu wenig intelligenz!"     # 13050
     too_weak: "zu wenig kraft!"           # 13055
     not_brutal: "nicht brutal genug!"     # 13060
-    trade_in_offer: "der haendler bietet dir {amount}$ fuer deine alte waffe."  # 13070-13071
+    trade_in_offer: "der haendler bietet dir{amount}$ fuer deine alte waffe."  # 13070-13071
     trade_in_confirm: "ok (j/n)?"         # 1110
     bought: "du hast nun die neue waffe!" # 13080
 
@@ -28,7 +28,7 @@ locations:
     # bucket index (accuracy_bucket = int(ts/2) in 1..3; effect_bucket = int(tg/4)+1 in
     # 1..5) and the theme resolves it to a label from the arrays below. ts$/tg$ DATA
     # from mf-prg.bas:50500-50505, read at :125.
-    spec_sheet: "waffe: {name}  preis: {price}$  treffgenauigkeit: {accuracy_bucket}  wirkung: {effect_bucket}"
+    spec_sheet: "waffe: {name}  preis:{price}$  treffgenauigkeit: {accuracy_bucket:mid$}  wirkung: {effect_bucket:mid$}"
     accuracy_labels:   # ts$(1..3), read at :125 from data at :50500
       1: "mies"
       2: "ganz gut"
@@ -46,9 +46,9 @@ locations:
     venue_prompt: "(s)chiesstand oder (t)rainingscamp ?" # 13105
     venue_range: "(s)chiesstand"
     venue_camp: "(t)rainingscamp"
-    range_cost: "das kostet dich {price}$. "             # 13110
+    range_cost: "das kostet dich{price}$. "             # 13110
     range_enter: "'dein gangster uebt an meinem schiess-stand...'"  # 13120-13121
     confirm: "ok (j/n)?"                                 # 1110
-    camp_cost: "das kostet dich {price}$. "              # 13150
+    camp_cost: "das kostet dich{price}$. "              # 13150
     camp_enter: "{name} ist im trainingscamp..."         # 13165
     camp_done: "...da ist er wieder!"                    # 13175

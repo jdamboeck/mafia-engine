@@ -538,7 +538,8 @@ def _drive_main(argv: list[str], lines: list[str]) -> str:
 
 def _scores(screen: str) -> dict[str, float]:
     """The ``punkte`` column of a standings table: player name -> score."""
-    rows = re.findall(r"^(\S+) +-?\d+\$ +(-?[0-9.e+-]+)$", screen, flags=re.MULTILINE)
+    # :4510 PRINTs the cash and the score with the C64's sign and trailing spaces.
+    rows = re.findall(r"^(\S+) +-?\d+ \$ +(-?[0-9.e+-]+) $", screen, flags=re.MULTILINE)
     return {name: float(score) for name, score in rows}
 
 

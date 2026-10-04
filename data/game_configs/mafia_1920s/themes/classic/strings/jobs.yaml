@@ -15,11 +15,11 @@ job:
   shift_croupier_intro: "'du musst als croupier natuerlich falschspielen. welche tricks willst du anwenden: 1 trickspiegel  2 gezinkte karten  3 bremse am roulette'"
   shift_croupier_pick: "welchen trick (1-3)"
   shift_croupier_caught: "'ein kunde hat deine tricks durchschaut und zieht ein messer!'"
-  shift_croupier_bonus: "'du machst gewinne und erhaeltst einen bonus von {amount}$.'"
+  shift_croupier_bonus: "'du machst gewinne und erhaeltst einen bonus von{amount}$.'"
 
   # --- killer flow (25200-25210) ---
   shift_killer_intro: "'du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse...'"
 
   # --- common outcome resolution (25500-25560) ---
   shift_failed: "'du hast deinen auftrag nicht erledigt!'"
-  shift_completed: "'du hast deinen job erledigt und erhaeltst deinen lohn. es sind {pay}$!'"
+  shift_completed: "'du hast deinen job erledigt und erhaeltst deinen lohn. es sind{pay}$!'"

@@ -4,8 +4,8 @@
 # is the SEQ file src/ban (research-data/pass-2/location-dialogue.yaml, ban), with its
 # 40-column wrap padding; the rest is mf-prg.bas:20003-20142, printed as the listing
 # prints it (the corpus misses :20003 and :20009). A number the source prints between
-# strings takes the space C64 PRINT puts before it, but none before "$", as the other
-# locations' strings do; a string variable (ra$(3)) prints with no space. A screen that
+# strings is a bare placeholder: the c64 number style prints the spaces C64 PRINT puts
+# around it (_format.yaml); a string variable (ra$(3)) prints with no space. A screen that
 # ends in :1100's "taste druecken!" pause gets it from the client. The revisit trap's
 # screen is the shop's (locations.sgl.police_waiting): :20004 jumps into :17008.
 locations:
@@ -25,7 +25,7 @@ locations:
 
     # --- the heist payout (20055-20060), shared with bhf's mail train (:19040);
     # {$a0} is a shifted space, shown blank ---
-    loot: "du hast es geschafft! deine beute\nbetraegt {p}$!"
+    loot: "du hast es geschafft! deine beute\nbetraegt{p}$!"
 
     # --- the night safe-crack (20100-20142) ---
     safe_untrained: "du musst noch trainieren!"                             # 20101
@@ -36,11 +36,11 @@ locations:
     # prompt; the press's sound is the only other feedback: 20130 sysso,8 (a click) or
     # 20125 sysso,7 (a slip or a wrong digit, which sound the same). The sounds have no
     # text in the source; a text client shows them as words.
-    safe_dials: "{d1}  {d2}  {d3}"
+    safe_dials: "{d1:mid$}  {d2:mid$}  {d3:mid$}"
     safe_turn: "f1, f3, f5:"
     safe_f1: "f1"
     safe_f3: "f3"
     safe_f5: "f5"
-    safe_click: "{d1}  {d2}  {d3}   *klick*"
-    safe_slip: "{d1}  {d2}  {d3}"
+    safe_click: "{d1:mid$}  {d2:mid$}  {d3:mid$}   *klick*"
+    safe_slip: "{d1:mid$}  {d2:mid$}  {d3:mid$}"
     safe_failed: "'teufel...! da ist was schiefgegangen!\nes kommt jemand!'"  # 20141-20142

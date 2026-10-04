@@ -115,7 +115,7 @@ def test_show_message_is_rendered_by_the_client_without_prompting():
 def test_show_message_with_params_substitutes():
     inp, out = _client([])
     render_message(_resolver(), ShowMessage("locations.slw.rent_quote", {"price": 500}), out)
-    assert "500$ miete" in out.getvalue()
+    assert "das 500 $ miete" in out.getvalue()  # :10020 "kostet das"p"$": PRINT's spacing
 
 
 # --------------------------------------------------------------------------- #
@@ -880,7 +880,7 @@ class TestClientTextComesFromTheTheme:
     def test_the_status_bar_reads_the_session_resolver(self):
         from clients.terminal.renderers import render_status_bar
 
-        override = _resolver().with_override({"client": {"status_bar": "[{name}/{cash}]"}})
+        override = _resolver().with_override({"client": {"status_bar": "[{name}/{cash:raw}]"}})
         buf = io.StringIO()
         render_status_bar("alcapone", 5400, 181, 19, buf, resolver=override, colors=_COLORS)
         assert "[alcapone/5400]" in buf.getvalue() and "cash" not in buf.getvalue()

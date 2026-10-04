@@ -237,7 +237,7 @@ def test_strings_load_verbatim():
     assert get("locations.slw.menu.pay_rent") == "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
     assert get("locations.slw.menu.leave") == "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
     assert get("locations.slw.no_room") == "'nichts mehr frei!'"
-    assert get("locations.slw.rent_quote") == "'gut. pro monat kostet das {price}$ miete.'"
+    assert get("locations.slw.rent_quote") == "'gut. pro monat kostet das{price}$ miete.'"
     assert "{price}" in get("locations.slw.rent_quote")
     assert get("locations.slw.months_prompt") == "wieviele monate willst du mieten"
     assert get("locations.slw.success") == "'guten tag, der herr!'"

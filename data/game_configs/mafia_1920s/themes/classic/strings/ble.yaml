@@ -3,8 +3,8 @@
 # DATA, not code: the engine emits KEYS and the theme resolves them. Ported from the
 # research (research-data/pass-2/location-dialogue.yaml, ble; mf-prg.bas:22000-22120).
 # The menu keeps the original's 40-column wrap padding. A number the source prints
-# between strings ("fuer"x"paesse") takes the spaces C64 PRINT puts around it, except
-# before "$", as the other locations' strings do.
+# between strings ("fuer"x"paesse") is a bare placeholder ("fuer{count}paesse"): the
+# c64 number style prints the spaces C64 PRINT puts around it.
 locations:
   ble:
     entry_prompt: "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
@@ -15,12 +15,12 @@ locations:
 
     # --- passport (22010-22020) ---
     passport_for_one: "gut, mein sohn. fuer einen pass"        # 22010-22011
-    passport_for_many: "gut, mein sohn. fuer {count} paesse"   # 22010, 22012
-    passport_price: "macht das {price}$."                      # 22013
+    passport_for_many: "gut, mein sohn. fuer{count}paesse"   # 22010, 22012
+    passport_price: "macht das{price}$."                      # 22013
     passport_done: "hier, noch druckfrisch, he, he!"           # 22015
     confirm: "ok (j/n)?"                                       # 1110
 
     # --- counterfeit money (22100-22120) ---
     counterfeit_reluctant: "nng...hoechst ungern! wieviel dollar"   # 22100
     counterfeit_prompt: "willst du anlegen (0-5000)"                # 22105
-    counterfeit_offer: "ich gebe dir {amount}$ blueten dafuer."     # 22110
+    counterfeit_offer: "ich gebe dir{amount}$ blueten dafuer."     # 22110

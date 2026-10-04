@@ -112,6 +112,21 @@ def c64_str(value: int | float) -> str:
     return sign + _exponent_form(digits, exponent)
 
 
+def c64_print(value: int | float) -> str:
+    """Return ``value`` as C64 BASIC V2's ``PRINT`` writes it: ``str$`` then one space.
+
+    ``PRINT`` follows every number with a cursor-right (a space when the output is a
+    file), so ``print"a"p"b"`` with ``p=5`` shows ``a 5 b`` and with ``p=-500`` shows
+    ``a-500 b``. ``c64_print(5)`` is `` 5 ``; ``c64_print(-0.9)`` is ``-.9 ``. The
+    authority is ``tests/fixtures/c64_print/print_cases.bas``, run in VICE 3.10, whose
+    capture ``tests/fixtures/c64_print/vice_capture.txt`` holds each value's ``PRINT``,
+    ``str$`` and ``mid$(str$(..),2)`` forms. On screen the cursor-right moves over
+    whatever is there rather than writing a blank; on the cleared screens the game
+    prints to, the two look the same.
+    """
+    return c64_str(value) + " "
+
+
 def _fixed(digits: str, exponent: int) -> str:
     """Place the point in ``digits`` (first digit worth ``10**exponent``)."""
     if exponent < 0:

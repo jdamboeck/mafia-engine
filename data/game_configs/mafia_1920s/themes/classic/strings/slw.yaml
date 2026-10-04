@@ -13,7 +13,7 @@ locations:
       pay_rent: "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
       leave: "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
     no_room: "'nichts mehr frei!'"
-    rent_quote: "'gut. pro monat kostet das {price}$ miete.'"
+    rent_quote: "'gut. pro monat kostet das{price}$ miete.'"
     months_prompt: "wieviele monate willst du mieten"
     success: "'guten tag, der herr!'"
     not_resident: "du wohnst hier nicht!"

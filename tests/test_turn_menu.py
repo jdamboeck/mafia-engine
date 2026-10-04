@@ -308,9 +308,9 @@ def test_the_overview_shows_the_players_state_and_both_marks(monkeypatch, tmp_pa
     assert "kapital: 6543" in menu and "jahr:1925-4" in menu
     # :1200-1225
     assert "uebersicht fuer alcapone:" in summary
-    assert "punkte: 12.5" in summary
+    assert "punkte:  12.5 " in summary  # :1209 "punkte: "gf(sp): its space and PRINT's
     assert "rang: schlaeger" in summary
-    assert "transportmittel: fuesse 17 s" in summary
+    assert "transportmittel: fuesse  17 s" in summary  # :1215 " "ms"s"
     assert "alkohol: 3 faesser" in summary
     assert "gegenstaende: papiere,falschgeld" in summary  # :1221-1222, ag$ at :50600
     assert "schmiergelder: 2 mon." in summary

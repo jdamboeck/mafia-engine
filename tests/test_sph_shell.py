@@ -77,5 +77,5 @@ def test_sph_strings_verbatim():
     assert _get(data, "locations.sph.blackjack") == "2 - black jack"
     assert _get(data, "locations.sph.roulette") == "3 - roulette"
     assert _get(data, "locations.sph.at_the_table") == "du begibst dich an den spieltisch..."
-    assert _get(data, "locations.sph.won") == "du hast {amount}$ gewonnen!"
+    assert _get(data, "locations.sph.won") == "du hast{amount}$ gewonnen!"
     assert _get(data, "locations.sph.lost") == "leider verloren!"
