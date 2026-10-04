@@ -309,6 +309,56 @@ def test_shape_drift_discards_snapshots_rebuilds_and_matches_every_state(
 
 
 # --------------------------------------------------------------------------- #
+# KTD-14: a fighter's owner — absent from a recording made before owners        #
+# --------------------------------------------------------------------------- #
+def _drop_owner(value):
+    """``value`` with every fighter's ``owner`` key removed, as an older file stores it."""
+    if isinstance(value, dict):
+        return {k: _drop_owner(v) for k, v in value.items() if k != "owner"}
+    if isinstance(value, list):
+        return [_drop_owner(v) for v in value]
+    return value
+
+
+def test_a_recording_without_owners_still_replays_unchanged(ambush_recording, tmp_path):
+    """Every existing recording is the active player against NPCs and stores no
+    ``owner``: it loads with every fighter unowned, replays without diverging, and its
+    snapshots compare equal to the ones the live fight makes now."""
+    _, recording = ambush_recording
+    path = tmp_path / "before_owners.json"
+    save(recording, path)
+    raw = _drop_owner(json.loads(path.read_text(encoding="utf-8")))
+    assert "owner" not in json.dumps(raw)
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load(path, rules=build_rules({}))
+
+    assert loaded.scenario is not None and loaded.scenario.sides is not None
+    assert [f.owner for side in loaded.scenario.sides for f in side] == [None, None]
+    assert [e.snapshot for e in loaded.events] == [e.snapshot for e in recording.events]
+    assert replay(loaded) == ReplayReport(diverged=False)
+
+
+def test_a_fighters_owner_round_trips_through_a_recording(tmp_path):
+    """A recorded fight with a player-owned side stores each fighter's ``owner``."""
+    scenario = _kdh_ambush_scenario()
+    assert scenario.sides is not None
+    hero, ambusher = scenario.sides[0][0], scenario.sides[1][0]
+    owned = replace(
+        scenario,
+        sides=((replace(hero, owner=0),), (replace(ambusher, roster_id=2, owner=1),)),
+    )
+    _, recording = record_fight(owned, {1: AiDriver(), 2: AiDriver()})
+    path = tmp_path / "owned.json"
+    save(recording, path)
+
+    loaded = load(path, rules=build_rules({}))
+    assert loaded.scenario is not None and loaded.scenario.sides is not None
+    assert [f.owner for side in loaded.scenario.sides for f in side] == [0, 1]
+    assert replay(loaded).diverged is False
+
+
+# --------------------------------------------------------------------------- #
 # A recording round-trips through serialization unchanged                       #
 # --------------------------------------------------------------------------- #
 def test_a_recording_round_trips_through_serialization_unchanged(ambush_recording, tmp_path):

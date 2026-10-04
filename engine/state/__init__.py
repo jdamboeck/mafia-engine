@@ -316,6 +316,13 @@ class Fighter:
     #: POSITION, which is only correct while side 1's order happens to equal roster
     #: order — an assumption nothing enforces and a scenario can break outright.
     roster_id: int | None = None
+    #: Which player's roster this fighter came from, as that player's index; ``None``
+    #: for an NPC. With ``roster_id`` it names the gangster a fight's outcome is written
+    #: back to, so a fight between two players' rosters writes each side's damage to
+    #: its own owner. Fight setup sets it; the engine carries it through and never
+    #: interprets it. A side-1 roster fighter with no owner (a fight built by hand)
+    #: writes back to the active player, as every fight did before owners existed.
+    owner: int | None = None
 
     def __post_init__(self):
         _coerce_readonly(self, "attrs", "equipment")

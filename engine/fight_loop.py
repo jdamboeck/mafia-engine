@@ -34,8 +34,9 @@ __all__ = [
     "ReplayDriver",
     # Headless fight entry
     "simulate",
-    # Side 1's closing vitality (CombatResult.roster_vitality)
+    # Closing vitality (CombatResult.roster_vitality / owner_vitality)
     "roster_vitality",
+    "owner_vitality",
 ]
 
 
@@ -145,6 +146,34 @@ def roster_vitality(fight: Any) -> tuple[tuple[int, int], ...]:
     return tuple((f.roster_id, f.vitality) for f in fight.sides[0] if f.roster_id is not None)
 
 
+def owner_vitality(fight: Any) -> tuple[tuple[int, tuple[tuple[int, int], ...]], ...]:
+    """Each owner's closing ``vitality`` per roster slot, for :class:`~engine.combat.CombatResult`.
+
+    ``(owner, ((roster_id, vitality), ...))`` per player who owns a fighter, in the order
+    the owners first appear (side 1 first); fighters with no owner or no roster slot are
+    left out.
+    """
+    by_owner: dict[int, list[tuple[int, int]]] = {}
+    for side in fight.sides:
+        for f in side:
+            if f.owner is not None and f.roster_id is not None:
+                by_owner.setdefault(f.owner, []).append((f.roster_id, f.vitality))
+    return tuple((owner, tuple(pairs)) for owner, pairs in by_owner.items())
+
+
+def _written_back(side_index: int, fighter: Any) -> bool:
+    """Whether a fight writes ``fighter``'s energy back to a roster (KTD-14).
+
+    A fighter with no roster slot is NPC working state and never is. On side 1 every
+    roster fighter is, to its ``owner`` or, with none, to the active player (every fight
+    before owners existed). On any other side only an OWNED roster fighter is: an
+    unowned side there is an NPC party, whatever its fighters carry.
+    """
+    if fighter.roster_id is None:
+        return False
+    return side_index == 0 or fighter.owner is not None
+
+
 def _run_combat(
     start: "StartCombat",
     ctx: "Ctx",
@@ -177,19 +206,21 @@ def _run_combat(
     etc.) — that is still on the caller. But the fight's OWN persistent side-effect on
     the roster — energy spent, fighters knocked down — is NOT entry-point-specific, it
     is true of every fight regardless of who triggered it, so this function buffers it
-    directly: before returning, it diffs side 1's (the acting player's roster,
-    ``mf-prg.bas:5010``'s ``ks(1)=sp`` — SpawnFighter's docstring pins this convention)
-    per-fighter energy against its pre-fight snapshot and buffers one
-    :class:`~engine.effects.EnergyChange` per fighter whose energy changed, in roster
-    order (1:1 with ``start.sides[0]``, since :func:`engine.combat_setup.build_player_side`
-    never reorders the roster). ``cap`` is set to the fighter's OWN pre/post energy
+    directly: before returning, it diffs every roster fighter's energy against its
+    pre-fight snapshot and buffers one :class:`~engine.effects.EnergyChange` per fighter
+    whose energy changed, side by side in fighter order, addressed to the fighter's own
+    gangster (``roster_id``) of the player who owns it (``owner``, KTD-14) — so a fight
+    between two players' rosters writes each side's damage to its owner. A side-1
+    roster fighter with no owner writes to the active player (``player=None``), as every
+    fight did before owners existed. ``cap`` is set to the fighter's OWN pre/post energy
     ceiling (never a fresh regen-cap computation) so the clamp in
     ``engine.effects.EnergyChange.apply`` is a structural no-op here —
     combat only ever LOWERS energy (no mid-fight healing exists), so the
     post-fight value is by construction the correct final value, not merely a floor.
-    Side 2 (the enemy party) is NPC working state, never a roster, so it is not
-    persisted here. A no-op fight (no side-1 fighter's energy moved, e.g. a
-    zero-activation surrender before anyone was struck) buffers nothing.
+    An unowned side other than side 1 is an NPC party, working state, never a roster,
+    so it is not persisted (:func:`_written_back`). A no-op fight (no roster fighter's
+    energy moved, e.g. a zero-activation surrender before anyone was struck) buffers
+    nothing.
     """
     # Lazy imports keep this module's top-level import graph free of engine.state /
     # engine.combat, mirroring the commit() import in engine.interactions.run().
@@ -202,38 +233,37 @@ def _run_combat(
     # driver reads it directly and never spells this game's word for it. Every Fighter
     # carries the slot, so there is nothing to guard: a bundle-less fight (surrendered
     # without a shot) simply sees an unchanged ``vitality`` and buffers no delta.
-    pre_vitality = [f.vitality for f in fight.sides[0]]
+    pre_vitality = [[f.vitality for f in side] for side in fight.sides]
 
     # The activation loop is the SHARED one (:func:`_fight_steps`) so `_run_combat` and
     # `simulate` cannot drift — the same loop, whether a client is in it or not.
     winner = yield from _fight_steps(fight, drivers, observe_ai=observe_ai)
 
-    # Buffer the roster's persistent energy/down consequence BEFORE handing
+    # Buffer the rosters' persistent energy/down consequence BEFORE handing
     # the winner back, so it commits atomically with the invoking handler's own
     # entry-point effects (one shared ctx, one atomic buffer).
-    for i, f in enumerate(fight.sides[0]):
-        now = f.vitality
-        if now == pre_vitality[i]:
-            continue
-        # Address the gangster this fighter IS, not the slot it happens to sit in
-        # These coincide today because build_player_side maps roster
-        # order onto placement order 1:1 — but a fighter without a roster entry must
-        # not write to gangster 0 just because it is first.
-        if f.roster_id is None:
-            continue
-        ctx.apply(
-            EnergyChange(
-                amount=now - pre_vitality[i],
-                cap=max(pre_vitality[i], now),
-                gangster=f.roster_id,
+    for side_index, side in enumerate(fight.sides):
+        for i, f in enumerate(side):
+            before, now = pre_vitality[side_index][i], f.vitality
+            # Address the gangster this fighter IS (``roster_id``) of the player who
+            # owns it (``owner``), not the slot it sits in or the player to move.
+            if now == before or not _written_back(side_index, f):
+                continue
+            ctx.apply(
+                EnergyChange(
+                    amount=now - before,
+                    cap=max(before, now),
+                    gangster=f.roster_id,
+                    player=f.owner,
+                )
             )
-        )
     # Hand back the winner AND the real per-side death tallies (v(1)/v(2)).
     return CombatResult(
         winner=winner,
         losses=fight.losses,
         last_shooter=fight.last_shooter,
         roster_vitality=roster_vitality(fight),
+        owner_vitality=owner_vitality(fight),
     )
 
 
@@ -562,6 +592,7 @@ def simulate(
         losses=fight.losses,
         last_shooter=fight.last_shooter,
         roster_vitality=roster_vitality(fight),
+        owner_vitality=owner_vitality(fight),
     )
 
 

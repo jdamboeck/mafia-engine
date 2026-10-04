@@ -197,14 +197,25 @@ class CombatResult:
         fight's player side from these values instead. Empty when nothing reported it
         (a result built by hand).
 
+    ``owner_vitality``
+        The same closing values for every fighter a player owns (KTD-14), on either
+        side, as ``(owner, ((roster_id, vitality), ...))`` per owner;
+        :meth:`vitality_of` reads one owner's pairs. A fight between two players'
+        rosters reports both gangs here. Empty when no fighter has an owner.
+
     Deliberately carries **no** ``state``/``sides``: the contract is winner + losses +
-    the last shooter + side 1's closing vitality; the post-fight board is not part of it.
+    the last shooter + the closing vitalities; the post-fight board is not part of it.
     """
 
     winner: int
     losses: tuple[int, int]
     last_shooter: Fighter | None = None
     roster_vitality: tuple[tuple[int, int], ...] = ()
+    owner_vitality: tuple[tuple[int, tuple[tuple[int, int], ...]], ...] = ()
+
+    def vitality_of(self, owner: int) -> tuple[tuple[int, int], ...]:
+        """``owner``'s closing ``(roster_id, vitality)`` pairs; empty if it owns no fighter."""
+        return dict(self.owner_vitality).get(owner, ())
 
 
 # --------------------------------------------------------------------------- #

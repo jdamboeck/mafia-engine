@@ -456,6 +456,8 @@ def run_encounter(
             _CONFIG_DIR / "content" / "combat" / f"{grid or encounter.grid}.yaml"
         ),
         equip=equipper(weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")),
+        # Side 1 is the active player's gang: its energy is written back to them.
+        owner=ctx.state.clock.active_player,
     )
     result = yield StartCombat(scenario=scenario)
     # The outcome screen is the caller's to show (_run_combat yields no final screen);

@@ -16,6 +16,7 @@ Covers:
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -764,3 +765,162 @@ def test_a_source_that_does_not_opt_in_never_receives_an_observation_frame():
     )
     assert calls, "no CPU activation ran, so there was nothing to (not) observe"
     assert result.winner == 2
+
+
+# --------------------------------------------------------------------------- #
+# KTD-14 — a fight writes energy back to each fighter's owner                  #
+# --------------------------------------------------------------------------- #
+def _two_player_game(*, active: int):
+    """A two-player game: player 0's gang (5, 9) and player 1's (8, 7), ``active`` to move."""
+    from clients.terminal import CONFIG_DIR
+    from data.game_configs.mafia_1920s.gangster import Gangster
+    from engine.config_loader import load_game_config
+
+    config = load_game_config(CONFIG_DIR)
+    state = config.new_game(
+        seed=42, end_year=1930, score_weight=1.0, players=[("al", "a"), ("bugs", "b")]
+    )
+    assert state is not None
+    gangs = (
+        (Gangster(name="al", energie=5), Gangster(name="a2", energie=9)),
+        (Gangster(name="bugs", energie=8), Gangster(name="b2", energie=7)),
+    )
+    players = tuple(replace(p, roster=gang) for p, gang in zip(state.players, gangs))
+    clock = replace(state.clock, active_player=active)
+    return config, replace(state, players=players, clock=clock)
+
+
+def _owned(state, player: int, slot: int, position: int, **changes):
+    """``player``'s gangster ``slot`` as an owned fighter that hits for 1 (bt 0)."""
+    g = state.players[player].roster[slot]
+    fields = dict(
+        name=g.name,
+        energie=g.vitality,
+        brutalitaet=0,
+        position=position,
+        roster_id=slot,
+        owner=player,
+    )
+    fields.update(changes)
+    return _f(**fields)
+
+
+def _shootout(state, sides):
+    """Side 1 shoots right, side 2 shoots left, every shot hits for 1, until one drops.
+
+    Returns the fight's result, the run's result and the ``EnergyChange`` effects the
+    fight buffered."""
+    from engine.effects import EnergyChange
+    from engine.fight_loop import HumanDriver
+
+    fought: list = []
+
+    def handler(ctx):
+        fought.append(
+            (
+                yield StartCombat(
+                    sides=sides,
+                    rules=build_rules({}),
+                    drivers={1: HumanDriver(), 2: HumanDriver()},
+                )
+            )
+        )
+        return []
+
+    def src(interaction):
+        assert isinstance(interaction, CombatScreen)
+        return ("shoot", +1 if interaction.active_side == 1 else -1)
+
+    result = run(handler, src, state=state, rng=_StubRng(*(1, 10, 0) * 20))
+    assert result.status == "completed"
+    (fight,) = fought
+    return fight, result, [e for e in result.effects if isinstance(e, EnergyChange)]
+
+
+def test_a_fight_between_two_players_rosters_writes_each_sides_damage_to_its_owner():
+    """Player 0's boss (5) against player 1's second gangster (7), player 1 to move:
+    the boss drops after five hits, having landed five. Each side's loss goes to the
+    player who owns it, by roster slot, not to the active player."""
+    _, state = _two_player_game(active=1)
+    sides = ((_owned(state, 0, 0, 100),), (_owned(state, 1, 1, 101),))
+    fight, result, energy = _shootout(state, sides)
+
+    assert fight.winner == 2
+    assert [(e.player, e.gangster, e.amount) for e in energy] == [(0, 0, -5), (1, 1, -5)]
+    p0, p1 = result.state.players
+    assert [g.vitality for g in p0.roster] == [0, 9]
+    assert [g.vitality for g in p1.roster] == [8, 2]
+    # Each owner's closing energies, for a handler that fights again in the same action.
+    assert fight.vitality_of(0) == ((0, 0),)
+    assert fight.vitality_of(1) == ((1, 2),)
+
+
+def test_an_npc_side_writes_nothing_back():
+    """Side 2 with no owner is NPC working state: even a fighter that carries a roster
+    slot writes nothing, so the active player's gangster in that slot is untouched."""
+    _, state = _two_player_game(active=0)
+    npc = _owned(state, 1, 1, 101, owner=None)
+    _, result, energy = _shootout(state, ((_owned(state, 0, 0, 100),), (npc,)))
+
+    assert [(e.player, e.gangster) for e in energy] == [(0, 0)]
+    assert [g.vitality for g in result.state.players[0].roster] == [0, 9]
+    assert result.state.players[1].roster == state.players[1].roster
+
+
+def test_an_unowned_side_one_still_writes_to_the_active_player():
+    """A side-1 roster fighter built without an owner (every fight before owners) keeps
+    writing to the active player."""
+    _, state = _two_player_game(active=1)
+    hero = _owned(state, 1, 0, 100, owner=None)
+    enemy = _f(name="thug", energie=7, brutalitaet=0, position=101)
+    _, result, energy = _shootout(state, ((hero,), (enemy,)))
+
+    assert [(e.player, e.gangster, e.amount) for e in energy] == [(None, 0, -6)]
+    assert [g.vitality for g in result.state.players[1].roster] == [2, 7]
+    assert result.state.players[0].roster == state.players[0].roster
+
+
+def test_the_config_fight_helper_writes_to_the_active_player():
+    """The game's fight helper owns side 1 by the active player: a fight player 1 runs
+    writes player 1's gang, and player 0's stays as it was."""
+    from clients.terminal import CONFIG_DIR
+    from data.game_configs.mafia_1920s.setup import load_encounter, run_encounter
+    from engine.effects import EnergyChange
+    from tests.helpers import scripted
+
+    _, state = _two_player_game(active=1)
+    guards = load_encounter(CONFIG_DIR / "content" / "encounters" / "win_mayor_1.yaml")
+
+    fought: list = []
+
+    def handler(ctx):
+        fought.append((yield from run_encounter(ctx, guards)))
+        return []
+
+    keys = [("pass", None)] * 40 + [("surrender", None)]
+    result = run(handler, scripted(*keys, *[None] * 5), state=state, rng=Rng(0))
+
+    energy = [e for e in result.effects if isinstance(e, EnergyChange)]
+    assert energy, "the fight did no damage: the seed no longer lands a hit"
+    assert {e.player for e in energy} == {1}
+    assert result.state.players[0].roster == state.players[0].roster
+    assert result.state.players[1].roster != state.players[1].roster
+    (fight,) = fought
+    assert [v for _, v in fight.vitality_of(1)] == [
+        g.vitality for g in result.state.players[1].roster
+    ]
+
+
+def test_energy_survives_a_save_and_load_after_a_two_owner_fight(tmp_path):
+    """The two owners' closing energies commit and round-trip through a save."""
+    from engine.persistence import load_game, save_game
+
+    config, state = _two_player_game(active=1)
+    sides = ((_owned(state, 0, 0, 100),), (_owned(state, 1, 1, 101),))
+    _, result, _ = _shootout(state, sides)
+
+    path = tmp_path / "save.jsonl"
+    save_game(path, result.state, registries=config.registries, effect_log=[], rng_log=[], seed=42)
+    loaded = load_game(path, config.registries).state
+    assert [g.vitality for g in loaded.players[0].roster] == [0, 9]
+    assert [g.vitality for g in loaded.players[1].roster] == [8, 2]

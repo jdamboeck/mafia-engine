@@ -194,6 +194,36 @@ def test_grace_zero_starts_the_collectors_fight():
     assert game.debt(result.state.players[0]) == Debt(amount=0, months=0)
 
 
+@pytest.mark.parametrize(("energie", "regenerated"), [(10, 14), (40, 16)])
+def test_the_collectors_meet_the_gang_after_this_turns_regen(energie, regenerated):
+    """The regen is written into the gang's stats before the collectors fight
+    (``:4355``), so they meet the regenerated gang: :4015 ``en=en+int(kr/10)+1``, cut
+    by :4020 ``x=2+int(kr/4)+int(bt/4)`` (kraft 30, brutalitaet 30: +4, at most 16),
+    stored by :4025 ``gosub1365``. The regen is buffered, so the fight is built from
+    it rather than from ``ctx.state``."""
+    from engine.interactions import StartCombat
+    from engine.locations import HANDLERS
+    from engine.upkeep import UPKEEP_HANDLER_KEY
+
+    gang = (Gangster(name="alcapone", energie=energie, kraft=30, brutalitaet=30),)
+    st = _state(debt=Debt(amount=3000, months=1), roster=gang)
+
+    class _Ctx:
+        state = st
+        rng = StubRng()
+
+        def apply(self, effect):
+            pass
+
+    gen = HANDLERS[UPKEEP_HANDLER_KEY](_Ctx())
+    interaction = next(gen)
+    while not isinstance(interaction, StartCombat):
+        interaction = gen.send(None)
+    gen.close()
+    assert interaction.scenario is not None and interaction.scenario.sides is not None
+    assert [f.vitality for f in interaction.scenario.sides[0]] == [regenerated]
+
+
 def test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender():
     """#49 guard — the collectors narration must carry REAL per-side tallies (U3).
 

@@ -155,7 +155,25 @@ def _event_from_dict(raw: dict) -> Event:
     cls = _EVENT_KINDS.get(kind) if isinstance(kind, str) else None
     if cls is None:
         raise ValueError(f"unknown recording event kind {kind!r}")
+    snapshot = raw.get("snapshot")
+    if isinstance(snapshot, dict) and isinstance(snapshot.get("sides"), list):
+        raw = {**raw, "snapshot": {**snapshot, "sides": _owned_sides(snapshot["sides"])}}
     return cls(**raw)
+
+
+def _owned_sides(sides: list) -> list:
+    """Snapshot ``sides`` with every fighter's ``owner`` filled in (KTD-14).
+
+    A recording made before fighters had owners stores none; such a fighter is
+    unowned, so it reads as ``None``, the shape the live board snapshots today. The
+    scenario's fighters get the same default from :class:`~engine.state.Fighter`.
+    """
+    return [
+        [{**f, "owner": f.get("owner")} if isinstance(f, dict) else f for f in side]
+        if isinstance(side, list)
+        else side
+        for side in sides
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -398,7 +416,13 @@ def record_fight(
     same-fight/same-seed equality test).
     """
     from engine.combat import CombatResult
-    from engine.fight_loop import _build_fight, _drive_fight, _no_input_source, roster_vitality
+    from engine.fight_loop import (
+        _build_fight,
+        _drive_fight,
+        _no_input_source,
+        owner_vitality,
+        roster_vitality,
+    )
     from engine.interactions import StartCombat
     from engine.rng import Rng
 
@@ -434,6 +458,7 @@ def record_fight(
         losses=fight.losses,
         last_shooter=fight.last_shooter,
         roster_vitality=roster_vitality(fight),
+        owner_vitality=owner_vitality(fight),
     ), recording
 
 

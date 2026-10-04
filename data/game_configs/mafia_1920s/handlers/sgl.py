@@ -33,7 +33,8 @@ is credited at once (``:17550``), before the player picks what next: take it, wr
 the shop (the thugs fight on tiles 2, 6, 7 and 8; won or on another tile, the till's
 300..399, ``:17575``) or finish the owner (he fights on tiles 1 and 4; won or on another
 tile, his 200..299, ``:17590``). A lost thug or owner fight returns with the payment
-kept (``:17573``, ``:17588``).
+kept (``:17573``, ``:17588``). After Jack's fight, the thugs or the owner meet the gang
+as that fight left it: every hit is stored at once (``:30265`` ``gosub1365``).
 
 ``w`` after Jack's fight
 ------------------------
@@ -62,7 +63,7 @@ from engine.effects import MoneyChange
 from engine.interactions import PromptChoice, ShowMessage
 from engine.locations import register
 
-from ..setup import load_encounter, load_weapons, run_encounter, score_and_rank
+from ..setup import load_encounter, load_weapons, roster_after, run_encounter, score_and_rank
 from .police import Arrest, police_fight
 
 __all__ = [
@@ -185,7 +186,11 @@ def sgl_protection(ctx):
     # :17225 ``goto17500`` with ``w`` as the fight left it (:30215): the last shooter's
     # weapon; :17210's ``w=7`` if nobody fired.
     shooter = result.last_shooter
-    yield from _extort(ctx, _JACK.variants[0].weapon if shooter is None else shooter.weapon)
+    w = _JACK.variants[0].weapon if shooter is None else shooter.weapon
+    # The thugs or the owner after the payment meet the gang as Jack's fight left it:
+    # every hit is stored at once (:30260 ``gosub1350:en=en-y``, :30265 ``gosub1365``),
+    # while this fight's write-back is still buffered.
+    yield from _extort(ctx, w, roster=roster_after(active.roster, result))
     return []
 
 
@@ -208,8 +213,13 @@ def sgl_fake_police(ctx):
     return []
 
 
-def _extort(ctx, w: int):
-    """The payout and what follows — ``:17500-17592``; ``w`` as :17505 reads it."""
+def _extort(ctx, w: int, *, roster=None):
+    """The payout and what follows — ``:17500-17592``; ``w`` as :17505 reads it.
+
+    ``roster`` is the gang a fight after the payment starts from: the one an earlier
+    fight in this action left (:func:`~..setup.roster_after`), or ``None`` for the
+    gang as ``ctx.state`` holds it.
+    """
     active = ctx.state.players[ctx.state.clock.active_player]
     params = ctx.state.config.formula_params
     ln = active.last_location
@@ -238,20 +248,20 @@ def _extort(ctx, w: int):
     # :17550-17560 ``getx$:ifx$<"1"orx$>"3"goto17555``: only 1..3 is read.
     choice = yield PromptChoice("locations.sgl.after_menu", options=list(_AFTER))
     if choice == _DEMOLISH:
-        yield from _demolish(ctx, ln)
+        yield from _demolish(ctx, ln, roster)
     elif choice == _KILL:
-        yield from _kill_owner(ctx, ln)
+        yield from _kill_owner(ctx, ln, roster)
     # :17565 ``return`` — the money taken.
 
 
-def _demolish(ctx, ln: int):
+def _demolish(ctx, ln: int, roster):
     """Wreck the shop — ``:17570-17578``."""
     params = ctx.state.config.formula_params
     # :17570 ``ifln<>2andln<>6andln<>7andln<>8goto17575``
     if ln in params["sgl_demolish_tiles"]:
         yield ShowMessage("locations.sgl.thugs_called")  # :17571-17572
         # :17573 ``bn$(0)="schlaeger":gz(0)=5:w=3:e=20:kf$="ksgl":gosub5000:ifs=2thenreturn``
-        result = yield from run_encounter(ctx, _THUGS)
+        result = yield from run_encounter(ctx, _THUGS, roster=roster)
         if result.winner == 2:
             return
     # :17575 ``p=int(rnd(1)*100)+300``
@@ -260,7 +270,7 @@ def _demolish(ctx, ln: int):
     _settle(ctx, p)
 
 
-def _kill_owner(ctx, ln: int):
+def _kill_owner(ctx, ln: int, roster):
     """Finish the shopkeeper — ``:17580-17592``."""
     params = ctx.state.config.formula_params
     # :17580 ``ifln<>1andln<>4goto17590``
@@ -268,7 +278,7 @@ def _kill_owner(ctx, ln: int):
         # :17585-17586 ``...und laedt seine "wa$(7)"!"``
         weapon = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")[_OWNER.variants[0].weapon]
         yield ShowMessage("locations.sgl.owner_arms", {"weapon": weapon["name"]})
-        result = yield from run_encounter(ctx, _OWNER)  # :17587
+        result = yield from run_encounter(ctx, _OWNER, roster=roster)  # :17587
         if result.winner == 2:  # :17588 ``ifs=2thenreturn``
             return
     # :17590 ``p=int(rnd(1)*100)+200``

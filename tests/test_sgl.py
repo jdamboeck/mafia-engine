@@ -480,6 +480,36 @@ def test_a_won_jack_fight_with_no_shot_keeps_w_7(monkeypatch):
     assert "locations.sgl.reply_pays" in source.message_keys()
 
 
+@pytest.mark.parametrize(
+    ("ln", "after", "second"), [(7, _DEMOLISH, "sgl_thugs"), (1, _KILL, "sgl_owner")]
+)
+def test_the_fight_after_jacks_starts_from_the_energy_jacks_fight_left(
+    monkeypatch, ln, after, second
+):
+    """Each hit is stored in the gang's stats at once (:30260 ``gosub1350:en=en-y``,
+    :30265 ``gosub1365``), so the thugs (:17573) or the owner (:17587) meet the gang as
+    Jack's fight (:17210) left it. The first fight's write-back is buffered, so the
+    second is built from its closing energies."""
+    fought: list = []
+    closing = [((0, 12), (1, 3)), ()]
+    gang = (_BOSS, replace(_BOSS, name="g2", energie=20))
+
+    def fight(ctx, encounter, **kwargs):
+        fought.append((encounter.key, kwargs))
+        return CombatResult(winner=1, losses=(0, 1), roster_vitality=closing.pop(0))
+        yield  # a generator, as run_encounter is
+
+    module = sys.modules[HANDLERS["sgl.protection"].__module__]
+    monkeypatch.setattr(module, "run_encounter", fight)
+    _run("protection", _state(ln=ln, roster=gang), answers=(after,), draws=(1, 0, 0))
+
+    (jack, first), (key, then) = fought
+    assert (jack, key) == ("sgl_jack", second)
+    assert first.get("roster") is None
+    assert [g.vitality for g in then["roster"]] == [12, 3]
+    assert [g.name for g in then["roster"]] == ["alcapone", "g2"]
+
+
 # --------------------------------------------------------------------------- #
 # Through the turn runner: ll(sp) — :1012, :2055                               #
 # --------------------------------------------------------------------------- #

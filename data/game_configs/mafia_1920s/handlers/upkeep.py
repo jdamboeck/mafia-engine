@@ -119,6 +119,7 @@ Handler-API conformance: touches only ``ctx.state`` (read-only), ``yield <Intera
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from engine.effects import EnergyChange, MoneyChange, RosterTruncate
@@ -197,11 +198,17 @@ def upkeep_turn_start(ctx):
     yield ShowMessage("upkeep.turn_banner", {"name": active.name})
 
     # --- 4010-4025: per-gangster energy regen (boss included, gz(sp) order) -
+    # :4025 `gosub1365` stores the regen at once, so the collectors fight
+    # below (:4355) meets the regenerated gang. ctx.apply only BUFFERS, so the gang
+    # as the regen leaves it is tracked locally for that fight.
+    gang = []
     for g_idx, gangster in enumerate(active.roster):
         # :4020 `x=2+int(kr/4)+int(bt/4)`
         cap = 2 + gangster.attrs["kraft"] // 4 + gangster.attrs["brutalitaet"] // 4
         gain = gangster.attrs["kraft"] // 10 + 1  # :4015 `en=en+int(kr/10)+1`
         ctx.apply(EnergyChange(amount=gain, cap=cap, gangster=g_idx))
+        # EnergyChange's own clamp, [0, cap] (:4020 `ifen>xthenen=x`).
+        gang.append(replace(gangster, vitality=max(0, min(gangster.vitality + gain, cap))))
 
     # --- 4030: rank promotion commit + wanted-poster screen (4200-4220) ----
     # nr is the PENDING rank ScoreAndRank already recomputes from gf on every score
@@ -263,7 +270,7 @@ def upkeep_turn_start(ctx):
             # is the one fight with 5 enemies, so a 1v1 count would be wrong). The
             # SEIZURE below is NOT declarable (it reads live `active.ka`), so the
             # encounter carries no on_win/on_loss and stays in Python.
-            result = yield from run_encounter(ctx, _COLLECTORS_ENCOUNTER)
+            result = yield from run_encounter(ctx, _COLLECTORS_ENCOUNTER, roster=tuple(gang))
 
             if result.winner == 2:
                 # :4365-4370 — lost: `ka(sp)=0:kr(sp)=0:kz(sp)=0`. The seizure takes

@@ -69,7 +69,7 @@ def placement_positions(anchor: int, count: int) -> tuple[int, ...]:
 # --------------------------------------------------------------------------- #
 # Fighter-side construction                                                   #
 # --------------------------------------------------------------------------- #
-def build_player_side(roster: Any) -> tuple[Fighter, ...]:
+def build_player_side(roster: Any, *, owner: int | None = None) -> tuple[Fighter, ...]:
     """Build side 1 from the active player's roster (boss first).
 
     Each roster :class:`~engine.state.Combatant` becomes one
@@ -79,6 +79,11 @@ def build_player_side(roster: Any) -> tuple[Fighter, ...]:
     (``Player`` docstring, ``mf-prg.bas:300``) — this function does not reorder it, it
     only maps roster order onto placement-slot order 1:1 (``mf-prg.bas:30000``'s
     ``forj=1togz(ks(i))`` walks the roster in its stored order).
+
+    ``owner`` is the index of the player whose roster this is; every fighter carries it
+    so the fight writes its energy back to that player
+    (:func:`engine.fight_loop._run_combat`). ``None`` leaves the write-back on the
+    active player.
     """
     positions = placement_positions(SIDE1_ANCHOR, len(roster))
     return tuple(
@@ -93,6 +98,7 @@ def build_player_side(roster: Any) -> tuple[Fighter, ...]:
             # The roster slot this fighter came from, so the outcome maps back to the
             # right gangster by identity rather than by position.
             roster_id=slot,
+            owner=owner,
         )
         for slot, (g, pos) in enumerate(zip(roster, positions))
     )
@@ -144,6 +150,7 @@ def setup_combat(
     enemy_name: str = "",
     grid: tuple[int, ...] = (),
     equip: Any = None,
+    owner: int | None = None,
 ) -> CombatState:
     """Build the initial :class:`~engine.state.CombatState` for a new fight.
 
@@ -170,8 +177,10 @@ def setup_combat(
     It is a parameter rather than an engine table because resolving a
     weapon id is entity knowledge the engine does not have — and because building the
     equipment HERE, once, is what stops a second copy existing to disagree later.
+
+    ``owner`` is the player whose roster side 1 is (:func:`build_player_side`).
     """
-    side1 = build_player_side(roster)
+    side1 = build_player_side(roster, owner=owner)
     side2 = build_enemy_side(
         enemy_count, enemy_weapon, enemy_vitality, attrs=enemy_attrs, name=enemy_name
     )
