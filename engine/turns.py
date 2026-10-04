@@ -55,9 +55,10 @@ the turn ends otherwise (``:1050``). The map's exit command
 ``2000``'s ``gosub`` is the menu's walk option, and ``:2065 return`` goes back to the
 menu's ``:1045``. The runner asks for each step with :class:`~engine.interactions.MapMove` and moves
 with :func:`engine.movement.try_move`. A move onto an event cell first asks the
-config's special-cell hook (:data:`SPECIAL_CELL_HOOK_KEY`) whether the cell is armed;
+config's special-cell hook (:data:`SPECIAL_CELL_HOOK_KEY`) whether the cell is armed,
+and an armed cell's flow costs the door's 5 points (``:2045 gosub23000:goto2060``);
 a street step asks its roadblock hook (:data:`ROADBLOCK_HOOK_KEY`), and a stop it
-reports costs the door's 5 points (``:2041 gosub6000:goto2060``); a door runs the
+reports costs the same 5 points (``:2041 gosub6000:goto2060``); a door runs the
 location visit: the shell's
 :class:`~engine.interactions.LocationMenu`, the chosen option
 (:func:`engine.actions.step_option`) and its :class:`~engine.interactions.OptionDone`,
@@ -261,8 +262,10 @@ ROADBLOCK_HOOK_KEY = "turn.roadblock"
 #: ``:2045``/``:2046`` an event cell (``la`` 13/14): asked before every move onto one,
 #: with the keyword arguments ``cell`` and ``la``. It returns truthy when the cell is
 #: armed for the active player and it ran the cell's flow (the player does not step);
-#: falsy, and the move goes on as usual (an unarmed cell is a plain street). The
-#: runner re-reads movement points after an armed cell.
+#: falsy, and the move goes on as usual (an unarmed cell is a plain street). An armed
+#: cell ends with the door's charge (``:2060 ms=ms-5``,
+#: :data:`~engine.movement.ENTER_COST`), once, on the points the hook left, as a
+#: roadblock stop does; the runner re-reads movement points after it.
 SPECIAL_CELL_HOOK_KEY = "turn.special_cell"
 
 # --------------------------------------------------------------------------- #
@@ -509,6 +512,9 @@ class TurnRunner:
                     SPECIAL_CELL_HOOK_KEY, cell=target, la=city.special_cells[target]
                 )
                 if armed:
+                    # :2045/:2046 ``gosub23000:goto2060``: the flow ends with the
+                    # door's charge, on the points the hook left; the player stays.
+                    self._commit(MsChange(-ENTER_COST))
                     outcome = "special"
                     continue
             result = try_move(self.state, city, delta)

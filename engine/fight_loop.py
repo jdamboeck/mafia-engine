@@ -34,6 +34,8 @@ __all__ = [
     "ReplayDriver",
     # Headless fight entry
     "simulate",
+    # Side 1's closing vitality (CombatResult.roster_vitality)
+    "roster_vitality",
 ]
 
 
@@ -138,6 +140,11 @@ class ReplayDriver(Driver):
         )
 
 
+def roster_vitality(fight: Any) -> tuple[tuple[int, int], ...]:
+    """Side 1's closing ``vitality`` per roster slot, for :class:`~engine.combat.CombatResult`."""
+    return tuple((f.roster_id, f.vitality) for f in fight.sides[0] if f.roster_id is not None)
+
+
 def _run_combat(
     start: "StartCombat",
     ctx: "Ctx",
@@ -222,7 +229,12 @@ def _run_combat(
             )
         )
     # Hand back the winner AND the real per-side death tallies (v(1)/v(2)).
-    return CombatResult(winner=winner, losses=fight.losses, last_shooter=fight.last_shooter)
+    return CombatResult(
+        winner=winner,
+        losses=fight.losses,
+        last_shooter=fight.last_shooter,
+        roster_vitality=roster_vitality(fight),
+    )
 
 
 def _build_fight(start: "StartCombat", *, rng: Any) -> Any:
@@ -545,7 +557,12 @@ def simulate(
     # No input_source: a headless run never reaches the human/yield branch (guarded
     # above), so the loop never consults it.
     winner = _drive_fight(fight, dict(drivers), _no_input_source)
-    return CombatResult(winner=winner, losses=fight.losses, last_shooter=fight.last_shooter)
+    return CombatResult(
+        winner=winner,
+        losses=fight.losses,
+        last_shooter=fight.last_shooter,
+        roster_vitality=roster_vitality(fight),
+    )
 
 
 def _no_input_source(interaction: Any) -> Any:

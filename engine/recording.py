@@ -398,7 +398,7 @@ def record_fight(
     same-fight/same-seed equality test).
     """
     from engine.combat import CombatResult
-    from engine.fight_loop import _build_fight, _drive_fight, _no_input_source
+    from engine.fight_loop import _build_fight, _drive_fight, _no_input_source, roster_vitality
     from engine.interactions import StartCombat
     from engine.rng import Rng
 
@@ -430,7 +430,10 @@ def record_fight(
         house_rules=house_rules,
     )
     return CombatResult(
-        winner=winner, losses=fight.losses, last_shooter=fight.last_shooter
+        winner=winner,
+        losses=fight.losses,
+        last_shooter=fight.last_shooter,
+        roster_vitality=roster_vitality(fight),
     ), recording
 
 

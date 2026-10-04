@@ -188,13 +188,23 @@ class CombatResult:
         blow. A caller that reads the shooter's equipment after the fight (the source
         leaves its weapon in ``w``) reads it here.
 
+    ``roster_vitality``
+        Side 1's ``vitality`` when the fight ended, as ``(roster_id, vitality)`` pairs
+        in roster order, for every fighter that came from a roster slot. The fight's
+        energy write-back (one :class:`~engine.effects.EnergyChange` per changed
+        fighter) is BUFFERED into the invoking action, so a handler that runs a second
+        fight in the same action does not see it in ``ctx.state``; it builds that
+        fight's player side from these values instead. Empty when nothing reported it
+        (a result built by hand).
+
     Deliberately carries **no** ``state``/``sides``: the contract is winner + losses +
-    the last shooter; the post-fight board is not part of it.
+    the last shooter + side 1's closing vitality; the post-fight board is not part of it.
     """
 
     winner: int
     losses: tuple[int, int]
     last_shooter: Fighter | None = None
+    roster_vitality: tuple[tuple[int, int], ...] = ()
 
 
 # --------------------------------------------------------------------------- #

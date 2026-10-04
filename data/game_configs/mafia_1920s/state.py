@@ -340,3 +340,10 @@ def _tenancy(state: GameState, ln: int | None) -> int:
         raise ValueError("guard variable 'tenancy' requires a tile context (ln), but ln is None")
     owner = tenant(state, ln)
     return 0 if owner is None else owner
+
+
+@register_guard_variable("tip")
+def _tip(state: GameState, ln: int | None) -> int:
+    """``tp(sp)``, the held heist tip (0 = none): the guard the event cells are armed
+    under (``content/map/city.yaml``, ``:2002``/``:2003``)."""
+    return tip_target(_active(state))

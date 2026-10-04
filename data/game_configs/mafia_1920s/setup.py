@@ -64,6 +64,7 @@ __all__ = [
     "Encounter",
     "apply_outcome",
     "run_encounter",
+    "roster_after",
     "gangster_line",
     "pick_gangster",
     "fnm",
@@ -467,6 +468,24 @@ def run_encounter(
         enemy_losses=result.losses[1],
     )
     return result
+
+
+def roster_after(roster, result):
+    """``roster`` with each gangster's energy as the fight ``result`` left it.
+
+    A fight's energy loss is written back as effects buffered into the calling handler
+    (:func:`engine.fight_loop._run_combat`), so ``ctx.state`` does not show it until
+    the handler ends. A handler that runs a second fight in the same action passes
+    this as the second fight's ``roster=`` (the mayor hit, ``mf-prg.bas:24005``
+    then ``:24010``: the source keeps the energy in the gang's stats between the two). The
+    values come from the result's ``roster_vitality``; a gangster it does not name keeps
+    its energy.
+    """
+    closing = dict(result.roster_vitality)
+    return tuple(
+        replace(member, vitality=closing[slot]) if slot in closing else member
+        for slot, member in enumerate(roster)
+    )
 
 
 # --- the gangster picker ----------------------------------------------------

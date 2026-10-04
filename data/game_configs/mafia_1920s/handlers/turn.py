@@ -7,8 +7,8 @@ use:
 
 * :data:`~engine.turns.EARLY_WIN_HOOK_KEY` — ``:1011``'s turn-start check
   ``ifra(sp)=10andx5%(sp)>0andx6%(sp)>0thensyslh,"sieg-pic":goto40000``. A no-op: the
-  two win flags come from the cash-transport and mayor flows (``la=13``/``14``), which
-  are not built, so the check can never pass yet.
+  early win itself is not built yet; the two win flags it reads are set by the
+  cash-transport and mayor flows (``la=13``/``14``, :mod:`.win_flows`).
 * :data:`~engine.turns.MOVEMENT_POINTS_HOOK_KEY` — ``:1012`` ``ms=tr(tm(sp))``: the
   active player's vehicle's ``tr``. Returns the value; the runner writes it. The same
   line's ``nr(sp)=ra(sp)`` is applied here too.
@@ -23,8 +23,7 @@ use:
   :mod:`.roadblock` (the gate and ``:6000-6036``).
 * :data:`~engine.turns.SPECIAL_CELL_HOOK_KEY` — ``:2045``/``:2046`` the cash-transport
   and mayor cells (569/861, ``la=13``/``14``), armed by ``:2002``/``:2003`` for the
-  player holding that tip (``tp(sp)=3``/``5``). A no-op: the two flows are not
-  built, so the cell is never armed and stays the street it is on the map.
+  player holding that tip (``tp(sp)=3``/``5``): registered by :mod:`.win_flows`.
 
 The turn menu's options (``content/menus/turn.yaml``, ``:1015-1050``) are handlers here
 too; each returns what the runner does next:
@@ -59,7 +58,6 @@ from engine.turns import (
     MENU_WALK,
     MOVEMENT_POINTS_HOOK_KEY,
     SCORE_TRUNCATION_HOOK_KEY,
-    SPECIAL_CELL_HOOK_KEY,
 )
 
 from ..effects import Jail, PendingRankReset
@@ -72,7 +70,6 @@ __all__ = [
     "has_job",
     "score_truncation",
     "jail",
-    "special_cell",
     "truncated_score",
     "overview",
     "walk",
@@ -108,7 +105,7 @@ def truncated_score(gf: float) -> float:
 
 @register(EARLY_WIN_HOOK_KEY)
 def early_win(ctx):
-    """``:1011``'s early-win check. Never passes yet (the win flows are not built)."""
+    """``:1011``'s early-win check. Never passes yet (the early win is not built)."""
     yield from ()
     return False
 
@@ -173,13 +170,6 @@ def jail(ctx):
     ctx.apply(Jail(months=months - 1))  # :1500 gs(sp)=gs(sp)-1
     yield Acknowledge(JAIL_SCREEN, {"months": months})  # :1510 gs(sp)+1
     return True
-
-
-@register(SPECIAL_CELL_HOOK_KEY)
-def special_cell(ctx, *, cell, la):
-    """``:2045``/``:2046`` the event cells 569/861: never armed yet (no flow is built)."""
-    yield from ()
-    return False
 
 
 # --------------------------------------------------------------------------- #

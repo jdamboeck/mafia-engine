@@ -37,14 +37,14 @@ B1. `:23001` load "gtp-pic" (unconditional, ignores the graphics mode `lm`).
 B2. `:23005` header "geldtransport-ueberfall".
 B3. `:23010` `gz(sp)<3` → "du hast zuwenig gangster!", `tp(sp)=0` (tip lost), pause, return.
 B4. `:23015-23020` "leider wird der geldtransport von einer polizeieskorte begleitet!" + pause.
-B5. `:23025` fight: `bn$(0)="eskorte"`, `gz(0)=10`, `e=50`, `w=7` (gewehr), grid `kgtp`; `gosub5000` (player side = whole roster, AI side 2). `s=2` → `goto26020` (capture chain; `tp` cleared only if sentenced, kept on bribe/flight escape).
+B5. `:23025` fight: `bn$(0)="eskorte"`, `gz(0)=10`, `e=50`, `w=7` (maschinenpistole; weapons.yaml id 7 — corrected in U22), grid `kgtp`; `gosub5000` (player side = whole roster, AI side 2). `s=2` → `goto26020` (capture chain; `tp` cleared only if sentenced, kept on bribe/flight escape).
 B6. `s=1`: `:23030` `x=4:gosub1160` (+4), `x5%(sp)=1`, `goto20050`.
 B7. `:20050` RNG `p=int(rnd(1)*3000)+4000` (`-500*(la=10andln=1)`=0 because `la=13`); `:20051` `x=tp(sp)=3 and la=13` → `tp(sp)=0`, `p+=3000` → **7000..9999 $** uniform.
 B8. `:20055-20060` "du hast es geschafft! deine beute betraegt `p` $!"; `ka+=p`; `x=4:gosub1160` (+4 → **+8 total**, clamped per call); pause; return → `:2060 ms-=5`.
 
 ### C. Mayor hit `:24000-24020`
 C1. No picture, no header, no gang-size check.
-C2. `:24005` fight 1: `bn$(0)="leibwaechter"`, `gz(0)=5`, `e=20`, `w=7` (gewehr), grid `ks`. `s=2` → `:26020`.
+C2. `:24005` fight 1: `bn$(0)="leibwaechter"`, `gz(0)=5`, `e=20`, `w=7` (maschinenpistole; weapons.yaml id 7 — corrected in U22), grid `ks`. `s=2` → `:26020`.
 C3. `:24010` fight 2: `bn$(0)="buergermeister"`, `gz(0)=1`, `e=30`, `w=1` (messer), grid `ks`. Player energy damage from fight 1 carries over (persisted in `ge$`); gangsters at 0 energy are still placed (`:30000` places all `gz`). `s=2` → `:26020`.
 C4. `:24015-24017` "mord!!! fuer deine ruchlose tat bekommst du auch noch 7000 $ und einen neuen pass!"
 C5. `:24020` `ka+=7000`; `ag(sp)=ag or 1` (passport); `tp(sp)=0`; `x6%(sp)=1`; pause; return → `:2060`. **No score change.**

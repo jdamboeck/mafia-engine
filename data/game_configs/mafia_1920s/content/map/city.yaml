@@ -175,5 +175,13 @@ doors:
 - {cell: 910, la: 11, ln: 1, location: pol, code: 35}
 - {cell: 371, la: 12, ln: 1, location: ble, code: 130}
 special_cells:
-- {cell: 569, la: 13, flow: cash_transport, win_flag: x5}
-- {cell: 861, la: 14, flow: mayor_hit, win_flag: x6}
+- cell: 569
+  la: 13
+  flow: cash_transport
+  win_flag: x5
+  armed: {var: tip, op: '=', value: 3}
+- cell: 861
+  la: 14
+  flow: mayor_hit
+  win_flag: x6
+  armed: {var: tip, op: '=', value: 5}

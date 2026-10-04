@@ -1,0 +1,22 @@
+# The map win flows (the cash transport, the mayor hit) — classic-theme strings
+# (VERBATIM German).
+#
+# DATA, not code: handlers/win_flows.py emits these KEYS and the theme resolves them.
+# Ported from the research text corpus (research-data/pass-1/game-text.yaml, lines
+# 23005-24017; it misses :23010, printed here as the listing prints it) and
+# mf-prg.bas:23005-24017. The :1100 "taste druecken!" pause that ends
+# each screen is the client's. The payout's text is the bank's (locations.ban.loot,
+# :20055-20060), which the cash transport reaches by goto20050.
+win_flows:
+  # :23005 print"{clr}{down}{rvon}{blk} geldtransport-ueberfall "
+  transport_title: "geldtransport-ueberfall"
+  # :23010 print"{down}du hast zuwenig gangster!"
+  transport_too_few: "du hast zuwenig gangster!"
+  # :23015-23020 print"{down}leider wird der geldtransport von einer"
+  #              print"{down}polizeieskorte begleitet!"
+  transport_escort: "leider wird der geldtransport von einer\npolizeieskorte begleitet!"
+  # :24015 print"{clr}{down}{rvon}{blk} mord!!! "
+  mayor_title: "mord!!!"
+  # :24016-24017 print"{down}{down}fuer deine ruchlose tat bekommst du auch"
+  #              print"noch 7000 $ und einen neuen pass!"
+  mayor_reward: "fuer deine ruchlose tat bekommst du auch\nnoch 7000 $ und einen neuen pass!"

@@ -1,0 +1,13 @@
+# The mayor hit's first fight: his bodyguards (mf-prg.bas:24005).
+#
+#   24005 bn$(0)="leibwaechter":gz(0)=5:e=20:w=7:kf$="ks":gosub5000:ifs=2goto26020
+#
+# No declarable consequence: a loss goes to the arrest (:26020), a win to the second
+# fight (:24010, content/encounters/win_mayor_2.yaml), both in handlers/win_flows.py.
+key: win_mayor_1
+enemies:
+  count: 5            # gz(0)=5 — :24005
+  weapon: 7           # w=7, maschinenpistole — :24005
+  vitality: 20        # e=20 — :24005
+  name: leibwaechter  # bn$(0)="leibwaechter" — :24005
+grid: ks              # kf$="ks" — :24005

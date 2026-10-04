@@ -26,6 +26,7 @@ from . import sub  # noqa: F401 — registers sub.platform / sub.train
 from . import turn  # noqa: F401 — registers the engine turn runner's hooks (engine.turns)
 from . import upkeep  # noqa: F401 — registers "upkeep.turn_start" (engine.upkeep.run_upkeep)
 from . import waf  # noqa: F401 — registers waf.buy / waf.train + the weapon_spec sub-state
+from . import win_flows  # noqa: F401 — registers the special-cell hook (turn.special_cell)
 
 __all__ = [
     "aut",
@@ -46,4 +47,5 @@ __all__ = [
     "turn",
     "upkeep",
     "waf",
+    "win_flows",
 ]

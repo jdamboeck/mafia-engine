@@ -698,6 +698,8 @@ def test_the_special_cell_hook_is_asked_before_a_move_onto_an_event_cell():
 
     assert asked == [(861, 14)]
     assert runner.state.players[0].po == start, "the player stepped onto an armed cell"
+    # :2046 ``gosub24000:goto2060``: the flow costs the door's 5 points, once.
+    assert runner.state.players[0].ms == 5
     assert seen[-1] == MapMove(outcome="special", player=0)
 
 

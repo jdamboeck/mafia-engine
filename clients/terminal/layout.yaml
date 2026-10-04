@@ -20,7 +20,8 @@ map:
     sub: { char: "\u25a4", color: green }       # ▤ square with horizontal fill
     bhf: { char: "\u25a6", color: dark_grey }   # ▦ square with crosshatch fill
     ban: { char: "\u25c8", color: light_brown } # ◈ diamond in a diamond
-  # Special cells (dynamic event markers)
+  # Special cells (dynamic event markers): drawn only while armed for the active
+  # player (the city data's ``armed`` guard; mf-prg.bas:2002-2003 pokes them)
   special_cells:
     569: { char: "\u25cc", color: blue }   # ◌ transport
     861: { char: "\u265b", color: red }     # ♛ mayor

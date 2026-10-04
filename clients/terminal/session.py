@@ -40,6 +40,7 @@ from typing import Any
 
 import yaml
 
+from engine.conditions import build_context, evaluate
 from engine.config_loader import load_game_config
 from engine.interactions import (
     MAP_EXIT,
@@ -328,8 +329,18 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
             color = char_cfg.get("color", "white")
             door_info[door["cell"]] = (loc_key, char, color)
 
-    # Special cell lookup
+    # Special cell lookup: an event cell is drawn only while it is armed for the
+    # active player -- its ``armed`` guard (the config's city data) holds against the
+    # state, as the source pokes it off the street code (``:2002``/``:2003``). The
+    # armed state is derived here each time, never stored; an unarmed cell is drawn as
+    # the street it is.
     special_cfg = _MAP_CFG.get("special_cells", {})
+    guard_context = build_context(state)
+    armed = {
+        spec["cell"]
+        for spec in city_raw.get("special_cells", [])
+        if evaluate(spec.get("armed"), guard_context)
+    }
 
     # Config values
     player_char = _MAP_CFG.get("player_char", "@")
@@ -349,7 +360,7 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
             elif cell in door_info:
                 _, dchar, dcolor = door_info[cell]
                 chars.append(f"{colors.fg(dcolor)}{dchar}")
-            elif cell in city.special_cells and cell in special_cfg:
+            elif cell in armed and cell in special_cfg:
                 scfg = special_cfg[cell]
                 chars.append(f"{colors.fg(scfg.get('color', 'white'))}{scfg['char']}")
             else:

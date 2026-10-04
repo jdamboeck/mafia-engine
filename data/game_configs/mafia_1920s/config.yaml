@@ -290,6 +290,14 @@ formula_params:
   heist_tip_bonus: 3000
   heist_score: 4
 
+  # The map win flows — mf-prg.bas:23000-23030, :24000-24020 (handlers/win_flows.py).
+  # The fights are content/encounters/win_*.yaml; the tips that arm the two cells are
+  # content/map/city.yaml's ``armed`` guards (:2002-2003).
+  win_transport_min_gang: 3      # ifgz(sp)<3then..."du hast zuwenig gangster!" (:23010)
+  win_transport_score: 4         # x=4:gosub1160, before the payout's own (:23030)
+  win_transport_tip: 3           # (x=3andla=13): the payout's tip bonus (:20051)
+  win_mayor_reward: 7000         # ka(sp)=ka(sp)+7000 (:24020)
+
   # The map roadblock — mf-prg.bas:2041, :6000-6036 (handlers/roadblock.py).
   # ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3 (:2041)
   roadblock_every: 20

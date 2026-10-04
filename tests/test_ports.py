@@ -33,6 +33,7 @@ Conventions
 
 from __future__ import annotations
 
+import functools
 import itertools
 import re
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -71,11 +72,11 @@ from engine.interactions import (
     StartCombat,
 )
 from engine.locations import HANDLERS
-from engine.turns import ROADBLOCK_HOOK_KEY, SCORE_TRUNCATION_HOOK_KEY
+from engine.turns import ROADBLOCK_HOOK_KEY, SCORE_TRUNCATION_HOOK_KEY, SPECIAL_CELL_HOOK_KEY
 from engine.rng import Rng
 from engine.state import Clock, CombatState, Config, Fighter, GameState, Player
 from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job, Wanted
-from data.game_configs.mafia_1920s.handlers import police
+from data.game_configs.mafia_1920s.handlers import police, win_flows
 from tests.basic_eval import eval_assignment, eval_expr
 from tests.helpers import is_effect, load_source, with_tenancy
 import data.game_configs.mafia_1920s.state as game
@@ -1191,6 +1192,71 @@ def _engine_bank_guards(v: Values) -> Any:
     gen.close()
     assert interaction.scenario is not None and interaction.scenario.sides is not None
     return len(interaction.scenario.sides[1])
+
+
+# --- :2002-2003, :23000-23030, :24000-24020 the map win flows ---------------------------
+Q_2002 = q(2002, "tp(sp)=3")
+Q_2003 = q(2003, "tp(sp)=5")
+Q_23010 = q(23010, "gz(sp)<3")
+Q_23010_TP = q(23010, "tp(sp)=0")
+Q_24020_KA = q(24020, "ka(sp)=ka(sp)+7000")
+Q_24020_AG = q(24020, "ag(sp)=ag(sp)or1")
+Q_24020_TP = q(24020, "tp(sp)=0")
+
+
+def _basic_armed(v: Values) -> Any:
+    """The cells ``:2002``/``:2003`` poke off the street code for the held tip."""
+    b = {"sp": 1, "tp(1)": v["tp"]}
+    return {cell for cell, quote in ((569, Q_2002), (861, Q_2003)) if quote.holds(b)}
+
+
+def _engine_armed(v: Values) -> Any:
+    return win_flows.armed_cells(_state(_player(tip_target=v["tp"])))
+
+
+def _win_flow(cell: int) -> Callable[[Ctx], Any]:
+    """The special-cell hook for a move onto ``cell``."""
+    return functools.partial(
+        HANDLERS[SPECIAL_CELL_HOOK_KEY], cell=cell, la={569: 13, 861: 14}[cell]
+    )
+
+
+def _basic_transport(v: Values) -> Any:
+    """The cash transport (``la=13``, ``ln=1``) with tip 3; the escort's fight is won."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": 3, "gz(1)": v["gz"], "ka(1)": 1000}
+    b.update({"la": 13, "ln": 1})
+    if Q_23010.holds(b):
+        return ("too few", b["ka(1)"], Q_23010_TP.assign(b))
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_20050_P.assign(b)
+    b["x"] = Q_20050_X.assign(b)
+    if Q_20051.holds(b):
+        b["tp(1)"] = Q_20051_TP.assign(b)
+        b["p"] = Q_20051_P.assign(b)
+    return ("robbed", Q_20060.assign(b), b["tp(1)"])
+
+
+def _engine_transport(v: Values) -> Any:
+    player = _player(ka=1000, tip_target=3, roster=tuple(_gangster() for _ in range(v["gz"])))
+    run = _drive(
+        _win_flow(569), _state(player), draws=(v["r"],), fight=CombatResult(winner=1, losses=(0, 3))
+    )
+    after = run.state.players[0]
+    outcome = "robbed" if any(m.key == "locations.ban.loot" for m in run.shown) else "too few"
+    return (outcome, after.ka, game.tip_target(after))
+
+
+def _basic_mayor(v: Values) -> Any:
+    """The mayor hit with tip 5; both fights are won."""
+    b: dict[str, Any] = {"sp": 1, "tp(1)": 5, "ka(1)": v["ka"], "ag(1)": v["ag"]}
+    return (Q_24020_KA.assign(b), Q_24020_AG.assign(b), Q_24020_TP.assign(b))
+
+
+def _engine_mayor(v: Values) -> Any:
+    player = _player(ka=v["ka"], tip_target=5, contraband=_marks(v["ag"]))
+    run = _drive(_win_flow(861), _state(player), fight=CombatResult(winner=1, losses=(0, 1)))
+    after = run.state.players[0]
+    return (after.ka, _ag(after), game.tip_target(after))
 
 
 # --- :20100-20150 ban, the night safe-crack ----------------------------------------
@@ -2386,6 +2452,39 @@ PORTS: list[Port] = [
         _grid(ln=range(1, 6)),
         _basic_bank_guards,
         _engine_bank_guards,
+    ),
+    Port(
+        "win cells armed",
+        (Q_2002, Q_2003),
+        "win_flows.armed_cells (the city's armed guards)",
+        _grid(tp=range(6)),
+        _basic_armed,
+        _engine_armed,
+    ),
+    Port(
+        "win cash transport",
+        (
+            Q_23010,
+            Q_23010_TP,
+            Q_20050_P,
+            Q_20050_X,
+            Q_20051,
+            Q_20051_TP,
+            Q_20051_P,
+            Q_20060,
+        ),
+        "HANDLERS['turn.special_cell'] on 569 (win_flows.cash_transport)",
+        _grid(gz=range(5), r=R),
+        _basic_transport,
+        _engine_transport,
+    ),
+    Port(
+        "win mayor hit",
+        (Q_24020_KA, Q_24020_AG, Q_24020_TP),
+        "HANDLERS['turn.special_cell'] on 861 (win_flows.mayor_hit)",
+        _grid(ka=(0, 1000), ag=range(4)),
+        _basic_mayor,
+        _engine_mayor,
     ),
     Port(
         "ban safe gate",

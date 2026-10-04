@@ -74,6 +74,7 @@ __all__ = [
     "TipClear",
     "TipSet",
     "VehicleSet",
+    "WinFlagSet",
 ]
 
 
@@ -523,3 +524,24 @@ class SafeSkillSet:
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
         return set_player_value(state, "safe_skill", self.tries, player=idx)
+
+
+@register_effect()
+@dataclass(frozen=True)
+class WinFlagSet:
+    """Set one of the target player's two win flags, ``x5%(sp)=1`` or ``x6%(sp)=1``.
+
+    ``flag`` is ``"x5"`` (the cash transport, ``mf-prg.bas:23030``) or ``"x6"`` (the
+    mayor hit, ``:24020``). The source only ever sets them: nothing clears a win flag.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    flag: str
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        if self.flag not in ("x5", "x6"):
+            raise ValueError(f"no win flag {self.flag!r}; the flags are 'x5' and 'x6'")
+        idx = target_index(state, self.player)
+        new_wanted = replace(wanted(state.players[idx]), **{self.flag: True})
+        return write(state, new_wanted, player=idx)
