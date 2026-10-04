@@ -50,12 +50,11 @@ from clients.terminal import (  # noqa: E402
     EndOfInput,
     TerminalInput,
     main,
-    map_repl,
     play,
     render_message,
 )
 from clients.terminal.palette import ColorSupport, Colors, load_palette  # noqa: E402
-from tests.helpers import NEW_GAME_ACKS, deadline, with_player  # noqa: E402
+from tests.helpers import NEW_GAME_ACKS, deadline, make_walk_script  # noqa: E402
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 
@@ -304,33 +303,39 @@ def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
 
 
 # --------------------------------------------------------------------------- #
-# map_repl: crosses client -> movement; adopts result.state, ends the turn.     #
+# The map loop: crosses client -> movement; adopts result.state, renders it.    #
 # --------------------------------------------------------------------------- #
-def test_map_repl_adopts_state_and_ends_on_quit():
-    """map_repl holds no rules: it moves via try_move, adopts the pure result.state, and
-    stops when move_for_key returns None. Real movement through the engine layer."""
+def test_the_map_loop_adopts_the_moved_state_and_renders_it(monkeypatch):
+    """``play()``'s map loop holds no rules: a walking key moves the player through
+    ``try_move``, the client adopts the pure ``result.state``, draws it, and the quit
+    key ends the session. Real movement through the engine layer."""
     from engine.config_loader import load_game_config
+    from engine.movement import try_move
 
     cfg = load_game_config(_CONFIG_DIR)
     city = load_city(_yaml_load(_CITY_YAML))
-    state = cfg.module.new_game(seed=42, end_year=1930, score_weight=1.0, players=[("a", "b")])
-    state = with_player(state, 0, po=141)  # a known walkable cell (per the slice test)
-
-    keys = iter(["down", "quit"])
-    out = io.StringIO()
-    final = map_repl(
-        state=state,
-        city=city,
-        key_reader=lambda: next(keys),
-        move_for_key=lambda k: DOWN if k == "down" else None,
-        resolver=_resolver(),
-        colors=_COLORS,
-        out=out,
+    start = cfg.module.new_game(
+        seed=42, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
     )
+    # The engine says where one step down lands; the test does not hardcode the map.
+    moved = try_move(start, city, DOWN)
+    assert moved.payload.kind == "step"
+    before, after = start.players[0], moved.state.players[0]
+    assert after.po != before.po
+
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdin", make_walk_script(["s", "q"]))
+    monkeypatch.setattr(sys, "stdout", out)
+    with deadline(20.0, "play() did not return (EOF spin?)", exc_type=AssertionError):
+        final, _rng = play(seed=42, end_year=1930, score_weight=1.0)
     # One real step happened and the client adopted the new pure state (po moved, ms spent).
-    assert final.players[0].po == 181
-    assert final.players[0].ms == state.players[0].ms - 1
-    assert "pos 181" in out.getvalue()
+    assert final.players[0].po == after.po
+    assert final.players[0].ms == before.ms - 1
+    # The map was drawn before the step and redrawn from the adopted state after it.
+    text = out.getvalue()
+    drawn_before = text.index(f"pos {before.po} ")
+    assert text.index(f"pos {after.po} ", drawn_before) > drawn_before
+    assert f"ms {before.ms - 1} " in text
 
 
 # --------------------------------------------------------------------------- #
@@ -950,6 +955,59 @@ class TestThemeSelection:
         line = self._fails_with_one_line(["--theme", str(tmp_path)], capsys)
         assert line.startswith(f"cannot load theme {tmp_path}: ")
         assert "x.yaml" in line
+
+    # A broken CLASSIC theme -- the one every line, --help included, is worded in.
+    @staticmethod
+    def _classic_strings(tmp_path, monkeypatch, files: dict[str, str]) -> Path:
+        """A config dir whose classic theme holds only ``files``, installed as the
+        client's config; returns that theme's strings dir."""
+        import clients.terminal.cli as cli
+
+        strings = tmp_path / "cfg" / "themes" / "classic" / "strings"
+        strings.mkdir(parents=True)
+        for name, body in files.items():
+            (strings / name).write_text(body, encoding="utf-8")
+        monkeypatch.setattr(cli, "_CONFIG_DIR", tmp_path / "cfg")
+        return strings
+
+    def test_a_corrupt_classic_theme_still_prints_help(self, monkeypatch, tmp_path, capsys):
+        strings = self._classic_strings(tmp_path, monkeypatch, {"client.yaml": "- broken\n"})
+        with pytest.raises(SystemExit) as exc:
+            main(["--help"])
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert "Traceback" not in captured.err
+        # Every flag is listed, and the built-in description says why there is no help.
+        for flag in ("--seed", "--player", "--end-year", "--load", "--save", "--theme"):
+            assert flag in captured.out
+        # argparse wraps the description; the path has no whitespace of its own.
+        assert str(strings / "client.yaml") in "".join(captured.out.split())
+
+    def test_a_list_topped_classic_strings_file_is_one_line_naming_it(
+        self, monkeypatch, tmp_path, capsys
+    ):
+        strings = self._classic_strings(tmp_path, monkeypatch, {"client.yaml": "- broken\n"})
+        line = self._fails_with_one_line(["--end-year", "1930"], capsys)
+        assert line.startswith(f"{strings / 'client.yaml'}: ")
+        assert "mapping" in line
+
+    def test_a_help_string_containing_percent_prints(self, monkeypatch, tmp_path, capsys):
+        import shutil
+
+        cfg = tmp_path / "cfg" / "themes" / "classic"
+        shutil.copytree(_CONFIG_DIR / "themes" / "classic" / "strings", cfg / "strings")
+        client = cfg / "strings" / "client.yaml"
+        tree = _yaml_load(client)
+        tree["client"]["cli"]["help_seed"] = "100% reproducible from seed {seed} (50 % chance)"
+        client.write_text(yaml.safe_dump(tree, allow_unicode=True), encoding="utf-8")
+        import clients.terminal.cli as cli
+
+        monkeypatch.setattr(cli, "_CONFIG_DIR", tmp_path / "cfg")
+        with pytest.raises(SystemExit) as exc:
+            main(["--help"])
+        assert exc.value.code == 0
+        out = " ".join(capsys.readouterr().out.split())  # argparse wraps help lines
+        assert "100% reproducible from seed 42 (50 % chance)" in out
 
     def test_the_themes_palette_colours_the_screens(self, monkeypatch, truecolor):
         """The fixture theme's palette sets ``red`` (the player on the map, the title)

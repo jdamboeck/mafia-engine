@@ -57,7 +57,7 @@ from engine.state import FAITHFUL
 from engine.strings import Resolver
 
 from clients.terminal import TerminalInput
-from clients.terminal.cli import _load_theme
+from clients.terminal.cli import _load_theme, help_texts, load_classic
 from clients.terminal.palette import Colors, Palette, load_palette
 from clients.terminal.session import _DEFAULT_THEME, _read_key
 from clients.terminal.renderers import (
@@ -713,21 +713,11 @@ def watch(
 # --------------------------------------------------------------------------- #
 def main(argv: list[str] | None = None) -> None:
     # Every line main() prints comes from the theme, so classic is loaded first (the
-    # help text is worded in it). Without it there are no words to phrase the failure
-    # in: the error's own text is shown, as in clients/terminal/cli.py.
-    try:
-        classic = _classic()
-    except (OSError, yaml.YAMLError, ValueError) as exc:
-        _die(str(exc))
-
-    def text(key: str, **params: Any) -> str:
-        return classic.resolve(f"fightlab.cli.{key}", params)
-
-    def help_text(key: str, **params: Any) -> str:
-        # argparse %-formats help strings; a literal % in a theme string must not
-        # break --help, so it is escaped before argparse sees it.
-        return text(key, **params).replace("%", "%%")
-
+    # help text is worded in it). A broken classic theme still answers --help (the
+    # main client's built-in fallback, help_texts); any other run then ends on the
+    # load error's own text, as in clients/terminal/cli.py.
+    loaded = load_classic(_CONFIG_DIR)
+    help_text = help_texts(loaded, "fightlab.cli")
     parser = argparse.ArgumentParser(
         prog="clients.terminal.fightlab", description=help_text("description")
     )
@@ -752,6 +742,13 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     args = parser.parse_args(argv)
+    if not isinstance(loaded, Resolver):
+        _die(str(loaded))
+    classic = loaded
+
+    def text(key: str, **params: Any) -> str:
+        return classic.resolve(f"fightlab.cli.{key}", params)
+
     # From here on every line is worded in the chosen theme (merged over classic, the
     # main client's own loader). An unknown or broken theme: one line, no traceback.
     try:

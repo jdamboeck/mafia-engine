@@ -453,6 +453,30 @@ def _plain(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*m", "", text)
 
 
+def test_a_corrupt_classic_theme_still_prints_the_labs_help(monkeypatch, tmp_path, capsys):
+    """Like the main client: a broken classic theme still answers ``--help`` (the
+    built-in fallback naming the file), and any other run is one line naming it."""
+    strings = tmp_path / "cfg" / "themes" / "classic" / "strings"
+    strings.mkdir(parents=True)
+    (strings / "fightlab.yaml").write_text("- broken\n", encoding="utf-8")
+    monkeypatch.setattr(fightlab, "_CONFIG_DIR", tmp_path / "cfg")
+    with pytest.raises(SystemExit) as exc:
+        fightlab.main(["--help"])
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "play" in captured.out and "watch" in captured.out
+    # argparse wraps the description; the path has no whitespace of its own.
+    assert str(strings / "fightlab.yaml") in "".join(captured.out.split())
+    with pytest.raises(SystemExit) as exc:
+        fightlab.main(["play", "--scenario", "x.yaml"])
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Traceback" not in err
+    assert err.strip().splitlines() == [
+        f"{strings / 'fightlab.yaml'}: top level: expected a mapping, got a list"
+    ]
+
+
 def test_a_theme_overriding_a_fightlab_key_changes_the_debug_dump(monkeypatch):
     """``play --debug --theme PATH``: the theme's ``fightlab.debug.verdict_hit`` words
     every hit verdict, and the keys it leaves alone still come from classic. Seed 42
