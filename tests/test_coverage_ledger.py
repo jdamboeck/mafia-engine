@@ -19,13 +19,22 @@ Rules (KTD-15)
   checks the port and a doc explains it, but only code shows the port does the block.
 - **Checks.** A ``ported`` block that no code cites fails, as does an ``exception`` that
   code does cite, and a ledger whose blocks are not the source's (a new jump target
-  splits a block: the new block is missing from the ledger). Only that last check needs
-  ``../research/``; without it, it skips with a reason naming the path, and the others
-  still run, as the ledger commits its boundaries.
+  splits a block: the new block is missing from the ledger). Only that last check and
+  the ``player_facing`` flags need ``../research/``; without it, they skip with a reason
+  naming the path, and the others still run, as the ledger commits its boundaries and
+  flags.
 - **Narrow.** A citation spanning many blocks (a whole location's ``:12000-12335``
   header) would keep every block in it looking ported. So a ported block also needs a
   citation that spans at most :data:`NARROW` blocks, unless :data:`BROAD_ONLY` names it
   with its reason; an entry there that is no longer needed fails.
+- **Player-facing.** A block whose code (outside strings and ``rem``) holds ``print``,
+  ``input`` or ``get`` (not the disk's ``input#1``) or the key wait ``wait198`` reaches
+  the player; each block commits it as ``player_facing``, checked against the source
+  (with ``../research/`` only, like the boundaries). Game logic citing such a block shows
+  the port does its logic, not that the player sees its screen, so a ported
+  player-facing block also needs a citation where its text is shown, a theme's
+  ``strings/*.yaml`` or ``clients/`` (:func:`shows_text`), or ``screen: deferred`` with a
+  ``screen_reason`` naming its issue. A deferral that is no longer needed fails.
 - **Exception.** ``category`` is one of :data:`CATEGORIES`; ``reason`` says why the port
   leaves the block out. A ``deferred`` block is game behavior not ported yet, and its
   reason names the follow-up issue (``#146``).
@@ -35,7 +44,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import pytest
@@ -71,6 +80,12 @@ CATEGORIES: Mapping[str, str] = {
     "deferred": "game behavior not ported yet; the reason names its follow-up issue",
 }
 _ISSUE = re.compile(r"#\d+")
+#: The one ``screen`` value: a ported block whose screen the player does not see yet.
+SCREEN_DEFERRED = "deferred"
+#: Where player-facing text lives: a theme's string files, or a client.
+_SHOWN = re.compile(
+    r"(?:data/game_configs/[^/]+/themes/(?:[^/]+/)*strings/[^/]+\.ya?ml|clients/.+)$"
+)
 
 #: The most blocks a citation may span and still pin a block down.
 NARROW = 3
@@ -103,6 +118,16 @@ def jump_targets(statement: str) -> set[int]:
     }
 
 
+#: A line the player sees or answers: a ``print``, an ``input`` or ``get`` (not the
+#: disk's ``input#1``), or the key wait ``wait198`` (another address waits on hardware).
+_PLAYER_FACING = re.compile(r"(?:print|input|get)(?!\s*#)|wait\s*198\b")
+
+
+def player_facing(statement: str) -> bool:
+    """Whether one source line prints, prompts or waits for a key, outside strings and rems."""
+    return bool(_PLAYER_FACING.search(_REM.sub("", _STRING.sub('""', statement))))
+
+
 def block_starts(source: Mapping[int, str]) -> set[int]:
     """The first line plus every jump target."""
     starts = {min(source)}
@@ -122,6 +147,14 @@ def source_blocks(source: Mapping[int, str]) -> list[tuple[int, int]]:
     return blocks
 
 
+def player_facing_blocks(source: Mapping[int, str]) -> dict[tuple[int, int], bool]:
+    """Every block of ``source``, and whether any of its lines is player-facing."""
+    return {
+        (lo, hi): any(player_facing(text) for n, text in source.items() if lo <= n <= hi)
+        for lo, hi in source_blocks(source)
+    }
+
+
 # --------------------------------------------------------------------------- #
 # Ledger                                                                      #
 # --------------------------------------------------------------------------- #
@@ -132,6 +165,9 @@ class Block:
     status: str
     category: str | None = None
     reason: str | None = None
+    player_facing: bool | None = None
+    screen: str | None = None
+    screen_reason: str | None = None
 
     @property
     def label(self) -> str:
@@ -150,6 +186,9 @@ def parse_ledger(text: str) -> tuple[list[Block], list[str]]:
             str(entry.get("status")),
             entry.get("category"),
             entry.get("reason"),
+            entry.get("player_facing"),
+            entry.get("screen"),
+            entry.get("screen_reason"),
         )
         blocks.append(block)
         if block.status not in STATUSES:
@@ -163,6 +202,15 @@ def parse_ledger(text: str) -> tuple[list[Block], list[str]]:
                 errors.append(f"{block.label}: a deferred block's reason names its issue")
         elif block.category or block.reason:
             errors.append(f"{block.label}: a ported block carries no category or reason")
+        if not isinstance(block.player_facing, bool):
+            errors.append(f"{block.label}: player_facing is not true or false")
+        if block.screen is not None or block.screen_reason is not None:
+            if block.status != "ported":
+                errors.append(f"{block.label}: only a ported block defers its screen")
+            elif block.screen != SCREEN_DEFERRED:
+                errors.append(f"{block.label}: screen {block.screen!r} is not {SCREEN_DEFERRED!r}")
+            elif not _ISSUE.search(block.screen_reason or ""):
+                errors.append(f"{block.label}: a deferred screen's screen_reason names its issue")
         if block.end < block.start:
             errors.append(f"{block.label}: ends before it starts")
     for before, after in zip(blocks, blocks[1:]):
@@ -242,6 +290,60 @@ def check_narrow(
         f":{start}: allowed as broad-only, but no ported block"
         for start in sorted(set(allowed) - ported)
     ]
+    return errors
+
+
+def shows_text(cited: Cited) -> bool:
+    """Whether a citation sits where the player-facing text lives: a theme string, a client."""
+    return bool(_SHOWN.match(cited.path))
+
+
+def check_player_facing(blocks: Sequence[Block], citations: Iterable[Cited]) -> list[str]:
+    """A ported player-facing block needs a citation where its text is shown, or a deferral.
+
+    A deferral that is no longer needed (a theme string or client cites the block, or the
+    block is not player-facing) fails, so it cannot outlive the gap it records.
+    """
+    shown = [c for c in citations if shows_text(c)]
+    errors: list[str] = []
+    for block in blocks:
+        if block.status != "ported":
+            continue
+        showers = [c for c in shown if cites(c, block)]
+        deferred = block.screen == SCREEN_DEFERRED
+        if deferred and not block.player_facing:
+            errors.append(
+                f"{block.label}: its screen is deferred, but it is not player-facing "
+                "(drop the deferral)"
+            )
+        elif deferred and showers:
+            where = ", ".join(f"{c.path}:{c.lineno}" for c in showers[:3])
+            errors.append(
+                f"{block.label}: its screen is deferred, but a theme string or client cites "
+                f"it: {where} (drop the deferral)"
+            )
+        elif block.player_facing and not deferred and not showers:
+            errors.append(
+                f"{block.label}: player-facing, but only game logic cites it (cite it where "
+                "its text is shown: a theme string or clients/; or defer its screen)"
+            )
+    return errors
+
+
+def check_player_facing_flags(blocks: Sequence[Block], source: Mapping[int, str]) -> list[str]:
+    """Each block's committed ``player_facing`` flag is the source's."""
+    facing = player_facing_blocks(source)
+    errors: list[str] = []
+    for block in blocks:
+        actual = facing.get((block.start, block.end))
+        if actual is None or actual == block.player_facing:
+            continue  # a block the source has not is check_boundaries' to report
+        errors.append(
+            f"{block.label}: player_facing is false, but the source prints, prompts or "
+            "waits for a key"
+            if actual
+            else f"{block.label}: player_facing is true, but the source shows nothing"
+        )
     return errors
 
 
@@ -372,11 +474,13 @@ def test_a_block_only_a_wide_citation_cites_fails() -> None:
 def test_the_ledger_structure_is_checked() -> None:
     text = (
         "blocks:\n"
-        "  - {start: 1, end: 10, status: exception, category: hardware}\n"
-        "  - {start: 5, end: 20, status: exception, category: deferred, reason: later}\n"
-        "  - {start: 100, end: 110, status: exception, category: sprites, reason: x}\n"
-        "  - {start: 200, end: 200, status: ported, reason: why}\n"
-        "  - {start: 300, end: 300, status: done}\n"
+        "  - {start: 1, end: 10, status: exception, category: hardware, player_facing: false}\n"
+        "  - {start: 5, end: 20, status: exception, category: deferred, reason: later,\n"
+        "     player_facing: false}\n"
+        "  - {start: 100, end: 110, status: exception, category: sprites, reason: x,\n"
+        "     player_facing: false}\n"
+        "  - {start: 200, end: 200, status: ported, reason: why, player_facing: false}\n"
+        "  - {start: 300, end: 300, status: done, player_facing: false}\n"
     )
     assert parse_ledger(text)[1] == [
         ":1-10: an exception needs a reason",
@@ -385,6 +489,130 @@ def test_the_ledger_structure_is_checked() -> None:
         ":200: a ported block carries no category or reason",
         ":300: status 'done' is not one of ('ported', 'exception')",
         ":5-20: starts inside or before :1-10",
+    ]
+
+
+def test_player_facing_lines_are_read_from_crunched_code() -> None:
+    assert player_facing('print"{clr}eigenschaften:"')
+    assert player_facing('ifx=1thenprint"a"')
+    assert player_facing('getx$:ifx$=""then100')
+    assert player_facing('inputx$:ifx$<"1"then205')
+    assert player_facing("poke198,0:wait198,1:poke198,0")
+    assert player_facing("wait 198, 1")
+    assert not player_facing("wait53265,128")  # a raster wait, no key
+    assert not player_facing("wait1980,1")
+    assert not player_facing("input#1,x$:print# 4,a:get#2,a$")  # disk I/O
+    assert not player_facing('x$="print":y$="get input"')
+    assert not player_facing("x=1:rem print the screen")
+    assert not player_facing('ifx=1thenrem print"a"')
+
+
+# :1-10 prints and :100-110 prints after then; :20 is a key wait; :200 prints only
+# in a string; :300 reads a disk file; :310 waits on the raster.
+_SCREENS = parse_source(
+    "    1 ifzgoto20\n"
+    '   10 print"goto99":gosub100,200\n'
+    "   20 onwgoto300,310:poke198,0:wait198,1\n"
+    "  100 ifx=1then300\n"
+    '  110 ifx=2thenprint"a":return\n'
+    '  200 x$="print":rem input\n'
+    "  300 input#1,x$:close1\n"
+    "  310 wait53265,128:go to 1:run\n"
+)
+
+
+def _flagged(*, defer: Mapping[int, str] | None = None) -> list[Block]:
+    """Every ``_SCREENS`` block ported, flagged from the source, deferrals per ``defer``."""
+    defer = defer or {}
+    facing = player_facing_blocks(_SCREENS)
+    return [
+        Block(
+            lo,
+            hi,
+            "ported",
+            player_facing=facing[lo, hi],
+            screen="deferred" if lo in defer else None,
+            screen_reason=defer.get(lo),
+        )
+        for lo, hi in source_blocks(_SCREENS)
+    ]
+
+
+_THEME = "data/game_configs/g/themes/classic/strings/s.yaml"
+
+
+def test_player_facing_blocks_are_flagged_from_the_source() -> None:
+    assert [b.label for b in _flagged() if b.player_facing] == [":1-10", ":20", ":100-110"]
+
+
+def test_a_player_facing_block_cited_only_by_game_logic_fails() -> None:
+    blocks = _flagged()
+    logic = citations_in_file("engine/m.py", _ALL)
+    theme = citations_in_file(_THEME, "# :1-20 and :100\n")
+    client = citations_in_file("clients/terminal/s.py", "# :1-20 and :100\n")
+    errors = check_player_facing(blocks, logic)
+    assert errors == [
+        f":{label}: player-facing, but only game logic cites it "
+        "(cite it where its text is shown: a theme string or clients/; or defer its screen)"
+        for label in ("1-10", "20", "100-110")
+    ]
+    assert check_player_facing(blocks, logic + theme) == []
+    assert check_player_facing(blocks, logic + client) == []
+    # a theme file outside strings/ (a renderer palette) shows no text
+    palette = citations_in_file("data/game_configs/g/themes/classic/renderer/p.yaml", "# :20\n")
+    assert [e[:4] for e in check_player_facing(blocks, logic + palette)] == [":1-1", ":20:", ":100"]
+
+
+def test_a_screen_deferral_covers_a_player_facing_block_until_it_is_shown() -> None:
+    logic = citations_in_file("engine/m.py", _ALL)
+    theme = citations_in_file(_THEME, "# :1-20\n")
+    deferred = _flagged(defer={100: "the screen is not drawn yet, #153"})
+    assert check_player_facing(deferred, logic + theme) == []
+    shown = citations_in_file(_THEME, "# :1-20 and :110\n")
+    assert check_player_facing(deferred, logic + shown) == [
+        ":100-110: its screen is deferred, but a theme string or client cites it: "
+        f"{_THEME}:1 (drop the deferral)"
+    ]
+    stray = _flagged(defer={100: "#153", 300: "#153"})
+    assert check_player_facing(stray, logic + theme) == [
+        ":300: its screen is deferred, but it is not player-facing (drop the deferral)"
+    ]
+
+
+def test_a_screen_deferral_is_checked_in_the_ledger() -> None:
+    text = (
+        "blocks:\n"
+        "  - {start: 1, end: 10, status: ported, player_facing: true,\n"
+        "     screen: deferred, screen_reason: later}\n"
+        "  - {start: 20, end: 20, status: ported, player_facing: true, screen: deferred}\n"
+        "  - {start: 100, end: 110, status: ported, player_facing: true,\n"
+        "     screen: hidden, screen_reason: '#153'}\n"
+        "  - {start: 200, end: 200, status: exception, category: dead, reason: a rem,\n"
+        "     player_facing: false, screen: deferred, screen_reason: '#153'}\n"
+        "  - {start: 300, end: 300, status: ported}\n"
+        "  - {start: 310, end: 310, status: ported, player_facing: 'yes'}\n"
+        "  - {start: 320, end: 320, status: ported, player_facing: true,\n"
+        "     screen: deferred, screen_reason: 'not drawn yet, #153'}\n"
+    )
+    assert parse_ledger(text)[1] == [
+        ":1-10: a deferred screen's screen_reason names its issue",
+        ":20: a deferred screen's screen_reason names its issue",
+        ":100-110: screen 'hidden' is not 'deferred'",
+        ":200: only a ported block defers its screen",
+        ":300: player_facing is not true or false",
+        ":310: player_facing is not true or false",
+    ]
+
+
+def test_a_player_facing_flag_the_source_disagrees_with_fails() -> None:
+    blocks = _flagged()
+    assert check_player_facing_flags(blocks, _SCREENS) == []
+    flipped = [
+        replace(b, player_facing=not b.player_facing) if b.start in (20, 200) else b for b in blocks
+    ]
+    assert check_player_facing_flags(flipped, _SCREENS) == [
+        ":20: player_facing is false, but the source prints, prompts or waits for a key",
+        ":200: player_facing is true, but the source shows nothing",
     ]
 
 
@@ -409,12 +637,26 @@ def test_the_ledger_blocks_are_the_sources() -> None:
     assert errors == [], "\n".join(errors)
 
 
-def test_without_the_research_tree_only_the_boundary_check_skips(
+def test_every_player_facing_block_is_shown_or_deferred() -> None:
+    errors = check_player_facing(_ledger(), code_citations())
+    assert errors == [], "\n".join(errors)
+
+
+def test_the_player_facing_flags_are_the_sources() -> None:
+    source = load_source(helpers.MF_PRG)  # skips, naming the path, without ../research/
+    errors = check_player_facing_flags(_ledger(), source)
+    assert errors == [], "\n".join(errors)
+
+
+def test_without_the_research_tree_only_the_source_checks_skip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     absent = tmp_path / "research" / "mf-prg.bas"
     monkeypatch.setattr(helpers, "MF_PRG", absent)
     with pytest.raises(pytest.skip.Exception, match=re.escape(str(absent))):
         test_the_ledger_blocks_are_the_sources()
+    with pytest.raises(pytest.skip.Exception, match=re.escape(str(absent))):
+        test_the_player_facing_flags_are_the_sources()
     test_every_block_is_cited_or_excepted()
     test_every_ported_block_has_a_narrow_citation()
+    test_every_player_facing_block_is_shown_or_deferred()

@@ -2,7 +2,10 @@
 
 Ports the BASIC new-game setup (``mf-prg.bas:220,300-315,350``): it rolls each
 player's starting gangster stats and cash, seats them at the start position on
-foot, and assembles a :class:`~engine.state.GameState`.
+foot, and assembles a :class:`~engine.state.GameState`. The interactive setup is the
+handler in ``handlers/new_game.py``, which returns a :class:`SetupRecord`;
+:func:`new_game` builds the state from that record, or rolls the stats itself when it
+is given the setup values as keywords.
 
 This is **config-owned game code** (docs/design/product-and-scope.md and docs/design/config-and-content-contract.md): it lives with the config so a
 new game = copy this directory. It imports engine *APIs* (``engine.rng.Rng``,
@@ -22,7 +25,8 @@ handler imports ``fnm`` from HERE (its own config), not from the engine.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import math
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -57,6 +61,15 @@ from engine.types import ConfigValidationError, validate_rank, validate_vehicle,
 
 __all__ = [
     "new_game",
+    "SetupPlayer",
+    "SetupRecord",
+    "roll_player",
+    "parse_setup_number",
+    "in_range",
+    "check_end_year",
+    "check_score_weight",
+    "check_players",
+    "name_fits",
     "load_vehicles",
     "load_ranks",
     "load_weapons",
@@ -718,7 +731,7 @@ def narrate_combat_outcome(
 # --- new-game setup --------------------------------------------------------
 
 
-def _roll_stat(rng: Rng, roll: dict) -> int:
+def _roll_stat(rng: Rng, roll: Mapping) -> int:
     """Stat/cash roll: rng.range(choices)*step + base (mf-prg.bas:350/315)."""
     # :350 `x=int(rnd(1)*9)*5+10` (stats); :315 `ka(i)=int(rnd(1)*5)*500+5000` (cash).
     return rng.range(roll["choices"]) * roll["step"] + roll["base"]
@@ -744,16 +757,130 @@ def _house_rules_map(cfg_dir: Path, choices: Mapping[str, str]) -> dict[str, str
     return chosen
 
 
+def parse_setup_number(text: str, *, integer: bool) -> float | None:
+    """Parse one numeric setup answer; ``None`` for non-numeric input (asked again).
+
+    The end year is ``int(val(x$))`` in the source (mf-prg.bas:170) -- truncated to an
+    integer; the score weight is ``val(x$)`` (:175), a decimal such as ``0.5``, and so
+    is the player count (:205 ``sz=val(x$)``). Only a finite number is a number here.
+    """
+    try:
+        value = float(text.strip())
+    except ValueError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return int(value) if integer else value
+
+
+def in_range(value: float, bounds: Mapping[str, float]) -> bool:
+    """``bounds`` is one ``input_ranges`` entry (``{min, max}``) from config.yaml."""
+    return bounds["min"] <= value <= bounds["max"]
+
+
+def check_end_year(end_year: int, ranges: Mapping) -> None:
+    """Refuse an ``x9`` end year outside ``input_ranges.end_year`` (:172)."""
+    yr = ranges["end_year"]
+    if not in_range(end_year, yr):
+        raise ValueError(f"end_year must be in [{yr['min']}, {yr['max']}], got {end_year}")
+
+
+def check_score_weight(score_weight: float, ranges: Mapping) -> None:
+    """Refuse an ``x8`` score weight outside ``input_ranges.score_weight`` (:176)."""
+    sw = ranges["score_weight"]
+    if not in_range(score_weight, sw):
+        raise ValueError(f"score_weight must be in [{sw['min']}, {sw['max']}], got {score_weight}")
+
+
+def name_fits(name: str, ranges: Mapping) -> bool:
+    """Whether a player or gang name is as long as ``input_ranges.name_length`` allows.
+
+    :290-292, the input routine for both names (``:210``/``:215`` ``gosub290``):
+    :291 ``ifx$=""orlen(x$)>13`` asks again for an empty name or one over 13 characters.
+    """
+    return in_range(len(name), ranges["name_length"])
+
+
+def check_players(players: Sequence[tuple[str, str]], ranges: Mapping) -> None:
+    """Refuse a player list of the wrong size (:206) or with a name that does not fit."""
+    pc = ranges["player_count"]
+    if not in_range(len(players), pc):
+        raise ValueError(f"player count must be in [{pc['min']}, {pc['max']}], got {len(players)}")
+    nl = ranges["name_length"]
+    for name in (text for player in players for text in player):
+        if not name_fits(name, ranges):
+            raise ValueError(
+                f"a player or gang name must be {nl['min']} to {nl['max']} characters, got {name!r}"
+            )
+
+
+@dataclass(frozen=True)
+class SetupPlayer:
+    """One player as setup made them: the names and the starting gangster's rolls.
+
+    ``intelligenz`` is the :350 roll itself, as the eigenschaften screen showed it;
+    :311's ``in=xor30`` is applied when :func:`new_game` builds the state, by the
+    game's ``intelligence_or_30`` house rule.
+    """
+
+    name: str
+    gang_name: str
+    kraft: int
+    intelligenz: int
+    brutalitaet: int
+    cash: int
+
+
+@dataclass(frozen=True)
+class SetupRecord:
+    """What the new-game setup decided: the setup handler's return value.
+
+    ``house_rules`` is the full map (every switch of the catalogue); ``players`` one
+    :class:`SetupPlayer` per player, in turn order. :func:`new_game` builds the first
+    state from it; building draws nothing.
+    """
+
+    end_year: int
+    score_weight: float
+    house_rules: Mapping[str, str]
+    players: tuple[SetupPlayer, ...]
+
+
+def roll_player(rng: Rng, setup: Mapping, name: str, gang_name: str) -> SetupPlayer:
+    """One player's rolls with no frame stopped late: :310-312 through :350, then :315.
+
+    The keyword :func:`new_game` rolls this way. Draw order: kraft, intelligenz,
+    brutalitaet, cash -- the setup handler's rolls stopped on their first frame draw the
+    same (KTD-2).
+    """
+    kraft = _roll_stat(rng, setup["stat_roll"])
+    intelligenz = _roll_stat(rng, setup["stat_roll"])
+    brutalitaet = _roll_stat(rng, setup["stat_roll"])
+    # :315's ``ifpeek(53247)=1thenka(i)=500000`` is a debug switch, not ported.
+    cash = _roll_stat(rng, setup["cash_roll"])
+    return SetupPlayer(name, gang_name, kraft, intelligenz, brutalitaet, cash)
+
+
 def new_game(
+    record: SetupRecord | None = None,
     *,
-    seed: int,
-    end_year: int,
-    score_weight: float,
-    players: list[tuple[str, str]],
+    seed: int | None = None,
+    end_year: int | None = None,
+    score_weight: float | None = None,
+    players: Sequence[tuple[str, str]] | None = None,
     house_rules: Mapping[str, str] | None = None,
     config_path: str | Path = _DEFAULT_CONFIG,
 ) -> GameState:
     """Build a fresh :class:`GameState` — the ported BASIC new-game setup.
+
+    Two paths share one state builder:
+
+    * ``new_game(record)`` builds the state from the setup handler's
+      :class:`SetupRecord` (``handlers/new_game.py``, the interactive setup). It draws
+      nothing; the keyword arguments other than ``config_path`` must be left out.
+    * ``new_game(seed=, end_year=, score_weight=, players=, house_rules=)`` rolls each
+      player's stats itself from one ``Rng(seed)`` (:func:`roll_player`), as if every
+      roll were stopped on its first frame.
 
     Parameters
     ----------
@@ -774,66 +901,63 @@ def new_game(
         ``state.config.house_rules``.
     config_path:
         Which ``config.yaml`` to assemble from.
-
-    The setup inputs (year/weight/name/gang/count) are taken as parameters, not
-    prompted — interactive prompting is the driver/client's job.
     """
     cfg = load_config(config_path)
     cfg_dir = Path(config_path).resolve().parent
     setup = cfg["setup"]
+    if record is None:
+        if seed is None or end_year is None or score_weight is None or players is None:
+            raise TypeError(
+                "new_game needs a setup record, or seed, end_year, score_weight and players"
+            )
+        check_players(players, cfg["input_ranges"])
+        rng = Rng(seed)
+        record = SetupRecord(
+            end_year=end_year,
+            score_weight=score_weight,
+            house_rules=_house_rules_map(cfg_dir, house_rules or {}),
+            players=tuple(roll_player(rng, setup, name, gang) for name, gang in players),
+        )
+    elif any(v is not None for v in (seed, end_year, score_weight, players, house_rules)):
+        raise TypeError("new_game takes a setup record or the setup keywords, not both")
+    return _build_state(record, cfg, cfg_dir)
+
+
+def _build_state(record: SetupRecord, cfg: Mapping, cfg_dir: Path) -> GameState:
+    """The first state from a setup record (shared by both :func:`new_game` paths)."""
+    setup = cfg["setup"]
     ranges = cfg["input_ranges"]
 
     # --- validate inputs (setup owns range validation) ---------------------
-    yr = ranges["end_year"]
-    if not (yr["min"] <= end_year <= yr["max"]):
-        raise ValueError(f"end_year must be in [{yr['min']}, {yr['max']}], got {end_year}")
-    sw = ranges["score_weight"]
-    if not (sw["min"] <= score_weight <= sw["max"]):
-        raise ValueError(f"score_weight must be in [{sw['min']}, {sw['max']}], got {score_weight}")
-    pc = ranges["player_count"]
-    if not (pc["min"] <= len(players) <= pc["max"]):
-        raise ValueError(f"player count must be in [{pc['min']}, {pc['max']}], got {len(players)}")
-    # :290-292, the input routine for both names (``:210``/``:215`` ``gosub290``):
-    # :291 ``ifx$=""orlen(x$)>13`` asks again for an empty name or one over 13 characters.
-    nl = ranges["name_length"]
-    for name in (text for player in players for text in player):
-        if not (nl["min"] <= len(name) <= nl["max"]):
-            raise ValueError(
-                f"a player or gang name must be {nl['min']} to {nl['max']} characters, got {name!r}"
-            )
+    check_end_year(record.end_year, ranges)
+    check_score_weight(record.score_weight, ranges)
+    check_players([(p.name, p.gang_name) for p in record.players], ranges)
+    chosen_rules = _house_rules_map(cfg_dir, record.house_rules)
+    # House rule intelligence_or_30: faithful stores the roll OR 30, intent the roll.
+    intelligence_as_rolled = chosen_rules.get(INTELLIGENCE_OR_30) == INTENT
 
     # --- entity tables -----------------------------------------------------
     vehicles = load_vehicles(cfg_dir / cfg["entities"]["vehicles"])
     start_vehicle = setup["start_vehicle"]
     start_ms = vehicles[start_vehicle]["tr"]  # ms = tr(vehicle); on foot tr(0)=25
 
-    rng = Rng(seed)
-    chosen_rules = _house_rules_map(cfg_dir, house_rules or {})
-    # House rule intelligence_or_30: faithful stores the roll OR 30, intent the roll.
-    intelligence_as_rolled = chosen_rules.get(INTELLIGENCE_OR_30) == INTENT
-
     game_players: list[Player] = []
-    for name, gang_name in players:
-        # Roll the starting gangster's stats — ALL via rng.
-        kraft = _roll_stat(rng, setup["stat_roll"])
-        raw_intel = _roll_stat(rng, setup["stat_roll"])
+    for rolled in record.players:
+        raw_intel = rolled.intelligenz
         # :311 `in=xor30` — the roll OR 30 (faithful), or the roll :350 printed (intent).
         intelligenz = raw_intel if intelligence_as_rolled else raw_intel | setup["intelligenz_or"]
-        brutalitaet = _roll_stat(rng, setup["stat_roll"])
-        cash = _roll_stat(rng, setup["cash_roll"])
-
         gangster = Gangster(
-            name=name,
+            name=rolled.name,  # :300 gn$(i,1)=sp$(i)
             weapon=0,
             energie=setup["start_energy"],  # fixed 5, not rolled
-            kraft=kraft,
+            kraft=rolled.kraft,
             intelligenz=intelligenz,
-            brutalitaet=brutalitaet,
+            brutalitaet=rolled.brutalitaet,
         )
         game_players.append(
             Player(
-                name=name,
-                ka=cash,
+                name=rolled.name,
+                ka=rolled.cash,
                 rank=setup["start_rank"],
                 po=setup["start_position"],
                 vehicle=start_vehicle,
@@ -842,7 +966,7 @@ def new_game(
                 # Every declared key at its default, then this player's own values.
                 values={
                     **SCHEMA.player_defaults(),
-                    "gang_name": gang_name,
+                    "gang_name": rolled.gang_name,
                     "nr": setup["start_nr"],
                 },
             )
@@ -851,14 +975,14 @@ def new_game(
     clock = Clock(
         year=setup["start_year"],  # ja=1925 (mf-prg.bas:1000), from config data
         month=0,
-        end_year=end_year,
+        end_year=record.end_year,
         active_player=0,
-        player_count=len(players),
+        player_count=len(record.players),
     )
     config = Config(
         # Passed as plain YAML dicts: Config deep-freezes them on construction. The
         # x8 score weight is a setup input, so it joins the static params here.
-        formula_params={**cfg["formula_params"], "score_mult": score_weight},
+        formula_params={**cfg["formula_params"], "score_mult": record.score_weight},
         house_rules=chosen_rules,
     )
 

@@ -189,6 +189,7 @@ __all__ = [
     "JAIL_HOOK_KEY",
     "ROADBLOCK_HOOK_KEY",
     "SPECIAL_CELL_HOOK_KEY",
+    "SETUP_HANDLER_KEY",
     # Screens
     "UPKEEP_SCREEN",
     "TURN_OVER_SCREEN",
@@ -269,6 +270,11 @@ ROADBLOCK_HOOK_KEY = "turn.roadblock"
 #: :data:`~engine.movement.ENTER_COST`), once, on the points the hook left, as a
 #: roadblock stop does; the runner re-reads movement points after it.
 SPECIAL_CELL_HOOK_KEY = "turn.special_cell"
+#: The new-game setup after the title screen, run before the runner starts (state is
+#: ``None`` then). Called with the setup values a caller already has as keyword
+#: arguments, it asks only for the rest and returns the config's setup record, which
+#: the config's ``new_game`` turns into the first state; it applies no effects.
+SETUP_HANDLER_KEY = "game.setup"
 
 # --------------------------------------------------------------------------- #
 # Screens the runner yields itself                                             #

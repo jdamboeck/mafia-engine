@@ -44,6 +44,7 @@ from engine.interactions import (  # noqa: E402
 from engine.strings import Resolver  # noqa: E402
 from engine.movement import DOWN, load_city  # noqa: E402
 from clients.terminal import (  # noqa: E402
+    CLEAR,
     CONFIG_DIR,
     CURSOR_HIDE,
     CURSOR_SHOW,
@@ -54,7 +55,11 @@ from clients.terminal import (  # noqa: E402
     render_message,
 )
 from clients.terminal.palette import ColorSupport, Colors, load_palette  # noqa: E402
-from tests.helpers import NEW_GAME_ACKS, deadline, make_walk_script  # noqa: E402
+from tests.helpers import NEW_GAME_ACKS, SOLO, deadline, make_walk_script  # noqa: E402
+
+#: ``--player`` for :data:`~tests.helpers.SOLO`: a ``main()`` run that names its player
+#: is asked no player count and no names (its script is :data:`NEW_GAME_ACKS`).
+_SOLO_ARGS = ["--player", ":".join(SOLO[0])]
 
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 
@@ -327,7 +332,7 @@ def test_the_map_loop_adopts_the_moved_state_and_renders_it(monkeypatch):
     monkeypatch.setattr(sys, "stdin", make_walk_script(["s", "q"]))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(20.0, "play() did not return (EOF spin?)", exc_type=AssertionError):
-        final, _rng = play(seed=42, end_year=1930, score_weight=1.0)
+        final, _rng = play(seed=42, end_year=1930, score_weight=1.0, players=SOLO)
     # One real step happened and the client adopted the new pure state (po moved, ms spent).
     assert final.players[0].po == after.po
     assert final.players[0].ms == before.ms - 1
@@ -351,12 +356,14 @@ _SCORE_WEIGHT_PROMPT = "punktewertigkeit (0.1 - 2):"
 def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, **play_kwargs):
     """Drive the real ``play()`` over EXACT stdin text; return (its state, stdout).
 
-    After setup the first upkeep screen and the map each read a line; the script
-    ends there, so both meet EOF (an ack, then a quit) and ``play()`` returns the
-    state of the game setup just built -- ``None`` if the session ended before setup
-    finished. A SIGALRM deadline turns a re-prompt spin into a failure instead of a
-    hung suite.
+    The game is :data:`~tests.helpers.SOLO`'s unless ``players`` is given. After
+    setup the eigenschaften screen, the first upkeep screen and the turn menu each read
+    a line; the script ends there, so they meet EOF (acks, then a quit) and ``play()``
+    returns the state of the game setup just built -- ``None`` if the session ended
+    before setup finished. A SIGALRM deadline turns a re-prompt spin into a failure
+    instead of a hung suite.
     """
+    play_kwargs.setdefault("players", SOLO)
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdin", io.StringIO(stdin_text))
     monkeypatch.setattr(sys, "stdout", out)
@@ -443,17 +450,20 @@ class TestSetupFlags:
         return out.getvalue(), load_game(save, load_game_config(CONFIG_DIR).registries).state
 
     def test_flags_reach_play(self, monkeypatch, tmp_path):
-        # title ack, house-rules offer, upkeep ack, p, q -- no setup answers: the flags
-        # supply them.
+        # title ack, house-rules offer, eigenschaften key, upkeep ack, p, q -- no setup
+        # answers: the flags supply them.
         text, state = self._main(
-            monkeypatch, tmp_path, ["--end-year", "1950", "--score-weight", "1.5"], "\n\n\np\nq\n"
+            monkeypatch,
+            tmp_path,
+            [*_SOLO_ARGS, "--end-year", "1950", "--score-weight", "1.5"],
+            "\n\n\n\np\nq\n",
         )
         assert _END_YEAR_PROMPT not in text and _SCORE_WEIGHT_PROMPT not in text
         assert state.clock.end_year == 1950
         assert state.config.formula_params["score_mult"] == 1.5
 
     def test_absent_flags_are_asked_at_setup(self, monkeypatch, tmp_path):
-        text, state = self._main(monkeypatch, tmp_path, [], "\n1940\n0.5\n\n\np\nq\n")
+        text, state = self._main(monkeypatch, tmp_path, _SOLO_ARGS, "\n1940\n0.5\n\n\n\np\nq\n")
         assert text.count(_END_YEAR_PROMPT) == 1 and text.count(_SCORE_WEIGHT_PROMPT) == 1
         assert state.clock.end_year == 1940
         assert state.config.formula_params["score_mult"] == 0.5
@@ -641,7 +651,7 @@ class TestClientErrorGuard:
             sys, "stdin", _FailingStdin([*NEW_GAME_ACKS, "2"], RuntimeError("deep bug"))
         )
         with pytest.raises(RuntimeError, match="deep bug") as exc:
-            main(["--end-year", "1930", "--score-weight", "1"])
+            main([*_SOLO_ARGS, "--end-year", "1930", "--score-weight", "1"])
         assert any(entry.name == "readline" for entry in exc.traceback), "not stdin's error"
         assert capsys.readouterr().err == ""
 
@@ -649,7 +659,7 @@ class TestClientErrorGuard:
         # Ctrl-C at the first map prompt of a new game (title, house rules, upkeep acked).
         monkeypatch.setattr(sys, "stdin", _FailingStdin([*NEW_GAME_ACKS, "2"], KeyboardInterrupt()))
         with pytest.raises(SystemExit) as exc:
-            main(["--end-year", "1930", "--score-weight", "1"])
+            main([*_SOLO_ARGS, "--end-year", "1930", "--score-weight", "1"])
         assert exc.value.code == 130
         captured = capsys.readouterr()
         assert captured.err == ""
@@ -782,7 +792,7 @@ class TestWatchAi:
         monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(keys) + "\n"))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(20, "main() did not return (spin?)", exc_type=AssertionError):
-            main([*argv, "--seed", "5", "--end-year", "1930", "--score-weight", "1"])
+            main([*argv, *_SOLO_ARGS, "--seed", "5", "--end-year", "1930", "--score-weight", "1"])
         return out.getvalue()
 
     def test_watch_ai_shows_the_board_after_each_cpu_move_in_a_real_fight(self, monkeypatch):
@@ -842,7 +852,8 @@ class TestClientTextComesFromTheTheme:
             assert resolver.resolve(key, params).strip(), key
 
     def test_a_theme_path_changes_what_a_quit_prints(self, monkeypatch):
-        argv = ["--theme", str(self._TEST_THEME), "--end-year", "1930", "--score-weight", "1"]
+        argv = ["--theme", str(self._TEST_THEME), *_SOLO_ARGS, "--end-year", "1930"]
+        argv += ["--score-weight", "1"]
         text = self._main(monkeypatch, argv, [*NEW_GAME_ACKS, "2", "q"])
         assert "ciao." in text and "bye." not in text
         assert "walk on." in text and "move: W/A/S/D" not in text
@@ -854,7 +865,7 @@ class TestClientTextComesFromTheTheme:
 
         # Walk the first turn to its turn-over screen and quit there.
         walk = burn_turn_keys(42, turns=1)[:-3]
-        argv = ["--theme", str(self._TEST_THEME), "--seed", "42", "--end-year", "1930"]
+        argv = ["--theme", str(self._TEST_THEME), *_SOLO_ARGS, "--seed", "42", "--end-year", "1930"]
         text = self._main(
             monkeypatch, [*argv, "--score-weight", "1"], [*NEW_GAME_ACKS, "2", *walk, "q"]
         )
@@ -884,11 +895,13 @@ class TestClientTextComesFromTheTheme:
     def test_the_default_theme_is_classic(self, monkeypatch):
         by_name = self._main(
             monkeypatch,
-            ["--theme", "classic", "--end-year", "1930", "--score-weight", "1"],
-            ["", "", "2", "q"],
+            ["--theme", "classic", *_SOLO_ARGS, "--end-year", "1930", "--score-weight", "1"],
+            [*NEW_GAME_ACKS, "q"],
         )
         default = self._main(
-            monkeypatch, ["--end-year", "1930", "--score-weight", "1"], ["", "", "2", "q"]
+            monkeypatch,
+            [*_SOLO_ARGS, "--end-year", "1930", "--score-weight", "1"],
+            [*NEW_GAME_ACKS, "q"],
         )
         assert by_name == default
         assert "bye." in default
@@ -911,7 +924,7 @@ class TestThemeSelection:
     theme's palette colours the screens; colour support is read once per session."""
 
     _TEST_THEME = TestClientTextComesFromTheTheme._TEST_THEME
-    _NEW_GAME = ["--end-year", "1930", "--score-weight", "1"]
+    _NEW_GAME = [*_SOLO_ARGS, "--end-year", "1930", "--score-weight", "1"]
     _TOP_BORDER = "╔" + "═" * 40 + "╗"
 
     @staticmethod
@@ -935,10 +948,10 @@ class TestThemeSelection:
     ):
         (tmp_path / "classic").mkdir()
         monkeypatch.chdir(tmp_path)
-        default = self._main(monkeypatch, self._NEW_GAME, ["", "", "2", "q"])
+        default = self._main(monkeypatch, self._NEW_GAME, [*NEW_GAME_ACKS, "q"])
         assert default.endswith("bye.\n" + CURSOR_SHOW)
         by_name = self._main(
-            monkeypatch, ["--theme", "classic", *self._NEW_GAME], ["", "", "2", "q"]
+            monkeypatch, ["--theme", "classic", *self._NEW_GAME], [*NEW_GAME_ACKS, "q"]
         )
         assert by_name == default
 
@@ -946,7 +959,9 @@ class TestThemeSelection:
         """``.mytheme`` has no separator; the leading dot alone makes it a path."""
         (tmp_path / ".mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
         monkeypatch.chdir(tmp_path)
-        text = self._main(monkeypatch, ["--theme", ".mytheme", *self._NEW_GAME], ["", "", "2", "q"])
+        text = self._main(
+            monkeypatch, ["--theme", ".mytheme", *self._NEW_GAME], [*NEW_GAME_ACKS, "q"]
+        )
         assert text.endswith("ciao.\n" + CURSOR_SHOW)
 
     @pytest.mark.parametrize("value", ["~", "~/mytheme"])
@@ -957,7 +972,7 @@ class TestThemeSelection:
         home.mkdir()
         (home / "mytheme").symlink_to(self._TEST_THEME, target_is_directory=True)
         monkeypatch.setenv("HOME", str(home / "mytheme") if value == "~" else str(home))
-        text = self._main(monkeypatch, ["--theme", value, *self._NEW_GAME], ["", "", "2", "q"])
+        text = self._main(monkeypatch, ["--theme", value, *self._NEW_GAME], [*NEW_GAME_ACKS, "q"])
         assert text.endswith("ciao.\n" + CURSOR_SHOW)
 
     def test_a_theme_file_with_a_list_root_is_one_readable_line(self, tmp_path, capsys):
@@ -1050,18 +1065,19 @@ class TestThemeSelection:
 
             def readline(self, *args):
                 FlipAtFirstMapKey.reads += 1
-                # 1 title, 2 house rules, 3 upkeep, 4 the turn menu (walk), 5 first map key
-                if FlipAtFirstMapKey.reads == 5:
+                # 1 title, 2 house rules, 3 eigenschaften, 4 upkeep, 5 the turn menu
+                # (walk), 6 first map key
+                if FlipAtFirstMapKey.reads == 6:
                     monkeypatch.setenv("COLORTERM", "truecolor")
                 return super().readline(*args)
 
         out = io.StringIO()
-        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\n\n2\nx\nx\nq\n"))
+        monkeypatch.setattr(sys, "stdin", FlipAtFirstMapKey("\n\n\n\n2\nx\nx\nq\n"))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(20, "main() did not return", exc_type=AssertionError):
             main(self._NEW_GAME)
         first = out.getvalue()
-        assert FlipAtFirstMapKey.reads >= 7, "the script did not reach the later map frames"
+        assert FlipAtFirstMapKey.reads >= 8, "the script did not reach the later map frames"
         _ansi = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
         frames = [line for line in first.split("\n") if _ansi.sub("", line) == self._TOP_BORDER]
         assert len(frames) == 3, "expected three map frames: before and after the flip"
@@ -1070,3 +1086,254 @@ class TestThemeSelection:
 
         second = self._main(monkeypatch, self._NEW_GAME, [*NEW_GAME_ACKS, "2", "q"])
         assert "\033[38;2;" in second and "\033[38;5;" not in second
+
+
+# --------------------------------------------------------------------------- #
+# Multiplayer setup (U3 of the multiplayer-setup plan): a plain start asks the  #
+# player count (:205-206), each player's name and gang name (:210-215,          #
+# :290-292) and runs each player's eigenschaften screen (:300-316). The setup   #
+# handler asks; the client only draws it.                                       #
+# --------------------------------------------------------------------------- #
+_COUNT_PROMPT = "spieleranzahl:"
+_EIGENSCHAFTEN = "eigenschaften:"
+#: The flags that pre-fill the end year and the score weight (the players stay asked).
+_SETUP_FLAGS = ["--end-year", "1930", "--score-weight", "1"]
+
+
+def _name_prompt(number: int) -> str:
+    return _resolver().resolve("setup.player_name_prompt", {"number": number})
+
+
+def _stopped_rolls(text: str) -> list[tuple[int, int, int]]:
+    """``(kraft, intelligenz, brutalitaet)`` each eigenschaften screen kept, in order.
+
+    A roll's kept frame is the one its line ends on: a frame the roll went past is
+    redrawn in place (no line break after it). The labels come from the theme.
+    """
+    plain = re.sub(r"\033\[[0-9;?]*[A-Za-z]", "", text)
+    kept = {}
+    for stat in ("kraft", "intelligenz", "brutalitaet"):
+        label = _resolver().resolve(f"setup.roll.{stat}", {"value": 98765}).split("98765")[0]
+        frames = re.findall(re.escape(label.strip()) + r" *(\d+) *\n", plain)
+        kept[stat] = [int(v) for v in frames]
+    return list(zip(kept["kraft"], kept["intelligenz"], kept["brutalitaet"]))
+
+
+def _stats(player) -> tuple[int, int, int]:
+    attrs = player.roster[0].attrs
+    return attrs["kraft"], attrs["intelligenz"], attrs["brutalitaet"]
+
+
+class TestMultiplayerSetup:
+    """A plain start sets up a hot-seat game through the source's setup screens."""
+
+    @staticmethod
+    def _main(monkeypatch, tmp_path, argv, lines, *, name="s.jsonl"):
+        """``main(argv + --save)`` over exactly ``lines``; return stdout and the save
+        (``None`` when nothing was saved)."""
+        from engine.config_loader import load_game_config
+        from engine.persistence import load_game
+
+        save = tmp_path / name
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(30, "main() did not return (a re-ask spin?)", exc_type=AssertionError):
+            main([*argv, "--save", str(save)])
+        loaded = load_game(save, load_game_config(CONFIG_DIR).registries) if save.exists() else None
+        return out.getvalue(), loaded
+
+    #: Two players asked: title, house-rules offer, the count, then per player the
+    #: name, the gang name and the eigenschaften key; then the first upkeep.
+    _TWO_ASKED = ["", "", "2", "anna", "die bande", "", "bert", "das syndikat", "", ""]
+
+    def test_two_asked_players_both_take_turns(self, monkeypatch, tmp_path):
+        """Covers AE1: the count and both names are asked; both players play the round."""
+        # At anna's turn menu: 4 (next player), then acks until bert's menu, where p saves.
+        lines = [*self._TWO_ASKED, "4", "x", "x", "p", "q"]
+        text, loaded = self._main(monkeypatch, tmp_path, ["--seed", "3", *_SETUP_FLAGS], lines)
+        assert text.count(_COUNT_PROMPT) == 1
+        assert _name_prompt(1) in text and _name_prompt(2) in text
+        assert text.count(_EIGENSCHAFTEN) == 2
+        assert "anna - die bande" in text and "bert - das syndikat" in text
+        assert text.index("anna - die bande") < text.index("bert - das syndikat")
+        assert loaded is not None, "the game never reached bert's turn menu"
+        state = loaded.state
+        assert [p.name for p in state.players] == ["anna", "bert"]
+        assert state.clock.active_player == 1
+
+    def test_the_stats_shown_are_the_stats_played(self, monkeypatch, tmp_path):
+        """Covers AE1: what each eigenschaften screen kept is what the game holds, and
+        anna's overview shows it (intelligenz as :311 ``in=xor30`` keeps it)."""
+        # anna's overview (its pages acked; a spare x at the menu is ignored), then save.
+        lines = [*self._TWO_ASKED, "1", "x", "x", "x", "p", "q"]
+        text, loaded = self._main(monkeypatch, tmp_path, ["--seed", "3", *_SETUP_FLAGS], lines)
+        shown = _stopped_rolls(text)
+        assert len(shown) == 2, "expected two eigenschaften screens"
+        assert loaded is not None
+        for (kraft, intel, brut), player in zip(shown, loaded.state.players):
+            assert _stats(player) == (kraft, intel | 30, brut)  # faithful :311
+        kraft, intel, brut = shown[0]
+        overview = _resolver().resolve(
+            "turn.overview.gangster",
+            {
+                "name": "anna",
+                "energie": 5,
+                "kraft": kraft,
+                "intelligenz": intel | 30,
+                "brutalitaet": brut,
+                "weapon": "",
+            },
+        )
+        # The stats line without its energie (upkeep has raised that by the overview).
+        stats_line = overview.split("\n")[1].split(" ", 1)[1]
+        assert stats_line in re.sub(r"\033\[[0-9;?]*[A-Za-z]", "", text)
+        for cash, player in zip(re.findall(r"kapital: *(\d+) *\$", text), loaded.state.players):
+            assert int(cash) == player.ka
+
+    def test_same_seed_same_starting_stats_as_new_game(self, monkeypatch, tmp_path):
+        """Covers AE2: piped rolls stop on their first frame -- two runs of a seed set
+        up the same players, and the same as ``new_game(seed=...)``."""
+        from engine.config_loader import load_game_config
+
+        lines = [*self._TWO_ASKED, "p", "q"]
+        argv = ["--seed", "7", *_SETUP_FLAGS]
+        _, first = self._main(monkeypatch, tmp_path, argv, lines, name="a.jsonl")
+        _, second = self._main(monkeypatch, tmp_path, argv, lines, name="b.jsonl")
+        assert first is not None and second is not None
+        expected = load_game_config(CONFIG_DIR).module.new_game(
+            seed=7,
+            end_year=1930,
+            score_weight=1.0,
+            players=[("anna", "die bande"), ("bert", "das syndikat")],
+        )
+        for state in (first.state, second.state):
+            assert [(_stats(p), p.ka) for p in state.players] == [
+                (_stats(p), p.ka) for p in expected.players
+            ]
+
+    def test_player_flags_skip_the_count_and_names_not_the_eigenschaften(
+        self, monkeypatch, tmp_path
+    ):
+        """Covers AE3: ``--player`` twice asks no count and no name, and still shows both
+        eigenschaften screens."""
+        argv = ["--player", "a:x", "--player", "b:y", *_SETUP_FLAGS]
+        text, loaded = self._main(monkeypatch, tmp_path, argv, ["", "", "", "", "", "p", "q"])
+        assert _COUNT_PROMPT not in text
+        assert (
+            _name_prompt(1) not in text
+            and _resolver().resolve("setup.gang_name_prompt") not in text
+        )
+        assert text.count(_EIGENSCHAFTEN) == 2
+        assert loaded is not None
+        assert [p.name for p in loaded.state.players] == ["a", "b"]
+        # Each screen keeps its stats on screen up to its key wait (:316 goto1100): no
+        # clear between the title and the "press any key" line, and all five lines in it.
+        press = _resolver().resolve("client.press_any_key")
+        for start in [m.start() for m in re.finditer(_EIGENSCHAFTEN, text)]:
+            screen = text[start : text.index(press, start)]
+            assert CLEAR not in screen, "the eigenschaften screen was cleared before its key"
+            for line in ("kraft:", "intelligenz:", "brutalitaet:", "energie:", "kapital:"):
+                assert line in screen
+
+    def test_a_bad_count_and_a_long_name_are_asked_again(self, monkeypatch, tmp_path):
+        """:206 asks the count again below 1 or above 4; :291 the name over 13 characters."""
+        lines = ["", "", "0", "5", "1", "a" * 14, "anna", "die bande", "", "", "p", "q"]
+        text, loaded = self._main(monkeypatch, tmp_path, _SETUP_FLAGS, lines)
+        assert text.count(_COUNT_PROMPT) == 3
+        assert text.count(_name_prompt(1)) == 2
+        assert loaded is not None
+        assert [p.name for p in loaded.state.players] == ["anna"]
+
+    def test_piped_rolls_read_no_input(self, monkeypatch, tmp_path):
+        """Exactly the listed answers reach anna's overview: a roll that read a line
+        would swallow an answer and the overview would never open."""
+        lines = ["", "", "1", "anna", "die bande", "", "", "1"]
+        text, _ = self._main(monkeypatch, tmp_path, _SETUP_FLAGS, lines)
+        assert _resolver().resolve("turn.overview.title", {"name": "anna"}) in text
+
+    def test_a_save_of_an_asked_game_loads_and_plays_on(self, monkeypatch, tmp_path):
+        """R8: a save from the first turn of an interactively set-up game resumes."""
+        from engine.movement import try_move
+
+        lines = ["", "", "1", "anna", "die bande", "", "", "p", "q"]
+        _, saved = self._main(monkeypatch, tmp_path, ["--seed", "3", *_SETUP_FLAGS], lines)
+        assert saved is not None
+        start = saved.state.players[0]
+        city = load_city(_yaml_load(_CITY_YAML))
+        step_key = next(
+            key
+            for key, delta in {"s": DOWN}.items()
+            if getattr(try_move(saved.state, city, delta).payload, "kind", None) == "step"
+        )
+        out = io.StringIO()
+        monkeypatch.setattr(sys, "stdin", io.StringIO(f"2\n{step_key}\nq\n"))
+        monkeypatch.setattr(sys, "stdout", out)
+        with deadline(30, "play() did not return", exc_type=AssertionError):
+            state, _rng = play(load=str(tmp_path / "s.jsonl"))
+        assert state.players[0].name == "anna"
+        assert state.players[0].ms == start.ms - 1, "the loaded game did not play on"
+        assert _stats(state.players[0]) == _stats(start)
+
+    def test_rolls_stopped_late_save_load_and_replay(self, monkeypatch, tmp_path):
+        """R8: rolls stopped on later frames are what the save holds, and the replay of
+        the save reaches the same starting stats.
+
+        The client's roll seam (``_roll_key_pressed``) stands in for the keyboard: the
+        key comes on each roll's third frame.
+        """
+        from engine.config_loader import load_game_config
+        from engine.persistence import replay
+
+        import clients.terminal.session as session
+
+        frames = iter(([False, False, True] * 3) * 2)
+        monkeypatch.setattr(session, "_roll_key_pressed", lambda: next(frames))
+        text, loaded = self._main(
+            monkeypatch, tmp_path, ["--seed", "3", *_SETUP_FLAGS], [*self._TWO_ASKED, "p", "q"]
+        )
+        assert next(frames, None) is None, "not every roll ran to its third frame"
+        shown = _stopped_rolls(text)
+        assert len(shown) == 2
+        assert loaded is not None
+        played = [_stats(p) for p in loaded.state.players]
+        assert played == [(k, i | 30, b) for k, i, b in shown]
+        cfg = load_game_config(CONFIG_DIR)
+        assert [_stats(p) for p in replay(loaded, cfg.registries).players] == played
+        first_frames = cfg.module.new_game(
+            seed=3,
+            end_year=1930,
+            score_weight=1.0,
+            players=[("anna", "die bande"), ("bert", "das syndikat")],
+        )
+        assert played != [_stats(p) for p in first_frames.players], "late stops changed nothing"
+
+
+def test_the_client_holds_no_setup_rule_or_roll_formula():
+    """R7: the name rule, the ranges and the roll formulas are the config's; the
+    client only draws setup. A pattern per rule the client once held (or could)."""
+    sources = {
+        path: path.read_text(encoding="utf-8")
+        for path in (_CONFIG_DIR.parents[2] / "clients").rglob("*.py")
+    }
+    session = (_CONFIG_DIR.parents[2] / "clients" / "terminal" / "session.py").read_text(
+        encoding="utf-8"
+    )
+    forbidden_everywhere = [
+        r"len\([^)]*\)\s*[<>]=?\s*13\b",  # :291 len(x$)>13
+        r"\b13\s*[<>]=?\s*len\(",
+        r"stat_roll|cash_roll|start_energy|intelligenz_or",  # the roll data's keys
+        r"\*\s*5\s*\+\s*10\b|\*\s*500\s*\+\s*5000\b",  # :350 / :315 formulas
+        r"\b_roll_stat\b|\bname_fits\b|\bparse_setup_number\b",
+    ]
+    for pattern in forbidden_everywhere:
+        hits = [str(p) for p, text in sources.items() if re.search(pattern, text)]
+        assert hits == [], f"{pattern!r} in {hits}"
+    for pattern in (
+        r"name_length",
+        r"[\"']player_count[\"']",
+        r"input_ranges",
+        r"\.range\(",
+        r"\.hit\(",
+    ):
+        assert re.search(pattern, session) is None, f"session.py holds {pattern!r}"

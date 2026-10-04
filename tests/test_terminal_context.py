@@ -21,7 +21,7 @@ from clients.terminal import (
     play,
     show_cursor,
 )
-from tests.helpers import NEW_GAME_ACKS, deadline
+from tests.helpers import NEW_GAME_ACKS, SOLO, deadline
 
 
 def _buf() -> io.StringIO:
@@ -160,10 +160,11 @@ class TestResizeOnTheMap:
     redraws the map with the resized note and drops that key (it was typed into
     a screen the player could no longer see)."""
 
-    # Title ack, the house-rules offer, upkeep ack, the turn menu's walk, then the map's
-    # first key: one step down (the start cell has walls left, right and above).
+    # Title ack, the house-rules offer, the eigenschaften key, upkeep ack, the turn
+    # menu's walk, then the map's first key: one step down (the start cell has walls
+    # left, right and above).
     _MOVE = [*NEW_GAME_ACKS, "2", "s"]
-    _MAP_READ = 5
+    _MAP_READ = 6
     _RESIZED_NOTE = " resized"  # client.map.resized in the classic theme
 
     def _play(self, monkeypatch, lines: list[str], resize_at: int | None = None):
@@ -171,7 +172,7 @@ class TestResizeOnTheMap:
         monkeypatch.setattr(sys, "stdin", _ResizingStdin(lines, resize_at))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(20.0, "play() did not return (EOF spin?)", exc_type=AssertionError):
-            state, _rng = play(seed=42, end_year=1930, score_weight=1)
+            state, _rng = play(seed=42, end_year=1930, score_weight=1, players=SOLO)
         return state, out.getvalue()
 
     def test_resize_redraws_the_map_and_drops_the_key(self, monkeypatch) -> None:

@@ -4,260 +4,265 @@
 # the line before the next start. `ported`: code in engine/, data/, clients/ or tools/
 # cites a line of the block (the checker finds the citations; none are listed here).
 # `exception`: the port leaves the block out, for the category and reason given.
+# `player_facing`: the block prints, prompts (input/get) or waits for a key (wait198),
+# outside strings and rems; then a ported block also needs a citation where its text is
+# shown (a theme's strings/*.yaml or clients/), or `screen: deferred` with a
+# `screen_reason` naming the issue that will show it.
 # Checked by tests/test_coverage_ledger.py; the boundaries are committed so the
 # citation checks run without ../research/ (CI). Regenerate the boundaries only by
 # hand-merging: a status is a decision, not a derivation.
 blocks:
-  - {start: 1, end: 11, status: exception, category: hardware,
+  - {start: 1, end: 11, player_facing: false, status: exception, category: hardware,
      reason: "Boot: :1 disables RUN/STOP unless the char set is loaded, :10-11 loads the character set mf-zeichen from disk (the load re-runs the program). Disk and machine setup; the port has its own renderer."}
-  - {start: 20, end: 30, status: ported}
-  - {start: 100, end: 153, status: ported}
-  - {start: 154, end: 155, status: ported}
-  - {start: 170, end: 172, status: ported}
-  - {start: 175, end: 199, status: ported}
-  - {start: 200, end: 200, status: exception, category: dead,
+  - {start: 20, end: 30, player_facing: false, status: ported}
+  - {start: 100, end: 153, player_facing: true, status: ported}
+  - {start: 154, end: 155, player_facing: true, status: ported}
+  - {start: 170, end: 172, player_facing: true, status: ported}
+  - {start: 175, end: 199, player_facing: true, status: ported}
+  - {start: 200, end: 200, player_facing: false, status: exception, category: dead,
      reason: "A remark the :30 gosub200 lands on; it falls through to :205, the player-count prompt."}
-  - {start: 205, end: 220, status: ported}
-  - {start: 290, end: 292, status: ported}
-  - {start: 300, end: 316, status: ported}
-  - {start: 350, end: 360, status: ported}
-  - {start: 1000, end: 1000, status: ported}
-  - {start: 1010, end: 1013, status: ported}
-  - {start: 1015, end: 1022, status: ported}
-  - {start: 1030, end: 1050, status: ported}
-  - {start: 1100, end: 1100, status: ported}
-  - {start: 1110, end: 1110, status: ported}
-  - {start: 1115, end: 1120, status: ported}
-  - {start: 1125, end: 1125, status: ported}
-  - {start: 1130, end: 1140, status: ported}
-  - {start: 1145, end: 1155, status: ported}
-  - {start: 1160, end: 1165, status: ported}
-  - {start: 1190, end: 1191, status: exception, category: sound,
+  - {start: 205, end: 220, player_facing: true, status: ported}
+  - {start: 290, end: 292, player_facing: true, status: ported}
+  - {start: 300, end: 316, player_facing: true, status: ported}
+  - {start: 350, end: 360, player_facing: true, status: ported}
+  - {start: 1000, end: 1000, player_facing: false, status: ported}
+  - {start: 1010, end: 1013, player_facing: false, status: ported}
+  - {start: 1015, end: 1022, player_facing: true, status: ported}
+  - {start: 1030, end: 1050, player_facing: true, status: ported}
+  - {start: 1100, end: 1100, player_facing: true, status: ported}
+  - {start: 1110, end: 1110, player_facing: true, status: ported}
+  - {start: 1115, end: 1120, player_facing: true, status: ported}
+  - {start: 1125, end: 1125, player_facing: true, status: ported}
+  - {start: 1130, end: 1140, player_facing: true, status: ported}
+  - {start: 1145, end: 1155, player_facing: true, status: ported}
+  - {start: 1160, end: 1165, player_facing: false, status: ported}
+  - {start: 1190, end: 1191, player_facing: false, status: exception, category: sound,
      reason: "Silences the SID voices (gate, volume and envelope registers). The port has no sound."}
-  - {start: 1200, end: 1222, status: ported}
-  - {start: 1225, end: 1245, status: ported}
-  - {start: 1300, end: 1320, status: ported}
-  - {start: 1350, end: 1360, status: ported}
-  - {start: 1365, end: 1380, status: ported}
-  - {start: 1385, end: 1390, status: ported}
-  - {start: 1400, end: 1410, status: exception, category: screen,
+  - {start: 1200, end: 1222, player_facing: true, status: ported}
+  - {start: 1225, end: 1245, player_facing: true, status: ported}
+  - {start: 1300, end: 1320, player_facing: true, status: ported}
+  - {start: 1350, end: 1360, player_facing: false, status: ported}
+  - {start: 1365, end: 1380, player_facing: false, status: ported}
+  - {start: 1385, end: 1390, player_facing: false, status: ported}
+  - {start: 1400, end: 1410, player_facing: true, status: exception, category: screen,
      reason: "Erases three rows of the combat panel at column x (:1405) and puts the cursor back (:1410). Screen only; the port redraws its panel."}
-  - {start: 1450, end: 1450, status: exception, category: screen,
+  - {start: 1450, end: 1450, player_facing: true, status: exception, category: screen,
      reason: "Erases the combat message row (row 14). Screen only; the port's messages are separate screens."}
-  - {start: 1500, end: 1515, status: ported}
-  - {start: 2000, end: 2003, status: ported}
-  - {start: 2005, end: 2006, status: ported}
-  - {start: 2010, end: 2029, status: ported}
-  - {start: 2030, end: 2042, status: ported}
-  - {start: 2045, end: 2055, status: ported}
-  - {start: 2060, end: 2065, status: ported}
-  - {start: 3000, end: 3006, status: ported}
-  - {start: 3007, end: 3008, status: ported}
-  - {start: 3010, end: 3012, status: ported}
-  - {start: 3015, end: 3035, status: ported}
-  - {start: 3040, end: 3040, status: ported}
-  - {start: 3045, end: 3105, status: ported}
-  - {start: 3110, end: 3110, status: ported}
-  - {start: 4000, end: 4046, status: ported}
-  - {start: 4050, end: 4090, status: ported}
-  - {start: 4200, end: 4220, status: ported}
-  - {start: 4300, end: 4309, status: ported}
-  - {start: 4350, end: 4370, status: ported}
-  - {start: 4400, end: 4406, status: ported}
-  - {start: 4410, end: 4420, status: ported}
-  - {start: 4500, end: 4515, status: ported}
-  - {start: 4600, end: 4620, status: ported}
-  - {start: 4650, end: 4652, status: ported}
-  - {start: 5000, end: 5010, status: ported}
-  - {start: 6000, end: 6020, status: ported}
-  - {start: 6025, end: 6025, status: ported}
-  - {start: 6030, end: 6030, status: ported}
-  - {start: 6035, end: 6036, status: ported}
-  - {start: 10000, end: 10005, status: ported}
-  - {start: 10010, end: 10010, status: ported}
-  - {start: 10020, end: 10020, status: ported}
-  - {start: 10025, end: 10045, status: ported}
-  - {start: 10100, end: 10105, status: ported}
-  - {start: 12000, end: 12000, status: ported}
-  - {start: 12005, end: 12005, status: ported}
-  - {start: 12010, end: 12016, status: ported}
-  - {start: 12020, end: 12025, status: ported}
-  - {start: 12027, end: 12035, status: ported}
-  - {start: 12050, end: 12056, status: ported}
-  - {start: 12060, end: 12070, status: ported}
-  - {start: 12075, end: 12075, status: ported}
-  - {start: 12100, end: 12102, status: ported}
-  - {start: 12103, end: 12104, status: ported}
-  - {start: 12105, end: 12108, status: ported}
-  - {start: 12110, end: 12113, status: ported}
-  - {start: 12115, end: 12116, status: ported}
-  - {start: 12120, end: 12121, status: ported}
-  - {start: 12125, end: 12170, status: ported}
-  - {start: 12175, end: 12175, status: ported}
-  - {start: 12200, end: 12205, status: ported}
-  - {start: 12210, end: 12226, status: ported}
-  - {start: 12230, end: 12231, status: ported}
-  - {start: 12235, end: 12236, status: ported}
-  - {start: 12240, end: 12242, status: ported}
-  - {start: 12245, end: 12249, status: ported}
-  - {start: 12250, end: 12252, status: ported}
-  - {start: 12300, end: 12301, status: ported}
-  - {start: 12302, end: 12305, status: ported}
-  - {start: 12306, end: 12308, status: ported}
-  - {start: 12310, end: 12311, status: ported}
-  - {start: 12315, end: 12316, status: ported}
-  - {start: 12320, end: 12322, status: ported}
-  - {start: 12330, end: 12335, status: ported}
-  - {start: 13000, end: 13005, status: ported}
-  - {start: 13010, end: 13015, status: ported}
-  - {start: 13020, end: 13025, status: ported}
-  - {start: 13035, end: 13073, status: ported}
-  - {start: 13075, end: 13080, status: ported}
-  - {start: 13090, end: 13091, status: ported}
-  - {start: 13100, end: 13105, status: ported}
-  - {start: 13106, end: 13107, status: ported}
-  - {start: 13110, end: 13130, status: ported}
-  - {start: 13150, end: 13175, status: ported}
-  - {start: 13500, end: 13525, status: ported}
-  - {start: 14000, end: 14005, status: ported}
-  - {start: 14006, end: 14015, status: ported}
-  - {start: 14020, end: 14047, status: ported}
-  - {start: 14050, end: 14052, status: ported}
-  - {start: 14100, end: 14117, status: ported}
-  - {start: 14118, end: 14118, status: ported}
-  - {start: 14120, end: 14131, status: ported}
-  - {start: 15000, end: 15005, status: ported}
-  - {start: 15010, end: 15010, status: ported}
-  - {start: 15015, end: 15030, status: ported}
-  - {start: 15050, end: 15070, status: ported}
-  - {start: 15075, end: 15075, status: ported}
-  - {start: 15100, end: 15108, status: ported}
-  - {start: 15110, end: 15125, status: ported}
-  - {start: 15150, end: 15155, status: ported}
-  - {start: 15200, end: 15200, status: ported}
-  - {start: 15205, end: 15220, status: ported}
-  - {start: 15300, end: 15306, status: ported}
-  - {start: 15310, end: 15321, status: ported}
-  - {start: 16000, end: 16011, status: ported}
-  - {start: 16015, end: 16035, status: ported}
-  - {start: 16040, end: 16040, status: ported}
-  - {start: 17000, end: 17006, status: ported}
-  - {start: 17007, end: 17007, status: ported}
-  - {start: 17008, end: 17009, status: ported}
-  - {start: 17010, end: 17010, status: ported}
-  - {start: 17015, end: 17017, status: ported}
-  - {start: 17020, end: 17020, status: ported}
-  - {start: 17100, end: 17105, status: ported}
-  - {start: 17200, end: 17225, status: ported}
-  - {start: 17300, end: 17306, status: ported}
-  - {start: 17500, end: 17510, status: ported}
-  - {start: 17511, end: 17512, status: ported}
-  - {start: 17515, end: 17516, status: ported}
-  - {start: 17520, end: 17520, status: ported}
-  - {start: 17525, end: 17526, status: ported}
-  - {start: 17530, end: 17530, status: ported}
-  - {start: 17550, end: 17551, status: ported}
-  - {start: 17555, end: 17560, status: ported}
-  - {start: 17565, end: 17565, status: ported}
-  - {start: 17570, end: 17573, status: ported}
-  - {start: 17575, end: 17577, status: ported}
-  - {start: 17578, end: 17578, status: ported}
-  - {start: 17580, end: 17588, status: ported}
-  - {start: 17590, end: 17592, status: ported}
-  - {start: 18000, end: 18010, status: ported}
-  - {start: 18015, end: 18030, status: ported}
-  - {start: 18035, end: 18042, status: ported}
-  - {start: 18045, end: 18046, status: ported}
-  - {start: 18047, end: 18047, status: ported}
-  - {start: 18048, end: 18048, status: ported}
-  - {start: 18049, end: 18049, status: ported}
-  - {start: 18050, end: 18050, status: ported}
-  - {start: 18051, end: 18051, status: ported}
-  - {start: 18052, end: 18052, status: ported}
-  - {start: 19000, end: 19005, status: ported}
-  - {start: 19010, end: 19010, status: ported}
-  - {start: 19015, end: 19040, status: ported}
-  - {start: 19050, end: 19050, status: ported}
-  - {start: 20000, end: 20005, status: ported}
-  - {start: 20009, end: 20015, status: ported}
-  - {start: 20050, end: 20060, status: ported}
-  - {start: 20100, end: 20101, status: ported}
-  - {start: 20102, end: 20111, status: ported}
-  - {start: 20115, end: 20130, status: ported}
-  - {start: 20135, end: 20142, status: ported}
-  - {start: 20150, end: 20150, status: ported}
-  - {start: 21000, end: 21005, status: ported}
-  - {start: 21010, end: 21030, status: ported}
-  - {start: 21100, end: 21116, status: ported}
-  - {start: 21120, end: 21215, status: ported}
-  - {start: 21250, end: 21251, status: ported}
-  - {start: 21252, end: 21255, status: ported}
-  - {start: 22000, end: 22005, status: ported}
-  - {start: 22010, end: 22012, status: ported}
-  - {start: 22013, end: 22020, status: ported}
-  - {start: 22100, end: 22100, status: ported}
-  - {start: 22105, end: 22120, status: ported}
-  - {start: 23000, end: 23030, status: ported}
-  - {start: 24000, end: 24020, status: ported}
-  - {start: 25000, end: 25010, status: ported}
-  - {start: 25015, end: 25040, status: ported}
-  - {start: 25041, end: 25041, status: ported}
-  - {start: 25042, end: 25042, status: ported}
-  - {start: 25045, end: 25045, status: ported}
-  - {start: 25100, end: 25111, status: ported}
-  - {start: 25115, end: 25126, status: ported}
-  - {start: 25130, end: 25140, status: ported}
-  - {start: 25200, end: 25210, status: ported}
-  - {start: 25500, end: 25510, status: ported}
-  - {start: 25550, end: 25560, status: ported}
-  - {start: 26000, end: 26015, status: ported}
-  - {start: 26020, end: 26023, status: ported}
-  - {start: 26025, end: 26030, status: ported}
-  - {start: 26035, end: 26036, status: ported}
-  - {start: 26037, end: 26039, status: ported}
-  - {start: 26040, end: 26041, status: ported}
-  - {start: 26042, end: 26043, status: ported}
-  - {start: 26045, end: 26055, status: ported}
-  - {start: 26060, end: 26072, status: ported}
-  - {start: 26075, end: 26075, status: ported}
-  - {start: 26080, end: 26080, status: ported}
-  - {start: 27000, end: 27012, status: ported}
-  - {start: 27013, end: 27013, status: ported}
-  - {start: 27015, end: 27031, status: ported}
-  - {start: 27035, end: 27045, status: ported}
-  - {start: 27100, end: 27145, status: ported}
-  - {start: 27146, end: 27146, status: ported}
-  - {start: 27150, end: 27150, status: ported}
-  - {start: 30000, end: 30100, status: ported}
-  - {start: 30105, end: 30108, status: ported}
-  - {start: 30109, end: 30120, status: ported}
-  - {start: 30125, end: 30139, status: ported}
-  - {start: 30140, end: 30150, status: ported}
-  - {start: 30155, end: 30155, status: ported}
-  - {start: 30200, end: 30200, status: ported}
-  - {start: 30205, end: 30210, status: ported}
-  - {start: 30211, end: 30211, status: ported}
-  - {start: 30215, end: 30220, status: ported}
-  - {start: 30224, end: 30224, status: ported}
-  - {start: 30225, end: 30230, status: ported}
-  - {start: 30235, end: 30235, status: ported}
-  - {start: 30240, end: 30246, status: ported}
-  - {start: 30247, end: 30266, status: ported}
-  - {start: 30275, end: 30281, status: ported}
-  - {start: 30300, end: 30305, status: ported}
-  - {start: 30310, end: 30310, status: ported}
-  - {start: 30350, end: 30355, status: ported}
-  - {start: 30400, end: 30415, status: ported}
-  - {start: 30420, end: 30425, status: ported}
-  - {start: 30450, end: 30458, status: ported}
-  - {start: 30460, end: 30462, status: ported}
-  - {start: 30465, end: 30465, status: ported}
-  - {start: 30490, end: 30492, status: ported}
-  - {start: 30500, end: 30520, status: ported}
-  - {start: 31000, end: 31010, status: ported}
-  - {start: 31050, end: 31051, status: ported}
-  - {start: 40000, end: 40000, status: ported}
-  - {start: 40100, end: 40106, status: ported}
-  - {start: 40110, end: 40117, status: ported}
-  - {start: 40150, end: 40160, status: ported}
-  - {start: 40165, end: 50700, status: ported}
+  - {start: 1500, end: 1515, player_facing: true, status: ported}
+  - {start: 2000, end: 2003, player_facing: false, status: ported}
+  - {start: 2005, end: 2006, player_facing: false, status: ported}
+  - {start: 2010, end: 2029, player_facing: true, status: ported}
+  - {start: 2030, end: 2042, player_facing: false, status: ported}
+  - {start: 2045, end: 2055, player_facing: false, status: ported}
+  - {start: 2060, end: 2065, player_facing: false, status: ported}
+  - {start: 3000, end: 3006, player_facing: true, status: ported}
+  - {start: 3007, end: 3008, player_facing: false, status: ported}
+  - {start: 3010, end: 3012, player_facing: false, status: ported}
+  - {start: 3015, end: 3035, player_facing: true, status: ported, screen: deferred,
+     screen_reason: "The location screen read from disk: the client shows the description and the options, but not the title (:3025), and numbers the options from 0 where :3030 prints them from 1 and :3040 reads 1..aw (#159)."}
+  - {start: 3040, end: 3040, player_facing: true, status: ported}
+  - {start: 3045, end: 3105, player_facing: true, status: ported}
+  - {start: 3110, end: 3110, player_facing: false, status: ported}
+  - {start: 4000, end: 4046, player_facing: true, status: ported}
+  - {start: 4050, end: 4090, player_facing: false, status: ported}
+  - {start: 4200, end: 4220, player_facing: true, status: ported}
+  - {start: 4300, end: 4309, player_facing: true, status: ported}
+  - {start: 4350, end: 4370, player_facing: true, status: ported}
+  - {start: 4400, end: 4406, player_facing: true, status: ported}
+  - {start: 4410, end: 4420, player_facing: true, status: ported}
+  - {start: 4500, end: 4515, player_facing: true, status: ported}
+  - {start: 4600, end: 4620, player_facing: true, status: ported}
+  - {start: 4650, end: 4652, player_facing: true, status: ported}
+  - {start: 5000, end: 5010, player_facing: false, status: ported}
+  - {start: 6000, end: 6020, player_facing: true, status: ported}
+  - {start: 6025, end: 6025, player_facing: true, status: ported}
+  - {start: 6030, end: 6030, player_facing: true, status: ported}
+  - {start: 6035, end: 6036, player_facing: true, status: ported}
+  - {start: 10000, end: 10005, player_facing: false, status: ported}
+  - {start: 10010, end: 10010, player_facing: true, status: ported}
+  - {start: 10020, end: 10020, player_facing: true, status: ported}
+  - {start: 10025, end: 10045, player_facing: true, status: ported}
+  - {start: 10100, end: 10105, player_facing: true, status: ported}
+  - {start: 12000, end: 12000, player_facing: false, status: ported}
+  - {start: 12005, end: 12005, player_facing: false, status: ported}
+  - {start: 12010, end: 12016, player_facing: true, status: ported}
+  - {start: 12020, end: 12025, player_facing: true, status: ported}
+  - {start: 12027, end: 12035, player_facing: true, status: ported}
+  - {start: 12050, end: 12056, player_facing: true, status: ported}
+  - {start: 12060, end: 12070, player_facing: true, status: ported}
+  - {start: 12075, end: 12075, player_facing: false, status: ported}
+  - {start: 12100, end: 12102, player_facing: true, status: ported}
+  - {start: 12103, end: 12104, player_facing: true, status: ported}
+  - {start: 12105, end: 12108, player_facing: true, status: ported}
+  - {start: 12110, end: 12113, player_facing: false, status: ported}
+  - {start: 12115, end: 12116, player_facing: true, status: ported}
+  - {start: 12120, end: 12121, player_facing: true, status: ported}
+  - {start: 12125, end: 12170, player_facing: true, status: ported}
+  - {start: 12175, end: 12175, player_facing: false, status: ported}
+  - {start: 12200, end: 12205, player_facing: true, status: ported}
+  - {start: 12210, end: 12226, player_facing: true, status: ported}
+  - {start: 12230, end: 12231, player_facing: true, status: ported}
+  - {start: 12235, end: 12236, player_facing: true, status: ported}
+  - {start: 12240, end: 12242, player_facing: true, status: ported}
+  - {start: 12245, end: 12249, player_facing: true, status: ported}
+  - {start: 12250, end: 12252, player_facing: true, status: ported}
+  - {start: 12300, end: 12301, player_facing: true, status: ported}
+  - {start: 12302, end: 12305, player_facing: true, status: ported}
+  - {start: 12306, end: 12308, player_facing: true, status: ported}
+  - {start: 12310, end: 12311, player_facing: true, status: ported}
+  - {start: 12315, end: 12316, player_facing: true, status: ported}
+  - {start: 12320, end: 12322, player_facing: true, status: ported}
+  - {start: 12330, end: 12335, player_facing: true, status: ported}
+  - {start: 13000, end: 13005, player_facing: false, status: ported}
+  - {start: 13010, end: 13015, player_facing: true, status: ported}
+  - {start: 13020, end: 13025, player_facing: true, status: ported}
+  - {start: 13035, end: 13073, player_facing: true, status: ported}
+  - {start: 13075, end: 13080, player_facing: true, status: ported}
+  - {start: 13090, end: 13091, player_facing: true, status: ported}
+  - {start: 13100, end: 13105, player_facing: true, status: ported}
+  - {start: 13106, end: 13107, player_facing: true, status: ported}
+  - {start: 13110, end: 13130, player_facing: true, status: ported}
+  - {start: 13150, end: 13175, player_facing: true, status: ported}
+  - {start: 13500, end: 13525, player_facing: true, status: ported}
+  - {start: 14000, end: 14005, player_facing: false, status: ported}
+  - {start: 14006, end: 14015, player_facing: true, status: ported}
+  - {start: 14020, end: 14047, player_facing: true, status: ported}
+  - {start: 14050, end: 14052, player_facing: true, status: ported}
+  - {start: 14100, end: 14117, player_facing: true, status: ported}
+  - {start: 14118, end: 14118, player_facing: false, status: ported}
+  - {start: 14120, end: 14131, player_facing: true, status: ported}
+  - {start: 15000, end: 15005, player_facing: false, status: ported}
+  - {start: 15010, end: 15010, player_facing: true, status: ported}
+  - {start: 15015, end: 15030, player_facing: true, status: ported}
+  - {start: 15050, end: 15070, player_facing: true, status: ported}
+  - {start: 15075, end: 15075, player_facing: true, status: ported}
+  - {start: 15100, end: 15108, player_facing: true, status: ported}
+  - {start: 15110, end: 15125, player_facing: true, status: ported}
+  - {start: 15150, end: 15155, player_facing: true, status: ported}
+  - {start: 15200, end: 15200, player_facing: true, status: ported}
+  - {start: 15205, end: 15220, player_facing: true, status: ported}
+  - {start: 15300, end: 15306, player_facing: true, status: ported}
+  - {start: 15310, end: 15321, player_facing: true, status: ported}
+  - {start: 16000, end: 16011, player_facing: true, status: ported}
+  - {start: 16015, end: 16035, player_facing: true, status: ported}
+  - {start: 16040, end: 16040, player_facing: true, status: ported}
+  - {start: 17000, end: 17006, player_facing: true, status: ported}
+  - {start: 17007, end: 17007, player_facing: false, status: ported}
+  - {start: 17008, end: 17009, player_facing: true, status: ported}
+  - {start: 17010, end: 17010, player_facing: false, status: ported}
+  - {start: 17015, end: 17017, player_facing: true, status: ported}
+  - {start: 17020, end: 17020, player_facing: true, status: ported}
+  - {start: 17100, end: 17105, player_facing: true, status: ported}
+  - {start: 17200, end: 17225, player_facing: true, status: ported}
+  - {start: 17300, end: 17306, player_facing: true, status: ported}
+  - {start: 17500, end: 17510, player_facing: false, status: ported}
+  - {start: 17511, end: 17512, player_facing: true, status: ported}
+  - {start: 17515, end: 17516, player_facing: true, status: ported}
+  - {start: 17520, end: 17520, player_facing: true, status: ported}
+  - {start: 17525, end: 17526, player_facing: true, status: ported}
+  - {start: 17530, end: 17530, player_facing: true, status: ported}
+  - {start: 17550, end: 17551, player_facing: true, status: ported}
+  - {start: 17555, end: 17560, player_facing: true, status: ported}
+  - {start: 17565, end: 17565, player_facing: false, status: ported}
+  - {start: 17570, end: 17573, player_facing: true, status: ported}
+  - {start: 17575, end: 17577, player_facing: true, status: ported}
+  - {start: 17578, end: 17578, player_facing: false, status: ported}
+  - {start: 17580, end: 17588, player_facing: true, status: ported}
+  - {start: 17590, end: 17592, player_facing: true, status: ported}
+  - {start: 18000, end: 18010, player_facing: false, status: ported}
+  - {start: 18015, end: 18030, player_facing: true, status: ported}
+  - {start: 18035, end: 18042, player_facing: true, status: ported}
+  - {start: 18045, end: 18046, player_facing: true, status: ported}
+  - {start: 18047, end: 18047, player_facing: true, status: ported}
+  - {start: 18048, end: 18048, player_facing: true, status: ported}
+  - {start: 18049, end: 18049, player_facing: true, status: ported}
+  - {start: 18050, end: 18050, player_facing: true, status: ported}
+  - {start: 18051, end: 18051, player_facing: true, status: ported}
+  - {start: 18052, end: 18052, player_facing: true, status: ported}
+  - {start: 19000, end: 19005, player_facing: false, status: ported}
+  - {start: 19010, end: 19010, player_facing: false, status: ported}
+  - {start: 19015, end: 19040, player_facing: true, status: ported}
+  - {start: 19050, end: 19050, player_facing: false, status: ported}
+  - {start: 20000, end: 20005, player_facing: true, status: ported}
+  - {start: 20009, end: 20015, player_facing: true, status: ported}
+  - {start: 20050, end: 20060, player_facing: true, status: ported}
+  - {start: 20100, end: 20101, player_facing: true, status: ported}
+  - {start: 20102, end: 20111, player_facing: true, status: ported}
+  - {start: 20115, end: 20130, player_facing: true, status: ported}
+  - {start: 20135, end: 20142, player_facing: true, status: ported}
+  - {start: 20150, end: 20150, player_facing: true, status: ported}
+  - {start: 21000, end: 21005, player_facing: false, status: ported}
+  - {start: 21010, end: 21030, player_facing: true, status: ported}
+  - {start: 21100, end: 21116, player_facing: true, status: ported}
+  - {start: 21120, end: 21215, player_facing: true, status: ported}
+  - {start: 21250, end: 21251, player_facing: true, status: ported}
+  - {start: 21252, end: 21255, player_facing: true, status: ported}
+  - {start: 22000, end: 22005, player_facing: false, status: ported}
+  - {start: 22010, end: 22012, player_facing: true, status: ported}
+  - {start: 22013, end: 22020, player_facing: true, status: ported}
+  - {start: 22100, end: 22100, player_facing: true, status: ported}
+  - {start: 22105, end: 22120, player_facing: true, status: ported}
+  - {start: 23000, end: 23030, player_facing: true, status: ported}
+  - {start: 24000, end: 24020, player_facing: true, status: ported}
+  - {start: 25000, end: 25010, player_facing: true, status: ported}
+  - {start: 25015, end: 25040, player_facing: true, status: ported}
+  - {start: 25041, end: 25041, player_facing: false, status: ported}
+  - {start: 25042, end: 25042, player_facing: false, status: ported}
+  - {start: 25045, end: 25045, player_facing: false, status: ported}
+  - {start: 25100, end: 25111, player_facing: true, status: ported}
+  - {start: 25115, end: 25126, player_facing: true, status: ported}
+  - {start: 25130, end: 25140, player_facing: true, status: ported}
+  - {start: 25200, end: 25210, player_facing: true, status: ported}
+  - {start: 25500, end: 25510, player_facing: true, status: ported}
+  - {start: 25550, end: 25560, player_facing: true, status: ported}
+  - {start: 26000, end: 26015, player_facing: false, status: ported}
+  - {start: 26020, end: 26023, player_facing: true, status: ported}
+  - {start: 26025, end: 26030, player_facing: true, status: ported}
+  - {start: 26035, end: 26036, player_facing: true, status: ported}
+  - {start: 26037, end: 26039, player_facing: true, status: ported}
+  - {start: 26040, end: 26041, player_facing: true, status: ported}
+  - {start: 26042, end: 26043, player_facing: true, status: ported}
+  - {start: 26045, end: 26055, player_facing: true, status: ported}
+  - {start: 26060, end: 26072, player_facing: true, status: ported}
+  - {start: 26075, end: 26075, player_facing: true, status: ported}
+  - {start: 26080, end: 26080, player_facing: false, status: ported}
+  - {start: 27000, end: 27012, player_facing: true, status: ported}
+  - {start: 27013, end: 27013, player_facing: false, status: ported}
+  - {start: 27015, end: 27031, player_facing: true, status: ported}
+  - {start: 27035, end: 27045, player_facing: false, status: ported}
+  - {start: 27100, end: 27145, player_facing: true, status: ported}
+  - {start: 27146, end: 27146, player_facing: false, status: ported}
+  - {start: 27150, end: 27150, player_facing: false, status: ported}
+  - {start: 30000, end: 30100, player_facing: true, status: ported}
+  - {start: 30105, end: 30108, player_facing: false, status: ported}
+  - {start: 30109, end: 30120, player_facing: true, status: ported}
+  - {start: 30125, end: 30139, player_facing: true, status: ported}
+  - {start: 30140, end: 30150, player_facing: false, status: ported}
+  - {start: 30155, end: 30155, player_facing: false, status: ported}
+  - {start: 30200, end: 30200, player_facing: false, status: ported}
+  - {start: 30205, end: 30210, player_facing: true, status: ported}
+  - {start: 30211, end: 30211, player_facing: false, status: ported}
+  - {start: 30215, end: 30220, player_facing: false, status: ported}
+  - {start: 30224, end: 30224, player_facing: false, status: ported}
+  - {start: 30225, end: 30230, player_facing: false, status: ported}
+  - {start: 30235, end: 30235, player_facing: true, status: ported}
+  - {start: 30240, end: 30246, player_facing: false, status: ported}
+  - {start: 30247, end: 30266, player_facing: false, status: ported}
+  - {start: 30275, end: 30281, player_facing: false, status: ported}
+  - {start: 30300, end: 30305, player_facing: true, status: ported}
+  - {start: 30310, end: 30310, player_facing: false, status: ported}
+  - {start: 30350, end: 30355, player_facing: true, status: ported}
+  - {start: 30400, end: 30415, player_facing: true, status: ported}
+  - {start: 30420, end: 30425, player_facing: false, status: ported}
+  - {start: 30450, end: 30458, player_facing: false, status: ported}
+  - {start: 30460, end: 30462, player_facing: false, status: ported}
+  - {start: 30465, end: 30465, player_facing: false, status: ported}
+  - {start: 30490, end: 30492, player_facing: false, status: ported}
+  - {start: 30500, end: 30520, player_facing: true, status: ported}
+  - {start: 31000, end: 31010, player_facing: true, status: ported}
+  - {start: 31050, end: 31051, player_facing: true, status: ported}
+  - {start: 40000, end: 40000, player_facing: false, status: ported}
+  - {start: 40100, end: 40106, player_facing: false, status: ported}
+  - {start: 40110, end: 40117, player_facing: true, status: ported}
+  - {start: 40150, end: 40160, player_facing: true, status: ported}
+  - {start: 40165, end: 50700, player_facing: true, status: ported}

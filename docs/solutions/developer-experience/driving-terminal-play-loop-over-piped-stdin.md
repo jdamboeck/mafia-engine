@@ -1,7 +1,7 @@
 ---
 title: "Driving the terminal play() loop in tests: the pre-map acks eat stdin lines"
 date: 2026-07-17
-updated: 2026-09-28
+updated: 2026-10-04
 category: developer-experience
 module: clients/terminal
 problem_type: developer_experience
@@ -42,24 +42,39 @@ unmerged as of this writing — the SHA may be rewritten on merge).
 
 **1. Lines are read before the map loop.** A new game's `play()` reads one line
 for the title screen's "press a key", one for the house-rules offer (Enter keeps
-every rule faithful; shown whenever the config's catalogue has a switch), one for
-the first turn-start upkeep screen's ack and one for the turn menu's choice (`2`
-walks), *before* the map-move prompt (`TerminalSession.map_prompt`) reads its first
-key. The setup prompts between the title and the house-rules offer read one line
-each too, unless `end_year`/`score_weight` are passed to `play()`, and every later
-turn change adds one more upkeep ack and one more turn-menu key. A scripted stdin
-whose first line is the first movement key is therefore off — the acks eat it,
-every later key shifts, and the walk lands on the wrong screen. **Prepend the blank
-ack lines to every scripted stdin body** (`tests/helpers.py::NEW_GAME_ACKS` holds
-the three acks, and `tests/helpers.py::make_walk_script` prepends them and the walk):
+every rule faithful; shown whenever the config's catalogue has a switch), one per
+player for the eigenschaften screen's key wait (`:316 goto1100`), one for the first
+turn-start upkeep screen's ack and one for the turn menu's choice (`2` walks),
+*before* the map-move prompt (`TerminalSession.map_prompt`) reads its first key.
+The eigenschaften rolls themselves read nothing from piped stdin: on input that is
+not a terminal every roll stops on its first frame. The setup prompts read one line
+each too, unless their answer is passed to `play()`: the end year and the score
+weight (`end_year`/`score_weight`) come between the title and the house-rules
+offer, and the player count and each player's name and gang name come after the
+offer unless `players` is passed (`play(players=None)` asks them; it no longer means
+a solo "alcapone"). Every later turn change adds one more upkeep ack and one more
+turn-menu key. A scripted stdin whose first line is the first movement key is
+therefore off — the acks eat it, every later key shifts, and the walk lands on the
+wrong screen. **Pass the players and prepend the blank ack lines to every scripted
+stdin body** (`tests/helpers.py::new_game_acks(players)` builds the acks,
+`NEW_GAME_ACKS` is them for one player, `SOLO` is a one-player roster, and
+`tests/helpers.py::make_walk_script` prepends the acks and the walk):
 
 ```python
-NEW_GAME_ACKS = ["", "", ""]  # title, house-rules offer, first upkeep
+SOLO = [("alcapone", "the outfit")]
 
 
-def make_walk_script(keys):
+def new_game_acks(players: int = 1) -> list[str]:
+    # title, house-rules offer, one eigenschaften key per player, first upkeep
+    return ["", "", *[""] * players, ""]
+
+
+NEW_GAME_ACKS = new_game_acks(1)
+
+
+def make_walk_script(keys, players=1):
     # the new game's acks, the turn menu's walk, then one key per line.
-    return io.StringIO("\n".join([*NEW_GAME_ACKS, MENU_WALK_KEY] + keys) + "\n")
+    return io.StringIO("\n".join([*new_game_acks(players), MENU_WALK_KEY] + keys) + "\n")
 ```
 
 **2. To reach a deep screen, don't hardcode a key sequence — walk the engine.**
@@ -140,7 +155,7 @@ keys = self._walk_to_turn_over() + ["q"]        # walk, then the key under test
 out = io.StringIO()
 monkeypatch.setattr(sys, "stdin", make_walk_script(keys))   # prepends the acks and the walk
 monkeypatch.setattr(sys, "stdout", out)
-state, _rng = play(seed=42, end_year=1930, score_weight=1.0)
+state, _rng = play(seed=42, end_year=1930, score_weight=1.0, players=SOLO)
 output = out.getvalue()
 assert "turn_over" in output, "the walk never reached the turn-over screen"
 assert (state.clock.year, state.clock.month) == (1925, 0)   # no next turn began

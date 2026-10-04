@@ -290,3 +290,40 @@ def test_start_year_is_config_data(tmp_path):
     )
     assert gs.clock.year == 1931
     assert gs.clock.month == 0
+
+
+# --- the setup-record path -------------------------------------------------
+
+
+def test_new_game_takes_a_record_or_the_keywords_not_both():
+    record = _MAFIA.setup.SetupRecord(
+        end_year=1978,
+        score_weight=1.0,
+        house_rules={},
+        players=(_MAFIA.setup.SetupPlayer("Al", "Capones", 10, 10, 10, 5000),),
+    )
+    with pytest.raises(TypeError, match="not both"):
+        new_game(record, seed=1)
+    with pytest.raises(TypeError, match="needs a setup record"):
+        new_game(seed=1, end_year=1978, score_weight=1.0)
+
+
+def test_a_record_builds_the_state_it_describes():
+    record = _MAFIA.setup.SetupRecord(
+        end_year=1950,
+        score_weight=0.5,
+        house_rules={"intelligence_or_30": "faithful"},
+        players=(_MAFIA.setup.SetupPlayer("Al", "Capones", 15, 40, 50, 6500),),
+    )
+    state = new_game(record)
+    player, gangster = state.players[0], state.players[0].roster[0]
+    assert (player.name, game.gang_name(player), player.ka) == ("Al", "Capones", 6500)
+    assert (gangster.kraft, gangster.intelligenz, gangster.brutalitaet) == (15, 40 | 30, 50)
+    assert (state.clock.end_year, state.config.formula_params["score_mult"]) == (1950, 0.5)
+    assert state.config.house_rules["shared_direction_memory"] == "faithful"
+
+
+def test_a_record_with_a_bad_value_is_refused():
+    record = _MAFIA.setup.SetupRecord(end_year=1927, score_weight=1.0, house_rules={}, players=())
+    with pytest.raises(ValueError):
+        new_game(record)

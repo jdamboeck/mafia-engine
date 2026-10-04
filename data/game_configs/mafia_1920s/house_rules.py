@@ -27,6 +27,7 @@ from engine.types import ConfigValidationError
 __all__ = [
     "CATALOGUE",
     "CATALOGUE_FILE",
+    "CHANGE_KEY",
     "HouseRule",
     "check_stored_map",
     "intent",
@@ -36,6 +37,11 @@ __all__ = [
 
 #: Where the catalogue lives, relative to the config directory.
 CATALOGUE_FILE = Path("content") / "house_rules.yaml"
+
+#: The answer at setup's house-rules offer that opens the list (any case); any other
+#: answer plays every rule faithfully. Data the setup handler compares against, so it
+#: lives here rather than in the theme, which receives it as the offer's ``key`` param.
+CHANGE_KEY = "h"
 
 _ID = re.compile(r"[a-z][a-z0-9_]*")
 #: A citation of ``mf-prg.bas``: one line (``:26020``) or a line range (``:1015-1050``).

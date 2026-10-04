@@ -19,4 +19,6 @@ locations:
     not_resident: "du wohnst hier nicht!"
 
 system:
+  # :1125 print"{down}du hast zu wenig kies!":goto1100 -- every refusal for want of cash
+  # (goto1125/gosub1125); the :1100 key wait after it is the client's.
   not_enough_money: "du hast zu wenig kies!"

@@ -124,7 +124,10 @@ def _saved_state(path: Path, cfg_dir: Path) -> GameState:
     return load_game(path, load_game_config(cfg_dir).registries).state
 
 
+#: A one-player new game: its stdin is the title key, the house-rules answers, the
+#: eigenschaften key (the rolls read nothing from piped input), then the upkeep key.
 _NEW_GAME = ["--seed", "42", "--end-year", "1950", "--score-weight", "1"]
+_NEW_GAME += ["--player", "alcapone:the outfit"]
 
 
 # --------------------------------------------------------------------------- #
@@ -132,8 +135,8 @@ _NEW_GAME = ["--seed", "42", "--end-year", "1950", "--score-weight", "1"]
 # --------------------------------------------------------------------------- #
 def test_accepting_the_defaults_stores_an_all_faithful_map(monkeypatch, tmp_path, fixture_config):
     save = tmp_path / "s.jsonl"
-    # title, Enter at the house-rules offer, upkeep ack, save, quit.
-    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\n\n\np\nq\n")
+    # title, Enter at the house-rules offer, eigenschaften, upkeep ack, save, quit.
+    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\n\n\n\np\nq\n")
     assert _OFFER in text
     rules = _saved_state(save, fixture_config).config.house_rules
     assert dict(rules) == {"alpha": "faithful", "beta": "faithful"}
@@ -141,8 +144,9 @@ def test_accepting_the_defaults_stores_an_all_faithful_map(monkeypatch, tmp_path
 
 def test_switching_one_entry_stores_exactly_that_change(monkeypatch, tmp_path, fixture_config):
     save = tmp_path / "s.jsonl"
-    # title, h (change them), 2 (switch beta), Enter (start), upkeep ack, save, quit.
-    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\nh\n2\n\n\np\nq\n")
+    # title, h (change them), 2 (switch beta), Enter (start), eigenschaften, upkeep
+    # ack, save, quit.
+    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\nh\n2\n\n\n\np\nq\n")
     # The list shows the switchable entries, each with its one-line description,
     # all at faithful first -- never the faithful-only note.
     assert "1. [faithful] alpha: the first fixture switch" in text
@@ -155,8 +159,8 @@ def test_switching_one_entry_stores_exactly_that_change(monkeypatch, tmp_path, f
 
 def test_a_solo_game_goes_through_the_house_rules_step(monkeypatch, tmp_path, fixture_config):
     save = tmp_path / "s.jsonl"
-    argv = [*_NEW_GAME, "--player", "solo:lone gang", "--save", str(save)]
-    text = _main(monkeypatch, argv, "\nh\n1\n\n\np\nq\n")
+    argv = [*_NEW_GAME[:-2], "--player", "solo:lone gang", "--save", str(save)]
+    text = _main(monkeypatch, argv, "\nh\n1\n\n\n\np\nq\n")
     assert _OFFER in text
     state = _saved_state(save, fixture_config)
     assert state.clock.player_count == 1
@@ -166,7 +170,7 @@ def test_a_solo_game_goes_through_the_house_rules_step(monkeypatch, tmp_path, fi
 def test_a_bad_answer_in_the_list_asks_again(monkeypatch, tmp_path, fixture_config):
     save = tmp_path / "s.jsonl"
     # 3 and x are no entry: the list is shown again, unchanged.
-    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\nh\n3\nx\n\n\np\nq\n")
+    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\nh\n3\nx\n\n\n\np\nq\n")
     assert text.count("1. [faithful] alpha") == 3
     rules = _saved_state(save, fixture_config).config.house_rules
     assert dict(rules) == {"alpha": "faithful", "beta": "faithful"}
@@ -174,7 +178,7 @@ def test_a_bad_answer_in_the_list_asks_again(monkeypatch, tmp_path, fixture_conf
 
 def test_round_trip_setup_save_load_keeps_the_map(monkeypatch, tmp_path, fixture_config):
     first = tmp_path / "first.jsonl"
-    _main(monkeypatch, [*_NEW_GAME, "--save", str(first)], "\nh\n2\n\n\np\nq\n")
+    _main(monkeypatch, [*_NEW_GAME, "--save", str(first)], "\nh\n2\n\n\n\np\nq\n")
     # Load it (no setup, no house-rules step), save again at the turn menu, quit.
     second = tmp_path / "second.jsonl"
     text = _main(monkeypatch, ["--load", str(first), "--save", str(second)], "p\nq\n")
@@ -187,7 +191,7 @@ def test_the_real_catalogue_offers_its_switches_at_setup(monkeypatch, tmp_path):
     # The real catalogue has switches (U11): the step is shown, Enter keeps every rule
     # faithful, and the save carries the full map.
     save = tmp_path / "s.jsonl"
-    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\n\n\np\nq\n")
+    text = _main(monkeypatch, [*_NEW_GAME, "--save", str(save)], "\n\n\n\np\nq\n")
     assert _OFFER in text
     assert dict(_saved_state(save, _CONFIG_DIR).config.house_rules) == {
         "intelligence_or_30": "faithful",

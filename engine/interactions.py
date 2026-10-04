@@ -54,6 +54,8 @@ __all__ = [
     "PromptInt",
     "PromptChoice",
     "Confirm",
+    "PromptText",
+    "RollFrame",
     "StartCombat",
     "CombatScreen",
     "OBSERVE_PROMPT",
@@ -139,6 +141,42 @@ class Confirm:
     """Yes/no prompt (BASIC sub ``1110``). The Response is a ``bool``."""
 
     key: str
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class PromptText:
+    """Ask for a line of text. The Response is a ``str``.
+
+    Generic: the driver does NO validation — no length rule, no trimming. A config
+    handler that needs a rule checks the answer and asks again. Not cancellable: a
+    :data:`CANCEL` is invalid input and re-prompts (as at a non-cancellable
+    :class:`PromptInt`); any other answer that is not a ``str`` is ``str()``-coerced.
+    """
+
+    key: str
+    params: dict = field(default_factory=dict)
+    #: Who answers this interaction (a player index); ``None``: the active player.
+    #: :func:`step` fills a ``None`` in with the active player when it yields.
+    player: int | None = None
+
+
+@dataclass(frozen=True)
+class RollFrame:
+    """One frame of a roll the player stops. The Response is a ``bool``, "stopped".
+
+    A roll is a sequence of real frames: the handler yields one per draw, with the
+    drawn value in ``params``, and the client shows it and answers whether a key
+    stopped it. The engine knows nothing of what is rolled. Not cancellable: a
+    :data:`CANCEL` (end of input, as a client surfaces EOF) answers ``True``, so the
+    roll stops on what is shown; any other answer is coerced with ``bool()`` like
+    :class:`Confirm`.
+    """
+
+    key: str
+    params: dict = field(default_factory=dict)
     #: Who answers this interaction (a player index); ``None``: the active player.
     #: :func:`step` fills a ``None`` in with the active player when it yields.
     player: int | None = None
@@ -457,6 +495,8 @@ Interaction: TypeAlias = (
     | PromptInt
     | PromptChoice
     | Confirm
+    | PromptText
+    | RollFrame
     | StartCombat
     | CombatScreen
     | LoadSubState
@@ -709,7 +749,7 @@ def run(
             calls the factory with it, and drives the returned generator.
         input_source: A callable ``(interaction) -> response`` the driver pulls from
             whenever an interaction needs client input (``PromptInt``/``PromptChoice``/
-            ``Confirm``). It is consulted once per attempt, so an invalid answer that
+            ``Confirm``/``PromptText``/``RollFrame``). It is consulted once per attempt, so an invalid answer that
             triggers a re-prompt consults it again. ``ShowMessage`` is also handed to
             it — for DELIVERY only (the client must be able to render narration); its
             return value there is discarded and :data:`Ack` is sent regardless, so a
@@ -866,6 +906,21 @@ def _resolve(interaction: Any) -> Generator[Any, Any, Any]:
     if isinstance(interaction, Confirm):
         raw = yield interaction
         # Confirm is not itself cancellable in this catalog; coerce to a bool.
+        return bool(raw)
+
+    if isinstance(interaction, PromptText):
+        while True:
+            raw = yield interaction
+            if raw is CANCEL:
+                continue  # not cancellable → re-prompt, as at a non-cancellable PromptInt
+            # No validation: the string as given (a config handler applies any rule).
+            return raw if isinstance(raw, str) else str(raw)
+
+    if isinstance(interaction, RollFrame):
+        raw = yield interaction
+        # Not cancellable: CANCEL (end of input) stops the roll on the shown frame.
+        if raw is CANCEL:
+            return True
         return bool(raw)
 
     raise TypeError(f"Unknown interaction type: {type(interaction).__name__!r}")

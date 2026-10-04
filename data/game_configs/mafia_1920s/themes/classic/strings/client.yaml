@@ -54,22 +54,6 @@ client:
   # Losses block: the name given to a side that has no name of its own.
   side_name: "side {index:raw}"
 
-  # The new-game house-rules step, after the setup questions. Shown only when the
-  # config's catalogue offers a switch; skipped by default (Enter at the offer). Each
-  # rule's description is the theme's house_rules.<id>.
-  house_rules:
-    # {key} is change_key: the answer that opens the list.
-    offer: "house rules: Enter plays every rule as in the original, {key} changes them:"
-    change_key: "h"
-    title: "house rules -- each quirk of the original, played faithfully or as intended:"
-    # {number} picks the entry, {setting} is setting.faithful/intent, {description}
-    # the rule's house_rules.<id>.
-    entry: "{number:raw}. [{setting}] {description}"
-    setting:
-      faithful: "faithful"
-      intent: "intent"
-    prompt: "a number switches that rule, Enter starts the game:"
-
   # A --load file that cannot be resumed: one stderr line, "error" with one reason.
   load:
     error: "cannot load {path}: {reason}"
@@ -91,7 +75,7 @@ client:
   cli:
     description: "Play the mafia slice."
     help_seed: "RNG seed for a new game (default {seed:raw})."
-    help_player: "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, turn order = order given). Default: a single 'alcapone:the outfit'."
+    help_player: "A player as 'name:gang'. Repeatable for up to 4 players (hot-seat, turn order = order given). Given, the game asks no player count and no names; each player still rolls their stats. Omitted, the game asks."
     help_end_year: "The year the game ends (asked at setup when omitted)."
     help_score_weight: "Score weight, e.g. 0.5 (asked at setup when omitted)."
     help_load: "Resume a saved game (its seed and setup come from the save)."

@@ -27,6 +27,8 @@ from engine.interactions import (
     LoadSubState,
     PromptChoice,
     PromptInt,
+    PromptText,
+    RollFrame,
     ShowMessage,
     run,
 )
@@ -727,3 +729,118 @@ def test_an_interaction_naming_another_player_keeps_that_player():
 
     # The prompt and the side's screen name player 0; the rest default to the active 1.
     assert [i.player for i in seen] == [0, 1, 1, 0]
+
+
+# --------------------------------------------------------------------------- #
+# PromptText and RollFrame: a line of text, and a roll the player stops        #
+# --------------------------------------------------------------------------- #
+def test_prompttext_hands_the_handler_the_scripted_string_as_given():
+    got = {}
+
+    def handler(ctx):
+        got["a"] = yield PromptText("ask_name", {"n": 1})
+        got["b"] = yield PromptText("ask_gang")
+        return []
+
+    # No validation and no trimming: a length rule is the config handler's job.
+    result = run(handler, scripted("  Al Capone ", ""))
+    assert got == {"a": "  Al Capone ", "b": ""}
+    assert result.status == "completed"
+
+
+def test_prompttext_coerces_a_non_string_answer_with_str():
+    got = {}
+
+    def handler(ctx):
+        got["v"] = yield PromptText("ask_name")
+        return []
+
+    run(handler, scripted(42))
+    assert got["v"] == "42"
+
+
+def test_cancel_at_a_prompttext_reprompts():
+    # A text prompt is not cancellable: CANCEL is invalid input, asked again.
+    got = {}
+
+    def handler(ctx):
+        got["v"] = yield PromptText("ask_name")
+        return []
+
+    src = scripted(CANCEL, "moran")
+    result = run(handler, src)
+    assert got["v"] == "moran"
+    assert result.status == "completed"
+    assert len(src.seen) == 2
+
+
+def _roll_until_stopped(values, got):
+    """A handler yielding one RollFrame per drawn value until an answer is true."""
+
+    def handler(ctx):
+        for value in values:
+            stopped = yield RollFrame("roll", {"value": value})
+            got.append(stopped)
+            if stopped:
+                break
+        return []
+
+    return handler
+
+
+def test_rollframes_receive_each_answer_in_order_until_stopped():
+    got = []
+    src = scripted(False, False, True)
+    result = run(_roll_until_stopped([3, 7, 5, 9], got), src)
+
+    assert got == [False, False, True]
+    assert [i.params["value"] for i in src.seen] == [3, 7, 5]
+    assert result.status == "completed"
+
+
+def test_rollframe_answers_coerce_with_bool():
+    got = []
+    run(_roll_until_stopped([1, 2, 3], got), scripted(0, "", "y"))
+    assert got == [False, False, True]
+    assert all(isinstance(v, bool) for v in got)
+
+
+def test_cancel_at_a_rollframe_answers_stopped():
+    # Not cancellable: end of input (a client surfaces EOF as CANCEL) stops the roll.
+    got = []
+    src = scripted(CANCEL)
+    result = run(_roll_until_stopped([4, 8], got), src)
+
+    assert got == [True]
+    assert result.status == "completed"
+    assert len(src.seen) == 1
+
+
+def test_prompttext_and_rollframe_carry_the_active_player_by_default():
+    from engine.interactions import step
+
+    def handler(ctx):
+        yield PromptText("ask_name")
+        yield RollFrame("roll", {"value": 6})
+        yield RollFrame("roll", {"value": 2}, player=0)
+        return None
+
+    seen = []
+    steps = step(handler, _two_player_state(active=1))
+    try:
+        interaction = next(steps)
+        while True:
+            seen.append(interaction)
+            answer = "x" if isinstance(interaction, PromptText) else False
+            interaction = steps.send(answer)
+    except StopIteration:
+        pass
+
+    assert [type(i) for i in seen] == [PromptText, RollFrame, RollFrame]
+    assert [i.player for i in seen] == [1, 1, 0]
+
+
+def test_prompttext_and_rollframe_carry_only_generic_fields():
+    # Generic protocol pieces: no name rule, no stat, no range — key, params, player.
+    for cls in (PromptText, RollFrame):
+        assert [f.name for f in dataclasses.fields(cls)] == ["key", "params", "player"]

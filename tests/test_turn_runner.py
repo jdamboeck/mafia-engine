@@ -69,7 +69,7 @@ from engine.turns import (
     TurnRunner,
 )
 from engine.upkeep import run_upkeep
-from tests.helpers import deadline, make_walk_script, next_turn_by_hand
+from tests.helpers import SOLO, deadline, make_walk_script, next_turn_by_hand
 
 _CONFIG = load_game_config(CONFIG_DIR)  # registers the config's handlers and hooks
 _VEHICLES = _CONFIG.module.load_vehicles(CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
@@ -457,10 +457,11 @@ def _map_without_note(screen: str, note: str) -> str:
 
 def test_a_save_on_the_map_resumes_to_the_same_screen_without_upkeep(monkeypatch, tmp_path: Path):
     save = tmp_path / "game.jsonl"
-    # Title, upkeep, two steps, save, quit.
+    # Title, house rules, eigenschaften, upkeep, walk, two steps, save, quit.
     first = _play(
         monkeypatch,
         make_walk_script(["w", "w", "p", "q"]),
+        players=SOLO,
         seed=42,
         end_year=1930,
         score_weight=1.0,

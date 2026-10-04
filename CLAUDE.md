@@ -55,7 +55,12 @@ commit + branch conventions, and how to pick up the next unit. Then:
    config-registered effects, declared value-map state and an engine turn runner;
    save schema 2; house rules; all 12 locations, the police chain, both win flows,
    the early win, gang war and prison brawl; C64 `:1013` rounding and `PRINT`
-   spacing; the line-block coverage ledger and two end-to-end runs; closed #108–#145).
+   spacing; the line-block coverage ledger and two end-to-end runs; closed #108–#145),
+   and the Multiplayer Setup plan (`2026-10-04-002-…`, U1–U6 — `PromptText`/`RollFrame`
+   interactions, the new-game setup as a config handler under `SETUP_HANDLER_KEY` with
+   the player count, names and stopped stat rolls, the client only drawing it; the
+   ledger's player-facing rule; the location-result key wait, `:3050`'s clear and
+   `:20150`'s opened safe; closed #149–#154).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the feature branch the active plan names in its `branch:`

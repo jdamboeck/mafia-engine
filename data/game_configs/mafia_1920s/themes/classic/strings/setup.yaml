@@ -1,11 +1,48 @@
-# setup (new-game prompts) — classic-theme strings (VERBATIM German).
+# setup (new-game prompts and the eigenschaften screen) — classic-theme strings.
 #
-# DATA, not code: the terminal client emits these KEYS and the theme resolves
-# them. Ported byte-for-byte from mf-prg.bas:170 and :175. The accepted ranges are NOT
-# read from this text -- they come from input_ranges in config.yaml (the text simply
-# mirrors the original's printed bounds).
+# DATA, not code: the setup handler (handlers/new_game.py) emits these KEYS and the
+# theme resolves them. The source's text is ported verbatim from mf-prg.bas:170, :175,
+# :205, :210, :215 and :300-316 (the research text corpus's `text`, without the
+# leading space or the {clr}/{down} cursor codes, as for every key here); numbers
+# print per _format.yaml (c64). The accepted ranges are NOT read from this text --
+# they come from input_ranges in config.yaml (the text simply mirrors the original's
+# printed bounds). setup.house_rules.* is the port's own step, in the port's words.
 setup:
   # :170 -- the year the game ends (x9); re-asked via :172 when out of range.
   end_year_prompt: "spielende (1928-1978):"
   # :175 -- the score weight (x8, gf += x*x8); re-asked via :176 when out of range.
   score_weight_prompt: "punktewertigkeit (0.1 - 2):"
+  # :205 -- the player count (sz); re-asked via :206 when below 1 or above 4.
+  player_count_prompt: "spieleranzahl:"
+  # :210 print" name spieler"i"{left}:" -- i prints as " 1 " and {left} steps back
+  # over its trailing space, so ":" follows the digit: str$(i), " 1".
+  player_name_prompt: "name spieler{number:str$}:"
+  # :215 -- the gang name (bn$).
+  gang_name_prompt: "bandenname:"
+  # :300 -- the eigenschaften screen's title (its Heading and closing Acknowledge).
+  eigenschaften: "eigenschaften:"
+  # :310-312, one frame of each roll: :350 print"   {left}{left}{left}"x; prints the
+  # drawn value after the label as PRINT prints a number (" 25 ").
+  roll:
+    kraft: "kraft:{value}"
+    intelligenz: "intelligenz:{value}"
+    brutalitaet: "brutalitaet:{value}"
+  # :313 print"{down}energie: 5" -- the fixed start energy; str$(5) is " 5".
+  energie: "energie:{energy:str$}"
+  # :316 print"{down}kapital:";ka(i)"$" -- " 6500 $".
+  kapital: "kapital:{cash}$"
+
+  # The house-rules step (the port's own, not the source's), after the score weight.
+  # Shown only when the catalogue offers a switch. {key} is the config's change key
+  # (house_rules.CHANGE_KEY), the answer that opens the list. The list prompt's
+  # {rules} param holds {number, id, setting} per rule: a client prints title, then
+  # one entry per rule ({setting} from setting.<setting>, {description} from the
+  # theme's house_rules.<id>), then prompt.
+  house_rules:
+    offer: "house rules: Enter plays every rule as in the original, {key} changes them:"
+    title: "house rules -- each quirk of the original, played faithfully or as intended:"
+    entry: "{number:raw}. [{setting}] {description}"
+    setting:
+      faithful: "faithful"
+      intent: "intent"
+    prompt: "a number switches that rule, Enter starts the game:"

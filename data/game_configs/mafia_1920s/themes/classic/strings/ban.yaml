@@ -44,3 +44,8 @@ locations:
     safe_click: "{d1:mid$}  {d2:mid$}  {d3:mid$}   *klick*"
     safe_slip: "{d1:mid$}  {d2:mid$}  {d3:mid$}"
     safe_failed: "'teufel...! da ist was schiefgegangen!\nes kommt jemand!'"  # 20141-20142
+    # :20150 sysbl,"trs2":poke198,0:wait198,1 -- the opened safe after the last *klick*,
+    # then a key, then the loot (:20050). STAND-IN: trs2 is a picture with no text (the
+    # open vault, its shelves of banknotes and coins; research-data/graphics/screens/
+    # display/trs2.png), so a text client shows it as words, as for the victory picture.
+    safe_opened: "*der safe ist offen*"

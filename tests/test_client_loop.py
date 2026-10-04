@@ -50,6 +50,7 @@ from engine.upkeep import run_upkeep
 from tests.helpers import (
     MENU_WALK_KEY,
     NEW_GAME_ACKS,
+    SOLO,
     deadline,
     make_walk_script,
     next_turn_by_hand,
@@ -206,11 +207,12 @@ def run_play(
     ``stdin_keys`` is the RAW per-line body (NOT yet title-prefixed) — callers build it
     with plain movement/menu-answer keys; this wraps it with :func:`make_walk_script`.
     ``players`` forwards straight to ``play()``'s own ``players`` parameter (default:
-    the single "alcapone" player, unchanged) — see ``TestTwoPlayerAlternation`` for a
-    scripted multi-player session.
+    :data:`~tests.helpers.SOLO`, the single "alcapone" player) — see
+    ``TestTwoPlayerAlternation`` for a scripted multi-player session.
     """
+    players = players or SOLO
     out = io.StringIO()
-    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
+    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys, players=len(players)))
     monkeypatch.setattr(sys, "stdout", out)
     # KTD-4: supply both setup answers (the pre-U5 hardcoded values) so play() skips
     # the end-year / score-weight prompts and every existing key script stays valid.
@@ -364,6 +366,42 @@ class TestSlwRentThroughClient:
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # 3 months * 50$/month = 150$ deducted from the 5500$ starting cash.
         assert "cash 5350$" in output
+
+    def test_picking_an_option_clears_the_menu_before_its_handler(self, monkeypatch):
+        """:3050 ``print"{clr}"``: the pick clears the location screen; the rent quote
+        (:10020) opens a fresh one instead of printing under the menu."""
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)
+        state = new_state(42)
+        cell = find_door_cell(city_raw, "slw", ln=2)
+        keys = walk_keys_across_turns(state, city, cell) + ["", "0", "3"]
+
+        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        quote = output.index("pro monat kostet das")
+        menu = output.rindex("ICH MOECHTE MEINE MIETE BEZAHLEN", 0, quote)
+        assert CLEAR in output[menu:quote], "the handler printed under the location menu"
+
+    @pytest.mark.parametrize(
+        ("months", "result"),
+        [("3", "guten tag, der herr!"), ("999", "du hast zu wenig kies!")],
+        ids=["10045-success", "1125-refusal"],
+    )
+    def test_a_location_result_waits_for_a_key(self, monkeypatch, months, result):
+        """:10045 ``...:goto1100`` and :1125 ``print"{down}du hast zu wenig kies!":goto1100``:
+        the result stays on screen until a key, before the map comes back."""
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        load_game_config(_CONFIG_DIR)
+        state = new_state(42)
+        cell = find_door_cell(city_raw, "slw", ln=2)
+        keys = walk_keys_across_turns(state, city, cell) + ["", "0", months, ""]
+
+        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        shown = output.index(result)
+        cleared = output.find(CLEAR, shown)
+        assert cleared != -1, "the map never came back"
+        assert "press any key" in output[shown:cleared], "the result was cleared without a key"
 
 
 # --------------------------------------------------------------------------- #
@@ -1765,8 +1803,9 @@ def run_play_returning(
 ):
     """Drive ``play()`` like :func:`run_play` under a SIGALRM deadline, but return
     ``(stdout, play()'s return value)`` so KTD-12's ``(state, rng)`` is observable."""
+    players = players or SOLO
     out = io.StringIO()
-    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys))
+    monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys, players=len(players)))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
         ret = play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
@@ -1918,8 +1957,9 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
 
 
 def _new_game_lines(keys: list[str]) -> list[str]:
-    """A new game's stdin: the title ack, the house-rules offer, the first upkeep ack
-    (:data:`tests.helpers.NEW_GAME_ACKS`) and the turn menu's walk key
+    """A new game's stdin (one player): the title ack, the house-rules offer, the
+    eigenschaften key, the first upkeep ack (:data:`tests.helpers.NEW_GAME_ACKS`) and
+    the turn menu's walk key
     (:data:`tests.helpers.MENU_WALK_KEY`), then ``keys`` on the map."""
     return [*NEW_GAME_ACKS, MENU_WALK_KEY] + keys
 
@@ -1947,7 +1987,7 @@ def _two_steps(seed: int = 42) -> tuple[list[str], list[int]]:
 class TestSaveAndLoad:
     """``p`` on the map saves; ``--load`` resumes that exact game (U8)."""
 
-    _NEW = {"seed": 42, "end_year": 1930, "score_weight": 1.0}
+    _NEW = {"seed": 42, "end_year": 1930, "score_weight": 1.0, "players": SOLO}
 
     def _k1(self):
         """Walk into sph and play two poker hands (entering leaves ``po`` unchanged, so
@@ -1958,7 +1998,8 @@ class TestSaveAndLoad:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
-        return walk, walk + ["", "0", "0", "100", walk[-1], "", "0", "0", "100"]
+        # each hand's result waits for a key (:16035/:16040 ``goto1100``)
+        return walk, walk + ["", "0", "0", "100", "", walk[-1], "", "0", "0", "100", ""]
 
     def test_loaded_game_continues_exactly_like_uninterrupted_play(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
@@ -1966,7 +2007,7 @@ class TestSaveAndLoad:
         walk, k1 = self._k1()
         # K2: enter sph again (po is unchanged by an entry, so the last walk key
         # re-enters) and gamble again -- RNG draws AFTER the save point -- then quit.
-        k2 = [walk[-1], "", "0", "0", "200", "q"]
+        k2 = [walk[-1], "", "0", "0", "200", "", "q"]
         save = tmp_path / "a.jsonl"
 
         out_a, (state_a, rng_a) = _run_session(
@@ -2007,6 +2048,7 @@ class TestSaveAndLoad:
             seed=5,
             end_year=1930,
             score_weight=1.0,
+            players=SOLO,
         )
         assert game.job(state.players[0]).type != 0, "no job taken: vacuous"
         assert state.players[0].ms == -5
@@ -2071,11 +2113,12 @@ class TestSaveAndLoad:
         with deadline(60, "play() did not return", exc_type=_Deadline):
             play(save=str(save), **self._NEW)
 
-        # One read per line: title, house rules, upkeep, walk, k1, p, k2, p, q. The file
-        # read before k2 holds the first save; the one read before q holds the second.
+        # One read per line: title, house rules, eigenschaften, upkeep, walk, k1, p, k2,
+        # p, q. The file read before k2 holds the first save; the one read before q
+        # holds the second.
         assert c1 != c2
-        assert stdin.seen[:6] == [None] * 6, "a save existed before the first p"
-        assert stdin.seen[6:] == [c1, c1, c2]
+        assert stdin.seen[:7] == [None] * 7, "a save existed before the first p"
+        assert stdin.seen[7:] == [c1, c1, c2]
         assert list(tmp_path.iterdir()) == [save]
         assert load_game(save, _REGISTRIES).state.players[0].po == c2
         # Confirmed in the map's note line, with the target path.

@@ -69,11 +69,19 @@ from engine.interactions import (
     LoadSubState,
     PromptChoice,
     PromptInt,
+    PromptText,
+    RollFrame,
     ShowMessage,
     StartCombat,
+    run,
 )
 from engine.locations import HANDLERS
-from engine.turns import ROADBLOCK_HOOK_KEY, SCORE_TRUNCATION_HOOK_KEY, SPECIAL_CELL_HOOK_KEY
+from engine.turns import (
+    ROADBLOCK_HOOK_KEY,
+    SCORE_TRUNCATION_HOOK_KEY,
+    SETUP_HANDLER_KEY,
+    SPECIAL_CELL_HOOK_KEY,
+)
 from engine.rng import Rng
 from engine.state import Clock, CombatState, Config, Fighter, GameState, Player
 from data.game_configs.mafia_1920s.state import Business, Contraband, Debt, Job, Wanted
@@ -2289,6 +2297,82 @@ def _new_game_grid(seeds: Iterable[int]) -> tuple[dict[str, Any], ...]:
     return tuple(points)
 
 
+# --- :205-210 player count ---------------------------------------------------------------
+# :205 ``sz=val(x$)`` is the identity on the grid's numeric answers (the evaluator has no
+# ``val``); :206's condition asks again, and :210's ``for`` sets up the players.
+Q_206 = q(206, "sz<1orsz>4")
+Q_210_FOR = q(210, "fori=1tosz")
+
+
+def _basic_player_count(v: Values) -> Any:
+    if Q_206.holds({"sz": v["sz"]}):
+        return "asked again"  # :206 goto205
+    players, i = 0, 1  # :210 fori=1tosz ... :220 next: the body runs while i<=sz
+    while i <= v["sz"]:
+        players += 1
+        i += 1
+    return players
+
+
+class _CountAskedAgain(Exception):
+    """The setup handler asked for the player count a second time."""
+
+
+def _engine_player_count(v: Values) -> Any:
+    counts: list[Any] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptText):
+            if interaction.key == "setup.player_count_prompt":
+                if counts:
+                    raise _CountAskedAgain
+                counts.append(v["sz"])
+                return repr(v["sz"])
+            return "a"
+        return True  # RollFrame: stopped; display interactions ignore the answer
+
+    handler = functools.partial(
+        HANDLERS[SETUP_HANDLER_KEY], end_year=1930, score_weight=1.0, house_rules={}
+    )
+    try:
+        result = run(handler, answer, state=None, rng=Rng(1))
+    except _CountAskedAgain:
+        return "asked again"
+    return len(result.payload.returned.players)
+
+
+# --- :350-355 a stat roll stopped on frame k -----------------------------------------------
+# Q_350 (below) is the draw; :355 ``getx$:ifx$=""goto350`` draws again until a key.
+
+
+def _basic_roll_frames(v: Values) -> Any:
+    shown = tuple(Q_350.assign({"rnd(1)": r}) for r in v["r"])  # one :350 pass per frame
+    return shown, shown[-1]  # the key stops the loop on the last value printed
+
+
+def _engine_roll_frames(v: Values) -> Any:
+    frames: list[int] = []
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, RollFrame) and interaction.key == "setup.roll.kraft":
+            frames.append(interaction.params["value"])
+            return len(frames) == len(v["r"])
+        return True
+
+    handler = functools.partial(
+        HANDLERS[SETUP_HANDLER_KEY],
+        end_year=1930,
+        score_weight=1.0,
+        house_rules={},
+        players=[("a", "b")],
+    )
+    # kraft's frames, then intelligenz, brutalitaet and the cash, each on its first draw
+    rng = StubRng((*v["r"], 0.0, 0.0, 0.0))
+    result = run(handler, answer, state=None, rng=rng)
+    assert rng.used == len(v["r"]) + 3
+    return tuple(frames), result.payload.returned.players[0].kraft
+
+
 # --- :30000 combat side anchors -------------------------------------------------------
 Q_30000 = q(30000, "kp(i,j)=129-18*(i=2)+p(j)")
 Q_50400 = q(50400, "data 122,81,161,120,42,202,40,200,1,241")
@@ -2871,6 +2955,29 @@ PORTS: list[Port] = [
         _grid(r=R),
         _basic_loot,
         _engine_loot,
+    ),
+    Port(
+        "player count",
+        (Q_206, Q_210_FOR),
+        "HANDLERS[SETUP_HANDLER_KEY] (count prompt)",
+        _grid(sz=(-1, 0, 0.5, 0.9990234375, 1, 1.5, 2, 2.5, 3, 3.75, 4, 4.0009765625, 4.5, 5, 9)),
+        _basic_player_count,
+        _engine_player_count,
+    ),
+    Port(
+        "stat roll stopped on frame k",
+        (Q_350,),
+        "HANDLERS[SETUP_HANDLER_KEY] (:350 RollFrame loop)",
+        tuple(
+            {"r": r}
+            for r in (
+                *((a,) for a in R),
+                *itertools.product(R[::3], repeat=2),
+                *itertools.product((0.0, 0.5, 0.9990234375), repeat=3),
+            )
+        ),
+        _basic_roll_frames,
+        _engine_roll_frames,
     ),
     Port(
         "new-game stats and cash",
