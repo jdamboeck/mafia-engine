@@ -512,7 +512,7 @@ def _prompt_setup_value(key: str, bounds: dict, *, integer: bool, resolver, out,
             return value
 
 
-def _ask_house_rules(rules, resolver, out, stdin) -> dict[str, str]:
+def _ask_house_rules(rules, change_key: str, resolver, out, stdin) -> dict[str, str]:
     """The optional house-rules step: each switchable rule's setting, faithful by default.
 
     ``rules`` are the catalogue entries that have a switch; with none the step is not
@@ -530,23 +530,22 @@ def _ask_house_rules(rules, resolver, out, stdin) -> dict[str, str]:
             raise EndOfInput
         return line.strip()
 
-    change_key = resolver.resolve("client.house_rules.change_key")
     render_screen_clear(out)
-    out.write(f"{resolver.resolve('client.house_rules.offer', {'key': change_key})} ")
+    out.write(f"{resolver.resolve('setup.house_rules.offer', {'key': change_key})} ")
     out.flush()
     if read().lower() != change_key.lower():
         return chosen
     while True:
         render_screen_clear(out)
-        out.write(resolver.resolve("client.house_rules.title") + "\n")
+        out.write(resolver.resolve("setup.house_rules.title") + "\n")
         for number, rule in enumerate(rules, start=1):
             entry = {
                 "number": number,
-                "setting": resolver.resolve(f"client.house_rules.setting.{chosen[rule.id]}"),
+                "setting": resolver.resolve(f"setup.house_rules.setting.{chosen[rule.id]}"),
                 "description": resolver.resolve(f"house_rules.{rule.id}"),
             }
-            out.write(resolver.resolve("client.house_rules.entry", entry) + "\n")
-        out.write(f"{resolver.resolve('client.house_rules.prompt')} ")
+            out.write(resolver.resolve("setup.house_rules.entry", entry) + "\n")
+        out.write(f"{resolver.resolve('setup.house_rules.prompt')} ")
         out.flush()
         answer = read()
         if answer == "":
@@ -700,6 +699,7 @@ class TerminalSession:
         module = self.cfg.module
         house_rules = _ask_house_rules(
             module.house_rules.switchable(module.house_rules.CATALOGUE),
+            module.house_rules.CHANGE_KEY,
             resolver,
             out,
             sys.stdin,

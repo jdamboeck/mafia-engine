@@ -16,6 +16,7 @@ from . import gang_war  # noqa: F401 — registers turn.gang_war (turn menu opti
 from . import game_end  # noqa: F401 — registers game_end.standings / game_end.year_end
 from . import jobs  # noqa: F401 — registers "job.shift" (the employed-turn flow)
 from . import kdh  # noqa: F401 — registers kdh.borrow/repay/trade/capital/collect
+from . import new_game  # noqa: F401 — registers the new-game setup (game.setup)
 from . import pol  # noqa: F401 — registers pol.surrender / pol.bribe / pol.free
 from . import police  # noqa: F401 — the police capture module the callers share (no handler)
 from . import roadblock  # noqa: F401 — registers the roadblock hook (turn.roadblock)
@@ -38,6 +39,7 @@ __all__ = [
     "game_end",
     "jobs",
     "kdh",
+    "new_game",
     "pol",
     "police",
     "pub",
