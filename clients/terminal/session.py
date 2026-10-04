@@ -47,6 +47,7 @@ from engine.interactions import (
     MAP_QUIT,
     MAP_SAVE,
     Acknowledge,
+    CombatScreen,
     Heading,
     LocationMenu,
     MapMove,
@@ -554,6 +555,10 @@ def _ask_house_rules(rules, resolver, out, stdin) -> dict[str, str]:
             chosen[rule_id] = INTENT if chosen[rule_id] == FAITHFUL else FAITHFUL
 
 
+#: The turn runner's own acknowledgement screens; every other one is a handler's.
+_RUNNER_SCREENS = frozenset({UPKEEP_SCREEN, TURN_OVER_SCREEN, STANDINGS_SCREEN, YEAR_END_SCREEN})
+
+
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
 
@@ -748,6 +753,13 @@ class TerminalSession:
 
     def render(self, interaction):
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``."""
+        if isinstance(interaction, CombatScreen):
+            # The board clears the screen when it is drawn, so the whose-turn line goes
+            # under the clear, with the board, not before it.
+            return self.inp.answer(interaction, banner=self.whose_turn(interaction))
+        if isinstance(interaction, Acknowledge) and interaction.key not in _RUNNER_SCREENS:
+            # A handler's own screen clears too (see acknowledge()).
+            return self.acknowledge(interaction, banner=self.whose_turn(interaction))
         self.announce_player(interaction)
         if isinstance(interaction, TurnMenu):
             return self.turn_menu(interaction)
@@ -775,12 +787,18 @@ class TerminalSession:
         player). A prompt meant for someone else -- a defender, a freed prisoner -- is
         announced first, so the right player takes the keyboard.
         """
+        line = self.whose_turn(interaction)
+        if line is None:
+            return
+        self.out.write(line + "\n")
+        self.out.flush()
+
+    def whose_turn(self, interaction) -> str | None:
+        """The whose-turn line for ``interaction``, or ``None`` for the active player."""
         player = getattr(interaction, "player", None)
         if player is None or self.state is None or player == self.state.clock.active_player:
-            return
-        name = self.state.players[player].name
-        self.out.write(self.text("session.whose_turn", {"name": name}) + "\n")
-        self.out.flush()
+            return None
+        return self.text("session.whose_turn", {"name": self.state.players[player].name})
 
     def heading(self, screen: Heading) -> None:
         """Open one of the runner's own screens under its heading."""
@@ -801,8 +819,11 @@ class TerminalSession:
         else:
             raise AssertionError(f"unknown screen heading {screen.key!r}")
 
-    def acknowledge(self, screen: Acknowledge):
-        """Show one of the runner's acknowledgement screens; ``_QUIT`` on a quit key."""
+    def acknowledge(self, screen: Acknowledge, *, banner: str | None = None):
+        """Show one of the runner's acknowledgement screens; ``_QUIT`` on a quit key.
+
+        ``banner`` is the whose-turn line of a handler's own screen, printed under its
+        screen clear."""
         if screen.key == UPKEEP_SCREEN:
             # The upkeep screen's body is already printed (see heading()): wait for the
             # key. EOF is an ack, not a quit -- upkeep offers no cancel path.
@@ -828,6 +849,8 @@ class TerminalSession:
             return None
         # A handler's own screen (the overview): its lines, then a key.
         render_screen_clear(self.out)
+        if banner is not None:
+            self.out.write(banner + "\n")
         lines = screen.params.get("lines")
         body = (
             "\n".join(self.text(key, params) for key, params in lines)

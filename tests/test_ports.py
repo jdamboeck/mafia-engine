@@ -1259,6 +1259,112 @@ def _engine_mayor(v: Values) -> Any:
     return (after.ka, _ag(after), game.tip_target(after))
 
 
+# --- :27020-27045 the gang war duel's consequences ----------------------------------------
+Q_27020_A = q(27020, "a=ks(s)")
+Q_27020_B = q(27020, "b=ks(1-(s=1))")
+Q_27025 = q(27025, "p=int(rnd(1)*ka(b)/6)+int(ka(b)/4)")
+Q_27028 = q(27028, "tm(b)=0")
+Q_27031_TMA = q(27031, "tm(a)=tm(b)")
+Q_27031_TMB = q(27031, "tm(b)=0")
+Q_27035_KAA = q(27035, "ka(a)=ka(a)+p")
+Q_27035_KAB = q(27035, "ka(b)=ka(b)-p")
+Q_27035_AGA = q(27035, "ag(a)=ag(a)or(ag(b)and1)")
+Q_27035_AGB = q(27035, "ag(b)=ag(b)and254")
+Q_27040_X = q(27040, "x=tk(tm(a))-ta(a)")
+Q_27040_IF = q(27040, "x>ta(b)")
+Q_27040_CAP = q(27040, "x=ta(b)")
+Q_27041_TAA = q(27041, "ta(a)=ta(a)+x")
+Q_27041_TAB = q(27041, "ta(b)=ta(b)-x")
+Q_27045 = q(27045, "ms=ms-10")
+
+
+def _basic_gang_war(v: Values) -> Any:
+    """sp=1 attacks us=2 (``ks(1)=us:ks(2)=sp``); side ``s`` wins; faithful scoring."""
+    b: dict[str, Any] = {"sp": 1, "s": v["s"], "ks(1)": 2, "ks(2)": 1, "x8": 1.0, "ms": 21}
+    for i, (ka, tm, ta, ag, gf) in enumerate(v["players"], start=1):
+        b.update({f"ka({i})": ka, f"tm({i})": tm, f"ta({i})": ta, f"ag({i})": ag})
+        b[f"gf({i})"] = gf
+    for i, vehicle in enumerate(_VEHICLES):
+        b[f"tk({i})"] = vehicle["tank"]
+    b["a"] = Q_27020_A.assign(b)
+    b["b"] = Q_27020_B.assign(b)
+    a, lo = int(b["a"]), int(b["b"])
+    b["rnd(1)"] = v["r"]
+    b["p"] = Q_27025.assign(b)
+    if not Q_27028.holds(b) and v["ans"] == "j":  # :27031 ifx$="j"then
+        b[f"tm({a})"] = Q_27031_TMA.assign(b)
+        b[f"tm({lo})"] = Q_27031_TMB.assign(b)
+    ka_a, ka_b = Q_27035_KAA.assign(b), Q_27035_KAB.assign(b)
+    ag_a, ag_b = Q_27035_AGA.assign(b), Q_27035_AGB.assign(b)
+    b.update({f"ka({a})": ka_a, f"ka({lo})": ka_b, f"ag({a})": ag_a, f"ag({lo})": ag_b})
+    b["x"] = Q_27040_X.assign(b)
+    if Q_27040_IF.holds(b):
+        b["x"] = Q_27040_CAP.assign(b)
+    ta_a, ta_b = Q_27041_TAA.assign(b), Q_27041_TAB.assign(b)
+    b.update({f"ta({a})": ta_a, f"ta({lo})": ta_b})
+    # :27041 x=3:gosub1160:y=sp:sp=b:x=-1:gosub1160:sp=y
+    for scored, x in ((1, 3), (lo, -1)):
+        b.update({"sp": scored, "x": x})
+        b[f"gf({scored})"] = Q_1160.assign(b)
+        if Q_1160_CAP.holds(b):
+            b[f"gf({scored})"] = 100
+        if Q_1161_FLOOR.holds(b):
+            b[f"gf({scored})"] = 0
+    ms = Q_27045.assign(b)
+    return tuple(
+        (b[f"ka({i})"], b[f"tm({i})"], b[f"ta({i})"], b[f"ag({i})"], b[f"gf({i})"]) for i in (1, 2)
+    ) + (ms,)
+
+
+def _engine_gang_war(v: Values) -> Any:
+    players = tuple(
+        _player(
+            name=f"p{i}",
+            ka=ka,
+            vehicle=tm,
+            gf=gf,
+            ms=21,
+            contraband=replace(_marks(ag), alcohol_barrels=ta),
+        )
+        for i, (ka, tm, ta, ag, gf) in enumerate(v["players"])
+    )
+    state = GameState(
+        players=players,
+        clock=Clock(active_player=0, player_count=2, month=4),
+        config=Config(formula_params={**_PARAMS, "score_mult": 1.0}),
+    )
+
+    def answer(interaction: Any) -> Any:
+        if isinstance(interaction, PromptInt):
+            return 2  # the defender, us=2
+        if isinstance(interaction, Confirm):
+            return v["ans"] == "j"
+        return None
+
+    run = _drive(
+        HANDLERS["turn.gang_war"],
+        state,
+        draws=(v["r"],),
+        answer=answer,
+        fight=CombatResult(winner=v["s"], losses=(0, 0)),
+    )
+    after = run.state.players
+    return tuple(
+        (p.ka, p.vehicle, game.contraband(p).alcohol_barrels, _ag(p), p.gf) for p in after
+    ) + (after[0].ms,)
+
+
+#: ``(ka, tm, ta, ag, gf)`` of the attacker and the defender: cash a multiple of 6 and
+#: not, on foot or driving, barrels below, at and above a tank, each passport bit,
+#: and a score at the clamp.
+_GANG_WAR_SEATS = (
+    ((6000, 0, 0, 0, 50.0), (7, 3, 40, 3, 50.0)),
+    ((1, 1, 180, 1, 99.0), (6001, 4, 10, 0, 0.5)),
+    ((0, 4, 30, 2, 100.0), (0, 0, 0, 1, 0.0)),
+    ((1001, 3, 200, 3, 0.0), (5, 1, 120, 2, 99.0)),
+)
+
+
 # --- :20100-20150 ban, the night safe-crack ----------------------------------------
 Q_20100 = q(20100, "in>=40andkr>=15andbt>=20")
 Q_20110_RD = q(20110, "rd(i)=1+i")
@@ -2485,6 +2591,21 @@ PORTS: list[Port] = [
         _grid(ka=(0, 1000), ag=range(4)),
         _basic_mayor,
         _engine_mayor,
+    ),
+    Port(
+        "gang war duel",
+        (Q_27020_A, Q_27020_B, Q_27025, Q_27028, Q_27031_TMA, Q_27031_TMB)
+        + (Q_27035_KAA, Q_27035_KAB, Q_27035_AGA, Q_27035_AGB)
+        + (Q_27040_X, Q_27040_IF, Q_27040_CAP, Q_27041_TAA, Q_27041_TAB, Q_27045),
+        "HANDLERS['turn.gang_war'] (gang_war.gang_war, gang_war.plunder)",
+        _grid(
+            s=(1, 2),
+            players=_GANG_WAR_SEATS + tuple(seats[::-1] for seats in _GANG_WAR_SEATS),
+            r=R,
+            ans=("j", "n"),
+        ),
+        _basic_gang_war,
+        _engine_gang_war,
     ),
     Port(
         "ban safe gate",

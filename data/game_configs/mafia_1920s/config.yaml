@@ -14,7 +14,7 @@ name: "mafia_1920s"
 
 # This config's own content version. A save records it and is refused under another,
 # so bump it when a content change would make an existing save load wrongly.
-content_version: 6
+content_version: 7
 description: "The 1986 Igelsoft 'Mafia' reference title, 1920s underworld."
 
 # Entity tables live in sibling files under entities/.
@@ -297,6 +297,20 @@ formula_params:
   win_transport_score: 4         # x=4:gosub1160, before the payout's own (:23030)
   win_transport_tip: 3           # (x=3andla=13): the payout's tip bonus (:20051)
   win_mayor_reward: 7000         # ka(sp)=ka(sp)+7000 (:24020)
+
+  # The gang war — mf-prg.bas:27000-27045 (handlers/gang_war.py).
+  # :27001 ifja<1925+4/12: refused before the round ja reaches 1925+4/12, which the
+  # header shows as 1925-5 (checked in VICE: four additions of 1/12 compare >= it).
+  # The year and the 0-based month (Clock.month) the gate opens on.
+  gang_war_from_year: 1925
+  gang_war_from_month: 4
+  gang_war_grid: ks              # kf$="ks" (:27020)
+  # p=int(rnd(1)*ka(b)/6)+int(ka(b)/4) (:27025), the loser's cash ka(b)
+  gang_war_plunder_spread: 6
+  gang_war_plunder_base: 4
+  gang_war_winner_score: 3       # x=3:gosub1160 (:27041), faithfully to sp, the attacker
+  gang_war_loser_score: -1       # sp=b:x=-1:gosub1160 (:27041)
+  gang_war_cost: 10              # ms=ms-10 (:27045)
 
   # The map roadblock — mf-prg.bas:2041, :6000-6036 (handlers/roadblock.py).
   # ifms/20=int(ms/20)andint(rnd(1)*5)=0andra(sp)>3 (:2041)

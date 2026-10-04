@@ -108,10 +108,11 @@ def _street_step(state) -> str:
 # --------------------------------------------------------------------------- #
 def test_the_menu_is_a_shell_with_the_sources_keys():
     menu = _CONFIG.menus["turn"]
-    # :1020-1022 numbers the options 1-4; 3 (the gang war, :27000) is not built yet.
+    # :1020-1022 numbers the options 1-4; 3 is the gang war (:27000).
     assert [(o.id, o.key) for o in menu.options] == [
         ("overview", "1"),
         ("walk", "2"),
+        ("gang_war", "3"),
         ("next_player", "4"),
     ]
 
@@ -122,7 +123,9 @@ def test_the_turn_start_opens_the_menu():
 
     assert outcome == "open"
     assert seen[-1] == TurnMenu(
-        options=("overview", "walk", "next_player"), keys=("1", "2", "4"), player=0
+        options=("overview", "walk", "gang_war", "next_player"),
+        keys=("1", "2", "3", "4"),
+        player=0,
     )
     assert runner.state.clock.turn_phase == MENU
 
@@ -146,13 +149,13 @@ def test_picking_next_player_ends_the_turn_with_movement_points_unspent():
 # --------------------------------------------------------------------------- #
 def test_an_out_of_range_key_is_ignored():
     runner = _runner(_new_game())
-    # 0, 5, 3 (no gang war yet), a letter, nothing: each asks the same menu again.
-    seen, outcome = _script(runner.run(TURN_START), ["0", "5", "3", "x", None])
+    # 0, 5, a letter, nothing: each asks the same menu again.
+    seen, outcome = _script(runner.run(TURN_START), ["0", "5", "x", None])
 
     assert outcome == "open"
     menus = [i for i in seen if isinstance(i, TurnMenu)]
-    assert len(menus) == 6 and len(set(menus)) == 1
-    assert _types(seen) == [TurnMenu] * 6
+    assert len(menus) == 5 and len(set(menus)) == 1
+    assert _types(seen) == [TurnMenu] * 5
     assert runner.state.clock.turn_phase == MENU
 
 

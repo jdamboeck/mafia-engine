@@ -289,6 +289,11 @@ class TerminalInput:
         self._weapon_names = weapon_names or []
 
     def __call__(self, interaction: Any) -> Any:
+        return self.answer(interaction)
+
+    def answer(self, interaction: Any, *, banner: str | None = None) -> Any:
+        """Answer one interaction. ``banner`` is a line drawn at the top of a combat
+        board, under the screen clear (the session's whose-turn line)."""
         if isinstance(interaction, ShowMessage):
             # Driver auto-acks ShowMessage; if we are ever consulted, just render it.
             render_message(self._resolver, interaction, self._stdout)
@@ -301,7 +306,9 @@ class TerminalInput:
             # EndOfInput: the frame just continues (readline() returns "" at once, so it
             # cannot hang), and the next real prompt meets the same EOF and ends the
             # fight/session through its own, already-defined EOF path.
-            self._render_combat_screen(interaction, footer=("combat.observe_prompt",))
+            self._render_combat_screen(
+                interaction, footer=("combat.observe_prompt",), banner=banner
+            )
             self._stdin.readline()
             return None
 
@@ -312,7 +319,7 @@ class TerminalInput:
             # _parse_combat_response (engine/fight_loop.py) maps to a surrender --
             # combat prompts are non-cancellable, so CANCEL here is never a
             # "discard the action" signal, only "give up".
-            self._render_combat_screen(interaction)
+            self._render_combat_screen(interaction, banner=banner)
             return self._read_combat_action()
 
         self._stdout.write(self._prompt_text(interaction))
@@ -331,11 +338,13 @@ class TerminalInput:
         self,
         screen: CombatScreen,
         footer: tuple[str, ...] = ("combat.action_prompt", "combat.key_legend"),
+        banner: str | None = None,
     ) -> None:
         """Draw one activation's full combat screen: grid, message, panel, prompt.
 
         ``footer`` is the theme keys printed under the panel: the action prompt + key
         legend for a real activation, or the "press a key" line for an observe frame.
+        ``banner``, when given, is printed first, right under the screen clear.
 
         Renders straight from ``screen.to_json()`` (the JSON-serializable payload,
         never the engine's ``CombatState``/``Fighter`` objects) so this client
@@ -351,6 +360,8 @@ class TerminalInput:
 
         payload = screen.to_json()
         render_screen_clear(self._stdout)
+        if banner is not None:
+            self._stdout.write(banner + "\n")
         render_combat_grid(payload, self._stdout, self._colors)
         render_combat_message(payload, self._resolver, self._stdout, self._colors)
         render_fighter_panel(

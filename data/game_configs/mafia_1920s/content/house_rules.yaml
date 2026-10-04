@@ -47,6 +47,9 @@
 #     asked again here. An empty answer keeps x$, which is "j" from the lawyer
 #     question at first (0, no lawyer) and the refused answer after a refusal (asked
 #     again), as the port does (checked in VICE; handlers/police.py).
+#   - the gang war's opponent key (mf-prg.bas:27015 getx$) reads a number: a letter,
+#     which val() reads as 0 and so leaves on the C64 (:27016), is asked again here;
+#     RETURN leaves, as on the C64 (handlers/gang_war.py).
 house_rules:
   - id: intelligence_or_30
     citation: ":311"
@@ -344,4 +347,30 @@ house_rules:
     no_intent: >-
       The gate may be meant for the boss, who plans the break-in, or for the cracker;
       the source loads the boss on purpose (``b=1``) and nothing says which was meant.
+    switch: false
+
+  - id: gang_war_score_to_the_attacker
+    citation: ":27041"
+    quote: "x=3:gosub1160:y=sp:sp=b:x=-1:gosub1160:sp=y"
+    faithful: >-
+      The duel's +3 goes to sp, the attacker, whoever won: :1160 scores sp, and only
+      the loser's -1 swaps sp to b first. A winning attacker gets +3 and the defender
+      -1; a losing attacker gets +3 and then -1, and the defender who beat him nothing.
+    intent: >-
+      The winner gets the +3, as the winner gets the plunder (:27035
+      ``ka(a)=ka(a)+p``); the loser the -1.
+    switch: true
+
+  - id: gang_war_overfull_tank_feeds_the_loser
+    citation: ":27040"
+    quote: "x=tk(tm(a))-ta(a):ifx>ta(b)thenx=ta(b)"
+    faithful: >-
+      The barrels the winner takes are the free room in his tank, at most the loser's
+      stock, with no floor at 0: a winner holding more barrels than his tank holds
+      (after taking the loser's smaller car, say) has negative room, and :27041 ``ta(a)=ta(a)+x:ta(b)=ta(b)-x`` hands the excess to
+      the loser.
+    no_intent: >-
+      The "ausserdem erbeutest du den alkoholvorrat" text (:27026-27028) says the winner
+      takes the stock; whether an overfull winner should keep his excess, take nothing
+      or lose it is not said anywhere.
     switch: false

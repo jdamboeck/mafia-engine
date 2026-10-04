@@ -12,6 +12,7 @@ from . import aut  # noqa: F401 — registers aut.buy / aut.steal
 from . import ban  # noqa: F401 — registers ban.holdup / ban.safe (and the heist payout)
 from . import bhf  # noqa: F401 — registers bhf.pub / bhf.pickpocket / bhf.mail_train
 from . import ble  # noqa: F401 — registers ble.passport / ble.counterfeit
+from . import gang_war  # noqa: F401 — registers turn.gang_war (turn menu option 3)
 from . import game_end  # noqa: F401 — registers game_end.standings / game_end.year_end
 from . import jobs  # noqa: F401 — registers "job.shift" (the employed-turn flow)
 from . import kdh  # noqa: F401 — registers kdh.borrow/repay/trade/capital/collect
@@ -33,6 +34,7 @@ __all__ = [
     "ban",
     "bhf",
     "ble",
+    "gang_war",
     "game_end",
     "jobs",
     "kdh",

@@ -4,9 +4,10 @@
 # because the source numbers them 1-4 (:1020-1022) and dispatches on that number
 # (:1030 getx$:x=val(x$), :1031 ifx=4goto1010, :1035 onxgosub1200,2000,27000).
 #
-# Option 3, the gang war (:1021 "3 - bandenkrieg", :1035 -> gosub27000), is not built
-# yet: until it is, the key 3 is ignored like any key no option has (:1030). The
-# F1 graphics toggle (:1032) is not ported (a presentation switch of the C64 loader).
+# Option 3, the gang war (:1021 "3 - bandenkrieg", :1035 -> gosub27000), is always
+# offered, as :1021 always prints it: its refusals (a solo game, a date before 4/1925)
+# are the handler's (:27000-27001), so it carries no guard. The F1 graphics toggle
+# (:1032) is not ported (a presentation switch of the C64 loader).
 #
 # Each handler returns what the engine turn runner does next (engine.turns.MENU_WALK,
 # MENU_END_TURN, or nothing: back to the menu while movement points remain, :1045).
@@ -18,6 +19,9 @@ options:
   - id: walk           # 2 - durch die stadt gehen (:2000)
     key: "2"
     handler: "turn.walk"
+  - id: gang_war       # 3 - bandenkrieg (:27000-27045, handlers/gang_war.py)
+    key: "3"
+    handler: "turn.gang_war"
   - id: next_player    # 4 - naechster spieler (:1031)
     key: "4"
     handler: "turn.next_player"

@@ -35,6 +35,7 @@ too; each returns what the runner does next:
   Returns nothing: back to the menu (``:1045``).
 * ``turn.walk`` — ``:1035 onxgosub1200,2000,27000``, option 2: returns
   :data:`~engine.turns.MENU_WALK`.
+* ``turn.gang_war`` — option 3, ``:27000-27045``: registered by :mod:`.gang_war`.
 * ``turn.next_player`` — ``:1031 ifx=4goto1010``: returns
   :data:`~engine.turns.MENU_END_TURN`.
 

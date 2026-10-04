@@ -28,8 +28,10 @@ from pathlib import Path
 
 import yaml
 
+from engine.combat_setup import SIDE2_ANCHOR, build_player_side, placement_positions
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
+from engine.fight_loop import HumanDriver
 from engine.interactions import PromptInt, ShowMessage, StartCombat
 from engine.rng import Rng
 from engine.scenario import Scenario
@@ -42,6 +44,7 @@ try:
     from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
     from .house_rules import load_house_rules, switchable
     from .state import SCHEMA
+    from .state import gang_name as _gang_name
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from combat_rules import build_rules, enemy_attrs, equipper
     from effects import DebtClear, ScoreAndRank
@@ -49,6 +52,7 @@ except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
     from house_rules import load_house_rules, switchable
     from state import SCHEMA
+    from state import gang_name as _gang_name
 from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
 
 __all__ = [
@@ -64,6 +68,7 @@ __all__ = [
     "Encounter",
     "apply_outcome",
     "run_encounter",
+    "run_gang_fight",
     "roster_after",
     "gangster_line",
     "pick_gangster",
@@ -472,6 +477,67 @@ def run_encounter(
     return result
 
 
+def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
+    """Run a fight between two players' gangs and narrate its outcome.
+
+    A generator (``result = yield from run_gang_fight(ctx, defender=d, attacker=a,
+    grid=g)``) returning the fight's :class:`~engine.combat.CombatResult`; the sibling of
+    :func:`run_encounter` for a fight with no NPC side, assembled with the same
+    discipline (this game's rules bundle under its house rules, its weapon table, the
+    named backdrop). The gang war launches it (``mf-prg.bas:27020``
+    ``ks(1)=us:ks(2)=sp:kf$="ks":gosub30000``):
+
+    * side 1 is ``defender``'s whole gang, side 2 ``attacker``'s, each placed as
+      ``:30000`` places side ``i`` (``kp(i,j)=129-18*(i=2)+p(j)``) with every gangster's
+      own weapon and **current** energy (a gangster at 0 is placed and fights);
+    * each side is owned by its player (``Fighter.owner``), so the fight writes each
+      gang's energy back to its own player (``:30260-30265``);
+    * neither side is the CPU's (``:30110 ifks(s)=0`` is false for both): each is a
+      :class:`~engine.fight_loop.HumanDriver` naming the player who controls it, which
+      every :class:`~engine.interactions.CombatScreen` of that side carries. Side 1, the
+      defender, moves first (``:30100 s=1``).
+
+    The outcome screen (``:30500-30515``) names the gangs, ``bn$(ks(i))``.
+    """
+    players = ctx.state.players
+    weapons_path = _CONFIG_DIR / "entities" / "weapons.yaml"
+    equip = equipper(weapon_stats_by_id(weapons_path))
+    defending = players[defender].roster
+    attacking = players[attacker].roster
+    side1 = build_player_side(defending, owner=defender)
+    # :30000 side 2's anchor: build_player_side places at side 1's, so move each fighter.
+    side2 = tuple(
+        replace(fighter, position=position)
+        for fighter, position in zip(
+            build_player_side(attacking, owner=attacker),
+            placement_positions(SIDE2_ANCHOR, len(attacking)),
+        )
+    )
+    sides = (
+        tuple(replace(f, equipment=equip(f.weapon)) for f in side1),
+        tuple(replace(f, equipment=equip(f.weapon)) for f in side2),
+    )
+    scenario = Scenario(
+        sides=sides,
+        grid=load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{grid}.yaml"),
+        rules=build_rules(ctx.state.config.house_rules),
+        # :30020 seeds the direction memory for a CPU side only (ks(2)=0): none here.
+        dir_memory={},
+    )
+    result = yield StartCombat(
+        scenario=scenario,
+        drivers={1: HumanDriver(player=defender), 2: HumanDriver(player=attacker)},
+    )
+    yield from narrate_combat_outcome(
+        winner=result.winner,
+        player_name=_gang_name(players[defender]),
+        enemy_name=_gang_name(players[attacker]),
+        player_losses=result.losses[0],
+        enemy_losses=result.losses[1],
+    )
+    return result
+
+
 def roster_after(roster, result):
     """``roster`` with each gangster's energy as the fight ``result`` left it.
 
@@ -582,7 +648,7 @@ def fnm(ln: int, params: dict) -> int:
 # --- score / rank helper ---------------------------------------------------
 
 
-def score_and_rank(x: float, params: dict) -> ScoreAndRank:
+def score_and_rank(x: float, params: dict, *, player: int | None = None) -> ScoreAndRank:
     """Build the :class:`ScoreAndRank` effect for reward ``x`` — ports ``gosub 1160/1165``.
 
     ``params`` is the config's ``formula_params`` block; the ``rank_divisor`` (11.1) is
@@ -590,9 +656,10 @@ def score_and_rank(x: float, params: dict) -> ScoreAndRank:
     delta); the effect weights it by ``formula_params["score_mult"]`` (``x8``) at apply
     time.
     Every score-awarding waf path routes through this helper so rank never drifts from
-    the original.
+    the original. ``player`` scores another player than the active one (the gang war's
+    loser, ``:27041`` ``sp=b:x=-1:gosub1160``).
     """
-    return ScoreAndRank(amount=x, rank_divisor=params["rank_divisor"])
+    return ScoreAndRank(amount=x, rank_divisor=params["rank_divisor"], player=player)
 
 
 # --- combat-outcome narration -----------------------------------------------

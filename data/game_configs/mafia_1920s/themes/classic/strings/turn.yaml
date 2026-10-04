@@ -13,11 +13,11 @@ turn:
     status: "kapital: {cash:<16}jahr:{year:mid$}-{month:mid$}"
     # :1020
     prompt: "was willst du tun:"
-    # :1020-1022, one per option of content/menus/turn.yaml. :1021's
-    # "3 - bandenkrieg" joins them with the gang war.
+    # :1020-1022, one per option of content/menus/turn.yaml.
     option:
       overview: "1 - uebersicht"
       walk: "2 - durch die stadt gehen"
+      gang_war: "3 - bandenkrieg"
       next_player: "4 - naechster spieler"
 
   # :1510-1515 print"{clr}{down}{gry3}du sitzt im knast."gs(sp)+1"monat(e) hast" /

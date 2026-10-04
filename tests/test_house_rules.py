@@ -196,6 +196,7 @@ def test_the_real_catalogue_offers_its_switches_at_setup(monkeypatch, tmp_path):
         "flight_odds_by_seat": "faithful",
         "chief_bribe_negative_months": "faithful",
         "chief_bribe_empty_answer": "faithful",
+        "gang_war_score_to_the_attacker": "faithful",
     }
 
 
@@ -583,6 +584,7 @@ def test_the_fight_lab_refuses_a_recording_made_under_another_map_in_one_line(ca
 def test_the_code_reads_exactly_the_catalogues_switches(mafia_module):
     """Every switch is read by the code that plays it, and the code reads no other."""
     from data.game_configs.mafia_1920s.combat_rules import SHARED_DIRECTION_MEMORY
+    from data.game_configs.mafia_1920s.handlers.gang_war import SCORE_TO_THE_ATTACKER
     from data.game_configs.mafia_1920s.handlers.pol import (
         CHIEF_BRIBE_EMPTY_ANSWER,
         CHIEF_BRIBE_NEGATIVE_MONTHS,
@@ -601,6 +603,7 @@ def test_the_code_reads_exactly_the_catalogues_switches(mafia_module):
         FLIGHT_ODDS_BY_SEAT,
         CHIEF_BRIBE_NEGATIVE_MONTHS,
         CHIEF_BRIBE_EMPTY_ANSWER,
+        SCORE_TO_THE_ATTACKER,
     }
 
 
@@ -669,6 +672,10 @@ _FAITHFUL_ONLY_TESTS = {
     "safe_gate_checks_the_boss": (
         "tests.test_ban",
         "test_the_safe_crack_gate_reads_the_boss_and_the_minigame_the_cracker",
+    ),
+    "gang_war_overfull_tank_feeds_the_loser": (
+        "tests.test_gang_war",
+        "test_a_winner_over_tank_capacity_loses_barrels_to_the_loser",
     ),
 }
 

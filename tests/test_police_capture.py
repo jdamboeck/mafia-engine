@@ -77,6 +77,7 @@ def _rules(**settings: str) -> dict[str, str]:
         "flight_odds_by_seat": "faithful",
         "chief_bribe_negative_months": "faithful",
         "chief_bribe_empty_answer": "faithful",
+        "gang_war_score_to_the_attacker": "faithful",
     }
     rules.update(settings)
     return rules
