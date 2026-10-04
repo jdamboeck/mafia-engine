@@ -13,7 +13,8 @@ the reference title's turn head, ``mf-prg.bas:1010-1013``::
    round standings of the round just played, then the year-end check (``int(ja)`` has
    reached the end year: the year-end result, and the game ends).
 2. ``:1011`` — upkeep (:data:`~engine.upkeep.UPKEEP_HANDLER_KEY`) and its screen, then
-   the config's turn-start check (:data:`EARLY_WIN_HOOK_KEY`).
+   the config's turn-start check (:data:`EARLY_WIN_HOOK_KEY`); when it passes, the
+   game's result (the same as at the year end), and the game ends.
 3. ``:1012`` — movement points (:data:`MOVEMENT_POINTS_HOOK_KEY` returns the value,
    the runner writes it), the previous tile cleared, and the job skip
    (:data:`JOB_HOOK_KEY`, then the shift under :data:`JOB_SHIFT_HANDLER_KEY`).
@@ -238,8 +239,9 @@ MENU_END_TURN = "end_turn"
 # --------------------------------------------------------------------------- #
 # Hook keys: the config's rules, registered in engine.locations.HANDLERS       #
 # --------------------------------------------------------------------------- #
-#: ``:1011`` the turn-start check: returns truthy when the active player has won the
-#: game early (the config narrates it); the game then ends.
+#: ``:1011`` the turn-start check: returns truthy when the game ends at this turn start
+#: (the config shows its own screens for it). The runner then shows the game's result,
+#: the same game-end flow as the year end (:data:`YEAR_END_SCREEN`), and the game ends.
 EARLY_WIN_HOOK_KEY = "turn.early_win"
 #: ``:1012`` returns the active player's movement points for this turn.
 MOVEMENT_POINTS_HOOK_KEY = "turn.movement_points"
@@ -279,7 +281,8 @@ UPKEEP_SCREEN = "turn.upkeep"
 TURN_OVER_SCREEN = "turn.turn_over"
 #: Acknowledge: the round standings. ``params``: ``lines``, ``(key, params)`` pairs.
 STANDINGS_SCREEN = "turn.standings"
-#: Acknowledge: the year-end result. ``params``: ``lines``, ``(key, params)`` pairs.
+#: Acknowledge: the game's result, shown when the game ends (the year-end check or a
+#: truthy turn-start check). ``params``: ``lines``, ``(key, params)`` pairs.
 YEAR_END_SCREEN = "turn.year_end"
 #: Heading: the job shift's screen opens.
 JOB_SHIFT_SCREEN = "turn.job_shift"
@@ -287,7 +290,8 @@ JOB_SHIFT_SCREEN = "turn.job_shift"
 #: ``params``: ``location`` (its key).
 LOCATION_CLOSED_SCREEN = "turn.location_closed"
 
-#: :meth:`TurnRunner.run`'s return value when the game ended (year end or early win).
+#: :meth:`TurnRunner.run`'s return value when the game ended (the year-end check or a
+#: truthy turn-start check).
 GAME_OVER = "game_over"
 #: :meth:`TurnRunner.run`'s return value when it reached its ``until`` phase.
 PAUSED = "paused"
@@ -393,9 +397,18 @@ class TurnRunner:
         # ifint(ja)=x9goto40100: the year-end result, on the advanced state.
         if int(clock.year) < clock.end_year:
             return False
-        lines = self._display(run_year_end, YEAR_END_HANDLER_KEY, self.state)
-        yield Acknowledge(YEAR_END_SCREEN, {"lines": lines}, player=clock.active_player)
+        yield from self._game_end()
         return True
+
+    def _game_end(self) -> Generator[Any, Any, None]:
+        """The game's result over the committed state, on its own screen.
+
+        Both ways a game ends show it: the year-end check and a truthy turn-start check
+        (:data:`EARLY_WIN_HOOK_KEY`). The result is the config's game-end flow
+        (:data:`~engine.game_end.YEAR_END_HANDLER_KEY`); who wins is its rule.
+        """
+        lines = self._display(run_year_end, YEAR_END_HANDLER_KEY, self.state)
+        yield Acknowledge(YEAR_END_SCREEN, {"lines": lines}, player=self.state.clock.active_player)
 
     def _upkeep(self) -> Generator[Any, Any, None]:
         """``:1011`` gosub4000: upkeep on its own screen, closed by a key.
@@ -412,6 +425,7 @@ class TurnRunner:
     def _turn_start(self) -> Generator[Any, Any, str]:
         """``:1011``'s early-win check, ``:1012`` and ``:1013``; returns the next phase."""
         if (yield from self._hook(EARLY_WIN_HOOK_KEY)):
+            yield from self._game_end()
             return GAME_OVER
         movement_points = yield from self._hook(MOVEMENT_POINTS_HOOK_KEY)
         # :1012 ms=tr(tm(sp)) ... ll(sp)=0

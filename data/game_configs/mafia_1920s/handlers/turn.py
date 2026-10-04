@@ -6,9 +6,10 @@ its hook keys, in the SAME :data:`engine.locations.HANDLERS` registry location h
 use:
 
 * :data:`~engine.turns.EARLY_WIN_HOOK_KEY` — ``:1011``'s turn-start check
-  ``ifra(sp)=10andx5%(sp)>0andx6%(sp)>0thensyslh,"sieg-pic":goto40000``. A no-op: the
-  early win itself is not built yet; the two win flags it reads are set by the
-  cash-transport and mayor flows (``la=13``/``14``, :mod:`.win_flows`).
+  ``ifra(sp)=10andx5%(sp)>0andx6%(sp)>0thensyslh,"sieg-pic":goto40000``: a rank-10
+  player holding both win flags (set by the cash-transport and mayor flows,
+  ``la=13``/``14``, :mod:`.win_flows`) sees the victory screen and the game ends; the
+  runner then shows the year-end ranking (``:40000`` falls into ``:40100``).
 * :data:`~engine.turns.MOVEMENT_POINTS_HOOK_KEY` — ``:1012`` ``ms=tr(tm(sp))``: the
   active player's vehicle's ``tr``. Returns the value; the runner writes it. The same
   line's ``nr(sp)=ra(sp)`` is applied here too.
@@ -38,8 +39,8 @@ too; each returns what the runner does next:
   :data:`~engine.turns.MENU_END_TURN`.
 
 Handler-API conformance: touches only ``ctx.state`` (read-only), ``ctx.apply(<Effect>)``
-and this config's own helpers. None of them draws from ``ctx.rng``; only the overview
-and the jail skip yield (display-only screens).
+and this config's own helpers. None of them draws from ``ctx.rng``; only the overview,
+the jail skip and the early win yield (display-only screens).
 """
 
 from __future__ import annotations
@@ -76,6 +77,7 @@ __all__ = [
     "next_player",
     "overview_lines",
     "JAIL_SCREEN",
+    "VICTORY_SCREEN",
     "gang_lines",
     "OVERVIEW_SCREEN",
     "GANG_SCREEN",
@@ -103,11 +105,29 @@ def truncated_score(gf: float) -> float:
     return math.floor(round(gf * 100, _SCORE_SNAP_DECIMALS)) / 100
 
 
+#: ``:1011`` ``ra(sp)=10``: the rank the early win needs ("chef der unterwelt").
+_EARLY_WIN_RANK = 10
+
+
 @register(EARLY_WIN_HOOK_KEY)
 def early_win(ctx):
-    """``:1011``'s early-win check. Never passes yet (the early win is not built)."""
-    yield from ()
-    return False
+    """``:1011`` ``ifra(sp)=10andx5%(sp)>0andx6%(sp)>0thensyslh,"sieg-pic":goto40000``.
+
+    Run after upkeep (``gosub4000``), so a rank committed there counts this turn, and
+    before ``:1012``'s job shift and ``:1013``'s jail skip. A rank-10 player holding both
+    win flags (``x5`` the cash transport, ``:23030``; ``x6`` the mayor, ``:24020``) sees
+    the victory picture (:data:`VICTORY_SCREEN`) and the hook returns truthy: the game
+    ends. ``:40000`` is ``rem ende`` and falls into ``:40100``, the year-end ranking,
+    which the engine runner shows next (``game_end.year_end``): the winner is the top
+    score, not necessarily this player. The flags are read here only, so flags won during
+    a turn count at the player's next turn start.
+    """
+    player = ctx.state.players[ctx.state.clock.active_player]
+    flags = wanted(player)
+    if not (player.rank == _EARLY_WIN_RANK and flags.x5 and flags.x6):
+        return False
+    yield Acknowledge(VICTORY_SCREEN, {"name": player.name})  # syslh,"sieg-pic"
+    return True
 
 
 @register(MOVEMENT_POINTS_HOOK_KEY)
@@ -151,6 +171,10 @@ def score_truncation(ctx):
 #: Acknowledge: the jail screen (``:1510-1515``). ``params``: ``months``, the months
 #: left before this turn's decrement (``gs(sp)+1`` after ``:1500``'s ``gs(sp)-1``).
 JAIL_SCREEN = "turn.jail"
+
+#: Acknowledge: the victory picture (``:1011`` ``syslh,"sieg-pic"``). ``params``:
+#: ``name``, the player who triggered the early win.
+VICTORY_SCREEN = "turn.victory"
 
 
 @register(JAIL_HOOK_KEY)

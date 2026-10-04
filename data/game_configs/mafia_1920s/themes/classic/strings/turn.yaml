@@ -25,6 +25,13 @@ turn:
   # decrement; the :1100 "taste druecken!" pause is the client's.
   jail: "du sitzt im knast. {months} monat(e) hast\ndu noch vor dir..."
 
+  # :1011 syslh,"sieg-pic" -- the victory picture, shown before the ranking (:40000
+  # falls into :40100). STAND-IN: the picture has no text in the source corpus
+  # (research-data/pass-1/game-text.yaml has no sieg-pic string), so a text client
+  # shows it as words: the player's name and the rank name ra$(10) the early win needs
+  # (:50210 data "chef der unterwelt"). {name} is the player who triggered it.
+  victory: "{name}\nchef der unterwelt"
+
   overview:
     # :1200 print"{clr}{down}{rvon}uebersicht fuer "sp$(sp)":"
     title: "uebersicht fuer {name}:"
