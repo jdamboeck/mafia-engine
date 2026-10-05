@@ -49,7 +49,6 @@ from engine.interactions import (
     Heading,
     LocationMenu,
     MapMove,
-    OptionDone,
     PromptChoice,
     PromptInt,
     TurnMenu,
@@ -158,8 +157,9 @@ class ScreenPlayer:
         if isinstance(screen, CombatScreen):
             self.combat_activations += 1
             return combat_keys(screen)
-        if isinstance(screen, (Acknowledge, Heading, OptionDone)):
-            # any key that is not the quit key (OptionDone: :1100's wait after a result)
+        if isinstance(screen, (Acknowledge, Heading)):
+            # any key that is not the quit key (Acknowledge(KEY_WAIT_SCREEN) is a
+            # handler's :1100 wait; the client reads no key when an option ends)
             return "x"
         raise AssertionError(f"no answer for {screen!r}")
 

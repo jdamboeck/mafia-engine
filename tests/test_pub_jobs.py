@@ -26,6 +26,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.config_loader import load_game_config
 from engine.effects import EnergyChange, MoneyChange, MsChange
 from data.game_configs.mafia_1920s.effects import JobClear, JobSet, ScoreAndRank
@@ -389,3 +391,83 @@ def test_croupier_caught_but_wins_the_fight_completes_the_shift():
     assert kept and kept[0].months_left == 1, (
         f"a won shift decrements months_left 2 -> 1; got {kept}"
     )
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_BOUNCER = Job(type=1, pending_pay=2500, months_left=3)
+_CROUPIER = Job(type=2, pending_pay=1200, months_left=2)
+
+_JOB_EXITS = [
+    # id, handler, state kwargs, rng draws, answers, waits
+    # :12301 print"als '"ra$(ra(sp))"' findest du was":print"{down}besseres!":goto1100
+    ("12301-too-respectable", "pub.job", {"rank": 4}, (), (), 1),
+    # :12302 ...print"niemand hat einen job fuer dich.":goto1100
+    ("12302-no-job", "pub.job", {}, (0,), (), 1),
+    # :12330 ...gosub1110:ifx$="n"thenreturn
+    ("12330-declined", "pub.job", {}, (1, 0, 2000), (False,), 0),
+    # :12335 print"{down}du hast den job!":jo(sp)=x:jl(sp)=p:ms=0:goto1100
+    ("12335-taken", "pub.job", {}, (1, 0, 2000), (True,), 1),
+    # :25025 ...print"{down}heute gab es nichts!":gosub1100:goto25550 -> :25550 ...return
+    ("25025-quiet-day", "job.shift", {"jobs": _BOUNCER}, (0,), (), 1),
+    # :25025's wait, then :25550 -> :25560 ...jo(sp)=0:goto1100 (the last month)
+    (
+        "25560-quiet-last-day",
+        "job.shift",
+        {"jobs": Job(type=1, pending_pay=2500, months_left=1)},
+        (0,),
+        (),
+        2,
+    ),
+    # :25030 gosub1100, the fight (:30520 goto1100), :25510 ...jo(sp)=0:goto1100
+    ("25510-brawler-lost", "job.shift", {"jobs": _BOUNCER}, (1, 0), ("surrender",), 3),
+    # :25126 ...ka(sp)=ka(sp)+p:gosub1100:goto25550 -> :25550 ...return
+    ("25126-bonus", "job.shift", {"jobs": _CROUPIER}, (1, 300), (1,), 1),
+    # :25131 gosub1100, the fight, :25510's goto1100
+    ("25131-croupier-caught", "job.shift", {"jobs": _CROUPIER}, (0,), (1, "surrender"), 3),
+    # :25206 gosub1100, the fight, :25510's goto1100
+    (
+        "25206-killer",
+        "job.shift",
+        {"jobs": Job(type=4, pending_pay=2200, months_left=1)},
+        (),
+        ("surrender",),
+        3,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("handler", "kwargs", "draws", "answers", "waits"),
+    [case[1:] for case in _JOB_EXITS],
+    ids=[case[0] for case in _JOB_EXITS],
+)
+def test_each_job_exit_waits_for_a_key_where_the_source_does(
+    handler, kwargs, draws, answers, waits
+):
+    src = _scripted(*answers)
+    run_pure(HANDLERS[handler], src, state=_state(**kwargs), rng=_StubRng(*draws))
+    assert src.key_waits() == waits
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
+
+
+def test_a_shift_fight_waits_before_it_starts_and_under_its_outcome():
+    """:25030 ``print"{down}tu etwas!":gosub1100`` before ``gosub5000``, then the outcome
+    screen's ``:30520 print:goto1100``, then :25505-25510's own ``goto1100``."""
+    from engine.interactions import Acknowledge, CombatScreen, ShowMessage
+    from engine.turns import KEY_WAIT_SCREEN
+
+    src = _scripted("surrender")
+    run_pure(HANDLERS["job.shift"], src, state=_state(jobs=_BOUNCER), rng=_StubRng(1, 0))
+    fight = next(i for i, x in enumerate(src.seen) if isinstance(x, CombatScreen))
+    before = [x.key for x in src.seen[:fight] if isinstance(x, (ShowMessage, Acknowledge))]
+    after = [x.key for x in src.seen[fight:] if isinstance(x, (ShowMessage, Acknowledge))]
+    assert before[-2:] == ["job.shift_bouncer_trouble", KEY_WAIT_SCREEN]
+    assert after[-4:] == [
+        "combat.losses_line",
+        KEY_WAIT_SCREEN,
+        "job.shift_failed",
+        KEY_WAIT_SCREEN,
+    ]

@@ -320,8 +320,9 @@ class TestWafBuyThroughClient:
         cell = find_door_cell(city_raw, "waf", ln=1)
         walk = walk_keys_across_turns(state, city, cell)
         # buy (option 1) -> weapon idx 5 (revolver, in [3,7] stock range, no stat gates,
-        # 4000$ affordable against the 5500$ starting cash) -> gangster 1 (:1145, 1-based).
-        keys = walk + ["", "1", "5", "1"]
+        # 4000$ affordable against the 5500$ starting cash) -> the spec sheet's key wait
+        # (:13525) -> gangster 1 (:1145, 1-based) -> :13080 goto1100's key wait.
+        keys = walk + ["", "1", "5", "", "1", ""]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # The buy committed: cash dropped by the revolver's price (5500$ - 4000$).
@@ -335,8 +336,8 @@ class TestWafBuyThroughClient:
         cell = find_door_cell(city_raw, "waf", ln=2)
         walk = walk_keys_to_cell(state, city, cell)
         # buy (option 1) -> weapon idx 1 (messer, in [1,5] stock range, 50$, no gates)
-        # -> gangster 1.
-        keys = walk + ["", "1", "1", "1"]
+        # -> the spec sheet's key wait (:13525) -> gangster 1 -> :13080's key wait.
+        keys = walk + ["", "1", "1", "", "1", ""]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         assert "cash 5450$" in output
@@ -492,6 +493,20 @@ class TestSlwRentThroughClient:
         assert cleared != -1, "the map never came back"
         assert "press any key" in output[shown:cleared], "the result was cleared without a key"
 
+    def test_the_client_adds_no_key_wait_of_its_own_after_an_option(self):
+        """#160: ``:1100``'s wait comes only where a handler yields it
+        (``Acknowledge(KEY_WAIT_SCREEN)``), path by path as the source reaches it. The
+        client keeps no generic rule that pauses when an option ends with a message on
+        screen: no unread-message flag, and no key read in the dispatch that sees an
+        option end (``OptionDone``)."""
+        import inspect
+
+        from clients.terminal import session
+
+        dispatch = inspect.getsource(session.TerminalSession.render)
+        assert "_read_key" not in dispatch and "_write_press_any_key" not in dispatch
+        assert "_unread" not in inspect.getsource(session)
+
 
 # --------------------------------------------------------------------------- #
 # pub drink (alcohol trade) + tip through the client — U8                     #
@@ -583,9 +598,13 @@ class TestPubTipThroughClient:
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
         out = io.StringIO()
         # seed=1: available(0), price roll 2 -> 2000$, tip id roll -> type 1 (no stake
-        # sub-flow). "j" confirms the price.
+        # sub-flow). "j" confirms the price; the tip's :12231 goto1100 waits for a key.
         inp = TerminalInput(
-            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("j\n\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "tip", state, ln=2, input_source=inp, rng=Rng(1))
 
@@ -633,9 +652,13 @@ class TestPubRecruitThroughClient:
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
         out = io.StringIO()
         # seed=15: offer pool rolls offered=1, candidate id 0 ("killer-jack",
-        # price 3000$) -- "j" accepts the single offer.
+        # price 3000$) -- "j" accepts the single offer; :12170 gosub1100 waits for a key.
         inp = TerminalInput(
-            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("j\n\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "recruit", state, ln=1, input_source=inp, rng=Rng(15))
 
@@ -669,9 +692,13 @@ class TestPubJobThroughClient:
         resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
         out = io.StringIO()
         # seed=1: available (nonzero roll), job type 1 (bouncer), pay=2261$.
-        # "j" accepts the pay confirm.
+        # "j" accepts the pay confirm; :12335 ...goto1100 waits for a key.
         inp = TerminalInput(
-            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("j\n\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "job", state, ln=2, input_source=inp, rng=Rng(1))
 
@@ -698,14 +725,16 @@ class TestJobShiftThroughClient:
         state = new_state(5)
         pub_cell = find_door_cell(city_raw, "pub", ln=2)
         walk = walk_keys_to_cell(state, city, pub_cell)
-        # Splash ack; option 4 (job, after drink/recruit/tip); accept ("j"); one more move key forces
+        # Splash ack; option 4 (job, after drink/recruit/tip); accept ("j"); :12335's
+        # key wait; one more move key forces
         # turn_over immediately (ms already 0 from the accept) -- ack turn_over,
         # ack the round standings (single player: every turn-over wraps, U7), ack the
         # next player's upkeep screen. seed=5's bouncer job then rolls a
-        # shift-fight this turn (verified by direct trace); a scripted stdin that
+        # shift-fight this turn (verified by direct trace), after :25030's key wait;
+        # a scripted stdin that
         # runs out mid-fight surrenders via CANCEL (KTD-2), which is enough to
         # prove the "job" screen -- not the map -- is what renders next.
-        keys = walk + ["", "4", "j", "w", "x", "x", "x"]
+        keys = walk + ["", "4", "j", "", "w", "x", "x", "x", ""]
         output = run_play(monkeypatch, seed=5, stdin_keys=keys)
 
         # The job-shift screen rendered (its own header), not a second map draw
@@ -747,12 +776,13 @@ class TestJobShiftThroughClient:
         )
         from engine.locations import HANDLERS
 
-        # Shift 1: trick 1, seed=1 -> success (bonus 372$), months_left 2 -> 1.
+        # Shift 1: trick 1, seed=1 -> success (bonus 372$, :25126 gosub1100's key
+        # wait), months_left 2 -> 1.
         out1 = io.StringIO()
         inp1 = TerminalInput(
             resolver=resolver,
             colors=_COLORS,
-            stdin=io.StringIO("1\n"),
+            stdin=io.StringIO("1\n\n"),
             stdout=out1,
             weapon_names=[],
         )
@@ -762,12 +792,12 @@ class TestJobShiftThroughClient:
         assert "welchen trick" in out1.getvalue()
 
         # Shift 2: trick 1, seed=1 again -> success again, months_left hits 0 ->
-        # full wage (1200$) pays out once, job cleared.
+        # full wage (1200$) pays out once, job cleared (:25126's and :25560's key waits).
         out2 = io.StringIO()
         inp2 = TerminalInput(
             resolver=resolver,
             colors=_COLORS,
-            stdin=io.StringIO("1\n"),
+            stdin=io.StringIO("1\n\n\n"),
             stdout=out2,
             weapon_names=[],
         )
@@ -1770,7 +1800,9 @@ class TestDebtDefaultThroughClient:
             assert state.players[0].ka == 23000  # nothing seized during grace
 
         # --- turn 6: kz ticks 1 -> 0, the collectors attack --------------------
-        inp, out = self._input(["surrender"])  # a mandatory fight is lost, not escaped
+        # :4350 gosub1100's key wait, the fight (a mandatory fight is lost, not escaped),
+        # then the outcome screen's :30520 key wait.
+        inp, out = self._input(["", "surrender", ""])
         result = run_upkeep(state, input_source=inp, rng=Rng(7))
         assert result.status == "completed"
 
@@ -2598,9 +2630,10 @@ class TestWhoseTurnLine:
         state = replace(state, players=(alcapone, moran))
         state = with_values(state, game.Wanted(jail_months=2), idx=1)
 
-        # Up into 910, the splash, "free" (option 3), inmate 1, yes, 100 $, quit.
+        # Up into 910, the splash, "free" (option 3), inmate 1, yes, :21200 gosub1100's
+        # key wait, 100 $, quit.
         output, (after, _rng) = _resume_at(
-            monkeypatch, tmp_path, state, "walking", ["w", "", "3", "1", "j", "100", "q"]
+            monkeypatch, tmp_path, state, "walking", ["w", "", "3", "1", "j", "", "100", "q"]
         )
 
         screen_at = output.index("ihm zum dank (0 - 800):")

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, commit
 from engine.interactions import Confirm, PromptInt, ShowMessage
@@ -286,3 +288,36 @@ def test_mark_set_clears_one_mark_and_leaves_the_other():
     st = _state(papers=1, counterfeit=1)
     assert _marks(commit(st, [MarkSet(fake_papers=False)]).state) == (0, 1)
     assert _marks(commit(st, [MarkSet(counterfeit=False)]).state) == (1, 0)
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_EXITS = [
+    # id, option, state kwargs, answers, rng draws, key waits
+    # :22013 ...gosub1110:ifx$="n"thenreturn
+    ("22013-declined", "ble.passport", {}, (False,), (), 0),
+    # :22014 ifka(sp)<pgoto1125
+    ("22014-too-poor", "ble.passport", {"ka": 0}, (True,), (), 1),
+    # :22020 ka(sp)=ka(sp)-p:ag(sp)=ag(sp)or1:x=1:gosub1160:goto1100
+    ("22020-passport", "ble.passport", {}, (True,), (), 1),
+    # :22105 ...ifq<=0thenreturn
+    ("22105-no-stake", "ble.counterfeit", {}, (0,), (), 0),
+    # :22115 gosub1110:ifx$="n"thenreturn
+    ("22115-declined", "ble.counterfeit", {}, (100, False), (7,), 0),
+    # :22120 ka(sp)=ka(sp)-q+p:ag(sp)=ag(sp)or2:x=1:gosub1160:return
+    ("22120-counterfeit", "ble.counterfeit", {}, (100, True), (7,), 0),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "kwargs", "answers", "draws", "waits"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(key, kwargs, answers, draws, waits):
+    src = scripted(*answers)
+    run_pure(HANDLERS[key], src, state=_state(**kwargs), rng=StubRng(*draws))
+    assert src.key_waits() == waits
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"

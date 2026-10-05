@@ -257,6 +257,24 @@ def test_collectors_losses_block_prints_zero_for_both_sides_on_a_surrender():
     )
 
 
+def test_the_collectors_fight_waits_before_it_starts_and_under_its_outcome():
+    """#160: :4350 ``...auf dich...":gosub1100`` waits before ``gosub5000``, and the
+    outcome screen's :30520 ``print:goto1100`` waits before the seizure (:4365)."""
+    from engine.interactions import Acknowledge, CombatScreen
+    from engine.turns import KEY_WAIT_SCREEN
+
+    source = _scripted("surrender")
+    run_upkeep(
+        _state(debt=Debt(amount=3000, months=1), ka=7500), input_source=source, rng=StubRng()
+    )
+    fight = next(i for i, x in enumerate(source.seen) if isinstance(x, CombatScreen))
+    before = [x.key for x in source.seen[:fight] if isinstance(x, (ShowMessage, Acknowledge))]
+    after = [x.key for x in source.seen[fight:] if isinstance(x, (ShowMessage, Acknowledge))]
+    assert before[-2:] == ["upkeep.debt_collectors_intro", KEY_WAIT_SCREEN]
+    assert after[-3:] == ["combat.losses_line", KEY_WAIT_SCREEN, "upkeep.debt_seized"]
+    assert source.key_waits() == 2
+
+
 def test_loss_seizes_all_cash_and_wipes_the_debt():
     """``:4370`` ``ka(sp)=0:kr(sp)=0:kz(sp)=0`` — cash AND debt AND counter all zeroed."""
     st = _state(debt=Debt(amount=4200, months=1), ka=9999)

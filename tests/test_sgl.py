@@ -50,6 +50,7 @@ from engine.combat import STEP_RIGHT, CombatResult
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
 from engine.interactions import (
+    Acknowledge,
     CombatScreen,
     Confirm,
     Ctx,
@@ -65,7 +66,7 @@ from engine.locations import HANDLERS
 from engine.persistence import load_game, save_game
 from engine.rng import Rng
 from engine.state import Clock, Config, Fighter, GameState, Player
-from engine.turns import TURN_START, WALKING, TurnRunner
+from engine.turns import KEY_WAIT_SCREEN, TURN_START, WALKING, TurnRunner
 from tests.helpers import StubRng, is_effect, run_pure, scripted
 from tests.test_turn_runner import _approach, _door
 
@@ -587,6 +588,9 @@ def test_entering_the_same_tile_twice_in_one_turn_meets_the_police():
     interaction = gen.send(interaction.options.index("sob_story"))
     assert isinstance(interaction, ShowMessage)
     assert interaction.key == "locations.sgl.police_waiting"
+    interaction = gen.send(None)
+    assert isinstance(interaction, Acknowledge)  # :17009 ``gosub1100``
+    assert interaction.key == KEY_WAIT_SCREEN
     assert isinstance(gen.send(None), CombatScreen)  # the police fight (:26000)
     gen.close()
 
@@ -682,3 +686,80 @@ def test_after_bribing_the_police_free_the_same_tile_springs_the_trap_again():
     message = gen.send(menu.options.index("sob_story"))
     assert isinstance(message, ShowMessage) and message.key == "locations.sgl.police_waiting"
     gen.close()
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_POLICE_LOST = (_SURRENDER_FIGHT, _SURRENDER)
+
+_EXITS = [
+    # id, option, state fields, answers, rng draws, key waits, ends in the wait
+    # :17006 print"'verschwinde, du milchgesicht!'":goto1100
+    ("17006-milksop", "threat", {"rank": 1}, (), (), 1, True),
+    # :17009 gosub1100, the police fight's :30520 wait, the capture's :26080 wait
+    (
+        "17009-revisit",
+        "sob_story",
+        {"ln": 3, "previous": (_LA, 3)},
+        _POLICE_LOST,
+        (0, 0, 0),
+        3,
+        True,
+    ),
+    # :17020 print"der kerl ruft die polizei!!!":gosub1100, then the same
+    ("17020-police-called", "threat", {"ln": 2}, _POLICE_LOST, (0, 0, 0), 3, True),
+    # :17105 print"{clr}{down}'sorge doch selbst fuer deine alte!'":goto1100
+    ("17105-sob-refused", "sob_story", {"ln": 2}, (), (), 1, True),
+    # :17306 print"{down}neppt ihr keinen mehr!'":goto1100
+    ("17306-fake-refused", "fake_police", {"ln": 2}, (), (), 1, True),
+    # :17565 return -- the money taken
+    ("17565-taken", "sob_story", {"ln": 1}, (_TAKE,), (0, 0), 0, False),
+    # :17572 gosub1100, the fight's wait, :17573 ifs=2thenreturn
+    ("17573-thugs-won", "protection", {"ln": 2}, (_DEMOLISH, _SURRENDER_FIGHT), (0, 0), 2, True),
+    # :17578 ka(sp)=ka(sp)+p:x=1:gosub1160:goto1100
+    ("17578-wrecked", "protection", {"ln": 3}, (_DEMOLISH,), (0, 0, 42), 1, True),
+    # :17586 gosub1100, the fight's wait, :17588 ifs=2thenreturn
+    ("17588-owner-won", "sob_story", {"ln": 4}, (_KILL, _SURRENDER_FIGHT), (0, 0), 2, True),
+    # :17592 ...:goto17578 -> :17578's goto1100
+    ("17592-owner-dead", "sob_story", {"ln": 5}, (_KILL,), (0, 0, 99), 1, True),
+    # :17586's wait, the fight's, :17592 -> :17578's goto1100
+    (
+        "17592-owner-shot",
+        "sob_story",
+        {"ln": 1, "roster": (_KILLER,)},
+        (_KILL, ("shoot", STEP_RIGHT)),
+        (0, 0, 1, 10, 0, 50),
+        3,
+        True,
+    ),
+    # :17206 gosub1100, the fight's wait, :17215 ifs=2thenreturn
+    ("17215-jack-won", "protection", {"ln": 1}, (_SURRENDER_FIGHT,), (), 2, True),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws", "waits", "ends"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(key, fields, answers, draws, waits, ends):
+    _, source = _run(key, _state(**fields), answers=answers, draws=draws)
+    assert source.key_waits() == waits
+    assert source.ends_in_key_wait() == ends
+
+
+def test_jack_leaving_waits_before_the_payout(monkeypatch):
+    """:17221 ``...gebiet...":gosub1100`` then :17225 ``goto17500``: the wait comes
+    between Jack's leaving and the shopkeeper's reply; taking the money (:17565) adds
+    none. (The stand-in fight shows no outcome screen.)"""
+    _won_jack_fight(monkeypatch, None)
+    _, source = _run("protection", _state(ln=5), answers=(_TAKE,), draws=(1, 0))
+    keys = [i.key for i in source.seen if isinstance(i, (ShowMessage, Acknowledge))]
+    assert keys == [
+        "locations.sgl.jack_warning",
+        KEY_WAIT_SCREEN,
+        "locations.sgl.jack_leaves",
+        KEY_WAIT_SCREEN,
+        "locations.sgl.reply_pays",
+    ]

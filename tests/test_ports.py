@@ -64,6 +64,7 @@ from engine.effects import apply, commit
 from data.game_configs.mafia_1920s.effects import JobSet, TipSet
 from engine.interactions import (
     Ack,
+    Acknowledge,
     Confirm,
     Ctx,
     LoadSubState,
@@ -77,6 +78,7 @@ from engine.interactions import (
 )
 from engine.locations import HANDLERS
 from engine.turns import (
+    KEY_WAIT_SCREEN,
     ROADBLOCK_HOOK_KEY,
     SCORE_TRUNCATION_HOOK_KEY,
     SETUP_HANDLER_KEY,
@@ -221,8 +223,9 @@ def _drive(
 ) -> _Run:
     """Step ``handler`` to completion and commit its effects.
 
-    ``ShowMessage`` is acked (and kept in ``shown``) and ``LoadSubState`` (display
-    only here) answered with ``None``; every other interaction goes to ``answer``.
+    ``ShowMessage`` is acked (and kept in ``shown``), the ``:1100`` key wait
+    (``Acknowledge(KEY_WAIT_SCREEN)``) acked, and ``LoadSubState`` (display only here)
+    answered with ``None``; every other interaction goes to ``answer``.
     ``StartCombat`` is answered with ``fight`` when one is given (a stand-in
     ``CombatResult``), and otherwise raises :class:`_FightStarted`.
     """
@@ -242,6 +245,8 @@ def _drive(
             if isinstance(interaction, ShowMessage):
                 shown.append(interaction)
                 response = Ack
+            elif isinstance(interaction, Acknowledge) and interaction.key == KEY_WAIT_SCREEN:
+                response = Ack  # :1100's key wait: delivered, not asked
             elif isinstance(interaction, LoadSubState):
                 response = None
             else:

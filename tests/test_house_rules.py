@@ -514,7 +514,7 @@ def test_an_in_game_fight_is_built_under_the_games_map():
     from data.game_configs.mafia_1920s import state as game
     from data.game_configs.mafia_1920s.gangster import Gangster
     from data.game_configs.mafia_1920s.state import Business, Debt
-    from engine.interactions import ShowMessage, StartCombat
+    from engine.interactions import Acknowledge, ShowMessage, StartCombat
     from engine.locations import HANDLERS
     from engine.state import Clock, Player
     from engine.upkeep import UPKEEP_HANDLER_KEY
@@ -546,7 +546,8 @@ def test_an_in_game_fight_is_built_under_the_games_map():
 
     gen = HANDLERS[UPKEEP_HANDLER_KEY](_Ctx())
     interaction = gen.send(None)
-    while isinstance(interaction, ShowMessage):
+    # The upkeep narration and :4350's ``gosub1100`` key wait, then the fight.
+    while isinstance(interaction, (ShowMessage, Acknowledge)):
         interaction = gen.send(None)
     assert isinstance(interaction, StartCombat)
     assert interaction.scenario is not None and interaction.scenario.rules is not None

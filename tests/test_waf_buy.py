@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.config_loader import load_game_config
 from engine.effects import AssignWeapon, MoneyChange, ScoreChange
 from engine.interactions import (
+    Acknowledge,
     CANCEL,
     Confirm,
     LoadSubState,
@@ -23,7 +26,8 @@ from engine.interactions import (
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import StubRng as _StubRng, run_pure
+from engine.turns import KEY_WAIT_SCREEN
+from tests.helpers import StubRng as _StubRng, run_pure, scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -99,7 +103,8 @@ def _observe(handler, state, rng, answers):
     try:
         while True:
             seen.append(interaction)
-            if isinstance(interaction, ShowMessage):
+            if isinstance(interaction, (ShowMessage, Acknowledge)):
+                # Narration and the :1100 key wait: delivered, not asked.
                 interaction = gen.send(Ack)
             elif isinstance(interaction, LoadSubState):
                 child = SUBSTATES[interaction.kind](ctx, interaction.params)
@@ -107,7 +112,8 @@ def _observe(handler, state, rng, answers):
                 cval = None
                 try:
                     while True:
-                        # child sub-state only yields ShowMessage here (display-only).
+                        # the child sub-state only yields display-only interactions here
+                        # (its ShowMessages and its :13525 key wait).
                         child.send(Ack)
                 except StopIteration as stop:
                     cval = stop.value
@@ -133,9 +139,10 @@ def _by_type_source(answers):
     iters = {k: iter(v) for k, v in answers.items()}
 
     def source(interaction):
-        if isinstance(interaction, ShowMessage):
+        if isinstance(interaction, (ShowMessage, Acknowledge)):
             # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
-            # and the driver acks regardless of what we return here.
+            # and the driver acks regardless of what we return here. So does the
+            # :1100 key wait (``Acknowledge(KEY_WAIT_SCREEN)``).
             return None
         return _scripted_answer(iters, interaction)
 
@@ -597,6 +604,10 @@ def _spec_screen(weapon) -> list[str]:
     interaction = next(child)
     try:
         while True:
+            if isinstance(interaction, Acknowledge) and interaction.key == KEY_WAIT_SCREEN:
+                # :13525's key wait: no row of the sheet.
+                interaction = child.send(Ack)
+                continue
             assert isinstance(interaction, ShowMessage), interaction
             text.append(resolver.resolve(interaction.key, interaction.params))
             interaction = child.send(Ack)
@@ -632,3 +643,56 @@ def test_an_accuracy_below_two_prints_the_empty_ts_label():
     nothing after the colon."""
     rows = _spec_screen({"name": "x", "price": 1, "ts": 1, "tg": 2})
     assert rows[4] == "        treffgenauigkeit: "
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+def test_the_spec_sheet_ends_in_its_own_key_wait():
+    """:13525 ``print"{down}{down} taste druecken!":poke198,0:wait198,1:...:return``."""
+    from engine.interactions import Ack, Ctx
+    from engine.substates import SUBSTATES
+
+    weapon = {"name": "messer", "price": 50, "ts": 3, "tg": 5}
+    child = SUBSTATES["weapon_spec"](Ctx(state=_state(), rng=_StubRng()), {"weapon": weapon})
+    seen = [next(child)]
+    try:
+        while True:
+            seen.append(child.send(Ack))
+    except StopIteration:
+        pass
+    assert [type(i).__name__ for i in seen] == ["ShowMessage"] * 3 + ["Acknowledge"]
+    assert seen[-1] == Acknowledge(KEY_WAIT_SCREEN)
+
+
+_DUMB = Gangster(name="g0", kraft=10, intelligenz=50, brutalitaet=50)
+_STRONG = Gangster(name="g0", kraft=30, intelligenz=50, brutalitaet=50)
+_ARMED = Gangster(name="g0", kraft=30, intelligenz=50, brutalitaet=50, weapon=1)
+
+_BUY_EXITS = [
+    # id, state kwargs, answers, waits, ends in the wait
+    # :13020 input"{down}ihre wahl:";x:ifx=0thenreturn
+    ("13020-nothing", {}, (CANCEL,), 0, False),
+    # :13025 ifka(sp)<wp(x)thengosub1125:goto13010 -- then nothing
+    ("13025-too-poor", {"ka": 10}, (5, CANCEL), 1, False),
+    # :13035 gosub13500 (:13525's wait) ...:gosub1130:ify=0goto13010 -- then nothing
+    ("13035-pick-0", {}, (1, 0, CANCEL), 1, False),
+    # :13035's sheet, :13055 ...:gosub1100:goto13035, the sheet again, 0, nothing
+    ("13055-too-weak", {"roster": (_DUMB,)}, (2, 1, 0, CANCEL), 3, False),
+    # :13035's sheet, :13071 ...gosub1110:ifx$="n"goto13010 -- then nothing
+    ("13071-declined", {"roster": (_ARMED,)}, (2, 1, False, CANCEL), 1, False),
+    # :13035's sheet, :13080 print"{down}du hast nun die neue waffe!":goto1100
+    ("13080-bought", {"roster": (_STRONG,)}, (2, 1), 2, True),
+]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "answers", "waits", "ends"),
+    [case[1:] for case in _BUY_EXITS],
+    ids=[case[0] for case in _BUY_EXITS],
+)
+def test_each_buy_exit_waits_for_a_key_where_the_source_does(kwargs, answers, waits, ends):
+    src = scripted(*answers)
+    run_pure(HANDLERS["waf.buy"], src, state=_state(**kwargs), rng=_StubRng())
+    assert src.key_waits() == waits
+    assert src.ends_in_key_wait() == ends

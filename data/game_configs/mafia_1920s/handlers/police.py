@@ -29,6 +29,11 @@ Outcomes (every entry returns one of them)
 * :data:`SENTENCED` — ``:26080``: ``ms=0``, the job lost, -10 score, the jail months
   set, the player moved to cell 911.
 
+Each outcome but :data:`FOUGHT_OFF` ends in a ``goto1100`` key wait, and
+the refused bribe (``:26037 gosub1125``) and the failed flight (``:26043 gosub1100``)
+wait before the trial; the won police fight returns with only its outcome screen's
+wait (``:26015 ...:return``).
+
 Every path into the trial clears the tip and scores +2 first (``:26045``). The turn
 ends through ``ms=0``: the runner's door charge (``:2060``) then takes the points
 below 0, and the next screen is the next player's. The movement cost of a turn that
@@ -62,7 +67,7 @@ from engine.interactions import Confirm, PromptChoice, PromptInt, ShowMessage
 
 from ..effects import Jail, JobClear, TipClear
 from ..house_rules import intent
-from ..setup import load_encounter, load_vehicles, run_encounter, score_and_rank
+from ..setup import KEY_WAIT, load_encounter, load_vehicles, run_encounter, score_and_rank
 from ..state import wanted
 
 __all__ = [
@@ -166,7 +171,8 @@ def police_fight(ctx, arrest: Arrest, *, grid: str | None = None):
         ctx, _POLICE, count=count, weapon=weapon, vitality=vitality, grid=grid, roster=roster
     )
     if result.winner == 1:
-        # :26015 ``ifs=1thenx=2:gosub1160:return``
+        # :26015 ``ifs=1thenx=2:gosub1160:return`` -- no key wait beyond the outcome
+        # screen's own (:30520, run_encounter).
         run.score(ctx, "police_score_free")
         return FOUGHT_OFF
     # Lost: on into :26020. The ``p`` the fight left is not reported; see the module
@@ -216,12 +222,14 @@ def _pay(ctx, run: _Run, price: int):
     if run.cash < price:
         # :26037 ``ifka(sp)<pthengosub1125:goto26045``
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :1125 ...:goto1100
         return (yield from _trial(ctx, run))
     # :26038 ``ka(sp)=ka(sp)-p:ifint(rnd(1)*5)=0goto26045``
     run.pay(ctx, price)
     if ctx.rng.range(run.params["police_bribe_fail_roll"]) == 0:
         return (yield from _trial(ctx, run))
     yield ShowMessage("police.let_go")  # :26039
+    yield KEY_WAIT  # :26039 ...:goto1100
     return BRIBED
 
 
@@ -238,10 +246,12 @@ def _flee(ctx, run: _Run):
         # :26040 ``x=-5:gosub1160``, :26042-26043, then on into :26045.
         run.score(ctx, "police_score_caught")
         yield ShowMessage("police.flight_failed")
+        yield KEY_WAIT  # :26043 ...:gosub1100
         return (yield from _trial(ctx, run))
     # :26041 the escape, ``x=2:gosub1160``
     yield ShowMessage("police.escaped")
     run.score(ctx, "police_score_free")
+    yield KEY_WAIT  # :26041 ...:goto1100
     return ESCAPED
 
 
@@ -273,6 +283,7 @@ def _trial(ctx, run: _Run):
             ctx.apply(Jail(months=0))
             ctx.apply(SetMovementPoints(0))
             yield ShowMessage("police.acquitted")
+            yield KEY_WAIT  # :26070 ...:ms=0:goto1100
             return ACQUITTED
         yield ShowMessage("police.lawyer_result", {"months": months})  # :26071-26072
     else:
@@ -284,6 +295,7 @@ def _trial(ctx, run: _Run):
     ctx.apply(JobClear())
     run.score(ctx, "police_score_sentenced")
     ctx.apply(Teleport(params["police_jail_cell"]))
+    yield KEY_WAIT  # :26080 ...:po(sp)=911:goto1100
     return SENTENCED
 
 

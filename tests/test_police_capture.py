@@ -328,7 +328,9 @@ def test_a_lawyer_fee_of_zero_or_an_empty_answer_means_no_lawyer(answer):
 
 def test_no_lawyer_is_offered_below_rank_five():
     result, source = _run(sentence, Arrest(), rank=4)
-    assert source.seen and all(isinstance(i, ShowMessage) for i in source.seen)
+    # Nothing is asked: the trial's narration, then :26080's key wait.
+    assert source.seen[:-1] and all(isinstance(i, ShowMessage) for i in source.seen[:-1])
+    assert source.ends_in_key_wait() and source.key_waits() == 1
     assert result.effects == _sentenced(2)
 
 
@@ -553,3 +555,51 @@ def test_after_an_escape_the_same_turn_goes_on_on_the_map():
     assert [type(s) for s in after] == [MapMove]
     assert after[0].player == 0
     assert runner.state.players[0].ms == 15  # the door's 5 after the visit (:2060)
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_EXIT_WAITS = {
+    # path: (entry, arrest, answers, draws, state fields, key waits)
+    # :26039 print"{down}die bullen lassen dich gehen!":goto1100
+    "26039-let-go": (caught, Arrest(p=0), (_BRIBE, True), (0, 1), {}, 1),
+    # :26041 ...:x=2:gosub1160:goto1100
+    "26041-escaped": (caught, Arrest(p=0), (_FLEE,), (0, 11), {}, 1),
+    # :26080 ms=0:...:po(sp)=911:goto1100
+    "26080-surrendered": (caught, Arrest(p=0), (_SURRENDER,), (0,), {}, 1),
+    # :26036 ifx$="n"thenx=2:gosub1160:goto26045 -- no wait, then :26080's
+    "26036-bribe-declined": (caught, Arrest(p=0), (_BRIBE, False), (0,), {}, 1),
+    # :26037 ifka(sp)<pthengosub1125:goto26045, then :26080's
+    "26037-bribe-unaffordable": (caught, Arrest(p=0), (_BRIBE, True), (0,), {"ka": 0}, 2),
+    # :26038 ...ifint(rnd(1)*5)=0goto26045 -- no wait, then :26080's
+    "26038-bribe-kept": (caught, Arrest(p=0), (_BRIBE, True), (0, 0), {}, 1),
+    # :26043 print"du musst dich ergeben!":gosub1100, then :26080's
+    "26043-flight-failed": (caught, Arrest(p=0), (_FLEE,), (0, 0), {}, 2),
+    # :26070 ifgs(sp)=0thenprint"{down}du wirst freigesprochen!":ms=0:goto1100
+    "26070-acquitted": (sentence, Arrest(), (True, 2000), (2999,), {"rank": 5}, 1),
+    # :26072 ...:goto26080 -> :26080's goto1100
+    "26072-lawyer-cut": (sentence, Arrest(), (True, 1), (0,), {"rank": 7}, 1),
+}
+
+
+@pytest.mark.parametrize("path", list(_EXIT_WAITS))
+def test_each_capture_exit_waits_for_a_key_where_the_source_does(path):
+    entry, arrest, answers, draws, fields, waits = _EXIT_WAITS[path]
+    _, source = _run(entry, arrest, answers=answers, draws=draws, **fields)
+    assert source.key_waits() == waits
+    assert source.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
+
+
+def test_a_won_police_fight_returns_with_only_the_outcome_screens_wait():
+    """:26015 ``ifs=1thenx=2:gosub1160:return``: the fight's own :30520 wait, no other."""
+    source = scripted(*([("shoot", STEP_RIGHT)] * 5))
+    run_pure(
+        _caller(police_fight, Arrest()),
+        source,
+        state=_state(roster=_WINNING_GANG),
+        rng=StubRng(0, 0, *(_ONE_SHOT_KILL * 5)),
+    )
+    assert source.key_waits() == 1
+    assert source.message_keys()[-1] == "combat.losses_line"
+    assert source.ends_in_key_wait()

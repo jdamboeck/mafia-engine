@@ -293,7 +293,8 @@ def _play_trajectory():
     recruit_rec = _Recorder()
     recruit_result = _drive_option(pub, "recruit", state, ln=1, recorder=recruit_rec)
     # :12100-12102 -- rank 1 is refused inside the handler; nothing committed.
-    assert recruit_rec.keys == ["locations.pub.rank_too_low"]
+    # :12102 ...:goto1100 -- the refusal, then the key wait.
+    assert recruit_rec.keys == ["locations.pub.rank_too_low", KEY_WAIT_SCREEN]
     assert recruit_result.effects == []
 
     # --- final-state fingerprint (for determinism) ------------------------- #

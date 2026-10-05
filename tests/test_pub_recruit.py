@@ -40,6 +40,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 import yaml
 
 from engine.config_loader import load_game_config
@@ -419,3 +421,70 @@ def test_gangsters_yaml_matches_female_ids_and_price_range():
     assert min(prices) == 2000
     assert max(prices) == 5500
     assert len(_GANGSTERS) == 30
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+def _waits_between(source) -> list[str | None]:
+    """The message keys and key waits in order (the wait as ``KEY_WAIT_SCREEN``)."""
+    from engine.interactions import Acknowledge, ShowMessage
+
+    return [i.key for i in source.seen if isinstance(i, (ShowMessage, Acknowledge))]
+
+
+_RECRUIT_EXITS = [
+    # id, state kwargs, rng draws, answers, waits
+    # :12102 print"{down}keine eigenen leute haben!":goto1100
+    ("12102-rank", {"rank": 4}, (), (), 1),
+    # :12104 nexti:print"du brauchst eine unterkunft fuer die    {down}gangster!":goto1100
+    ("12104-housing", {"housed": False}, (), (), 1),
+    # :12105 ifgz(sp)=10thenprint"{down}maximal 10 gangster!":goto1100
+    ("12105-gang-full", {"roster": tuple(Gangster(name=f"g{i}") for i in range(10))}, (), (), 1),
+    # :12107 ...ifx=0orln=3thenprint"es ist niemand da.":goto1100
+    ("12107-nobody", {}, (0,), (), 1),
+    # :12136 ...ifx$="n"goto12175 -> :12175 nexti:return
+    ("12136-declined", {}, (1, 0), (False,), 0),
+    # :12140 ifka(sp)<pthengosub1125:goto12175 -> :12175 nexti:return
+    ("12140-too-poor", {"ka": 0}, (1, 0), (True,), 1),
+    # :12170 print"{down}nun hast du"gz(sp)"gangster!":gosub1100 -> :12175 nexti:return
+    ("12170-hired", {}, (1, 0), (True,), 1),
+    # :12170's wait, then :12145 ifgz(sp)=10goto12005 -> :12105 ...:goto1100
+    ("12145-filled-mid-batch", {"roster": _nine_man_roster()}, (2, 0, 1), (True, True), 2),
+]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "draws", "answers", "waits"),
+    [case[1:] for case in _RECRUIT_EXITS],
+    ids=[case[0] for case in _RECRUIT_EXITS],
+)
+def test_each_recruit_exit_waits_for_a_key_where_the_source_does(kwargs, draws, answers, waits):
+    src = _scripted(*answers)
+    run_pure(HANDLERS["pub.recruit"], src, state=_state(**kwargs), rng=_StubRng(*draws))
+    assert src.key_waits() == waits
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
+
+
+def test_each_candidate_of_a_batch_waits_after_its_own_outcome():
+    """:12140 ``gosub1125`` and :12170 ``gosub1100`` wait inside the loop, under that
+    candidate's outcome, before :12175 ``nexti`` offers the next one; a "no" (:12136)
+    goes on with no wait."""
+    from engine.turns import KEY_WAIT_SCREEN
+
+    st = _state(ka=3000)  # candidate 0 costs 3000: the first hire leaves 0
+    src = _scripted(True, False, True)
+    run_pure(HANDLERS["pub.recruit"], src, state=st, rng=_StubRng(3, 0, 1, 2))
+    assert _waits_between(src) == [
+        _INTRO,
+        _OFFER,
+        _HIRED,
+        KEY_WAIT_SCREEN,
+        _INTRO,
+        _OFFER,
+        _INTRO,
+        _OFFER,
+        _BROKE,
+        KEY_WAIT_SCREEN,
+    ]

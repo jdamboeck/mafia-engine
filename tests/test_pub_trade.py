@@ -369,3 +369,37 @@ def test_the_switch_reaches_only_the_pubs_two_prompts_and_the_chiefs():
             seen.setdefault(key, []).append(tuple((p.key, p.min, p.max) for p in _prompts(source)))
     for key, (faithful, intent) in seen.items():
         assert faithful == intent, key
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160): ``goto1100``/``goto1125`` waits,      #
+# ``return`` does not                                                          #
+# --------------------------------------------------------------------------- #
+_DRINK_EXITS = [
+    # id, state kwargs, rng draws, answers, waits
+    # :12016 print"'was? alkohol? ist doch verboten!'":goto1100
+    ("12016-refused", {"ln": 1}, (0,), (), 1),
+    # :12029 ify=0thenreturn
+    ("12029-buy-nothing", {"ln": 4}, (150, 5), (0,), 0),
+    # :12030 ifka(sp)<y*pgoto1125
+    ("12030-too-poor", {"ln": 4, "ka": 10}, (150, 5), (10,), 1),
+    # :12035 ta(sp)=ta(sp)+y:ka(sp)=ka(sp)-p*y:x=2:gosub1160:return
+    ("12035-bought", {"ln": 4}, (150, 5), (10,), 0),
+    # :12065 ify=0thenreturn
+    ("12065-sell-nothing", {"ln": 1, "barrels": 10}, (1, 20), (0,), 0),
+    # :12075 ka(sp)=ka(sp)+y*x:ta(sp)=ta(sp)-y:goto1100
+    ("12075-sold", {"ln": 1, "barrels": 10}, (1, 20), (5,), 1),
+]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "draws", "answers", "waits"),
+    [case[1:] for case in _DRINK_EXITS],
+    ids=[case[0] for case in _DRINK_EXITS],
+)
+def test_each_drink_exit_waits_for_a_key_where_the_source_does(kwargs, draws, answers, waits):
+    src = _scripted(*answers)
+    run_pure(HANDLERS["pub.drink"], src, state=_state(**kwargs), rng=_StubRng(*draws))
+    assert src.key_waits() == waits
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"

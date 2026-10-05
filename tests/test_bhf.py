@@ -371,3 +371,46 @@ def test_the_bhf_leave_is_the_stations_own_and_costs_10():
     player = runner.state.players[0]
     assert (player.ms, player.previous_tile) == (50, (_LA, 1))
     gen.close()
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_EXITS = [
+    # id, option, state fields, answers, rng draws, key waits, ends in the wait
+    # :19010 ln=5:la=2:goto3000 -- another menu, no wait
+    ("19010-station-pub", "pub", {}, (), (), 0, False),
+    # :19015 iftp(sp)<>1thenprint"kein postzug zu sehen...":goto1100
+    ("19015-no-train", "mail_train", {"tip": 0}, (), (), 1, True),
+    # :19016 ifgz(sp)<3thenprint"du hast zu wenig gangster!":tp(sp)=0:goto1100
+    ("19016-too-few", "mail_train", {"roster": (_G,)}, (), (), 1, True),
+    # :19027 gosub1100, the fight's :30520 wait, :19030 ifs=2goto26020 -> :26080's
+    ("19030-guards-won", "mail_train", {}, (_SURRENDER_FIGHT, _SURRENDER), (0,), 3, True),
+    # :19050 w=1:goto18035 -> the pickpocket's loot line, ...:goto1100
+    ("19050-pickpocket", "pickpocket", {}, (1,), (0, 10, 1), 1, True),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws", "waits", "ends"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(key, fields, answers, draws, waits, ends):
+    _, source = _run(key, _state(**fields), answers=answers, draws=draws)
+    assert source.key_waits() == waits
+    assert source.ends_in_key_wait() == ends
+
+
+def test_a_won_mail_train_fight_waits_before_it_and_after_the_loot(monkeypatch):
+    """:19027 ``...aufmerksam wirst...":gosub1100`` before the fight; :19040 ``goto20050``
+    -> :20060 ``...goto1100`` after the loot. (The stand-in fight shows no outcome
+    screen, so its own :30520 wait is not here.)"""
+    from engine.interactions import Acknowledge, ShowMessage
+    from engine.turns import KEY_WAIT_SCREEN
+
+    _won_fight(monkeypatch)
+    source = scripted()
+    run_pure(HANDLERS["bhf.mail_train"], source, state=_state(), rng=StubRng(0))
+    keys = [i.key for i in source.seen if isinstance(i, (Acknowledge, ShowMessage))]
+    assert keys == ["locations.bhf.storm", KEY_WAIT_SCREEN, "locations.ban.loot", KEY_WAIT_SCREEN]

@@ -52,7 +52,7 @@ from engine.locations import HANDLERS
 from engine.persistence import load_game, replay, save_game
 from engine.rng import Rng
 from engine.state import Clock, Config, GameState, Player
-from engine.turns import UPKEEP, TurnRunner
+from engine.turns import KEY_WAIT_SCREEN, UPKEEP, TurnRunner
 from engine.upkeep import UPKEEP_HANDLER_KEY
 from tests.helpers import StubRng, run_pure, scripted, with_values
 
@@ -119,7 +119,12 @@ def _run(key: str, state: GameState, answers=(), draws=()):
 
 
 def _prompts(source) -> list:
-    return [i for i in source.seen if not isinstance(i, ShowMessage)]
+    """What the player was asked: not the narration, nor the :1100 key wait."""
+    return [
+        i
+        for i in source.seen
+        if not isinstance(i, ShowMessage) and getattr(i, "key", None) != KEY_WAIT_SCREEN
+    ]
 
 
 def _bribe_months(state: GameState, idx: int = 0) -> int:
@@ -537,3 +542,68 @@ def test_after_the_chief_bribe_the_next_map_step_starts_from_911():
     assert player.po == 911 + 40
     assert player.ms == 20 - 5 - 1
     assert _bribe_months(runner.state) == 3
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_JAILED = {"name": "moran", "jail": 2, "ka": 800}
+
+_EXITS = [
+    # id, option, other players, active fields, answers, rng draws, key waits, ends
+    # :21005 onwgoto26045 -> :26080 ...:goto1100
+    ("21005-surrender", "pol.surrender", (), {}, (), (), 1, True),
+    # :21011 ...ifx=0thenreturn
+    ("21011-no-months", "pol.bribe", (), {}, (0,), (), 0, False),
+    # :21015 ifka(sp)<pthenprint"{down}sie sind leider nich fluessig!":goto1100
+    ("21015-broke", "pol.bribe", (), {"ka": 999}, (1,), (), 1, True),
+    # :21030 print"{down}ausgang!":po(sp)=911:goto1100
+    ("21030-bribed", "pol.bribe", (), {}, (1,), (), 1, True),
+    # :21110 ifx=1thenprint"es ist niemand inhaftiert.":goto1100
+    ("21110-nobody", "pol.free", (), {}, (), (_NO_PHANTOM,), 1, True),
+    # :21125 g=val(x$):ifg=0thenreturn
+    ("21125-pick-0", "pol.free", (_JAILED,), {}, (0,), (_NO_PHANTOM,), 0, False),
+    # :21131 ...gosub1110:ifx$="n"thenreturn
+    ("21131-declined", "pol.free", (_JAILED,), {}, (1, False), (_NO_PHANTOM, 0), 0, False),
+    # :21135 ifka(sp)<pgoto1125
+    ("21135-too-poor", "pol.free", (_JAILED,), {"ka": 10}, (1, True), (_NO_PHANTOM, 0), 1, True),
+    # :21200 gosub1100, then :21250-21255 the thanks and ``return``
+    ("21255-thanked", "pol.free", (_JAILED,), {}, (1, True, 300), (_NO_PHANTOM, 2), 1, False),
+    # :21200 gosub1100, then :21215 return (the knasti joins)
+    ("21215-knasti", "pol.free", (), {"rank": 5}, (1, True), (_PHANTOM, 1), 1, True),
+    # :21200 gosub1100, then :21205 ...verschwindet...":goto1100
+    (
+        "21205-gang-full",
+        "pol.free",
+        (),
+        {"rank": 6, "roster": tuple(Gangster(name=f"g{i}") for i in range(10))},
+        (1, True),
+        (_PHANTOM, 4),
+        2,
+        True,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "others", "fields", "answers", "draws", "waits", "ends"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(
+    key, others, fields, answers, draws, waits, ends
+):
+    st = _state(*(dict(o) for o in others), **fields)
+    _, source = _run(key, st, answers=answers, draws=draws)
+    assert source.key_waits() == waits
+    assert source.ends_in_key_wait() == ends
+
+
+def test_a_freed_player_is_named_after_the_rescuers_key_wait():
+    """:21200 ``print"{clr}{down}du konntest den gefangenen befreien!":gosub1100``, then
+    :21250 the freed player's screen."""
+    st = _state(dict(_JAILED))
+    _, source = _run("pol.free", st, answers=(1, True, 300), draws=(_NO_PHANTOM, 2))
+    keys = [getattr(i, "key", None) for i in source.seen]
+    freed = keys.index("locations.pol.freed")
+    assert keys[freed + 1 : freed + 3] == [KEY_WAIT_SCREEN, "locations.pol.thank_you"]

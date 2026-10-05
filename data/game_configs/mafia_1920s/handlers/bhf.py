@@ -45,7 +45,7 @@ from engine.interactions import ShowMessage
 from engine.locations import register
 
 from ..effects import TipClear
-from ..setup import load_encounter, run_encounter
+from ..setup import KEY_WAIT, load_encounter, run_encounter
 from ..state import tip_target
 from .ban import heist_payout
 from .police import Arrest, caught
@@ -82,19 +82,23 @@ def bhf_mail_train(ctx):
     # :19015 ``iftp(sp)<>1thenprint"kein postzug zu sehen...":goto1100``
     if tip_target(active) != params["bhf_mail_train_tip"]:
         yield ShowMessage("locations.bhf.no_train")
+        yield KEY_WAIT  # :19015 ...:goto1100
         return []
     # :19016 ``ifgz(sp)<3thenprint"du hast zu wenig gangster!":tp(sp)=0:goto1100``
     if len(active.roster) < params["bhf_mail_train_gang"]:
         yield ShowMessage("locations.bhf.too_few")
         ctx.apply(TipClear())
+        yield KEY_WAIT  # :19016 ...:tp(sp)=0:goto1100
         return []
     # :19025-19027 ``du stuermst in den panzerwaggon ...``, then :1100's key.
     yield ShowMessage("locations.bhf.storm")
+    yield KEY_WAIT  # :19027 ...:gosub1100, before the fight
     # :19030 ``bn$(0)="wachen":gz(0)=3:w=7:e=30:kf$="kpzug":gosub5000:ifs=2goto26020``
     result = yield from run_encounter(ctx, _GUARDS)
     if result.winner == 2:
         yield from caught(ctx, Arrest(p=0))
         return []
     # :19040 ``goto20050``. :20051's ``(x=1andla=9)`` holds: the tip is 1, at the station.
+    # The payout ends in :20060's ``goto1100`` key wait.
     yield from heist_payout(ctx, tip_bonus=True)
     return []

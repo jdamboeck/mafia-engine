@@ -676,8 +676,6 @@ class TerminalSession:
         self._last_prompt: str | None = None
         self._rolling: str | None = None
         self._roll_keys = _RollKeyboard()
-        #: Whether a message is on screen that no read has followed yet (see render()).
-        self._unread = False
 
     def text(self, key: str, params: dict | None = None) -> str:
         """Resolve a theme key through this session's resolver."""
@@ -846,24 +844,11 @@ class TerminalSession:
     def render(self, interaction):
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``.
 
-        A location option's result ends in ``:1100``'s key wait (``taste druecken!``)
-        on nearly every path (``:1125`` ``...zu wenig kies!":goto1100``, ``:10045``).
-        A handler that yields that wait itself (``Acknowledge(KEY_WAIT_SCREEN)``) gets
-        it in place, under its result; for the rest, when an option completes with a
-        message still unread on screen, the wait comes before the map is drawn over
-        it. A cancelled option (``ify=0thenreturn``) and one whose last screen already
-        waited for a key return without one.
+        The client adds no key wait of its own after a location option: ``:1100``'s
+        wait (``taste druecken!``) comes where the handler yields it
+        (``Acknowledge(KEY_WAIT_SCREEN)``, drawn in place under its result), path by
+        path as the source reaches it, and nowhere else.
         """
-        if isinstance(interaction, OptionDone):
-            unread, self._unread = self._unread, False
-            if unread and interaction.status != "cancelled":
-                _write_press_any_key(self.resolver, self.out)
-                _read_key()
-        else:
-            self._unread = isinstance(interaction, ShowMessage)
-        return self._render(interaction)
-
-    def _render(self, interaction):
         if isinstance(interaction, CombatScreen):
             # The board clears the screen when it is drawn, so the whose-turn line goes
             # under the clear, with the board, not before it.

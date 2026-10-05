@@ -37,10 +37,11 @@ from engine.combat_setup import SIDE2_ANCHOR, build_player_side, placement_posit
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
 from engine.fight_loop import AiDriver, HumanDriver
-from engine.interactions import PromptInt, ShowMessage, StartCombat
+from engine.interactions import Acknowledge, PromptInt, ShowMessage, StartCombat
 from engine.rng import Rng
 from engine.scenario import Scenario
 from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, INTENT, Clock, Config, GameState, Player
+from engine.turns import KEY_WAIT_SCREEN
 
 try:
     from .combat_rules import build_rules, enemy_attrs, equipper
@@ -92,7 +93,14 @@ __all__ = [
     "fnm",
     "score_and_rank",
     "narrate_combat_outcome",
+    "KEY_WAIT",
 ]
+
+#: The ``:1100`` key wait (``print"{down}taste druecken!":poke198,0:wait198,1``), which a
+#: handler yields where its source path reaches it: ``goto1100``/``gosub1100``, ``:1125``
+#: (``...zu wenig kies!":goto1100``) or an inline ``wait198``. Nothing is cleared; the
+#: wait goes under what is on screen.
+KEY_WAIT = Acknowledge(KEY_WAIT_SCREEN)
 
 # Default config location: this config's own directory.
 _CONFIG_DIR = Path(__file__).resolve().parent
@@ -716,7 +724,8 @@ def narrate_combat_outcome(
     fight, win or lose — ``:30106``'s ``goto30500`` is the single exit from the
     combat engine, and ``:5010``'s ``goto30000`` is the single entry every caller
     uses. There is no caller-specific and no win-conditional branch, so the losses
-    block always prints.
+    block always prints, and the screen always ends in ``:30520 print:goto1100``'s key
+    wait (:data:`KEY_WAIT`), before control returns to the caller.
 
     ``player_losses``/``enemy_losses`` are the REAL per-side death tallies the fight
     computed (``v(1)``/``v(2)``, zeroed at ``:30100``, incremented at ``:30310`` per
@@ -730,6 +739,9 @@ def narrate_combat_outcome(
     yield ShowMessage("combat.losses_heading")
     for name, count in ((player_name, player_losses), (enemy_name, enemy_losses)):
         yield ShowMessage("combat.losses_line", {"name": name, "count": count})
+    # :30520 ``print:goto1100`` -- the outcome screen waits for a key before the fight
+    # returns to its caller, for every caller (the combat subroutine's own wait).
+    yield KEY_WAIT
 
 
 # --- new-game setup --------------------------------------------------------

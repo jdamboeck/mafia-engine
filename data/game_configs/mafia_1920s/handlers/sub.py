@@ -50,7 +50,7 @@ from engine.interactions import Confirm, ShowMessage
 from engine.locations import register
 
 from ..effects import SafeSkillSet
-from ..setup import pick_gangster, score_and_rank
+from ..setup import KEY_WAIT, pick_gangster, score_and_rank
 from .police import Arrest, caught
 
 __all__ = ["door_cells", "pickpocket", "sub_platform", "sub_train"]
@@ -83,9 +83,10 @@ def sub_train(ctx):
     # ``:gosub1110:ifx$="n"thenreturn``
     yield ShowMessage("locations.sub.ticket", {"price": price})
     if not (yield Confirm("locations.sub.confirm")):
-        return []
+        return []  # no key wait
     if active.ka < price:  # :18025 ``ifka(sp)<50goto1125``
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :1125 ...:goto1100
         return []
     ctx.apply(MoneyChange(-price))  # :18030 ``ka(sp)=ka(sp)-50``
     return (yield from pickpocket(ctx, w=2, paid=price))
@@ -115,6 +116,7 @@ def pickpocket(ctx, *, w: int, paid: int = 0):
     if ctx.rng.range(params["sub_manual_roll"]) == params["sub_manual_hit"]:
         yield ShowMessage("locations.sub.loot_manual")
         ctx.apply(SafeSkillSet(params["sub_manual_tries"]))
+        yield KEY_WAIT  # :18052 ...:s9(sp)=5:goto1100
         return []
 
     # :18041 ``ifint(rnd(1)*(in/10))goto18045`` — a roll below 10 of ``range(in)`` is 0.
@@ -122,6 +124,7 @@ def pickpocket(ctx, *, w: int, paid: int = 0):
     if ctx.rng.range(max(intelligenz, 1)) < params["sub_catch_divisor"]:
         # :18042 ``print"{down}...nichts! denn du wirst erwischt!":gosub1100:goto26020``
         yield ShowMessage("locations.sub.caught")
+        yield KEY_WAIT  # :18042 ...:gosub1100, before the capture
         door = door_cells()[(active.last_la, active.last_location)]
         yield from caught(ctx, Arrest(p=params["map_screen_base"] + door, cash=active.ka - paid))
         return []
@@ -136,4 +139,5 @@ def pickpocket(ctx, *, w: int, paid: int = 0):
     yield ShowMessage(f"locations.sub.loot_{item}")
     if cash:
         ctx.apply(MoneyChange(cash))
+    yield KEY_WAIT  # :18046-18051 ...:goto1100
     return []

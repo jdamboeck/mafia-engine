@@ -47,7 +47,7 @@ from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import VehicleSet
-from ..setup import load_encounter, load_vehicles, pick_gangster, run_encounter
+from ..setup import KEY_WAIT, load_encounter, load_vehicles, pick_gangster, run_encounter
 from .police import Arrest, caught
 
 __all__ = ["aut_buy", "aut_steal"]
@@ -74,6 +74,7 @@ def aut_buy(ctx):
     models = params["aut_models"] + (1 if ln == params["aut_extra_model_tile"] else 0)
     while True:  # :14006 — a refused sale and a refused trade-in come back here
         yield ShowMessage("locations.aut.showroom")  # :14006-14008
+        yield KEY_WAIT  # :14008 ...:gosub1100:print"{clr}";
         for number in range(1, models + 1):  # :14011-14015
             yield ShowMessage(
                 "locations.aut.model",
@@ -88,13 +89,14 @@ def aut_buy(ctx):
         # and so does RETURN (``val`` of it is 0).
         y = yield PromptInt("locations.aut.model_prompt", min=0, max=models, blank=0)
         if y == 0:
-            return []
+            return []  # :14025 ...ify=0thenpokev+21,0:return -- no key wait
 
         # :14035 ``p=3000+1000*(y-1):ifka(sp)<pthengosub1125:goto14006`` — the full
         # price in cash, before any trade-in is known.
         price = _price(y, params)
         if active.ka < price:
             yield ShowMessage("system.not_enough_money")
+            yield KEY_WAIT  # :14035 gosub1125 (-> :1100), then goto14006
             continue
 
         old = active.vehicle
@@ -114,6 +116,7 @@ def aut_buy(ctx):
         ctx.apply(MsChange(vehicles[y]["tr"] - vehicles[old]["tr"]))
         ctx.apply(VehicleSet(y))
         yield ShowMessage("locations.aut.sold")  # :14051-14052
+        yield KEY_WAIT  # :14052 ...:goto1100
         return []
 
 
@@ -133,6 +136,7 @@ def aut_steal(ctx):
     crowd = ctx.rng.range(params["aut_crowd_roll"])
     if active.last_location != params["aut_no_crowd_tile"] and crowd != 0:
         yield ShowMessage("locations.aut.crowded")
+        yield KEY_WAIT  # :14100 ...:goto1100
         return []
 
     # :14101 ``print"wer soll den wagen aufbrechen:":gosub1130:ify=0thenreturn``
@@ -155,13 +159,18 @@ def aut_steal(ctx):
         else:
             yield ShowMessage("locations.aut.stolen_old_car_left")
         ctx.apply(VehicleSet(params["aut_stolen_vehicle"]))  # :14118 ``tm(sp)=5``
+        yield KEY_WAIT  # :14118 ...:goto1100
         return []
 
     # :14120 caught; :14125 the owner fights, ``ifs=2goto26020``.
     yield ShowMessage("locations.aut.caught")
+    yield KEY_WAIT  # :14120 ...:gosub1100, before the fight
+    # The fight's outcome screen ends in its own :30520 key wait (run_encounter).
     result = yield from run_encounter(ctx, _OWNER)
     if result.winner == 2:
+        # :26020 the capture, which ends in its own key waits (handlers/police.py).
         yield from caught(ctx, Arrest(p=0))
         return []
     yield ShowMessage("locations.aut.owner_killed")  # :14130-14131
+    yield KEY_WAIT  # :14131 ...:goto1100
     return []

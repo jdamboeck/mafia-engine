@@ -382,12 +382,9 @@ def kdh_collect(ctx):
     yield ShowMessage("locations.kdh.ambush_intro")
     yield _KEY_WAIT  # :15312 gosub1100, before the fight (gosub5000)
     enc = _AMBUSH_ENCOUNTER
+    # The outcome screen (:30500-30515) and its :30520 ``print:goto1100`` key wait are
+    # the combat subroutine's, shown by run_encounter for every caller.
     result = yield from run_encounter(ctx, enc)
-    # :30520 print:goto1100 -- the combat outcome screen (:30500-30515, shown by
-    # run_encounter) waits for a key before control returns here. The wait is the
-    # combat subroutine's own, for every caller; run_encounter does not yield it yet,
-    # so this handler does.
-    yield _KEY_WAIT
 
     # :15315 (loss — on_loss: [], nothing; ``return``, no further wait) / :15320-15321
     # (win — loot + score + message, then ``goto1100``). The whole declarable

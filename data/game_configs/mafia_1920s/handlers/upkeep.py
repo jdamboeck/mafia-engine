@@ -167,7 +167,7 @@ from engine.interactions import ShowMessage
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
-from ..setup import load_encounter, run_encounter
+from ..setup import KEY_WAIT, load_encounter, run_encounter
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
@@ -285,6 +285,7 @@ def upkeep_turn_start(ctx):
             # :4350-4370 — the grace period has expired. Guarded on a NONZERO debt so
             # a fully repaid player (:15075 leaves kr=0 AND kz=0) is never ambushed.
             yield ShowMessage("upkeep.debt_collectors_intro")
+            yield KEY_WAIT  # :4350 ...:gosub1100, before the fight
             # The collectors' SETUP is the declared encounter (:4355 —
             # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"), run by the shared fight
             # helper, which also shows the outcome screen with the per-side losses (this

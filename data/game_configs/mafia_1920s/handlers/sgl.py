@@ -51,6 +51,12 @@ source's gang is never empty (``gz(sp)`` only grows, and the eviction sets it to
 ``:4651``); a port state with no gangster, where there is no boss to read, leaves the
 shop quietly with nothing changed.
 
+The key wait (``:1100``) comes where the source reaches it: every refusal
+(``goto1100``), each warning before a fight (``gosub1100``), Jack's leaving before the
+payout (``:17221``) and the wrecked shop or finished owner (``:17578 ...goto1100``).
+Taking the money (``:17565 return``) and a lost thug, owner or Jack fight
+(``ifs=2thenreturn``) return with no wait beyond the fight outcome screen's own.
+
 Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
 ``ctx.apply`` and this config's own helpers.
 """
@@ -63,7 +69,14 @@ from engine.effects import MoneyChange
 from engine.interactions import PromptChoice, ShowMessage
 from engine.locations import register
 
-from ..setup import load_encounter, load_weapons, roster_after, run_encounter, score_and_rank
+from ..setup import (
+    KEY_WAIT,
+    load_encounter,
+    load_weapons,
+    roster_after,
+    run_encounter,
+    score_and_rank,
+)
 from .police import Arrest, police_fight
 
 __all__ = [
@@ -110,6 +123,7 @@ def _prologue(ctx):
     # :17005 ``ifra(sp)>1goto17007`` / :17006 ``print"'verschwinde, du milchgesicht!'"``
     if active.rank <= params["sgl_rank_floor"]:
         yield ShowMessage("locations.sgl.milksop")
+        yield KEY_WAIT  # :17006 ...:goto1100
         return True
     # :17007 ``ifll(sp)<>20*la+lngoto17010``
     return (yield from revisit_trap(ctx))
@@ -127,6 +141,7 @@ def revisit_trap(ctx):
     if active.previous_tile != (active.last_la, active.last_location):
         return False
     yield ShowMessage("locations.sgl.police_waiting")  # :17008-17009
+    yield KEY_WAIT  # :17009 ...:gosub1100, before the police
     yield from police_fight(ctx, Arrest(), grid=_POLICE_GRID)  # :17009 goto26000
     return True
 
@@ -148,6 +163,7 @@ def sgl_threat(ctx):
         return []
     # :17020 ``print"der kerl ruft die polizei!!!":gosub1100:kf$="ks":goto26000``
     yield ShowMessage("locations.sgl.calls_police")
+    yield KEY_WAIT  # :17020 ...:gosub1100, before the police
     yield from police_fight(ctx, Arrest(), grid=_POLICE_GRID)
     return []
 
@@ -163,6 +179,7 @@ def sgl_sob_story(ctx):
         yield from _extort(ctx, 2)
         return []
     yield ShowMessage("locations.sgl.sob_refused")  # :17105
+    yield KEY_WAIT  # :17105 ...:goto1100
     return []
 
 
@@ -177,12 +194,14 @@ def sgl_protection(ctx):
         yield from _extort(ctx, 3)
         return []
     yield ShowMessage("locations.sgl.jack_warning")  # :17205-17206
+    yield KEY_WAIT  # :17206 ...:gosub1100, before the fight
     # :17210 ``gz(0)=3-2*(gz(sp)>5):w=7:e=30:kf$="ksgl":gosub5000``
     big = len(active.roster) > params["sgl_jack_big_gang"]
     result = yield from run_encounter(ctx, _JACK, variant=1 if big else 0)
-    if result.winner == 2:  # :17215 ``ifs=2thenreturn``
+    if result.winner == 2:  # :17215 ``ifs=2thenreturn`` -- no wait beyond :30520's
         return []
     yield ShowMessage("locations.sgl.jack_leaves")  # :17220-17221
+    yield KEY_WAIT  # :17221 ...:gosub1100, then :17225 goto17500
     # :17225 ``goto17500`` with ``w`` as the fight left it (:30215): the last shooter's
     # weapon; :17210's ``w=7`` if nobody fired.
     shooter = result.last_shooter
@@ -210,6 +229,7 @@ def sgl_fake_police(ctx):
         yield from _extort(ctx, 4)
         return []
     yield ShowMessage("locations.sgl.fake_police_refused")  # :17305-17306
+    yield KEY_WAIT  # :17306 ...:goto1100
     return []
 
 
@@ -251,7 +271,7 @@ def _extort(ctx, w: int, *, roster=None):
         yield from _demolish(ctx, ln, roster)
     elif choice == _KILL:
         yield from _kill_owner(ctx, ln, roster)
-    # :17565 ``return`` — the money taken.
+    # :17565 ``return`` — the money taken, with no key wait.
 
 
 def _demolish(ctx, ln: int, roster):
@@ -260,14 +280,16 @@ def _demolish(ctx, ln: int, roster):
     # :17570 ``ifln<>2andln<>6andln<>7andln<>8goto17575``
     if ln in params["sgl_demolish_tiles"]:
         yield ShowMessage("locations.sgl.thugs_called")  # :17571-17572
+        yield KEY_WAIT  # :17572 ...:gosub1100, before the fight
         # :17573 ``bn$(0)="schlaeger":gz(0)=5:w=3:e=20:kf$="ksgl":gosub5000:ifs=2thenreturn``
         result = yield from run_encounter(ctx, _THUGS, roster=roster)
         if result.winner == 2:
-            return
+            return  # :17573 ...:ifs=2thenreturn -- no wait beyond :30520's
     # :17575 ``p=int(rnd(1)*100)+300``
     p = ctx.rng.range(params["sgl_demolish_spread"]) + params["sgl_demolish_min"]
     yield ShowMessage("locations.sgl.demolished", {"p": p})  # :17576-17577
     _settle(ctx, p)
+    yield KEY_WAIT  # :17578 ...:goto1100
 
 
 def _kill_owner(ctx, ln: int, roster):
@@ -278,8 +300,9 @@ def _kill_owner(ctx, ln: int, roster):
         # :17585-17586 ``...und laedt seine "wa$(7)"!"``
         weapon = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")[_OWNER.variants[0].weapon]
         yield ShowMessage("locations.sgl.owner_arms", {"weapon": weapon["name"]})
+        yield KEY_WAIT  # :17586 ...:gosub1100, before the fight
         result = yield from run_encounter(ctx, _OWNER, roster=roster)  # :17587
-        if result.winner == 2:  # :17588 ``ifs=2thenreturn``
+        if result.winner == 2:  # :17588 ``ifs=2thenreturn`` -- no wait beyond :30520's
             return
     # :17590 ``p=int(rnd(1)*100)+200``
     p = ctx.rng.range(params["sgl_kill_spread"]) + params["sgl_kill_min"]
@@ -287,6 +310,7 @@ def _kill_owner(ctx, ln: int, roster):
     # :17592 ``x=1:gosub1160:goto17578`` — a score before :17578's own.
     ctx.apply(score_and_rank(params["sgl_settle_score"], params))
     _settle(ctx, p)
+    yield KEY_WAIT  # :17578 ...:goto1100
 
 
 def _settle(ctx, p: int) -> None:

@@ -104,6 +104,7 @@ from engine.locations import register
 from ..effects import BarrelChange, Jail, MarkSet, VehicleSet
 from ..house_rules import intent
 from ..setup import (
+    KEY_WAIT,
     load_encounter,
     load_vehicles,
     run_encounter,
@@ -221,6 +222,11 @@ def _prison_brawl(ctx, defender: int):
     # :27150 ms=ms-10:x=2:gosub1160 -- on sp, the attacker, in both outcomes.
     ctx.apply(score_and_rank(params["prison_brawl_score"], params))
     ctx.apply(MsChange(-params["prison_brawl_cost"]))
+    if result.winner != 1:
+        # :27146 -> :27150 ...:goto1100: after a lost brawl nothing more is printed,
+        # and the key wait comes under the fight's outcome screen (whose own :30520
+        # wait run_encounter has shown). A won brawl's wait is its screen's above.
+        yield KEY_WAIT
     return None
 
 

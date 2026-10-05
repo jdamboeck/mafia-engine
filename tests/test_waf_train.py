@@ -7,14 +7,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, StatChangeCapped
 from data.game_configs.mafia_1920s.effects import ScoreAndRank
-from engine.interactions import Ack, Confirm, Ctx, PromptChoice, PromptInt, ShowMessage
+from engine.interactions import (
+    Ack,
+    Acknowledge,
+    Confirm,
+    Ctx,
+    PromptChoice,
+    PromptInt,
+    ShowMessage,
+)
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import StubRng as _StubRng, run_pure
+from tests.helpers import StubRng as _StubRng, run_pure, scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -54,9 +64,10 @@ def _source(answers):
     iters = {k: iter(v) for k, v in answers.items()}
 
     def source(interaction):
-        if isinstance(interaction, ShowMessage):
+        if isinstance(interaction, (ShowMessage, Acknowledge)):
             # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
-            # and the driver acks regardless of what we return here.
+            # and the driver acks regardless of what we return here. So does the
+            # :1100 key wait (``Acknowledge(KEY_WAIT_SCREEN)``).
             return None
         for typ, it in iters.items():
             if isinstance(interaction, typ):
@@ -76,7 +87,7 @@ def _observe(handler, state, rng, answers):
     try:
         while True:
             seen.append(interaction)
-            if isinstance(interaction, ShowMessage):
+            if isinstance(interaction, (ShowMessage, Acknowledge)):
                 interaction = gen.send(Ack)
             else:
                 for typ, it in iters.items():
@@ -268,3 +279,40 @@ def test_stat_effects_apply_before_score():
     types = [type(e).__name__ for e in result.effects]
     assert types.index("ScoreAndRank") == len(types) - 1  # score is last
     assert types.count("StatChangeCapped") == 3
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_TRAIN_EXITS = [
+    # id, state kwargs, rng draws, answers, waits
+    # :13100 ifgn$(sp,1)=""thenprint"leider hast du nicht einen gangster!":goto1100
+    ("13100-no-gangster", {"roster": ()}, (), (), 1),
+    # :13102 gosub1130:ify=0thenreturn
+    ("13102-pick-0", {}, (), (0,), 0),
+    # :13115 gosub1110:ifx$="n"thenreturn
+    ("13115-range-declined", {}, (), (1, False), 0),
+    # :13116 ifka(sp)<pgoto1125
+    ("13116-range-too-poor", {"ka": 10}, (), (1, True), 1),
+    # :13130 gosub1365:x=1:gosub1160:goto1100
+    ("13130-range-done", {}, (), (1, True), 1),
+    # :13155 gosub1110:ifx$="n"thenreturn
+    ("13155-camp-declined", {"rank": 5}, (), (1, 1, False), 0),
+    # :13160 ifka(sp)<pgoto1125
+    ("13160-camp-too-poor", {"rank": 5, "ka": 10}, (), (1, 1, True), 1),
+    # :13175 gosub1365:x=2:gosub1160:print"{down}...da ist er wieder!":goto1100
+    ("13175-camp-done", {"rank": 5}, (8, 8, 8), (1, 1, True), 1),
+]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "draws", "answers", "waits"),
+    [case[1:] for case in _TRAIN_EXITS],
+    ids=[case[0] for case in _TRAIN_EXITS],
+)
+def test_each_train_exit_waits_for_a_key_where_the_source_does(kwargs, draws, answers, waits):
+    src = scripted(*answers)
+    run_pure(HANDLERS["waf.train"], src, state=_state(**kwargs), rng=_StubRng(*draws))
+    assert src.key_waits() == waits
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
