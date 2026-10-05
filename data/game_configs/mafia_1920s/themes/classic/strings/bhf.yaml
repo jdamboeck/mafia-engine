@@ -21,8 +21,8 @@ locations:
       leave: "NICHTS WIE WEG"
 
     # --- the mail train (19015-19040) ---
-    no_train: "kein postzug zu sehen..."                                   # 19015
-    too_few: "du hast zu wenig gangster!"                                  # 19016
-    storm: "du stuermst in den panzerwaggon und\nbeginnst gerade einzusacken, als du auf\ndrei nette herren aufmerksam wirst..."  # 19025-19027
+    no_train: "kein postzug zu sehen..."                                   # :19015 `kein postzug zu sehen...`
+    too_few: "du hast zu wenig gangster!"                                  # :19016 `du hast zu wenig gangster!`
+    storm: "du stuermst in den panzerwaggon und\nbeginnst gerade einzusacken, als du auf\ndrei nette herren aufmerksam wirst..."  # :19025-19027 `beginnst gerade einzusacken, als du auf`
 
     # The heist payout's screen (:19040 goto20050) is the bank's, strings/ban.yaml.

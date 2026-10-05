@@ -25,43 +25,43 @@ locations:
     rank_too_low: "'als {rank} kannst du noch keine eigenen leute haben!'"
 
     # --- alcohol trade (mf-prg.bas:12010-12075) ---
-    drink_refused: "'was? alkohol? ist doch verboten!'"
-    drink_offer: "'ich habe{stock}faesser fuer{price}$ pro fass.'"
-    drink_quantity_prompt: "wieviele willst du"
-    sell_offer: "'nein. vielleicht hast du aber was fuer mich? ich zahle{price}$ pro fass!'"
-    sell_quantity_prompt: "wieviel willst du abgeben"
+    drink_refused: "'was? alkohol? ist doch verboten!'"  # :12016 `alkohol? ist doch verboten!`
+    drink_offer: "'ich habe{stock}faesser fuer{price}$ pro fass.'"  # :12021-12022 `faesser fuer`
+    drink_quantity_prompt: "wieviele willst du"  # :12027 `wieviele willst du (0-`
+    sell_offer: "'nein. vielleicht hast du aber was fuer mich? ich zahle{price}$ pro fass!'"  # :12055-12056 `vielleicht hast du aber was fuer`
+    sell_quantity_prompt: "wieviel willst du abgeben"  # :12060 `wieviel willst du abgeben (0-`
 
     # --- tips (mf-prg.bas:12200-12252) ---
-    tip_too_inexperienced: "'du bist noch zu unerfahren!'"
-    tip_nothing: "'leider habe ich nichts fuer dich!'"
-    tip_teaser: "'ich habe etwas gehoert...aber das kostet dich{price}$.'"
+    tip_too_inexperienced: "'du bist noch zu unerfahren!'"  # :12205 `du bist noch zu unerfahren!`
+    tip_nothing: "'leider habe ich nichts fuer dich!'"  # :12210 `leider habe ich nichts fuer dich!`
+    tip_teaser: "'ich habe etwas gehoert...aber das kostet dich{price}$.'"  # :12215-12216 `ich habe etwas gehoert...aber das`
     tip_confirm: "ok (j/n)?"
-    tip_postzug: "'im postzug soll demnaechst eine grosse ladung diamanten transportiert werden!'"
-    tip_bank: "'die bank an der hauptstrasse erhaelt in naechster zeit 500 kg goldbarren!'"
-    tip_geldtransport: "'ein geldtransport wird durch unsere stadt fahren. es ist ein blauer wagen wagen, du wirst ihn sehen!'"
-    tip_waffenschmuggel: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"
-    tip_buergermeister: "'psst...ich habe da einen sehr wichtigen auftrag! der buergermeister soll umgelegt werden, er hat aber leibwaechter!'"
+    tip_postzug: "'im postzug soll demnaechst eine grosse ladung diamanten transportiert werden!'"  # :12230-12231 `im postzug soll demnaechst eine grosse`
+    tip_bank: "'die bank an der hauptstrasse erhaelt in naechster zeit 500 kg goldbarren!'"  # :12235-12236 `die bank an der hauptstrasse erhaelt`
+    tip_geldtransport: "'ein geldtransport wird durch unsere stadt fahren. es ist ein blauer wagen wagen, du wirst ihn sehen!'"  # :12240-12242 `ein geldtransport wird durch unsere`
+    tip_waffenschmuggel: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"  # :12245-12246 `mit 5000 $ kannst du dich an einem`
+    tip_buergermeister: "'psst...ich habe da einen sehr wichtigen auftrag! der buergermeister soll umgelegt werden, er hat aber leibwaechter!'"  # :12250-12252 `psst...ich habe da einen sehr wichtigen`
     arms_deal_offer: "'mit 5000 $ kannst du dich an einem grossen waffenschmuggel beteiligen!'"
     arms_deal_confirm: "ok (j/n)?"
-    arms_deal_accepted: "'du wirst es nicht bereuen...'"
+    arms_deal_accepted: "'du wirst es nicht bereuen...'"  # :12249 `du wirst es nicht bereuen...`
 
     # --- job (mf-prg.bas:12300-12335) ---
-    job_rank_too_high: "'als '{rank}' findest du was besseres!'"
-    job_nobody_available: "'niemand hat einen job fuer dich.'"
-    job_offer_bouncer: "'der inhaber der bahnhofskneipe will dich fuer 3 monate als rausschmeisser anstellen.'"
-    job_offer_croupier: "'du kannst 2 monate als croupier in georges spielhoelle arbeiten.'"
-    job_offer_doorman: "'das ''le roi''-hotel sucht einen tuersteher fuer 2 monate.'"
-    job_offer_killer: "'du erhaelst das foto eines mannes, der im ''red house'' abgestiegen ist. du sollst ihn umlegen!'"
-    job_pay_confirm: "'du bekommst dafuer{pay}$.'"
+    job_rank_too_high: "'als '{rank}' findest du was besseres!'"  # :12301 `' findest du was`
+    job_nobody_available: "'niemand hat einen job fuer dich.'"  # :12302 `niemand hat einen job fuer dich.`
+    job_offer_bouncer: "'der inhaber der bahnhofskneipe will dich fuer 3 monate als rausschmeisser anstellen.'"  # :12306-12308 `der inhaber der bahnhofskneipe will`
+    job_offer_croupier: "'du kannst 2 monate als croupier in georges spielhoelle arbeiten.'"  # :12310-12311 `du kannst 2 monate als croupier in geor-`
+    job_offer_doorman: "'das ''le roi''-hotel sucht einen tuersteher fuer 2 monate.'"  # :12315-12316 `das 'le roi'-hotel sucht einen tuer-`
+    job_offer_killer: "'du erhaelst das foto eines mannes, der im ''red house'' abgestiegen ist. du sollst ihn umlegen!'"  # :12320-12321 `du erhaelst das foto eines mannes, der`
+    job_pay_confirm: "'du bekommst dafuer{pay}$.'"  # :12330 `du bekommst dafuer`
     job_pay_confirm_prompt: "ok (j/n)?"
-    job_accepted: "'du hast den job!'"
+    job_accepted: "'du hast den job!'"  # :12335 `du hast den job!`
 
     # --- recruit (mf-prg.bas:12100-12175) ---
-    recruit_no_housing: "'du brauchst eine unterkunft fuer die gangster!'"
-    recruit_gang_full: "'maximal 10 gangster!'"
-    recruit_nobody_available: "'es ist niemand da.'"
-    recruit_intro_male: "'ein gangster kommt, um mit dir zu sprechen...'"
-    recruit_intro_female: "'eine dame scheint sich fuer deine gang zu interessieren...'"
-    recruit_offer: "'{pronoun} wird {name} genannt. {description}. {pronoun} verlangt{price}$ vorschuss, wenn {pronoun} sich dir anschliessen soll.'"
+    recruit_no_housing: "'du brauchst eine unterkunft fuer die gangster!'"  # :12104 `du brauchst eine unterkunft fuer die`
+    recruit_gang_full: "'maximal 10 gangster!'"  # :12105 `maximal 10 gangster!`
+    recruit_nobody_available: "'es ist niemand da.'"  # :12107 `es ist niemand da.`
+    recruit_intro_male: "'ein gangster kommt, um mit dir zu sprechen...'"  # :12116 `ein gangster kommt, um mit dir zu`
+    recruit_intro_female: "'eine dame scheint sich fuer deine gang zu interessieren...'"  # :12120-12121 `eine dame scheint sich fuer deine`
+    recruit_offer: "'{pronoun} wird {name} genannt. {description}. {pronoun} verlangt{price}$ vorschuss, wenn {pronoun} sich dir anschliessen soll.'"  # :12131-12136 `verlangt"p"$ vorschuss, wenn`
     recruit_confirm: "ok (j/n)?"
-    recruit_hired: "'nun hast du{gang_size}gangster!'"
+    recruit_hired: "'nun hast du{gang_size}gangster!'"  # :12170 `nun hast du"gz(sp)"gangster!`

@@ -7,19 +7,20 @@
 # are template params.
 job:
   # --- bouncer/doorman shared flow (25015-25045) ---
-  shift_bouncer_wait: "'du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen...'"
-  shift_bouncer_quiet: "'heute gab es nichts!'"
-  shift_bouncer_trouble: "'ein bursche faengt an, zu randalieren! tu etwas!'"
+  shift_bouncer_wait: "'du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen...'"  # :25020-25021 `du wartest auf ein zeichen deines chefs,`
+  shift_bouncer_quiet: "'heute gab es nichts!'"  # :25025 `heute gab es nichts!`
+  shift_bouncer_trouble: "'ein bursche faengt an, zu randalieren! tu etwas!'"  # :25030 `ein bursche faengt an, zu randalieren!`
 
   # --- croupier flow (25100-25140) ---
-  shift_croupier_intro: "'du musst als croupier natuerlich falschspielen. welche tricks willst du anwenden: 1 trickspiegel  2 gezinkte karten  3 bremse am roulette'"
+  shift_croupier_intro: "'du musst als croupier natuerlich falschspielen. welche tricks willst du anwenden: 1 trickspiegel  2 gezinkte karten  3 bremse am roulette'"  # :25105-25111 `croupier natuerlich falschspielen.`
+  # :25115 `getx$:ifx$<"1"orx$>"3"goto25115` reads the trick; the source prints no prompt.
   shift_croupier_pick: "welchen trick (1-3)"
-  shift_croupier_caught: "'ein kunde hat deine tricks durchschaut und zieht ein messer!'"
-  shift_croupier_bonus: "'du machst gewinne und erhaeltst einen bonus von{amount}$.'"
+  shift_croupier_caught: "'ein kunde hat deine tricks durchschaut und zieht ein messer!'"  # :25130-25131 `ein kunde hat deine tricks durchschaut`
+  shift_croupier_bonus: "'du machst gewinne und erhaeltst einen bonus von{amount}$.'"  # :25125-25126 `du machst gewinne und erhaeltst`
 
   # --- killer flow (25200-25210) ---
-  shift_killer_intro: "'du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse...'"
+  shift_killer_intro: "'du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse...'"  # :25205-25206 `du hast den typ auf dem foto gefunden`
 
   # --- common outcome resolution (25500-25560) ---
-  shift_failed: "'du hast deinen auftrag nicht erledigt!'"
-  shift_completed: "'du hast deinen job erledigt und erhaeltst deinen lohn. es sind{pay}$!'"
+  shift_failed: "'du hast deinen auftrag nicht erledigt!'"  # :25505-25506 `du hast deinen auftrag nicht`
+  shift_completed: "'du hast deinen job erledigt und erhaeltst deinen lohn. es sind{pay}$!'"  # :25555-25556 `du hast deinen job erledigt und er-`

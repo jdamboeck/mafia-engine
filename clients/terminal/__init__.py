@@ -400,6 +400,7 @@ class TerminalInput:
             aim_raw = self._stdin.readline()
             if aim_raw == "":
                 return CANCEL
+            # :30205 `getx$:ifx$=""goto30205`: the aim key, read after the fire key.
             aim_key = aim_raw.rstrip("\n").strip().lower()
             if aim_key in _COMBAT_AIM_KEYS:
                 return ("shoot", _COMBAT_AIM_KEYS[aim_key])

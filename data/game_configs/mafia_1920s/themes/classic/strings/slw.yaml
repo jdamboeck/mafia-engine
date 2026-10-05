@@ -15,11 +15,11 @@ locations:
       rent: "'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'"
       pay_rent: "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
       leave: "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
-    no_room: "'nichts mehr frei!'"
-    rent_quote: "'gut. pro monat kostet das{price}$ miete.'"
-    months_prompt: "wieviele monate willst du mieten"
-    success: "'guten tag, der herr!'"
-    not_resident: "du wohnst hier nicht!"
+    no_room: "'nichts mehr frei!'"  # :10010 `'nichts mehr frei!'`
+    rent_quote: "'gut. pro monat kostet das{price}$ miete.'"  # :10020 `'gut. pro monat kostet das`
+    months_prompt: "wieviele monate willst du mieten"  # :10025 `wieviele monate willst du mieten`
+    success: "'guten tag, der herr!'"  # :10045 `'guten tag, der herr!'`
+    not_resident: "du wohnst hier nicht!"  # :10100 `du wohnst hier nicht!`
 
 system:
   # :1125 print"{down}du hast zu wenig kies!":goto1100 -- every refusal for want of cash

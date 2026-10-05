@@ -17,13 +17,13 @@ locations:
       leave: "ZURUECK ANS TAGESLICHT"
 
     # --- the train's ticket (18015-18030) ---
-    ticket: "ein u-bahn-ticket kostet dich\n{price:mid$} $."                     # 18015-18020
-    confirm: "ok (j/n)?"                                                   # 1110
+    ticket: "ein u-bahn-ticket kostet dich\n{price:mid$} $."                     # :18015-18020 `ein u-bahn-ticket kostet dich`
+    confirm: "ok (j/n)?"                                                   # :1110 `ok (j/n)?`
 
     # --- the pickpocketing (18035-18052) ---
-    thief_prompt: "welchen spieler setzt du als dieb ein:"                 # 18035
-    stealing: "du stiehlst..."                                             # 18039
-    caught: "...nichts! denn du wirst erwischt!"                           # 18042
+    thief_prompt: "welchen spieler setzt du als dieb ein:"                 # :18035 `welchen spieler setzt du als dieb ein:`
+    stealing: "du stiehlst..."                                             # :18039 `du stiehlst...`
+    caught: "...nichts! denn du wirst erwischt!"                           # :18042 `...nichts! denn du wirst erwischt!`
     loot_handbag: "...eine handtasche - nichts wertvolles!"                # :18046
     loot_camera: "...'nen fotoapparat! er bringt 50 $."                    # :18047
     loot_pearls: "...eine falsche perlenkette!"                            # :18048

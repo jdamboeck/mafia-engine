@@ -16,15 +16,15 @@ locations:
       leave: "'DANKE, DANKE! KEIN BEDARF. BYE!'"
 
     # --- buy (13010-13091) ---
-    weapon_prompt: "ihre wahl:"           # 13020
+    weapon_prompt: "ihre wahl:"  # :13020 `ihre wahl:`
     grenades_in: "...brandheiss! eine ladung army-handgranaten ist gerade eingetroffen!"  # :13090-13091
-    gangster_prompt: "fuer welchen gangster:"  # 13035
-    too_dumb: "zu wenig intelligenz!"     # 13050
-    too_weak: "zu wenig kraft!"           # 13055
-    not_brutal: "nicht brutal genug!"     # 13060
-    trade_in_offer: "der haendler bietet dir{amount}$ fuer deine alte waffe."  # 13070-13071
-    trade_in_confirm: "ok (j/n)?"         # 1110
-    bought: "du hast nun die neue waffe!" # 13080
+    gangster_prompt: "fuer welchen gangster:"  # :13035 `fuer welchen gangster:`
+    too_dumb: "zu wenig intelligenz!"  # :13050 `zu wenig intelligenz!`
+    too_weak: "zu wenig kraft!"  # :13055 `zu wenig kraft!`
+    not_brutal: "nicht brutal genug!"  # :13060 `nicht brutal genug!`
+    trade_in_offer: "der haendler bietet dir{amount}$ fuer deine alte waffe."  # :13070-13071 `der haendler bietet dir`
+    trade_in_confirm: "ok (j/n)?"         # :1110 `ok (j/n)?`
+    bought: "du hast nun die neue waffe!"  # :13080 `du hast nun die neue waffe!`
 
     # --- weapon spec sheet (13500-13525) ---
     # One template per source line. :13500 prints the name over the picture box,
@@ -46,14 +46,15 @@ locations:
     spec_effect_5: "\n{tab(8)}wirkung: erschreckend!"
 
     # --- train (13100-13175) ---
-    no_gangster: "leider hast du nicht einen gangster!"  # 13100
-    train_prompt: "wen soll ich trainieren:"             # 13101
-    venue_prompt: "(s)chiesstand oder (t)rainingscamp ?" # 13105
+    no_gangster: "leider hast du nicht einen gangster!"  # :13100 `leider hast du nicht einen gangster!`
+    train_prompt: "wen soll ich trainieren:"  # :13101 `wen soll ich trainieren:`
+    venue_prompt: "(s)chiesstand oder (t)rainingscamp ?"  # :13105 `(s)chiesstand oder (t)rainingscamp ?`
+    # The venue choice: :13106 `getx$:ifx$<>"s"andx$<>"t"goto13106` reads its key.
     venue_range: "(s)chiesstand"
     venue_camp: "(t)rainingscamp"
-    range_cost: "das kostet dich{price}$. "             # 13110
-    range_enter: "'dein gangster uebt an meinem schiess-stand...'"  # 13120-13121
-    confirm: "ok (j/n)?"                                 # 1110
-    camp_cost: "das kostet dich{price}$. "              # 13150
-    camp_enter: "{name} ist im trainingscamp..."         # 13165
-    camp_done: "...da ist er wieder!"                    # 13175
+    range_cost: "das kostet dich{price}$. "  # :13110 `das kostet dich`
+    range_enter: "'dein gangster uebt an meinem schiess-stand...'"  # :13120-13121 `'dein gangster uebt an meinem schiess-`
+    confirm: "ok (j/n)?"                                 # :1110 `ok (j/n)?`
+    camp_cost: "das kostet dich{price}$. "  # :13150 `das kostet dich`
+    camp_enter: "{name} ist im trainingscamp..."  # :13165 `" ist im trainingscamp..."`
+    camp_done: "...da ist er wieder!"  # :13175 `...da ist er wieder!`
