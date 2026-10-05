@@ -56,7 +56,7 @@ from data.game_configs.mafia_1920s.setup import (
     new_game,
     score_and_rank,
 )
-from engine.c64_numbers import c64_float
+from engine.c64_numbers import c64_float, c64_val
 from engine.combat import CombatFight, CombatResult
 from engine.combat_setup import SIDE1_ANCHOR, SIDE2_ANCHOR, placement_position
 from engine.config_loader import load_config, load_game_config
@@ -335,8 +335,14 @@ Q_1165 = q(1165, "nr(sp)=int(gf(sp)/11.1)+1")
 
 
 def _basic_score(v: Values) -> Any:
-    b = {"sp": 1, "gf(1)": v["gf"], "x": v["x"], "x8": v["x8"]}
-    b["gf(1)"] = Q_1160.assign(b)
+    # The faithful c64_float_score: gf(sp) and x8 are 5-byte floats, x8 the parser's value
+    # of the typed weight. The evaluator's doubles do :1160 exactly here (x*x8 and the sum
+    # need at most 46 bits) and the store rounds that exact sum, which over this grid is
+    # where FADD's 40-bit window lands too (the window itself is held to VICE in
+    # tests/test_c64_float.py). :1165's double division agrees with the C64's except a
+    # hair under a multiple of 11.1 (55.5, 99.9), which the grid does not reach.
+    b = {"sp": 1, "gf(1)": c64_float(v["gf"]), "x": v["x"], "x8": c64_val(repr(v["x8"]))}
+    b["gf(1)"] = c64_float(Q_1160.assign(b))
     if Q_1160_CAP.holds(b):
         b["gf(1)"] = 100
     if Q_1161_FLOOR.holds(b):
@@ -345,7 +351,7 @@ def _basic_score(v: Values) -> Any:
 
 
 def _engine_score(v: Values) -> Any:
-    state = _state(_player(gf=v["gf"]), score_mult=v["x8"])
+    state = _state(_player(gf=v["gf"]), score_mult=c64_val(repr(v["x8"])))  # as setup parses it
     p = apply(state, score_and_rank(v["x"], _PARAMS)).players[0]
     return (p.gf, game.next_rank(p))
 

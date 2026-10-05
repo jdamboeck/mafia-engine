@@ -6,7 +6,9 @@ After the title screen the source asks, in this order (``:30``
 * ``:170-172`` the end year ``x9``: ``x9=int(val(x$))``, asked again by
   ``ifx9<1928orx9>1978goto170``;
 * ``:175-176`` the score weight ``x8``: ``x8=val(x$)``, asked again by
-  ``ifx8<0.1orx8>2goto175``;
+  ``ifx8<0.1orx8>2goto175``; the record keeps the text, and the state is built from the
+  C64 parser's value of it or ``float``'s, as the ``c64_float_score`` house rule (asked
+  next) says -- so a weight is taken only if it is in range under both;
 * the house rules -- the port's own step, not the source's: every switchable quirk of
   the catalogue (:mod:`..house_rules`) at faithful unless the players change it;
 * ``:205-206`` the player count: ``sz=val(x$)``, asked again by ``ifsz<1orsz>4goto205``;
@@ -66,6 +68,8 @@ from ..setup import (
     in_range,
     name_fits,
     parse_setup_number,
+    score_weight_accepted,
+    score_weight_text,
 )
 
 __all__ = ["EIGENSCHAFTEN_SCREEN", "setup"]
@@ -84,7 +88,7 @@ def setup(
     ctx,
     *,
     end_year: int | None = None,
-    score_weight: float | None = None,
+    score_weight: float | str | None = None,
     players: Sequence[tuple[str, str]] | None = None,
     house_rules: Mapping[str, str] | None = None,
 ):
@@ -103,9 +107,9 @@ def setup(
     if end_year is None:  # :170-172
         end_year = int((yield from _ask_number("setup.end_year_prompt", ranges["end_year"], True)))
     if score_weight is None:  # :175-176
-        score_weight = yield from _ask_number(
-            "setup.score_weight_prompt", ranges["score_weight"], False
-        )
+        weight = yield from _ask_score_weight("setup.score_weight_prompt", ranges)
+    else:
+        weight = score_weight_text(score_weight)
     if chosen is None:
         chosen = yield from _ask_house_rules(switchable(CATALOGUE))
 
@@ -128,18 +132,26 @@ def setup(
 
     return SetupRecord(
         end_year=end_year,
-        score_weight=score_weight,
+        score_weight=weight,
         house_rules=chosen,
         players=tuple(rolled),
     )
 
 
 def _ask_number(key: str, bounds: Mapping, integer: bool):
-    """Ask ``key`` until the answer is a number inside ``bounds`` (:172, :176, :206)."""
+    """Ask ``key`` until the answer is a number inside ``bounds`` (:172, :206)."""
     while True:
         value = parse_setup_number((yield PromptText(key)), integer=integer)
         if value is not None and in_range(value, bounds):
             return value
+
+
+def _ask_score_weight(key: str, ranges: Mapping):
+    """:175-176: ask ``key`` until the answer is a weight setup takes; return its text."""
+    while True:
+        text = str((yield PromptText(key)))
+        if score_weight_accepted(text, ranges):
+            return score_weight_text(text)
 
 
 def _ask_name(key: str, params: dict, ranges: Mapping, player: int):

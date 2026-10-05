@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, main, play
 from clients.terminal.palette import ColorSupport, Colors, load_palette
-from engine.c64_numbers import c64_float
+from engine.c64_numbers import c64_divide, c64_float
 from engine.config_loader import load_game_config
 from engine.locations import load_location
 from engine.movement import DOWN, LEFT, RIGHT, UP, load_city
@@ -2331,12 +2331,26 @@ class TestTurnPhases:
         assert game.job(state.players[1]).months_left == 1, "the shift did not complete"
         assert state.players[1].gf == 25.199999
 
-    def test_the_same_score_by_different_steps_ties_at_the_year_end(self, monkeypatch, tmp_path):
-        """:40105/:40106 compare gf with `>` and `=`: 36 points at x8=0.7 must tie.
+    @pytest.mark.parametrize(
+        ("setting", "tie", "scores"),
+        [
+            ("intent", True, (25.2, 25.2)),
+            # tests/fixtures/c64_float/tie_capture.txt: the C64's twelve 3*.7 end on
+            # 85 49 99 99 9B and truncate to 25.2, its four 9*.7 on ... 99 99 and
+            # truncate to 25.19.
+            ("faithful", False, (c64_float(25.2), c64_divide(2519, 100))),
+        ],
+    )
+    def test_the_same_score_by_different_steps_ties_at_the_year_end(
+        self, monkeypatch, tmp_path, setting, tie, scores
+    ):
+        """:40105/:40106 compare gf with `>` and `=`: 36 points at x8=0.7.
 
         Twelve awards of 3 and four awards of 9 (:1160 `gf(sp)=gf(sp)+(x*x8)`) are both
-        25.2, but in doubles the first is 25.199999999999996. Each player's final-round
-        free turn truncates it (:1013), so the year end sees a tie, as the source does.
+        25.2 in exact decimals, and each player's final-round free turn truncates them
+        (:1013), so the year end sees a tie under the intent ``c64_float_score``. The
+        C64 sums them in its 5-byte float: the first a hair above 25.2, the second a hair
+        below, so :1013 keeps 25.2 and cuts 25.19, and the first player wins outright.
         """
         from dataclasses import replace
 
@@ -2350,6 +2364,7 @@ class TestTurnPhases:
             config=replace(
                 state.config,
                 formula_params={**state.config.formula_params, "score_mult": 0.7},
+                house_rules={**state.config.house_rules, "c64_float_score": setting},
             ),
         )
         params = state.config.formula_params
@@ -2357,7 +2372,8 @@ class TestTurnPhases:
             replace(score_and_rank(9, params), player=1)
         ] * 4
         state = commit(state, awards).state
-        assert state.players[0].gf != state.players[1].gf, "no float drift: vacuous"
+        if setting == "faithful":
+            assert state.players[0].gf != state.players[1].gf, "no float drift: vacuous"
 
         keys = burn_turn_keys(42, state=state, end_year=1928)
         # The turn start opens the turn menu first: walk.
@@ -2365,9 +2381,9 @@ class TestTurnPhases:
             monkeypatch, tmp_path, state, "turn_start", [MENU_WALK_KEY] + keys
         )
 
-        assert "diesmal haben mehrere die gleichen" in output, "no tie at the year end"
-        assert "hat gewonnen!" not in output
-        assert state.players[0].gf == state.players[1].gf == c64_float(25.2)
+        assert ("diesmal haben mehrere die gleichen" in output) is tie, "tie or not"
+        assert ("hat gewonnen!" in output) is not tie
+        assert (state.players[0].gf, state.players[1].gf) == scores
 
 
 # --------------------------------------------------------------------------- #

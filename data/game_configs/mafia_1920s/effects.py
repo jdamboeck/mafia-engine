@@ -16,8 +16,11 @@ the value maps ``state_schema.yaml`` declares, never in an engine class.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
+from decimal import Decimal
 
+from engine.c64_numbers import c64_add_product, c64_int_divide, c64_val
 from engine.effects import (
     SCHEMA_VERSION,
     register_effect,
@@ -28,6 +31,7 @@ from engine.effects import (
 from engine.state import GameState
 
 try:
+    from .house_rules import intent
     from .state import (
         Debt,
         Job,
@@ -41,6 +45,7 @@ try:
         write,
     )
 except ImportError:  # loaded bare (config dir on sys.path), as setup.py allows
+    from house_rules import intent
     from state import (
         Debt,
         Job,
@@ -80,7 +85,6 @@ __all__ = [
 
 
 #: House rule: the score (:1160) sums in C64 float (faithful) or exact decimals.
-#: Not read yet: the score's arithmetic does not branch on it so far.
 C64_FLOAT_SCORE = "c64_float_score"
 
 
@@ -97,6 +101,14 @@ class ScoreAndRank:
     ``x``; ``score_mult`` is ``x8`` (``formula_params["score_mult"]``, set at setup).
     ``rank_divisor`` (11.1) is a config parameter, NOT hardcoded. Writes the pending
     rank ``nr`` value (per ``:1165``).
+
+    The arithmetic follows the :data:`C64_FLOAT_SCORE` house rule. Faithful: the sum is
+    the C64's (:func:`~engine.c64_numbers.c64_add_product`, its 5-byte floats), and the
+    rank divides by the parsed literal (:func:`~engine.c64_numbers.c64_val`) and floors
+    the unrounded quotient (:func:`~engine.c64_numbers.c64_int_divide`), so a score of
+    55.5 is rank 5 as on the C64. Intent: both are exact decimals of the score, award,
+    weight and divisor as written (their shortest ``repr``), and 55.5 is rank 6. The
+    stored score is a float either way.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -107,14 +119,23 @@ class ScoreAndRank:
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
         p = state.players[idx]
-        # gf += amount*x8, clamped to the intrinsic [0,100] gf domain (mf-prg.bas:1160-1161).
-        # :1160 `gf(sp)=gf(sp)+(x*x8)`, then `gf(sp)>100` / :1161 `gf(sp)<0` clamp it.
         score_mult = state.config.formula_params["score_mult"]
-        gf = max(0.0, min(100.0, p.gf + self.amount * score_mult))
-        # nr recomputed from the CLAMPED gf (mf-prg.bas:1165); divisor is config data.
-        # :1165 `nr(sp)=int(gf(sp)/11.1)+1`.
+        # :1160 `gf(sp)=gf(sp)+(x*x8)`, then `gf(sp)>100` / :1161 `gf(sp)<0` clamp it.
+        # :1165 `nr(sp)=int(gf(sp)/11.1)+1`, from the CLAMPED gf; the divisor is config data.
+        if intent(state, C64_FLOAT_SCORE):
+            total = _decimal(p.gf) + _decimal(self.amount) * _decimal(score_mult)
+            gf = max(0.0, min(100.0, float(total)))
+            rank = math.floor(_decimal(gf) / _decimal(self.rank_divisor)) + 1
+        else:
+            gf = max(0.0, min(100.0, c64_add_product(p.gf, self.amount, score_mult)))
+            rank = c64_int_divide(gf, c64_val(repr(float(self.rank_divisor)))) + 1
         state = update_player(state, player=idx, gf=gf)
-        return set_player_value(state, "nr", int(gf / self.rank_divisor) + 1, player=idx)
+        return set_player_value(state, "nr", rank, player=idx)
+
+
+def _decimal(value: float) -> Decimal:
+    """``value`` as the short decimal it was written as (its ``repr``), exactly."""
+    return Decimal(repr(value))
 
 
 @register_effect()

@@ -468,6 +468,35 @@ class TestSetupFlags:
         assert state.clock.end_year == 1940
         assert state.config.formula_params["score_mult"] == 0.5
 
+    @pytest.mark.parametrize("text", ["1.99", "0.11", "1.5", "1.398259791907483378"])
+    def test_the_flag_and_the_prompt_reach_the_same_weight(self, monkeypatch, tmp_path, text):
+        """``--score-weight`` and the ``:175`` prompt parse the same text the same way:
+        under the faithful ``c64_float_score``, the C64 parser's value (``1.99`` and
+        ``0.11`` are a unit off the nearest 5-byte value, tests/test_c64_float.py). The
+        long one parses elsewhere than its double's shortest text would (the parse
+        capture), so the flag must hand over the text, not a float."""
+        from engine.c64_numbers import c64_val
+
+        _, flagged = self._main(
+            monkeypatch,
+            tmp_path,
+            [*_SOLO_ARGS, "--end-year", "1950", "--score-weight", text],
+            "\n\n\n\np\nq\n",
+        )
+        stdin = f"\n1950\n{text}\n\n\n\np\nq\n"
+        _, prompted = self._main(monkeypatch, tmp_path, _SOLO_ARGS, stdin)
+        weights = {state.config.formula_params["score_mult"] for state in (flagged, prompted)}
+        assert weights == {c64_val(text)}
+
+    def test_a_score_weight_flag_that_is_no_number_is_refused(self, monkeypatch, capsys):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        with pytest.raises(SystemExit) as exc:
+            main(["--score-weight", "1.5x"])
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
+        assert "--score-weight" in captured.err and "1.5x" in captured.err
+
     @pytest.mark.parametrize("spec", ["", ":gang", "a" * 14, "name:" + "g" * 14])
     def test_a_player_name_over_13_characters_or_empty_is_rejected(self, monkeypatch, capsys, spec):
         # :291 ``ifx$=""orlen(x$)>13`` bounds both names; the flag is refused, not run.

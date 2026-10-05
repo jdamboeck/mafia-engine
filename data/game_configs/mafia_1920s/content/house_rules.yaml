@@ -413,8 +413,11 @@ house_rules:
       The score adds each award times the score weight in the C64's 5-byte float (one
       exponent byte and a 32-bit mantissa), as :1160 ``gf(sp)=gf(sp)+(x*x8)`` does
       every time, so with a weight that is no exact binary fraction (0.1, say) the
-      score drifts from the exact decimal sum of its awards.
+      score drifts from the exact decimal sum of its awards. The typed weight is the
+      C64 parser's value, and the turn's cut to whole cents (:1013) and the rank
+      (:1165) read the score in the same arithmetic.
     intent: >-
       The score adds in exact decimal arithmetic: its awards times the weight sum as
-      written.
+      written, the typed weight is the decimal typed, and the turn's cut to whole cents
+      (:1013) and the rank (:1165) read that decimal.
     switch: true

@@ -191,7 +191,7 @@ def test_rolls_stopped_on_their_first_frame_set_up_todays_game(seed, setting, co
 def test_the_record_holds_what_was_answered_and_rolled():
     record = _run_setup(Answers(_full_answers(2)), seed=3)
     assert record.end_year == 1930
-    assert record.score_weight == 1.0
+    assert record.score_weight == "1"  # the text typed; the state is built from its parse
     assert dict(record.house_rules) == _ALL_FAITHFUL
     assert [(p.name, p.gang_name) for p in record.players] == _players(2)
     # The raw :350 intelligenz roll: 62 and 31 in the state are 50 and 15 OR 30.
@@ -355,7 +355,7 @@ def test_setup_asks_in_source_order():
     ("key", "answers", "value"),
     [
         ("setup.end_year_prompt", ["1927", "1979", "abc", "", "nan", "inf", "1950.9"], 1950),
-        ("setup.score_weight_prompt", ["0.05", "2.1", "x", "0.5"], 0.5),
+        ("setup.score_weight_prompt", ["0.05", "2.1", "x", "1.5x", "0.5"], "0.5"),
     ],
 )
 def test_end_year_and_score_weight_are_asked_again_until_in_range(key, answers, value):
@@ -431,6 +431,81 @@ def test_a_game_set_up_by_the_handler_saves_and_loads(tmp_path):
     path = tmp_path / "game.jsonl"
     save_game(path, state, registries=_CONFIG.registries, effect_log=[], rng_log=[], seed=5)
     assert load_game(path, _CONFIG.registries).state == state
+
+
+# --------------------------------------------------------------------------- #
+# The typed score weight (:175 x8=val(x$)) under the c64_float_score switch     #
+# --------------------------------------------------------------------------- #
+#: Weights setup takes and the 5 bytes the C64 gave each (``val`` and ``input`` alike),
+#: from tests/fixtures/c64_float/parse_capture.txt; ``.01`` is out of range, so ``0.11``,
+#: ``1.99`` and ``1.98`` stand for the weights the parser reads a unit off.
+_C64_WEIGHTS = {
+    "0.1": "7D4CCCCCCD",
+    "0.11": "7D6147AE15",
+    "1.5": "8140000000",
+    "1.99": "817EB851EB",
+    "1.98": "817D70A3D6",
+    "2": "8200000000",
+}
+
+
+def _weight(text: str, setting: str) -> float:
+    texts = _full_answers(1)
+    texts["setup.score_weight_prompt"] = [text]
+    del texts["setup.house_rules.offer"]
+    record = _run_setup(Answers(texts), house_rules={"c64_float_score": setting})
+    return new_game(record).config.formula_params["score_mult"]
+
+
+@pytest.mark.parametrize("text", list(_C64_WEIGHTS))
+def test_a_typed_weight_takes_the_c64_value_under_faithful_and_floats_under_intent(text):
+    from engine.c64_numbers import c64_bytes
+
+    assert c64_bytes(_weight(text, "faithful")).hex().upper() == _C64_WEIGHTS[text]
+    assert _weight(text, "intent") == float(text)
+
+
+def test_the_parser_and_float_part_on_the_weights_that_show_it():
+    """Non-vacuous: for these the C64 value is not the double, so the setting shows."""
+    parted = [t for t in _C64_WEIGHTS if _weight(t, "faithful") != _weight(t, "intent")]
+    assert parted == ["0.1", "0.11", "1.99", "1.98"]
+
+
+@pytest.mark.parametrize("setting", ["faithful", "intent"])
+def test_a_weight_that_is_no_clean_number_is_asked_again(setting):
+    answers = ["1.5x", "x1", "1.1_5", " 1.5 "]  # float reads 1.1_5 as 1.15; the C64 not
+    texts = _full_answers(1)
+    texts["setup.score_weight_prompt"] = answers
+    del texts["setup.house_rules.offer"]
+    source = Answers(texts)
+    record = _run_setup(source, house_rules={"c64_float_score": setting})
+    assert len(source.of(PromptText, "setup.score_weight_prompt")) == 4
+    assert record.score_weight == "1.5"
+    assert new_game(record).config.formula_params["score_mult"] == 1.5
+
+
+@pytest.mark.parametrize("setting", ["faithful", "intent"])
+@pytest.mark.parametrize("weight", [0.1, 0.11, 1.99, 2.0, 1])
+def test_the_keyword_weight_reaches_what_typing_it_reaches(setting, weight):
+    by_keyword = new_game(
+        seed=1,
+        end_year=1930,
+        score_weight=weight,
+        players=_players(1),
+        house_rules={"c64_float_score": setting},
+    )
+    assert by_keyword.config.formula_params["score_mult"] == _weight(repr(weight), setting)
+
+
+def test_a_c64_weight_survives_save_and_load(tmp_path):
+    texts = _full_answers(1)
+    texts["setup.score_weight_prompt"] = ["1.99"]
+    state = new_game(_run_setup(Answers(texts), seed=5))
+    path = tmp_path / "game.jsonl"
+    save_game(path, state, registries=_CONFIG.registries, effect_log=[], rng_log=[], seed=5)
+    loaded = load_game(path, _CONFIG.registries).state
+    assert loaded.config.formula_params["score_mult"] == state.config.formula_params["score_mult"]
+    assert loaded.config.formula_params["score_mult"] != 1.99
 
 
 def test_every_key_the_handler_yields_resolves_in_the_classic_theme():

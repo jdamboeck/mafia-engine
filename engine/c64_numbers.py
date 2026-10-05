@@ -42,16 +42,33 @@ byte for byte. Read off the capture and the ROM (``$BC1B`` ROUND, ``$BB0F`` FDIV
   accumulator, before any store rounds it. ``g*100`` needs at most 39 bits, which the
   multiply's 40-bit window holds exactly, so ``int(g*100)`` is the exact floor: the
   ``25.4`` the C64 holds is a little below 25.4, and ``int(25.4*100)`` is 2539.
-- **Not modelled:** addition and multiplication in general (they truncate below a
-  40-bit window before the store rounds, so they are not plain round-to-nearest).
-- **Not every source rounds to nearest.** The decimal parser (literals, ``val``,
-  ``input``) can land a unit or two off: the literal ``.01`` is ``7A 23 D7 0A 3E``. These
-  helpers model the rounding above, not the parser.
+- **Add and multiply keep a 40-bit window.** The floating accumulator holds the 32-bit
+  mantissa and a rounding byte below it (``FACOV``). FMULT (``$BA2B``) shifts and adds
+  the multiplicand once per bit of the multiplier, the rounding byte's bits first, so
+  the product is the exact one cut (not rounded) to 40 bits. FADD (``$B86A``) shifts the
+  operand with the smaller exponent right, its bits falling into its rounding byte and
+  below it out of the sum, then adds or subtracts the 40-bit mantissas and normalizes.
+  Nothing rounds until the result is stored, so in ``a+(x*y)`` the product reaches the
+  addition with its rounding byte (:func:`c64_add_product`). The authority is
+  ``tests/fixtures/c64_float/ops_cases.bas`` (``r=a+b``, ``r=a+(x*y)`` and ``r=x*y`` on
+  poked 5-byte operands, chosen where the window shows), held byte for byte by
+  ``tests/test_c64_float.py``.
+- **INT reads FDIV's quotient before the store.** FDIV builds 34 quotient bits, so
+  ``int(a/b)`` is the floor of the exact quotient (:func:`c64_int_divide`): the C64's
+  ``55.5`` over its ``11.1`` lies a hair under 5, and ``int(55.5/11.1)`` is 4.
+- **The decimal parser rounds at every step.** Literals, ``val`` and ``input`` go
+  through FIN (``$BCF3``): each digit multiplies the value so far by 10 (MUL10, which
+  rounds it first, then adds four times it to it) and adds the digit; then one DIV10
+  per digit after the point divides by 10, rounding the value before each division.
+  So the parser can land a unit or two off the nearest value: the literal ``.01`` is
+  ``7A 23 D7 0A 3E``, ``1/100`` is ``... 3D``. :func:`c64_val` ports it for clean decimal
+  text, held to ``tests/fixtures/c64_float/parse_cases.bas``'s capture.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from decimal import ROUND_HALF_UP, Decimal
 from fractions import Fraction
 
@@ -230,3 +247,229 @@ def _rounded(exact: Fraction) -> Fraction:
         raise ValueError(f"?overflow error: {float(exact)!r} is too large for the C64")
     value = mantissa * Fraction(2) ** (exponent - (MANTISSA_BITS - 1))
     return -value if exact < 0 else value
+
+
+# --- the floating accumulator: FMULT, FADD, INT of FDIV, the decimal parser ----------
+
+_WINDOW_BITS = MANTISSA_BITS + 8
+"""Bits the accumulator holds: the 32-bit mantissa and its rounding byte (``FACOV``)."""
+
+_QUOTIENT_BITS = 34
+"""Bits FDIV builds before it stops: the mantissa's 32 and two in the rounding byte."""
+
+
+class _Fac:
+    """The floating accumulator: sign, exponent byte and a 40-bit mantissa.
+
+    ``mantissa`` is the 32-bit mantissa then the rounding byte, top bit set unless the
+    value is zero (``exponent`` 0); the value is ``mantissa * 2**(exponent - 129 - 39)``.
+    """
+
+    __slots__ = ("negative", "exponent", "mantissa")
+
+    def __init__(self, negative: bool, exponent: int, mantissa: int) -> None:
+        self.negative = negative
+        self.exponent = exponent
+        self.mantissa = mantissa
+
+
+_ZERO = _Fac(False, 0, 0)
+
+
+def _load(value: Fraction) -> _Fac:
+    """A stored 5-byte value in the accumulator, its rounding byte clear (MOVFM)."""
+    if value == 0:
+        return _ZERO
+    exponent, mantissa = _split(abs(value))
+    return _Fac(value < 0, exponent + _EXPONENT_BIAS, mantissa << 8)
+
+
+def _normalized(negative: bool, exponent: int, mantissa: int) -> _Fac:
+    """Shift ``mantissa`` until its top bit is bit 39 (NORMAL); a right shift truncates."""
+    if mantissa == 0:
+        return _ZERO
+    while mantissa >> _WINDOW_BITS:
+        mantissa >>= 1
+        exponent += 1
+    while not mantissa >> (_WINDOW_BITS - 1):
+        mantissa <<= 1
+        exponent -= 1
+    return _Fac(negative, exponent, mantissa)
+
+
+def _store(fac: _Fac) -> Fraction:
+    """The accumulator stored to a variable: rounded half up on its rounding byte's top
+    bit, on the magnitude (``$BC1B``)."""
+    if fac.exponent == 0 or fac.mantissa == 0:
+        return Fraction(0)
+    exponent = fac.exponent
+    mantissa = (fac.mantissa >> 8) + ((fac.mantissa >> 7) & 1)
+    if mantissa >> MANTISSA_BITS:  # rounded up to the next power of two
+        mantissa >>= 1
+        exponent += 1
+    if exponent < 1:
+        return Fraction(0)  # underflow: the ROM stores zero
+    if exponent > 0xFF:
+        raise ValueError("?overflow error: the result is too large for the C64")
+    value = mantissa * Fraction(2) ** (exponent - _EXPONENT_BIAS - (MANTISSA_BITS - 1))
+    return -value if fac.negative else value
+
+
+def _fmult(multiplier: _Fac, multiplicand: _Fac) -> _Fac:
+    """FMULT: ``multiplicand * multiplier``, the product cut to the 40-bit window.
+
+    The ROM adds the 32-bit multiplicand into the accumulator's top for each set bit of
+    the multiplier's 40 (its rounding byte first) and shifts the accumulator right one
+    bit after each, so the bits that leave its rounding byte are dropped: the result is
+    the exact product truncated to 40 bits.
+    """
+    if multiplier.exponent == 0 or multiplicand.exponent == 0:
+        return _ZERO
+    product = ((multiplicand.mantissa >> 8) * multiplier.mantissa) >> MANTISSA_BITS
+    return _normalized(
+        multiplier.negative != multiplicand.negative,
+        multiplier.exponent + multiplicand.exponent - 128,
+        product,
+    )
+
+
+def _fadd(fac: _Fac, arg: _Fac) -> _Fac:
+    """FADD: ``arg + fac``, aligned and summed in the 40-bit window.
+
+    The operand with the smaller exponent (``arg`` when they are equal) is shifted right
+    by the difference with its own rounding byte; bits below that byte are lost. Equal
+    signs add (a carry shifts right one bit, truncating); unequal signs subtract the
+    shifted operand, a negative difference flips the sign, and the result is normalized.
+    """
+    if fac.exponent == 0:
+        return _Fac(arg.negative, arg.exponent, arg.mantissa)
+    if arg.exponent == 0:
+        return fac
+    big, small = (arg, fac) if arg.exponent > fac.exponent else (fac, arg)
+    shifted = small.mantissa >> (big.exponent - small.exponent)
+    if big.negative == small.negative:
+        return _normalized(big.negative, big.exponent, big.mantissa + shifted)
+    difference = big.mantissa - shifted
+    negative = big.negative != (difference < 0)
+    return _normalized(negative, big.exponent, abs(difference))
+
+
+def _operand(value: int | float, name: str) -> _Fac:
+    return _load(_rounded(_exact(value, name)))
+
+
+def c64_multiply(a: int | float, b: int | float) -> float:
+    """Return ``a*b`` as C64 BASIC computes and stores it (FMULT, then the store).
+
+    Both operands are first held as C64 floats (:func:`c64_float`). The product is cut
+    to the 40-bit window and then rounded half up, which lands where rounding the exact
+    product would, save on an exact tie below the window.
+    """
+    return float(_store(_fmult(_operand(b, "c64_multiply"), _operand(a, "c64_multiply"))))
+
+
+def c64_add(a: int | float, b: int | float) -> float:
+    """Return ``a+b`` as C64 BASIC computes and stores it (FADD, then the store).
+
+    Both operands are first held as C64 floats (:func:`c64_float`). Bits of the smaller
+    operand shifted out of the 40-bit window are lost before the sum rounds, so a
+    difference can round to the other neighbour than the exact one: ``c64_add`` is not
+    ``c64_float(a + b)``.
+    """
+    return float(_store(_fadd(_operand(b, "c64_add"), _operand(a, "c64_add"))))
+
+
+def c64_add_product(a: int | float, x: int | float, y: int | float) -> float:
+    """Return ``a+(x*y)`` as C64 BASIC computes and stores it -- ``:1160``'s sum.
+
+    ``x*y`` stays in the accumulator with its rounding byte when it reaches the
+    addition (nothing stores it in between), so this is not
+    ``c64_add(a, c64_multiply(x, y))``. ``y`` is the multiplier, as BASIC evaluates the
+    right operand into the accumulator. All three are first held as C64 floats.
+    """
+    name = "c64_add_product"
+    product = _fmult(_operand(y, name), _operand(x, name))
+    return float(_store(_fadd(product, _operand(a, name))))
+
+
+def c64_int_divide(dividend: int | float, divisor: int | float) -> int:
+    """Return ``int(dividend/divisor)`` as C64 BASIC computes it -- ``:1165``'s rank.
+
+    Both operands are first held as C64 floats. INT floors FDIV's quotient as it lies in
+    the accumulator, 34 bits cut from the exact quotient and never rounded, so the
+    result is the floor of that cut quotient: ``c64_int_divide(55.5, 11.1)`` is 4, the
+    C64's 55.5 lying a hair under five of its 11.1 (``int(55.5/11.1)`` in doubles is 5).
+    A zero divisor raises ``ZeroDivisionError``.
+    """
+    top = _rounded(_exact(dividend, "c64_int_divide"))
+    bottom = _rounded(_exact(divisor, "c64_int_divide"))
+    if bottom == 0:
+        raise ZeroDivisionError("?division by zero error")
+    quotient = top / bottom
+    if quotient == 0:
+        return 0
+    exponent, _ = _split(abs(quotient))
+    scale = Fraction(2) ** (_QUOTIENT_BITS - 1 - exponent)
+    cut = Fraction(math.floor(abs(quotient) * scale)) / scale
+    return math.floor(-cut if quotient < 0 else cut)
+
+
+def _mul10(fac: _Fac) -> _Fac:
+    """MUL10 (``$BAE2``): round the accumulator, then ``(4v + v) * 2`` in FADD."""
+    value = _load(_store(fac))
+    if value.exponent == 0:
+        return value
+    total = _fadd(_Fac(value.negative, value.exponent + 2, value.mantissa), value)
+    return _Fac(total.negative, total.exponent + 1, total.mantissa)
+
+
+def _div10(fac: _Fac) -> _Fac:
+    """DIV10 (``$BAFE``): round the accumulator, then FDIV by 10 (34 quotient bits)."""
+    value = _store(fac)
+    if value == 0:
+        return _ZERO
+    quotient = abs(value) / 10
+    exponent, _ = _split(quotient)
+    cut = math.floor(quotient * Fraction(2) ** (_QUOTIENT_BITS - 1 - exponent))
+    return _Fac(value < 0, exponent + _EXPONENT_BIAS, cut << (_WINDOW_BITS - _QUOTIENT_BITS))
+
+
+#: The text :func:`c64_val` reads: a sign, digits with at most one point, an exponent.
+_CLEAN_NUMBER = re.compile(r"\s*([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?\s*")
+
+
+def c64_val(text: str) -> float:
+    """Return the number C64 BASIC's decimal parser (FIN, ``$BCF3``) reads from ``text``.
+
+    ``val``, ``input`` and a program's literals all parse through FIN. Each digit
+    multiplies the value so far by ten (MUL10, rounding it first) and adds the digit;
+    then the value is divided by ten once per digit after the point (DIV10, rounding it
+    before each division) -- or multiplied, for a positive exponent -- and stored. Each
+    step rounds, so the result can be a unit or two off the nearest 5-byte value:
+    ``c64_val(".01")`` is ``7A 23 D7 0A 3E``, one above :func:`c64_divide`'s ``1/100``.
+
+    Only clean text is read: an optional sign, digits with at most one point, an
+    optional ``E`` exponent, and spaces around it. Other text raises ``ValueError``;
+    this is not ``val``'s reading of a prefix (``val("1.5x")`` is 1.5 on the C64). A
+    value too large raises ``ValueError`` (``?overflow error``).
+    """
+    match = _CLEAN_NUMBER.fullmatch(text)
+    if match is None or not (match.group(2) or match.group(3)):
+        raise ValueError(f"c64_val reads clean decimal text only, got {text!r}")
+    sign, whole, fraction, power = match.groups()
+    fraction = fraction or ""
+    fac = _ZERO
+    for digit in whole + fraction:
+        accumulated = _load(_store(_mul10(fac)))  # FINLOG: MOVAF rounds the value so far
+        fac = _fadd(_load(Fraction(int(digit))), accumulated)
+    scale = (int(power) if power else 0) - len(fraction)
+    for _ in range(-scale):
+        if fac.exponent == 0:
+            break  # zero, or underflowed to it: the rest of the divisions keep it there
+        fac = _div10(fac)
+    for _ in range(scale):
+        if fac.exponent == 0:
+            break
+        fac = _mul10(fac)  # a value too large raises ?overflow error within 40 steps
+    value = _store(fac)
+    return float(-value if sign == "-" else value)
