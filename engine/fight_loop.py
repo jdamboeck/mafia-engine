@@ -327,6 +327,10 @@ def _drive_fight(
     screen it yields is handed to ``input_source`` and the answer sent back. The
     observation opt-in is read off ``input_source`` (a truthy ``observes_ai``
     attribute), so the headless callers (``simulate``, ``record_fight``) stay OFF.
+
+    Only the fight generator's own ``StopIteration`` means "finished". One raised by
+    ``input_source`` (a scripted answer list run dry) propagates to the caller
+    unchanged, so an unfinished fight never comes back as a result.
     """
     steps = _fight_steps(
         fight,
@@ -336,10 +340,17 @@ def _drive_fight(
     )
     try:
         screen = next(steps)
-        while True:
-            screen = steps.send(input_source(screen))
     except StopIteration as stop:
         return stop.value
+    while True:
+        # The input source is called OUTSIDE the completion catch: a scripted source
+        # run dry raises its own StopIteration, which must reach the caller rather than
+        # be misread as the fight generator finishing with no winner (#156).
+        response = input_source(screen)
+        try:
+            screen = steps.send(response)
+        except StopIteration as stop:
+            return stop.value
 
 
 def _fight_steps(
