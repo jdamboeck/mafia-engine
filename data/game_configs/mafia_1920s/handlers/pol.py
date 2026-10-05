@@ -73,7 +73,8 @@ __all__ = [
 ]
 
 #: House rule: a negative count at a C64 number prompt goes through (faithful) or is
-#: asked again; here, the month count, which then pays out.
+#: asked again; here, the month count, which then pays out. ``handlers/pub.py`` reads
+#: it for the pub's buy and sell counts.
 C64_INPUT_NEGATIVES = "c64_input_negatives"
 #: House rule: an empty month answer repeats the map step (faithful) or buys nothing.
 CHIEF_BRIBE_EMPTY_ANSWER = "chief_bribe_empty_answer"

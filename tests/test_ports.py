@@ -2107,6 +2107,65 @@ def _engine_alcohol_buy(v: Values) -> Any:
     return (offered, p.ka, game.contraband(p).alcohol_barrels)
 
 
+# --- :12028-12035 pub alcohol buy, a negative count (faithful c64_input_negatives) ------
+# The C64 INPUT stores a negative count (tests/fixtures/c64_input/vice_capture.txt), and
+# no line of the buy refuses it: the price ``y*p`` is below 0, so :12030 passes, and
+# :12035 sells the barrels to the pub and still scores ``x=2`` through the score routine.
+Q_12028 = q(12028, "y>x")
+Q_12029 = q(12029, "y=0")
+Q_12035_X = q(12035, "x=2")
+
+
+def _basic_alcohol_buy_negative(v: Values) -> Any:
+    b: dict[str, Any] = {"sp": 1, "tm(1)": v["vehicle"], "ta(1)": v["ta"], "ka(1)": v["ka"]}
+    b.update({f"tk({i})": veh["tank"] for i, veh in enumerate(_VEHICLES)})
+    b["gf(1)"] = v["gf"]
+    b["x8"] = 1.0
+    b["rnd(1)"] = v["r_x"]
+    b["x"] = Q_12020_X.assign(b)
+    b["rnd(1)"] = v["r_p"]
+    b["p"] = Q_12020_P.assign(b)
+    b["q"] = Q_12025_Q.assign(b)
+    if Q_12025_CAP.holds(b):
+        b["x"] = b["q"]
+    b["y"] = v["y"]
+    if Q_12028.holds(b):
+        return "asked again"
+    if Q_12029.holds(b) or Q_12030.holds(b):
+        return (b["ka(1)"], b["ta(1)"], b["gf(1)"])
+    b["ta(1)"] = Q_12035_TA.assign(b)
+    b["ka(1)"] = Q_12035_KA.assign(b)
+    b["x"] = Q_12035_X.assign(b)
+    b["gf(1)"] = Q_1160.assign(b)
+    if Q_1160_CAP.holds(b):
+        b["gf(1)"] = 100
+    return (b["ka(1)"], b["ta(1)"], b["gf(1)"])
+
+
+def _engine_alcohol_buy_negative(v: Values) -> Any:
+    def answer(interaction: Any) -> Any:
+        # The driver's range check: an answer outside the prompt's bounds is asked again.
+        if not interaction.min <= v["y"] <= interaction.max:
+            raise _AskedAgain
+        return v["y"]
+
+    player = _player(
+        ka=v["ka"],
+        gf=v["gf"],
+        last_location=4,
+        vehicle=v["vehicle"],
+        contraband=Contraband(alcohol_barrels=v["ta"]),
+    )
+    try:
+        run = _drive(
+            HANDLERS["pub.drink"], _state(player), draws=(v["r_x"], v["r_p"]), answer=answer
+        )
+    except _AskedAgain:
+        return "asked again"
+    p = run.state.players[0]
+    return (p.ka, game.contraband(p).alcohol_barrels, p.gf)
+
+
 # --- :12050/:12075 pub alcohol sell -------------------------------------------------------
 Q_12050 = q(12050, "x=int(rnd(1)*20)+10")
 Q_12075_KA = q(12075, "ka(sp)=ka(sp)+y*x")
@@ -2907,6 +2966,23 @@ PORTS: list[Port] = [
         ),
         _basic_alcohol_buy,
         _engine_alcohol_buy,
+    ),
+    Port(
+        "pub alcohol buy, a negative count",
+        (Q_12030, Q_12035_TA, Q_12035_KA, Q_12035_X, Q_12028, Q_12029, Q_12025_Q, Q_12025_CAP),
+        "HANDLERS['pub.drink'] (buy, faithful c64_input_negatives)",
+        # vehicle 0 (tank 50) with ta=60 offers -10: 0 and -5 are asked again (:12028).
+        _grid(
+            vehicle=(0, 1),
+            ta=(0, 30, 60),
+            r_x=(0.0, 0.9990234375),
+            r_p=(0.0, 0.5, 0.9990234375),
+            y=(-1, -5, -10, -11, -1000, 0),
+            ka=(0, 100),
+            gf=(0.0, 99.0),
+        ),
+        _basic_alcohol_buy_negative,
+        _engine_alcohol_buy_negative,
     ),
     Port(
         "pub alcohol sell",

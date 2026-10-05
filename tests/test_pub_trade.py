@@ -22,6 +22,7 @@ import pytest
 
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
+from engine.interactions import PromptInt
 from data.game_configs.mafia_1920s.effects import BarrelChange, ScoreAndRank
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
@@ -32,6 +33,9 @@ import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
+
+#: The umbrella house rule for a negative answer the C64 INPUT takes (U2's id).
+_NEGATIVES = "c64_input_negatives"
 
 _PARAMS = {
     "rank_divisor": 11.1,
@@ -44,7 +48,9 @@ _PARAMS = {
 }
 
 
-def _state(*, ka=100000, ln=4, vehicle=0, barrels=0, score_mult=1.0, gf=0.0):
+def _state(*, ka=100000, ln=4, vehicle=0, barrels=0, score_mult=1.0, gf=0.0, negatives=None):
+    """``negatives`` sets the ``c64_input_negatives`` house rule; ``None`` leaves the
+    map without it, which reads faithful (as a hand-built state's missing switch does)."""
     active = Player(
         name="p0",
         ka=ka,
@@ -57,7 +63,10 @@ def _state(*, ka=100000, ln=4, vehicle=0, barrels=0, score_mult=1.0, gf=0.0):
     return GameState(
         players=(active,),
         clock=Clock(active_player=0, player_count=1),
-        config=Config(formula_params={**_PARAMS, "score_mult": score_mult}),
+        config=Config(
+            formula_params={**_PARAMS, "score_mult": score_mult},
+            house_rules={} if negatives is None else {_NEGATIVES: negatives},
+        ),
     )
 
 
@@ -228,3 +237,135 @@ def test_run_pure_clean_for_buy_and_sell():
     rng2 = _StubRng(1, 20, 0)
     result2 = run_pure(HANDLERS["pub.drink"], _scripted(0), state=st2, rng=rng2)
     assert result2.status == "completed"
+
+
+# --------------------------------------------------------------------------- #
+# A negative count (house rule c64_input_negatives): :12027 and :12060 INPUT  #
+# --------------------------------------------------------------------------- #
+# The C64 INPUT stores "-5" as -5 (tests/fixtures/c64_input/vice_capture.txt), and no
+# line of the buy or the sell refuses it. Faithful plays that; intent asks again.
+
+
+def _prompts(source) -> list[PromptInt]:
+    return [i for i in source.seen if isinstance(i, PromptInt)]
+
+
+def test_a_negative_buy_sells_barrels_to_the_pub_and_still_scores_when_faithful():
+    """:12028 ``ify>x`` and :12029 ``ify=0`` pass -5; :12030 ``ifka(sp)<y*p`` is
+    ``1000<-25``, false; :12035 ``ta(sp)=ta(sp)+y:ka(sp)=ka(sp)-p*y:x=2:gosub1160``
+    takes 5 barrels, pays 5p and scores 2."""
+    st = _state(ln=4, ka=1000, vehicle=1, barrels=0, negatives="faithful")
+    source = _scripted(-5)
+    result = run_pure(HANDLERS["pub.drink"], source, state=st, rng=_StubRng(60, 5))
+    assert result.effects == [
+        BarrelChange(-5),
+        MoneyChange(25),
+        ScoreAndRank(amount=2, rank_divisor=11.1),
+    ]
+    after = result.state.players[0]
+    assert (after.ka, game.contraband(after).alcohol_barrels, after.gf) == (1025, -5, 2.0)
+    assert len(_prompts(source)) == 1
+
+
+def test_a_negative_sell_buys_barrels_from_the_pub_when_faithful():
+    """:12061 ``ify>ta(sp)`` and :12065 ``ify=0`` pass -5; :12075
+    ``ka(sp)=ka(sp)+y*x:ta(sp)=ta(sp)-y`` takes 5x cash and adds 5 barrels."""
+    st = _state(ln=2, ka=1000, barrels=20, negatives="faithful")
+    result = run_pure(HANDLERS["pub.drink"], _scripted(-5), state=st, rng=_StubRng(1, 15))
+    assert result.effects == [MoneyChange(-75), BarrelChange(5)]
+    after = result.state.players[0]
+    assert (after.ka, game.contraband(after).alcohol_barrels, after.gf) == (925, 25, 0.0)
+
+
+def test_a_sell_takes_cash_the_player_does_not_have_when_faithful():
+    """:12075 checks no cash: a negative sale drives ``ka`` below 0."""
+    st = _state(ln=2, ka=10, barrels=0, negatives="faithful")
+    result = run_pure(HANDLERS["pub.drink"], _scripted(-5), state=st, rng=_StubRng(1, 15))
+    after = result.state.players[0]
+    assert (after.ka, game.contraband(after).alcohol_barrels) == (-65, 5)
+
+
+def test_with_barrels_below_zero_a_sell_of_zero_is_asked_again_when_faithful():
+    """ta(sp)=-5: :12061 ``ify>ta(sp)`` asks 0 again (0>-5); only y<=-5 passes, and
+    -5 buys the barrels back to 0."""
+    st = _state(ln=2, ka=1000, barrels=-5, negatives="faithful")
+    source = _scripted(0, -4, -5)
+    result = run_pure(HANDLERS["pub.drink"], source, state=st, rng=_StubRng(1, 15))
+    assert result.effects == [MoneyChange(-75), BarrelChange(5)]
+    assert game.contraband(result.state.players[0]).alcohol_barrels == 0
+    assert len(_prompts(source)) == 3
+
+
+def test_with_barrels_above_the_tank_a_buy_of_zero_is_asked_again_when_faithful():
+    """On foot (tank 50) with 60 barrels, :12025 ``q=tk(tm(sp))-ta(sp):ifq<xthenx=q``
+    makes the offer -10, and :12028 ``ify>x`` asks 0 again; -10 sells 10 barrels."""
+    st = _state(ln=4, ka=1000, vehicle=0, barrels=60, negatives="faithful")
+    source = _scripted(0, -10)
+    result = run_pure(HANDLERS["pub.drink"], source, state=st, rng=_StubRng(200, 5))
+    assert result.effects == [
+        BarrelChange(-10),
+        MoneyChange(50),
+        ScoreAndRank(amount=2, rank_divisor=11.1),
+    ]
+    assert [p.max for p in _prompts(source)] == [-10, -10]
+
+
+@pytest.mark.parametrize(
+    ("ln", "barrels", "draws"),
+    [(4, 0, (60, 5)), (2, 20, (1, 15))],
+    ids=["buy", "sell"],
+)
+def test_a_negative_count_is_asked_again_and_zero_still_returns_under_intent(ln, barrels, draws):
+    """Intent: a count below 0 is asked again at either prompt; 0 still returns."""
+    st = _state(ln=ln, ka=1000, vehicle=1, barrels=barrels, negatives="intent")
+    source = _scripted(-5, 0)
+    result = run_pure(HANDLERS["pub.drink"], source, state=st, rng=_StubRng(*draws))
+    assert result.effects == []
+    assert [p.min for p in _prompts(source)] == [0, 0]
+
+
+@pytest.mark.parametrize(
+    ("ln", "barrels", "draws", "answer", "effects"),
+    [
+        (4, 0, (60, 5), 3, [BarrelChange(3), MoneyChange(-15)]),
+        (2, 20, (1, 15), 3, [MoneyChange(45), BarrelChange(-3)]),
+    ],
+    ids=["buy", "sell"],
+)
+def test_after_a_refused_negative_the_next_count_trades_under_intent(
+    ln, barrels, draws, answer, effects
+):
+    st = _state(ln=ln, ka=1000, vehicle=1, barrels=barrels, negatives="intent")
+    result = run_pure(HANDLERS["pub.drink"], _scripted(-5, answer), state=st, rng=_StubRng(*draws))
+    assert result.effects[:2] == effects
+
+
+def test_the_switch_reaches_only_the_pubs_two_prompts_and_the_chiefs():
+    """AE3: the motel's months (:10030 ``ifx=0orx<0thennm=1:return``) and the loan
+    shark's amounts (:15021 ``ifx<0orx>5000``, :15055 ``ifx<0orx>kr(sp)``) refuse a
+    negative in the BASIC already, so they ask the same under both settings."""
+    from data.game_configs.mafia_1920s.state import Debt, SCHEMA, values_of
+    from engine.config_loader import load_config
+
+    params = load_config(_CONFIG_DIR / "config.yaml")["formula_params"]
+    seen: dict[str, list[tuple]] = {}
+    for setting in ("faithful", "intent"):
+        for key, debt in (("slw.rent", 0), ("kdh.borrow", 0), ("kdh.repay", 900)):
+            player = Player(
+                name="p0",
+                ka=5000,
+                roster=(Gangster(name="g0"),),
+                last_location=2,
+                values={**SCHEMA.player_defaults(), **values_of(Debt(amount=debt))},
+            )
+            st = GameState(
+                players=(player,),
+                clock=Clock(active_player=0, player_count=1),
+                config=Config(formula_params=params, house_rules={_NEGATIVES: setting}),
+            )
+            source = _scripted(-3, 0)
+            result = run_pure(HANDLERS[key], source, state=st)
+            assert result.effects == [], key
+            seen.setdefault(key, []).append(tuple((p.key, p.min, p.max) for p in _prompts(source)))
+    for key, (faithful, intent) in seen.items():
+        assert faithful == intent, key
