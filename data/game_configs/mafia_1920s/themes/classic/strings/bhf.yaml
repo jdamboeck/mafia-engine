@@ -10,6 +10,9 @@
 # the pickpocketing's are the subway's (strings/sub.yaml): :19050 jumps into :18035.
 locations:
   bhf:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "RAILWAY-STATION (BAHNHOF)"
     entry_prompt: "DU BIST IM BAHNHOF VON CHICKAGO."
     menu:
       pub: "BAHNHOFSKNEIPE AUFSUCHEN"

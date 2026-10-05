@@ -105,8 +105,8 @@ from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, Colors, Palette,
 from clients.terminal.renderers import (
     render_body,
     render_header,
+    render_location_title,
     render_menu_option,
-    render_prompt,
     render_screen_clear,
     render_status_bar_from_state,
 )
@@ -407,12 +407,17 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
 def _render_location_menu(
     menu: LocationMenu, resolver: Resolver, colors: Colors, out, stdin=None
 ) -> Any:
-    """Show a location's menu (the runner's :class:`LocationMenu`); return the pick.
+    """Show a location's screen (the runner's :class:`LocationMenu`); return the pick.
 
-    Returns the chosen 0-based index. A blank line or a key that is not an offered
-    option is ignored and the prompt waits again, as the runner does
-    (``mf-prg.bas:3040``): only the shell's own leave option leaves. EOF returns
-    ``_QUIT`` (the session ends). With no options there is nothing to pick: ``None``.
+    The screen is ``:3025-3030``'s: the location's title in reverse video, its
+    description, and its options numbered from 1. The pick is one key
+    (:func:`_read_key`), as ``:3040`` ``getx$:w=val(x$):ifw<1orw>awgoto3040`` reads it:
+    a key from 1 to the option count picks, returned as the 0-based index the runner
+    takes; every other key (``0``, a number past the count, a letter, a blank line on
+    piped input) is ignored and the screen waits again. Only the shell's own leave
+    option leaves the location; ``q`` (which :func:`_read_key` also returns at EOF)
+    returns ``_QUIT`` and the session ends. With no options there is nothing to pick:
+    ``None``.
     """
     if stdin is None:
         stdin = sys.stdin
@@ -439,26 +444,34 @@ def _render_location_menu(
         out.flush()
         _read_line_visible(stdin, out)
         render_screen_clear(out)
-    render_header(location_key, out, colors)
+    # :3025 print"{clr}{down}{rvon} "x$": ":input#1,x$:print"{down}{down}"x$ -- the
+    # title, then the description two lines further down.
+    try:
+        title = resolver.resolve(f"locations.{location_key}.title")
+    except Exception:
+        title = location_key
+    render_location_title(title, out, colors)
+    out.write("\n\n")
     render_body(entry_text, out, colors)
+    # :3030 print:fori=1toaw:input#1,x$:print"{down}"mid$(str$(i),2)" "x$
     out.write("\n")
-    for i, option_id in enumerate(menu.options):
+    for number, option_id in enumerate(menu.options, start=1):
         try:
             label = resolver.resolve(f"locations.{location_key}.menu.{option_id}")
         except Exception:
             label = option_id
-        render_menu_option(i, label, out, colors)
+        render_menu_option(number, label, out, colors)
+    keys = "123456789"[: len(menu.options)]
     while True:
-        render_prompt(out)
         out.flush()
-        line = _read_line_visible(stdin, out)
-        if line == "":  # EOF
+        # :3040 getx$:w=val(x$):ifw<1orw>awgoto3040 -- one key, 1 to the option count.
+        key = _read_key()
+        if key == "q":
             return _QUIT
-        raw = line.strip()
-        if raw.isdigit() and int(raw) < len(menu.options):
+        if key and key in keys:
             # :3050 ``print"{clr}"``: the pick clears the screen for the option's handler.
             render_screen_clear(out)
-            return int(raw)
+            return int(key) - 1
 
 
 def _render_lines_screen(header: str, lines, resolver: Resolver, colors: Colors, out) -> bool:

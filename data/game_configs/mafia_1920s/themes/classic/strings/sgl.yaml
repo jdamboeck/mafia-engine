@@ -9,6 +9,9 @@
 # pause gets it from the client.
 locations:
   sgl:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "EINFACHER LADEN (WIE GESCHAFFEN ZUM     SCHUTZGELD EINTREIBEN!)"
     entry_prompt: "'TAG, MISTER. WAS DARF'S DENN SEIN?'"
     menu:
       threat: "'DEN ZASTER HER, ABER SCHNELL! SONST    GEHT DER BOELLER HIER LOS!'"

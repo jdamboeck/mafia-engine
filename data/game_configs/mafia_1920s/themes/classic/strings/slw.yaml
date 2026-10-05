@@ -7,6 +7,9 @@
 # original. {price} is a template param the theme fills at render time.
 locations:
   slw:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)"
     entry_prompt: "'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'"
     menu:
       rent: "'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'"

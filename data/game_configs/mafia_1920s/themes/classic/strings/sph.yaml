@@ -6,6 +6,9 @@
 # {cash} / {amount} are template params the theme fills at render time.
 locations:
   sph:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "SPIELHOELLE"
     # Entry + shell menu (dialogue block, at the SPIELHOELLE door).
     entry_prompt: "'NA FREUND, WIE WAER'S MIT 'NEM SPIEL-  CHEN? KARTENSPIELE? ROULETTE? WAS?'"
     menu:

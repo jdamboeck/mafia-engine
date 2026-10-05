@@ -815,8 +815,8 @@ class TestWatchAi:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
-        # The pub's menu: 0 drink, 1 recruit, 2 tip, 3 job, 4 leave.
-        keys = [*NEW_GAME_ACKS, "2"] + walk + ["", "3", "j", "w", "x", "x", "x"] + ["p"] * 6
+        # The pub's menu: 1 drink, 2 recruit, 3 tip, 4 job, 5 leave.
+        keys = [*NEW_GAME_ACKS, "2"] + walk + ["", "4", "j", "w", "x", "x", "x"] + ["p"] * 6
         out = io.StringIO()
         monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(keys) + "\n"))
         monkeypatch.setattr(sys, "stdout", out)

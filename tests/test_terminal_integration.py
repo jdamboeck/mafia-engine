@@ -87,9 +87,9 @@ class TestSmokeRenderPipeline:
         assert "\033[" in out  # has ANSI code
 
     def test_render_menu_option(self):
-        render_menu_option(0, "Miete verlangen", self.buf, self.colors)
+        render_menu_option(1, "Miete verlangen", self.buf, self.colors)
         out = self.buf.getvalue()
-        assert "0" in out
+        assert "1" in out
         assert "Miete verlangen" in out
 
     def test_render_prompt(self):
@@ -179,8 +179,9 @@ class TestSmokeAsciiArt:
 
     def test_entering_a_location_shows_its_art_and_waits_for_a_key(self, monkeypatch):
         """Walking into sph shows its art splash, which eats one key before the menu:
-        the menu's "0" (play) and the game's "0" (poker) reach the wager prompt only
-        when a splash ack comes first."""
+        the menu's "1" (play) and the game's "0" (poker) reach the wager prompt only
+        when a splash ack comes first (without it the splash eats the "1", and the menu
+        ignores the "0", :3040)."""
         from engine.movement import load_city
         from tests.test_client_loop import (
             find_door_cell,
@@ -198,8 +199,8 @@ class TestSmokeAsciiArt:
         assert art is not None
         art_line = next(line for line in art if line.strip())
 
-        acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "0", "0"])
-        unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["0", "0"])
+        acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "0"])
+        unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["1", "0"])
 
         assert art_line in acked and "ENTER druecken..." in acked
         assert acked.index(art_line) < acked.index("ENTER druecken...")

@@ -9,6 +9,9 @@
 # trial after surrender is police.* (police.yaml).
 locations:
   pol:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "POLIZEI-PRAESIDIUM"
     entry_prompt: "'WAS HABEN SIE HIER ZU SUCHEN? MACHEN   SIE, DASS SIE RAUS KOMMEN!'"
     menu:
       surrender: "'ICH BIN EIN GESUCHTER GANGSTER! ICH    MOECHTE MICH STELLEN.'"

@@ -5,6 +5,9 @@
 # (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:15000-15321) — verbatim.
 locations:
   kdh:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "KREDIT-HAI"
     entry_prompt: "'EIN WUNDERSCHOENEN GUTEN TAG, KANN     ICH IHNEN HELFEN?'"
     menu:
       borrow: "'JA. ICH BRAUCHE EIN BISSCHEN KNETE!'"

@@ -817,9 +817,10 @@ def test_the_client_ignores_an_empty_or_invalid_key_at_the_location_menu(monkeyp
 
     city_raw = load_city_raw()
     walk = walk_keys_to_cell(new_state(42), load_city(city_raw), find_door_cell(city_raw, "sph"))
-    # The splash ack, three ignored keys, then "1" (leave), then quit on the map.
+    # The splash ack, four ignored keys (a blank, past the count, 0, a letter), then
+    # "2" (leave, :3040 reads 1 to the count), then quit on the map.
     _, (state, _) = run_play_returning(
-        monkeypatch, seed=42, stdin_keys=walk + ["", "", "9", "x", "1", "q"], seconds=20
+        monkeypatch, seed=42, stdin_keys=walk + ["", "", "9", "0", "x", "2", "q"], seconds=20
     )
 
     # The walk's last key is the door itself: its steps cost 1 each, the visit 5 + 5.

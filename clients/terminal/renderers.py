@@ -106,10 +106,23 @@ def render_colored(text: str, color_name: str, out: TextIO, colors: Colors) -> N
     out.write(f"{colors.fg(color_name)}{text}{RESET_FG}\n")
 
 
-def render_menu_option(index: int, label: str, out: TextIO, colors: Colors) -> None:
-    """Numbered menu option: blue index, light grey label."""
+def render_location_title(title: str, out: TextIO, colors: Colors) -> None:
+    """A location screen's title: ``:3025`` ``print"{clr}{down}{rvon} "x$": "``.
+
+    A blank line, then the title in reverse video between the source's framing (a
+    space before it, a colon and a space after it). The caller clears the screen.
+    """
+    out.write(f"\n{REVERSE}{colors.fg('light_grey')} {title}: {RESET_ALL}\n")
+
+
+def render_menu_option(number: int, label: str, out: TextIO, colors: Colors) -> None:
+    """A location option: ``:3030`` ``print"{down}"mid$(str$(i),2)" "x$``.
+
+    A blank line, then the option's number (counted from 1 by the caller) and its
+    text, one space apart: ``1 'EINE UNTERKUNFT...'``. Blue number, light grey text.
+    """
     out.write(
-        f"  {colors.fg('light_blue')}{index}){RESET_FG} {colors.fg('light_grey')}{label}{RESET_FG}\n"
+        f"\n{colors.fg('light_blue')}{number}{RESET_FG} {colors.fg('light_grey')}{label}{RESET_FG}\n"
     )
 
 

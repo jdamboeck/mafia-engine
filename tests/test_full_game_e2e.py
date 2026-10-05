@@ -322,7 +322,8 @@ class EarlyWinPlayer(ScreenPlayer):
             return _MAP_KEYS[path[0]]
         if isinstance(screen, LocationMenu):
             assert screen.location == "pub", f"walked into {screen.location}"
-            return str(screen.options.index("tip"))
+            # :3030/:3040 the options are numbered from 1.
+            return str(screen.options.index("tip") + 1)
         if isinstance(screen, Confirm):
             if screen.key == "locations.pub.tip_confirm":
                 return "j"

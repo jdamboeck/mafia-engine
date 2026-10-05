@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import re
 from typing import Any
 
 from engine.strings import Resolver
@@ -103,9 +104,9 @@ class TestRenderMenuOption:
     def test_writes_index_and_label(self) -> None:
         buf = _out()
         render_menu_option(1, "mieten", buf, _COLORS)
-        val = buf.getvalue()
-        assert "1)" in val
-        assert "mieten" in val
+        # :3030 print"{down}"mid$(str$(i),2)" "x$ -- a blank line, then "1 mieten".
+        plain = re.sub(r"\033\[[0-9;]*m", "", buf.getvalue())
+        assert plain == "\n1 mieten\n"
 
 
 class TestRenderStatusBar:

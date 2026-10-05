@@ -10,6 +10,9 @@
 # screen is the shop's (locations.sgl.police_waiting): :20004 jumps into :17008.
 locations:
   ban:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "BANK/POSTAMT"
     entry_prompt: "'GUTEN TAG, MEIN HERR! WAS IST IHR      BEGEHR?'"
     menu:
       holdup: "'QUATSCH NICH' UND LANG DEN ZASTER      'RUEBER, ABER SCHNELL!'"

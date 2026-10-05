@@ -8,6 +8,9 @@
 # in :1100's "taste druecken!" pause gets it from the client.
 locations:
   aut:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "AUTOMOBIL-HAENDLER"
     entry_prompt: "EIN UMFANGREICHES SORTIMENT DER         FLOTTESTEN SCHLITTEN."
     menu:
       buy: "WAGEN KAUFEN"

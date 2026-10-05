@@ -461,7 +461,8 @@ def _smoke_plan():
                 state = commit(state, [MsChange(-ENTER_COST)]).state
                 over = state.players[state.clock.active_player].ms <= 0
                 # the hand's result waits for a key (:16035/:16040 ``goto1100``)
-                return keys + ["", "0", "0", "100", ""], state, over
+                # sph: play (option 1), poker (game 0), wager 100.
+                return keys + ["", "1", "0", "100", ""], state, over
             if kind != "step" or result.payload.turn_over:
                 return None  # the walk needs more than this turn's movement
         return None

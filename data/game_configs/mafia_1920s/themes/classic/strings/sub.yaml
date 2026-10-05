@@ -7,6 +7,9 @@
 # client.
 locations:
   sub:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "SUBWAY-STATION (U-BAHN)"
     entry_prompt: "DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM..."
     menu:
       platform: "LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN"

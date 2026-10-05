@@ -12,6 +12,9 @@
 # filled by the theme at render time (ra$(ra(sp))).
 locations:
   pub:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "PUB/BAR (EIN ZWIELICHTIGES LOKAL)"
     entry_prompt: "'EH, AMIGO, WILLST DU ''NE MILCH? ODER   SUCHST DU WAS ANDERES?'"
     menu:
       drink: "'NEIN, KEINE MILCH! HAST DU WAS         ALKOHOLISCHES DA?'"

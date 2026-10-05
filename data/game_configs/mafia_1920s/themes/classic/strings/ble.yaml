@@ -7,6 +7,9 @@
 # c64 number style prints the spaces C64 PRINT puts around it.
 locations:
   ble:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "BLUETEN-EDDIE"
     entry_prompt: "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
     menu:
       passport: "'YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'"

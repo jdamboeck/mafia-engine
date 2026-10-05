@@ -251,8 +251,8 @@ class TestSphGambleThroughClient:
         walk = walk_keys_to_cell(state, city, sph_cell)
         # Entering a location with ASCII art shows a splash that eats one extra
         # "ENTER druecken" line (_run_location) BEFORE the menu is shown.
-        # Inside sph: "0" play -> game menu choice "0" (poker) -> wager "100" -> back to map.
-        return walk + ["", "0", "0", "100"]
+        # Inside sph: "1" play -> game menu choice "0" (poker) -> wager "100" -> back to map.
+        return walk + ["", "1", "0", "100"]
 
     def test_gamble_completes_and_pays_out(self, monkeypatch):
         """Playing sph's gamble through the client must not crash and must show a payout.
@@ -305,9 +305,9 @@ class TestWafBuyThroughClient:
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=1)
         walk = walk_keys_across_turns(state, city, cell)
-        # buy(0) -> weapon idx 5 (revolver, in [3,7] stock range, no stat gates, 4000$
-        # affordable against the 5500$ starting cash) -> gangster 1 (:1145, 1-based).
-        keys = walk + ["", "0", "5", "1"]
+        # buy (option 1) -> weapon idx 5 (revolver, in [3,7] stock range, no stat gates,
+        # 4000$ affordable against the 5500$ starting cash) -> gangster 1 (:1145, 1-based).
+        keys = walk + ["", "1", "5", "1"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # The buy committed: cash dropped by the revolver's price (5500$ - 4000$).
@@ -320,8 +320,9 @@ class TestWafBuyThroughClient:
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=2)
         walk = walk_keys_to_cell(state, city, cell)
-        # buy(0) -> weapon idx 1 (messer, in [1,5] stock range, 50$, no gates) -> gangster 1.
-        keys = walk + ["", "0", "1", "1"]
+        # buy (option 1) -> weapon idx 1 (messer, in [1,5] stock range, 50$, no gates)
+        # -> gangster 1.
+        keys = walk + ["", "1", "1", "1"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         assert "cash 5450$" in output
@@ -337,12 +338,86 @@ class TestWafTrainThroughClient:
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=2)
         walk = walk_keys_to_cell(state, city, cell)
-        # train(1) -> gangster 1 -> (rank 0 < 5, so no venue choice) -> confirm "y".
-        keys = walk + ["", "1", "1", "y"]
+        # train (option 2) -> gangster 1 -> (rank 0 < 5, so no venue choice) -> confirm "y".
+        keys = walk + ["", "2", "1", "y"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # Range training at rank 0 costs range_base (1000$): 5500$ -> 4500$.
         assert "cash 4500$" in output
+
+
+# --------------------------------------------------------------------------- #
+# The location screen: title, options from 1, one key (:3025-3040, #159)      #
+# --------------------------------------------------------------------------- #
+
+_ANSI = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+
+
+class TestLocationScreen:
+    """``:3025`` prints the location's title in reverse video, then its description;
+    ``:3030`` numbers the options from 1 (``mid$(str$(i),2)" "x$``); ``:3040``
+    ``getx$:w=val(x$):ifw<1orw>awgoto3040`` picks on one key of 1 to the option count
+    and ignores every other key. slw (ln=2) has three options: rent, pay the rent, leave.
+    """
+
+    @staticmethod
+    def _slw_walk() -> list[str]:
+        city_raw = load_city_raw()
+        load_game_config(_CONFIG_DIR)
+        cell = find_door_cell(city_raw, "slw", ln=2)
+        return walk_keys_across_turns(new_state(42), load_city(city_raw), cell)
+
+    def test_the_screen_shows_the_title_and_numbers_the_options_from_1(self, monkeypatch):
+        output, _ = run_play_returning(
+            monkeypatch, seed=42, stdin_keys=[*self._slw_walk(), "", "q"], seconds=20
+        )
+        plain = _ANSI.sub("", output)
+        rows = plain.splitlines()
+        # :3025 print"{clr}{down}{rvon} "x$": " -- the title, framed, reverse video on.
+        title = " SCHLUPFWINKEL (MOTEL, MIETSKASERNE): "
+        assert title in rows
+        raw_title_row = next(r for r in output.splitlines() if title in _ANSI.sub("", r))
+        assert "\033[7m" in raw_title_row, "the title is not in reverse video"
+        # :3030 print"{down}"mid$(str$(i),2)" "x$ -- "1 ...", no ")" and no leading space.
+        options = [
+            "1 'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'",
+            "2 'ICH MOECHTE MEINE MIETE BEZAHLEN!'",
+            "3 'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'",
+        ]
+        for option in options:
+            assert option in rows, f"{option!r} is not a row of the screen"
+        # Title, then the description (:3025's second input#1), then the options.
+        at = rows.index(title)
+        assert rows.index("'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'", at) < rows.index(
+            options[0], at
+        )
+        assert rows.index(options[0], at) < rows.index(options[1], at) < rows.index(options[2])
+
+    def test_ae5_a_key_from_1_to_the_count_picks_every_other_key_is_ignored(self, monkeypatch):
+        """``0`` and ``4`` (out of 1..3), a letter and a blank line are ignored and the menu
+        waits; ``2`` then runs the second option, pay the rent, which refuses a player who
+        rents nothing (:10100 ``du wohnst hier nicht!``)."""
+        keys = [*self._slw_walk(), "", "0", "4", "x", "", "2", "", "q"]
+        output, _ = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, seconds=20)
+        assert output.count("du wohnst hier nicht!") == 1, "2 did not run the second option"
+        # 0 is not the first option (rent, :10020's quote), 4 is not the last (leave).
+        assert "pro monat kostet das" not in output
+        assert "nichts mehr frei" not in output
+
+    def test_q_at_the_menu_ends_the_session(self, monkeypatch):
+        """``q`` leaves the game from the menu: the keys after it pick nothing (``1`` would
+        rent, :10020's quote; the old 0-based ``1`` was pay the rent, :10100's refusal)."""
+        keys = [*self._slw_walk(), "", "q", "1", "", ""]
+        output, _ = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, seconds=20)
+        assert "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)" in output
+        assert "pro monat kostet das" not in output, "the menu went on after q"
+        assert "du wohnst hier nicht!" not in output, "the menu went on after q"
+
+    def test_eof_at_the_menu_ends_the_session(self, monkeypatch):
+        output, _ = run_play_returning(
+            monkeypatch, seed=42, stdin_keys=[*self._slw_walk(), ""], seconds=20
+        )
+        assert "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)" in output
 
 
 # --------------------------------------------------------------------------- #
@@ -360,8 +435,8 @@ class TestSlwRentThroughClient:
         # (ln=1 is the negative-rent quirk tile, ln=3/4 are rent-free).
         cell = find_door_cell(city_raw, "slw", ln=2)
         walk = walk_keys_across_turns(state, city, cell)
-        # rent(0) -> 3 months.
-        keys = walk + ["", "0", "3"]
+        # rent (option 1) -> 3 months.
+        keys = walk + ["", "1", "3"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # 3 months * 50$/month = 150$ deducted from the 5500$ starting cash.
@@ -375,7 +450,7 @@ class TestSlwRentThroughClient:
         load_game_config(_CONFIG_DIR)
         state = new_state(42)
         cell = find_door_cell(city_raw, "slw", ln=2)
-        keys = walk_keys_across_turns(state, city, cell) + ["", "0", "3"]
+        keys = walk_keys_across_turns(state, city, cell) + ["", "1", "3"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         quote = output.index("pro monat kostet das")
@@ -395,7 +470,7 @@ class TestSlwRentThroughClient:
         load_game_config(_CONFIG_DIR)
         state = new_state(42)
         cell = find_door_cell(city_raw, "slw", ln=2)
-        keys = walk_keys_across_turns(state, city, cell) + ["", "0", months, ""]
+        keys = walk_keys_across_turns(state, city, cell) + ["", "1", months, ""]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         shown = output.index(result)
@@ -421,9 +496,8 @@ class TestPubDrinkThroughClient:
         state = new_state(42)
         cell = find_door_cell(city_raw, "pub", ln=4)
         walk = walk_keys_across_turns(state, city, cell)
-        # menu index 0 = "drink" (recruit is guard-excluded at rank 1, tip is index 1);
-        # buy 1 barrel.
-        keys = walk + ["", "0", "1"]
+        # option 1 = "drink"; buy 1 barrel.
+        keys = walk + ["", "1", "1"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         # Seed 42's rolled buy price for this walk is 5$/barrel -- 1 barrel costs 5$.
@@ -436,7 +510,7 @@ class TestPubDrinkThroughClient:
         state = new_state(42)
         cell = find_door_cell(city_raw, "pub", ln=4)
         walk = walk_keys_across_turns(state, city, cell)
-        keys = walk + ["", "0", "1"]
+        keys = walk + ["", "1", "1"]
 
         out1 = run_play(monkeypatch, seed=42, stdin_keys=keys)
         out2 = run_play(monkeypatch, seed=42, stdin_keys=keys)
@@ -610,14 +684,14 @@ class TestJobShiftThroughClient:
         state = new_state(5)
         pub_cell = find_door_cell(city_raw, "pub", ln=2)
         walk = walk_keys_to_cell(state, city, pub_cell)
-        # Splash ack; menu choice 3 (job, after drink/recruit/tip); accept ("j"); one more move key forces
+        # Splash ack; option 4 (job, after drink/recruit/tip); accept ("j"); one more move key forces
         # turn_over immediately (ms already 0 from the accept) -- ack turn_over,
         # ack the round standings (single player: every turn-over wraps, U7), ack the
         # next player's upkeep screen. seed=5's bouncer job then rolls a
         # shift-fight this turn (verified by direct trace); a scripted stdin that
         # runs out mid-fight surrenders via CANCEL (KTD-2), which is enough to
         # prove the "job" screen -- not the map -- is what renders next.
-        keys = walk + ["", "3", "j", "w", "x", "x", "x"]
+        keys = walk + ["", "4", "j", "w", "x", "x", "x"]
         output = run_play(monkeypatch, seed=5, stdin_keys=keys)
 
         # The job-shift screen rendered (its own header), not a second map draw
@@ -706,7 +780,7 @@ class TestSessionRngDeterminism:
         state = new_state(42)
         cell = find_door_cell(city_raw, "waf", ln=2)
         walk = walk_keys_to_cell(state, city, cell)
-        keys = walk + ["", "1", "1", "y"]
+        keys = walk + ["", "2", "1", "y"]  # train (option 2)
 
         out1 = run_play(monkeypatch, seed=42, stdin_keys=keys)
         out2 = run_play(monkeypatch, seed=42, stdin_keys=keys)
@@ -738,9 +812,9 @@ class TestEofMidHandlerExitsCleanly:
         return walk_keys_to_cell(state, city, sph_cell) + list(answers)
 
     def test_eof_during_sph_wager_prompt_exits_without_committing(self, monkeypatch):
-        """Walk in, ack the art splash, pick "play" (location-menu 0), pick poker
+        """Walk in, ack the art splash, pick "play" (location option 1), pick poker
         (game 0) -- then stdin RUNS OUT at the non-cancellable wager prompt."""
-        keys = self._sph_keys("", "0", "0")
+        keys = self._sph_keys("", "1", "0")
         output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=keys)
         low = output.lower()
         # The run genuinely reached the wager prompt (not the map, not the game menu).
@@ -755,9 +829,9 @@ class TestEofMidHandlerExitsCleanly:
         assert "cash 5550$" not in low
 
     def test_eof_at_cancellable_game_choice_prompt_exits_cleanly(self, monkeypatch):
-        """Walk in, ack the splash, pick "play" (location-menu 0) -- then stdin runs
+        """Walk in, ack the splash, pick "play" (location option 1) -- then stdin runs
         out at sph's cancellable GAME-choice prompt (before any wager)."""
-        keys = self._sph_keys("", "0")
+        keys = self._sph_keys("", "1")
         output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=keys)
         low = output.lower()
         assert "bye." in low, "the client did not exit cleanly on EOF"
@@ -825,7 +899,7 @@ class TestUnimplementedDoorGracefulDenial:
         load_game_config(_CONFIG_DIR)
         state = new_state(42)
         walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "ban"))
-        # Splash ack, then leave (menu index 3).
+        # Splash ack, then leave (option 3 of 3).
         output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
         assert "closed for renovations" not in output
         assert "GUTEN TAG, MEIN HERR!" in output
@@ -840,8 +914,8 @@ class TestBleReachableByWalking:
         load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "ble"))
-        # Splash ack, then leave (menu index 2).
-        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "2"])
+        # Splash ack, then leave (option 3).
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
         assert "closed for renovations" not in output
         assert "WO DRUECKT DER SCHUH?" in output
 
@@ -856,8 +930,8 @@ class TestAutReachableByWalking:
         load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "aut"))
-        # Splash ack, then leave (menu index 2).
-        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "2"])
+        # Splash ack, then leave (option 3).
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
         assert "closed for renovations" not in output
         assert "FLOTTESTEN SCHLITTEN." in output
 
@@ -871,8 +945,8 @@ class TestPolReachableByWalking:
         load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(42)
         walk = walk_keys_across_turns(state, city, find_door_cell(city_raw, "pol"))
-        # Splash ack, then leave (menu index 3).
-        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
+        # Splash ack, then leave (option 4).
+        output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "4"])
         assert "closed for renovations" not in output
         assert "WAS HABEN SIE HIER ZU SUCHEN?" in output
 
@@ -897,8 +971,9 @@ class TestKdhLocationThroughClient:
         state = new_state(42)
         kdh_cell = find_door_cell(city_raw, "kdh")
         walk = walk_keys_across_turns(state, city, kdh_cell)
-        # Splash ack, then immediately leave (menu index 5 = "leave").
-        keys = walk + ["", "5"]
+        # kdh has no art splash: the blank line is ignored at the menu (:3040), then
+        # leave (option 6).
+        keys = walk + ["", "6"]
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         assert "closed for renovations" not in output
 
@@ -1391,9 +1466,10 @@ class TestWholeSessionDeterminism:
         state = new_state(seed, players=players)
         cell = find_door_cell(city_raw, "pub", ln=4)
         walk = walk_keys_across_turns(state, city, cell)
-        # splash ack, drink(0), buy 1 barrel -- then walk the rest of the turn out so
-        # the rotation to player 1 (and its upkeep screen) is part of the transcript.
-        return walk + ["", "0", "1"] + ["w"] * 12 + ["x", "x"] + ["s"] * 3
+        # splash ack, drink (option 1), buy 1 barrel -- then walk the rest of the turn
+        # out so the rotation to player 1 (and its upkeep screen) is part of the
+        # transcript.
+        return walk + ["", "1", "1"] + ["w"] * 12 + ["x", "x"] + ["s"] * 3
 
     def test_same_seed_and_script_reproduce_the_session_byte_for_byte(self, monkeypatch):
         players = [("alcapone", "the outfit"), ("moran", "north side")]
@@ -1904,7 +1980,7 @@ class TestRoundStandingsAndEnding:
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
         # splash ack, "play", poker -- then EOF at the wager prompt (EndOfInput path).
-        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + ["", "0", "0"])
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "0"])
         assert "dein einsatz" in output.lower(), "never reached the wager prompt"
         assert "bye." in output
         state, rng = ret
@@ -1999,7 +2075,7 @@ class TestSaveAndLoad:
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
         # each hand's result waits for a key (:16035/:16040 ``goto1100``)
-        return walk, walk + ["", "0", "0", "100", "", walk[-1], "", "0", "0", "100", ""]
+        return walk, walk + ["", "1", "0", "100", "", walk[-1], "", "1", "0", "100", ""]
 
     def test_loaded_game_continues_exactly_like_uninterrupted_play(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
@@ -2007,7 +2083,7 @@ class TestSaveAndLoad:
         walk, k1 = self._k1()
         # K2: enter sph again (po is unchanged by an entry, so the last walk key
         # re-enters) and gamble again -- RNG draws AFTER the save point -- then quit.
-        k2 = [walk[-1], "", "0", "0", "200", "", "q"]
+        k2 = [walk[-1], "", "1", "0", "200", "", "q"]
         save = tmp_path / "a.jsonl"
 
         out_a, (state_a, rng_a) = _run_session(
@@ -2038,12 +2114,12 @@ class TestSaveAndLoad:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
-        # Splash ack, menu 3 (job), accept; then "p" meets the turn-over screen (any
+        # Splash ack, option 4 (job), accept; then "p" meets the turn-over screen (any
         # key goes on), and "q" quits at the standings.
         save = tmp_path / "job.jsonl"
         out, (state, _) = _run_session(
             monkeypatch,
-            _new_game_lines(walk + ["", "3", "j", "p", "q"]),
+            _new_game_lines(walk + ["", "4", "j", "p", "q"]),
             save=str(save),
             seed=5,
             end_year=1930,
@@ -2498,9 +2574,9 @@ class TestWhoseTurnLine:
         state = replace(state, players=(alcapone, moran))
         state = with_values(state, game.Wanted(jail_months=2), idx=1)
 
-        # Up into 910, the splash, "free" (menu index 2), inmate 1, yes, 100 $, quit.
+        # Up into 910, the splash, "free" (option 3), inmate 1, yes, 100 $, quit.
         output, (after, _rng) = _resume_at(
-            monkeypatch, tmp_path, state, "walking", ["w", "", "2", "1", "j", "100", "q"]
+            monkeypatch, tmp_path, state, "walking", ["w", "", "3", "1", "j", "100", "q"]
         )
 
         screen_at = output.index("ihm zum dank (0 - 800):")

@@ -5,6 +5,9 @@
 # + mf-prg.bas:13005-13175, 13500-13525). {name}/{price}/{amount} are template params.
 locations:
   waf:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "WAFFENLADEN"
     # Entry + shell menu (dialogue block, at the WAFFENLADEN door).
     entry_prompt: "'TAG, MISTER. EIN PAAR GUTE HANDBOELLER  GEFAELLIG? SIND IM HINTERZIMMER...'"
     menu:
