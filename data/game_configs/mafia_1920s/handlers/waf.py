@@ -80,23 +80,22 @@ def _weapons():
 def weapon_spec(ctx, params):
     """Show a weapon's spec sheet, then return — ports ``mf-prg.bas:13500-13525``.
 
-    A display-only sub-state: it yields one ``ShowMessage`` (the resolved spec
-    screen) and returns ``None``. The accuracy/effect labels are BUCKETED lookups, not
-    raw values: accuracy bucket = ``int(ts/2)`` (13515), effect bucket = ``int(tg/4)+1``
-    (13520). ``params`` carries the resolved weapon record + its index.
+    A display-only sub-state: one ``ShowMessage`` per source line, then ``None``. The
+    sheet (:13500 the name, :13510 the price) is one key; the accuracy and effect lines
+    print a LABEL the source indexes from its ``ts$``/``tg$`` arrays (:125 reads them
+    from :50500-50505), so each label line is a key per index the handler composes
+    (``spec_accuracy_<i>``, ``spec_effect_<i>``) and the theme holds the label text.
+    ``int(ts/2)`` = 0 is ``ts$(0)``, which :125 never assigns: its key prints the
+    empty label. ``params`` carries the weapon record.
     """
     w = params["weapon"]
+    yield ShowMessage("locations.waf.spec_sheet", {"name": w["name"], "price": w["price"]})
     # BASIC int() floors; use floor division (//) so the port stays faithful even if a
     # future config gives a negative ts/tg (float int() would truncate toward zero).
-    yield ShowMessage(
-        "locations.waf.spec_sheet",
-        {
-            "name": w["name"],
-            "price": w["price"],
-            "accuracy_bucket": w["ts"] // 2,  # 13515 ts$(int(ts/2))
-            "effect_bucket": w["tg"] // 4 + 1,  # 13520 tg$(int(tg/4)+1)
-        },
-    )
+    # :13515 ``printtab(8)"{down}treffgenauigkeit: "ts$(int(ts(x)/2))``
+    yield ShowMessage(f"locations.waf.spec_accuracy_{w['ts'] // 2}")
+    # :13520 ``printtab(8)"{down}wirkung: "tg$(int(tg(x)/4)+1)``
+    yield ShowMessage(f"locations.waf.spec_effect_{w['tg'] // 4 + 1}")
     return None
 
 

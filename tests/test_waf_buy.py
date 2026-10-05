@@ -560,3 +560,75 @@ def test_cancel_at_gangster_pick_commits_nothing():
     assert result.status == "cancelled"
     assert result.effects == []
     assert result.state.players[0].roster[0].weapon == 0  # unchanged
+
+
+# --------------------------------------------------------------------------- #
+# Spec-sheet labels (#146 item 4)                                              #
+# --------------------------------------------------------------------------- #
+#: Each weapon's sheet as the source prints it: :13515
+#: ``printtab(8)"{down}treffgenauigkeit: "ts$(int(ts(x)/2))``, :13520
+#: ``printtab(8)"{down}wirkung: "tg$(int(tg(x)/4)+1)``, with the labels :125
+#: ``fori=1to3:readts$(i):next:fori=1to5:readtg$(i):next`` reads from :50500
+#: ``"mies","ganz gut","todsicher","laecherlich","maessig","schlimm!"`` and :50505
+#: ``"brutal","erschreckend!"``. Worked by hand from the (ts, tg) pairs of :50100-50115
+#: (no weapon has ts < 2, so none reaches the never-assigned ts$(0)).
+_SPEC_LABELS = {
+    "haende": ("mies", "laecherlich"),  # ts 2 -> 1, tg 2 -> 1
+    "messer": ("mies", "maessig"),  # ts 3 -> 1, tg 5 -> 2
+    "knueppel": ("ganz gut", "laecherlich"),  # ts 4 -> 2, tg 3 -> 1
+    "schlagkette": ("ganz gut", "maessig"),  # ts 4 -> 2, tg 4 -> 2
+    "wurfsterne": ("mies", "maessig"),  # ts 2 -> 1, tg 7 -> 2
+    "revolver": ("ganz gut", "schlimm!"),  # ts 5 -> 2, tg 10 -> 3
+    "gewehr": ("ganz gut", "brutal"),  # ts 5 -> 2, tg 12 -> 4
+    "maschinenpistole": ("todsicher", "brutal"),  # ts 6 -> 3, tg 15 -> 4
+    "handgranaten": ("todsicher", "erschreckend!"),  # ts 7 -> 3, tg 18 -> 5
+}
+
+
+def _spec_screen(weapon) -> list[str]:
+    """Run the spec-sheet sub-state for ``weapon`` and return its resolved screen rows."""
+    from engine.interactions import Ack, Ctx
+    from engine.strings import Resolver
+    from engine.substates import SUBSTATES
+
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    child = SUBSTATES["weapon_spec"](Ctx(state=_state(), rng=_StubRng()), {"weapon": weapon})
+    text: list[str] = []
+    interaction = next(child)
+    try:
+        while True:
+            assert isinstance(interaction, ShowMessage), interaction
+            text.append(resolver.resolve(interaction.key, interaction.params))
+            interaction = child.send(Ack)
+    except StopIteration:
+        pass
+    return "\n".join(text).split("\n")
+
+
+def test_every_weapon_s_spec_sheet_prints_the_source_labels():
+    import yaml
+
+    table = yaml.safe_load((_CONFIG_DIR / "entities" / "weapons.yaml").read_text())["weapons"]
+    assert [w["name"] for w in table] == list(_SPEC_LABELS)
+    for weapon in table:
+        accuracy, effect = _SPEC_LABELS[weapon["name"]]
+        rows = _spec_screen(weapon)
+        # :13500 ``print"{clr}{down}{rght}{rvon}{blk} waffe: "wa$(x)" {gry3}"``, :13510
+        # ``"{home}{down}{down}{down}"tab(8)"{blk}preis:"wp(x)"$"``, then each label line
+        # one row further down (its ``{down}``) at column 8.
+        assert rows == [
+            f"waffe: {weapon['name']}",
+            "",
+            f"        preis: {weapon['price']} $",
+            "",
+            f"        treffgenauigkeit: {accuracy}",
+            "",
+            f"        wirkung: {effect}",
+        ], weapon["name"]
+
+
+def test_an_accuracy_below_two_prints_the_empty_ts_label():
+    """``int(ts/2)`` = 0 indexes ``ts$(0)``, which :125 never assigns: the C64 prints
+    nothing after the colon."""
+    rows = _spec_screen({"name": "x", "price": 1, "ts": 1, "tg": 2})
+    assert rows[4] == "        treffgenauigkeit: "

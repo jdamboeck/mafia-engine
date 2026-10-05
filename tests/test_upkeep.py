@@ -319,3 +319,25 @@ def test_mark_decay_comes_before_the_arms_deal():
     rng = StubRng(0, 0, 1, 0)  # papers roll, counterfeit roll, arms loss roll, payout
     _marks_after(_marked_state(1, 1, tip=4), rng)
     assert rng.calls == [("range", 8), ("range", 8), ("range", 5), ("hit", 5500, 14999)]
+
+
+def test_the_docstring_records_the_one_screen_departure():
+    """The port merges the turn-start screens onto one with one key (#146): the
+    handler's docstring names every source line whose key wait it merges, each with its
+    quote (``tests/test_citations.py`` holds the quotes to the lines)."""
+    import data.game_configs.mafia_1920s.handlers.upkeep as upkeep_module
+
+    doc = upkeep_module.__doc__ or ""
+    section = doc.split("ONE SCREEN, ONE KEY", 1)[1].split("COUNTER DIRECTION", 1)[0]
+    assert "deliberate departure" in doc.split("ONE SCREEN, ONE KEY", 1)[1].splitlines()[0]
+    for line, quote in [
+        ("4220", "wait198,1"),
+        ("4309", "goto1100"),
+        ("4420", "goto1100"),
+        ("4620", "goto1100"),
+        ("31010", "goto1100"),
+        ("1100", "wait198,1"),
+    ]:
+        cited = section.split(f"``:{line}``", 1)
+        assert len(cited) == 2, f":{line} is not cited"
+        assert quote in cited[1].split("\n\n", 1)[0].split("``:", 1)[0], f":{line} {quote}"
