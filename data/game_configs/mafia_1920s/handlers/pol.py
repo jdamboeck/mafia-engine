@@ -20,7 +20,7 @@ The month prompt (``:21011``)
 ``input"{down}nehme ich 1000 $. wieviele monate:";x:p=1000*x:ifx=0thenreturn`` has no
 range check. Two answers are house rules (both checked in VICE):
 
-- a negative count (``chief_bribe_negative_months``): C64 ``INPUT`` takes "-3" as -3,
+- a negative count (``c64_input_negatives``): C64 ``INPUT`` takes "-3" as -3,
   the price is below 0 and ``:21015`` never refuses it, so the chief pays the player
   and the months drop. Intent asks again;
 - an empty answer (``chief_bribe_empty_answer``) keeps ``x``, which last held the map
@@ -65,15 +65,16 @@ from ..state import wanted
 from .police import Arrest, sentence
 
 __all__ = [
+    "C64_INPUT_NEGATIVES",
     "CHIEF_BRIBE_EMPTY_ANSWER",
-    "CHIEF_BRIBE_NEGATIVE_MONTHS",
     "pol_bribe",
     "pol_free",
     "pol_surrender",
 ]
 
-#: House rule: a negative month count pays out (faithful) or is asked again.
-CHIEF_BRIBE_NEGATIVE_MONTHS = "chief_bribe_negative_months"
+#: House rule: a negative count at a C64 number prompt goes through (faithful) or is
+#: asked again; here, the month count, which then pays out.
+C64_INPUT_NEGATIVES = "c64_input_negatives"
 #: House rule: an empty month answer repeats the map step (faithful) or buys nothing.
 CHIEF_BRIBE_EMPTY_ANSWER = "chief_bribe_empty_answer"
 
@@ -93,7 +94,7 @@ def pol_bribe(ctx):
     """Bribe the police chief — ports ``mf-prg.bas:21010-21030``."""
     active = ctx.state.players[ctx.state.clock.active_player]
     params = ctx.state.config.formula_params
-    no_negatives = intent(ctx.state, CHIEF_BRIBE_NEGATIVE_MONTHS)
+    no_negatives = intent(ctx.state, C64_INPUT_NEGATIVES)
 
     yield ShowMessage("locations.pol.chief_offer")  # :21010
     # :21011 — see the module docstring for the empty and negative answers.

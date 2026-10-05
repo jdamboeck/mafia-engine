@@ -83,10 +83,11 @@ def _rules() -> dict[str, str]:
         "shared_direction_memory": "faithful",
         "stale_bribe_price": "faithful",
         "flight_odds_by_seat": "faithful",
-        "chief_bribe_negative_months": "faithful",
+        "c64_input_negatives": "faithful",
         "chief_bribe_empty_answer": "faithful",
         "gang_war_score_to_the_attacker": "faithful",
         "prison_brawl_zeroes_the_attackers_boss": "faithful",
+        "c64_float_score": "faithful",
     }
 
 

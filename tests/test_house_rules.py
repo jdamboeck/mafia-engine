@@ -198,10 +198,11 @@ def test_the_real_catalogue_offers_its_switches_at_setup(monkeypatch, tmp_path):
         "shared_direction_memory": "faithful",
         "stale_bribe_price": "faithful",
         "flight_odds_by_seat": "faithful",
-        "chief_bribe_negative_months": "faithful",
+        "c64_input_negatives": "faithful",
         "chief_bribe_empty_answer": "faithful",
         "gang_war_score_to_the_attacker": "faithful",
         "prison_brawl_zeroes_the_attackers_boss": "faithful",
+        "c64_float_score": "faithful",
     }
 
 
@@ -270,6 +271,50 @@ def test_a_save_whose_switches_differ_from_the_catalogue_is_refused_with_one_lin
     assert err.startswith(f"cannot load {path}: the save's house rules do not match this game's: ")
     assert named in err
     assert len(err.strip().splitlines()) == 1
+
+
+#: The full house-rules map a new game stored before the C64-input and C64-float
+#: switches joined the catalogue (and the chief's negative-months switch left it).
+_PRE_C64_SWITCHES_MAP = {
+    "intelligence_or_30": "faithful",
+    "shared_direction_memory": "faithful",
+    "stale_bribe_price": "faithful",
+    "flight_odds_by_seat": "faithful",
+    "chief_bribe_negative_months": "faithful",
+    "chief_bribe_empty_answer": "faithful",
+    "gang_war_score_to_the_attacker": "faithful",
+    "prison_brawl_zeroes_the_attackers_boss": "faithful",
+}
+
+
+def test_a_save_from_before_the_c64_switches_is_refused_with_one_line(
+    capsys, monkeypatch, tmp_path
+):
+    """A save made before the catalogue gained the C64-input and C64-float switches
+    stores the old full map; loading it is refused with the house-rules mismatch."""
+    import io
+
+    from clients.terminal import main
+
+    cfg = load_game_config(_CONFIG_DIR)
+    state = cfg.module.new_game(
+        seed=42, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+    )
+    path = tmp_path / "pre-c64.jsonl"
+    save_game(path, state, registries=cfg.registries, effect_log=[], rng_log=[], seed=42)
+    header = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+    header["snapshot"]["config"]["house_rules"] = _PRE_C64_SWITCHES_MAP
+    path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+    monkeypatch.setattr("sys.stdin", io.StringIO(""))
+
+    with pytest.raises(SystemExit) as exc:
+        main(["--load", str(path)])
+    err = capsys.readouterr().err
+    assert exc.value.code == 1
+    assert err == (
+        f"cannot load {path}: the save's house rules do not match this game's: "
+        "the catalogue offers no switch for house rule 'chief_bribe_negative_months'\n"
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -593,9 +638,10 @@ def test_the_code_reads_exactly_the_catalogues_switches(mafia_module):
         SCORE_TO_THE_ATTACKER,
         ZEROES_THE_ATTACKERS_BOSS,
     )
+    from data.game_configs.mafia_1920s.effects import C64_FLOAT_SCORE
     from data.game_configs.mafia_1920s.handlers.pol import (
+        C64_INPUT_NEGATIVES,
         CHIEF_BRIBE_EMPTY_ANSWER,
-        CHIEF_BRIBE_NEGATIVE_MONTHS,
     )
     from data.game_configs.mafia_1920s.handlers.police import (
         FLIGHT_ODDS_BY_SEAT,
@@ -609,10 +655,11 @@ def test_the_code_reads_exactly_the_catalogues_switches(mafia_module):
         SHARED_DIRECTION_MEMORY,
         STALE_BRIBE_PRICE,
         FLIGHT_ODDS_BY_SEAT,
-        CHIEF_BRIBE_NEGATIVE_MONTHS,
+        C64_INPUT_NEGATIVES,
         CHIEF_BRIBE_EMPTY_ANSWER,
         SCORE_TO_THE_ATTACKER,
         ZEROES_THE_ATTACKERS_BOSS,
+        C64_FLOAT_SCORE,
     }
 
 

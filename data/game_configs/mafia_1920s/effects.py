@@ -55,6 +55,7 @@ except ImportError:  # loaded bare (config dir on sys.path), as setup.py allows
     )
 
 __all__ = [
+    "C64_FLOAT_SCORE",
     "BarrelChange",
     "BribeMonthsChange",
     "DebtChange",
@@ -76,6 +77,11 @@ __all__ = [
     "VehicleSet",
     "WinFlagSet",
 ]
+
+
+#: House rule: the score (:1160) sums in C64 float (faithful) or exact decimals.
+#: Not read yet: the score's arithmetic does not branch on it so far.
+C64_FLOAT_SCORE = "c64_float_score"
 
 
 @register_effect(consequence="score_and_rank")

@@ -60,7 +60,7 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "m
 _CONFIG = load_game_config(_CONFIG_DIR)
 _PARAMS = {**load_config(_CONFIG_DIR / "config.yaml")["formula_params"], "score_mult": 1.0}
 
-_NEGATIVE = "chief_bribe_negative_months"
+_NEGATIVE = "c64_input_negatives"
 _EMPTY = "chief_bribe_empty_answer"
 
 #: The street cells next to the station's door (910), and the step each makes into it.
