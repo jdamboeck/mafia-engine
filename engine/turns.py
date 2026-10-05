@@ -197,6 +197,7 @@ __all__ = [
     "YEAR_END_SCREEN",
     "JOB_SHIFT_SCREEN",
     "LOCATION_CLOSED_SCREEN",
+    "KEY_WAIT_SCREEN",
     # Turn-menu handler returns
     "MENU_WALK",
     "MENU_END_TURN",
@@ -295,6 +296,11 @@ JOB_SHIFT_SCREEN = "turn.job_shift"
 #: Heading: a door opened onto a location this config has no shell for.
 #: ``params``: ``location`` (its key).
 LOCATION_CLOSED_SCREEN = "turn.location_closed"
+#: Acknowledge: the key wait a handler yields where its source path waits for a key
+#: (``mf-prg.bas:1100`` ``print"{down}taste druecken!":poke198,0:wait198,1``, reached
+#: by ``goto1100``/``gosub1100``, by ``:1125``'s ``goto1100``, or by an inline
+#: ``wait198``). Nothing is cleared: the wait goes under what is on screen.
+KEY_WAIT_SCREEN = "turn.key_wait"
 
 #: :meth:`TurnRunner.run`'s return value when the game ended (the year-end check or a
 #: truthy turn-start check).

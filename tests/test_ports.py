@@ -2280,7 +2280,9 @@ def _basic_shop_buy(v: Values) -> Any:
 
 def _engine_shop_buy(v: Values) -> Any:
     player = _player(ka=v["ka"], last_location=1)
-    run = _drive(HANDLERS["kdh.trade"], _state(player), (v["r"],), lambda i: True)
+    # Confirm the buy; 0 leaves the capital screen :15125 goto15200 opens (:15208).
+    answer = lambda i: 0 if isinstance(i, PromptInt) else True  # noqa: E731
+    run = _drive(HANDLERS["kdh.trade"], _state(player), (v["r"],), answer)
     p = run.state.players[0]
     return (p.ka, game.business(p).shop_tile)
 

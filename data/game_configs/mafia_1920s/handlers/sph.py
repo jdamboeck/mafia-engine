@@ -25,8 +25,9 @@ on a win (``ka += p`` where ``p`` was reassigned to the gross). So the NET delta
 from __future__ import annotations
 
 from engine.effects import MoneyChange
-from engine.interactions import PromptChoice, PromptInt, ShowMessage
+from engine.interactions import Acknowledge, PromptChoice, PromptInt, ShowMessage
 from engine.locations import register
+from engine.turns import KEY_WAIT_SCREEN
 
 __all__ = ["sph"]
 
@@ -51,6 +52,10 @@ def sph(ctx):
        win the gross payout is ``int(stake*(offset+x))`` (offset 0.5 from config), and the
        net cash delta is ``payout - stake``; on a loss the delta is ``-stake``. Emit the
        win/loss message.
+
+    A played hand and the broke refusal end in the key wait (``:1100``), reached by
+    ``goto1100`` and ``goto1125``: the handler yields ``Acknowledge(KEY_WAIT_SCREEN)``. Choosing nothing
+    (``:16015 ifx=0thenreturn``) and a wager of 0 return without one.
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -72,7 +77,8 @@ def sph(ctx):
     )
     x = choice + 1  # game index: poker=1, black jack=2, roulette=3
 
-    # 16020 — show cash, ask for a wager; wager <= 0 is a quiet abort.
+    # 16020 — show cash, ask for a wager; wager <= 0 is a quiet abort (``return``, no
+    # key wait; nor does choosing nothing at :16015 wait).
     # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only.
     yield ShowMessage("locations.sph.cash", {"cash": active.ka})
     stake = yield PromptInt("locations.sph.wager_prompt", min=0, max=_MAX_WAGER)
@@ -82,6 +88,7 @@ def sph(ctx):
     # 16025 — affordability.
     if stake > active.ka:
         yield ShowMessage("system.not_enough_money")
+        yield Acknowledge(KEY_WAIT_SCREEN)  # :16025 goto1125 -> :1125 ...:goto1100
         return []
 
     # 16026-16040 — resolve with a single rng draw.
@@ -94,4 +101,7 @@ def sph(ctx):
     else:
         ctx.apply(MoneyChange(-stake))  # 16026 stake gone, no re-add
         yield ShowMessage("locations.sph.lost")
+    # :16035 print"{down}leider verloren!":goto1100 / :16040 ...:goto1100 -- the hand's
+    # result stays on screen until a key.
+    yield Acknowledge(KEY_WAIT_SCREEN)
     return []

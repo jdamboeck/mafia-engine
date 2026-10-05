@@ -18,7 +18,8 @@ even offering the option, and kdh never does that):
   check (``kg(sp)=ln``) routes to sell; otherwise buy, guarded by: already own a
   DIFFERENT shop (deny), own outstanding debt (deny), a rival-scan over every other
   player for who owns this exact tile (deny, naming them) — THEN roll the price,
-  confirm, afford-check, settle.
+  confirm, afford-check, settle, wait for a key (``:15120 gosub1100``) and go on to
+  the capital screen (``:15125 goto15200``) in the same option.
 - ``kdh.capital`` (``15200-15220``) — adjust shop capital. Guard: own this tile.
   Signed delta, bounded so ``kk(sp)+x`` stays in ``[0, 5000]`` (expressed as the
   ``PromptInt`` bounds themselves — the driver's own re-prompt-on-out-of-range IS
@@ -34,6 +35,10 @@ even offering the option, and kdh never does that):
 
 Faithfulness notes
 -------------------
+- The key wait (``:1100``); every exit the source sends through ``goto1100``/
+  ``gosub1100`` or ``goto1125`` yields ``_KEY_WAIT``; every ``return`` exit
+  (``:15020``, ``:15051``, ``:15111``, ``:15151``, ``:15155``, ``:15208``, ``:15220``,
+  ``:15315``) returns without one.
 - ALL game-balance numbers (loan bounds, price rolls, ambush odds, loot range) come
   from ``formula_params`` — nothing here is a bare literal.
 - The combat backdrop is pinned to ``ks``: the source's ``15312`` call site
@@ -59,8 +64,9 @@ from pathlib import Path
 from engine.effects import MoneyChange
 from ..effects import DebtChange, DebtClear, ShopChange
 from ..state import business, debt
-from engine.interactions import Confirm, PromptInt, ShowMessage
+from engine.interactions import Acknowledge, Confirm, PromptInt, ShowMessage
 from engine.locations import register
+from engine.turns import KEY_WAIT_SCREEN
 
 from ..setup import (
     apply_outcome,
@@ -77,6 +83,9 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1]
 #: including its win consequence (loot roll + score + message). The NAME is read
 #: back off the loaded encounter for the outcome narration; nothing about the fight
 #: is assembled inline.
+#: The ``:1100`` key wait (``print"{down}taste druecken!":poke198,0:wait198,1``).
+_KEY_WAIT = Acknowledge(KEY_WAIT_SCREEN)
+
 _AMBUSH_ENCOUNTER = load_encounter(_CONFIG_DIR / "content" / "encounters" / "kdh_ambush.yaml")
 
 
@@ -101,6 +110,7 @@ def kdh_borrow(ctx):
     # :15010 — one loan at a time.
     if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_old_debts_first")
+        yield _KEY_WAIT  # :15010 ...:goto1100
         return []
 
     x = yield PromptInt(
@@ -116,6 +126,7 @@ def kdh_borrow(ctx):
     yield ShowMessage("locations.kdh.borrow_grace_notice")
     ctx.apply(DebtChange(amount=x, months=params["kdh_borrow_grace_months"]))
     ctx.apply(MoneyChange(x))
+    yield _KEY_WAIT  # :15030 ...:kz(sp)=6:goto1100
     return []
 
 
@@ -152,6 +163,7 @@ def kdh_repay(ctx):
     # :15060 — afford check, runs BEFORE any write.
     if active.ka < x:
         yield ShowMessage("system.not_enough_money")
+        yield _KEY_WAIT  # goto1125 -> :1125 ...:goto1100
         return []
 
     # :15065 — settle.
@@ -166,6 +178,7 @@ def kdh_repay(ctx):
     else:
         # :15070 — partial: report the remaining balance.
         yield ShowMessage("locations.kdh.repay_partial", {"remaining": remaining})
+    yield _KEY_WAIT  # :15070 / :15075 ...:goto1100
     return []
 
 
@@ -178,7 +191,8 @@ def kdh_trade(ctx):
 
     ``:15100`` routes on ``kg(sp)=ln``: already own THIS tile -> sell; else -> buy
     (guarded by :15105 already-own-a-different-shop, :15106 own-debt, :15107-15108
-    rival scan).
+    rival scan). A purchase waits for a key (``:15120 ...gosub1100``) and then opens
+    the capital screen (``:15125 goto15200``, :func:`_capital_screen`).
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -200,11 +214,13 @@ def _buy(ctx, *, ln: int, params: dict):
     # :15105 — already own a DIFFERENT shop.
     if business(active).shop_tile != 0:
         yield ShowMessage("locations.kdh.already_own_a_shop")
+        yield _KEY_WAIT  # :15105 ...:goto1100
         return
 
     # :15106 — own outstanding debt.
     if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_own_debts_first")
+        yield _KEY_WAIT  # :15106 ...:goto1100
         return
 
     # :15107-15108 — rival scan: any OTHER player already own this tile?
@@ -213,6 +229,7 @@ def _buy(ctx, *, ln: int, params: dict):
             continue
         if business(other).shop_tile == ln:
             yield ShowMessage("locations.kdh.shop_belongs_to", {"name": other.name})
+            yield _KEY_WAIT  # :15108 ...:goto1100
             return
 
     # :15110-15111 — price roll + confirm. :15110 `p=int(rnd(1)*11)*100+5000`
@@ -222,17 +239,27 @@ def _buy(ctx, *, ln: int, params: dict):
     )
     yield ShowMessage("locations.kdh.buy_offer", {"price": price})
     if not (yield Confirm("locations.kdh.buy_confirm")):
-        return
+        return  # :15111 ifx$="n"thenreturn -- no key wait
 
     # :15115 — afford check.
     if active.ka < price:
         yield ShowMessage("system.not_enough_money")
+        yield _KEY_WAIT  # :15115 goto1125 -> :1125 ...:goto1100
         return
 
-    # :15120 — settle.
+    # :15120 — settle, then wait for a key (``gosub1100``).
     ctx.apply(MoneyChange(-price))
     ctx.apply(ShopChange(tile=ln))
     yield ShowMessage("locations.kdh.bought")
+    yield _KEY_WAIT
+
+    # :15125 goto15200 — the capital screen follows in the same option. Its :15200
+    # owner check passes (:15120 just set kg(sp)=ln). ``ctx.apply`` only buffers, so
+    # the screen runs on the cash the purchase left; the capital kk(sp) is untouched
+    # by the purchase (:15120 does not reset it).
+    yield from _capital_screen(
+        ctx, cash=active.ka - price, capital=business(active).shop_capital, params=params
+    )
 
 
 def _sell(ctx, *, params: dict):
@@ -243,9 +270,10 @@ def _sell(ctx, *, params: dict):
     )
     yield ShowMessage("locations.kdh.sell_offer", {"price": price})
     if not (yield Confirm("locations.kdh.sell_confirm")):
-        return
+        return  # :15151 ifx$="n"thenreturn -- no key wait
 
-    # :15155 — settle unconditionally (selling never fails on affordability).
+    # :15155 — settle unconditionally (selling never fails on affordability), and
+    # ``return`` with no message and no key wait.
     ctx.apply(MoneyChange(price))
     ctx.apply(ShopChange(tile=0))
 
@@ -265,6 +293,8 @@ def kdh_capital(ctx):
     4. ``:15215`` — afford check (only bites on a positive delta; a withdrawal's
        ``x`` is negative, always ``<= ka``).
     5. ``:15220`` — settle: cash -= x, capital += x.
+
+    Steps 2-5 are :func:`_capital_screen`, which a purchase reaches too (``:15125``).
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -274,24 +304,37 @@ def kdh_capital(ctx):
     # :15200 — must own this tile.
     if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
+        yield _KEY_WAIT  # :15200 ...:goto1100
         return []
 
-    capital = business(active).shop_capital
+    yield from _capital_screen(
+        ctx, cash=active.ka, capital=business(active).shop_capital, params=params
+    )
+    return []
+
+
+def _capital_screen(ctx, *, cash: int, capital: int, params: dict):
+    """The capital screen, ``:15205-15220``: reached from the menu (:func:`kdh_capital`)
+    and straight after a purchase (``:15125 goto15200``).
+
+    ``cash``/``capital`` are the running values (``ctx.apply`` only buffers, so a
+    caller that has already bought passes the cash its purchase left).
+    """
     cap_max = params["kdh_capital_max"]
     yield ShowMessage("locations.kdh.capital_status", {"capital": capital, "max": cap_max})
     x = yield PromptInt("locations.kdh.capital_prompt", min=-capital, max=cap_max - capital)
     if x == 0:
-        return []
+        return  # :15208 ifx=0thenreturn -- no key wait
 
     # :15215 — afford check against cash.
-    if active.ka < x:
+    if cash < x:
         yield ShowMessage("system.not_enough_money")
-        return []
+        yield _KEY_WAIT  # :15215 goto1125 -> :1125 ...:goto1100
+        return
 
-    # :15220 — settle.
+    # :15220 — settle, and ``return`` with no key wait.
     ctx.apply(MoneyChange(-x))
     ctx.apply(ShopChange(capital_delta=x))
-    return []
 
 
 # --------------------------------------------------------------------------- #
@@ -323,6 +366,7 @@ def kdh_collect(ctx):
     # :15300 — must own this tile.
     if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
+        yield _KEY_WAIT  # :15300 ...:goto1100
         return []
 
     capital = business(active).shop_capital
@@ -330,15 +374,25 @@ def kdh_collect(ctx):
     ambush = capital != 0 and ctx.rng.range(params["kdh_ambush_roll"]) != 0
     if not ambush:
         yield ShowMessage("locations.kdh.debts_paid_on_time")
+        yield _KEY_WAIT  # :15306 ...:goto1100
         return []
 
     # :15310-15312 — the ambush fight, the declared encounter run by the shared fight
     # helper (which also shows the outcome screen, :30500-30515).
     yield ShowMessage("locations.kdh.ambush_intro")
+    yield _KEY_WAIT  # :15312 gosub1100, before the fight (gosub5000)
     enc = _AMBUSH_ENCOUNTER
     result = yield from run_encounter(ctx, enc)
+    # :30520 print:goto1100 -- the combat outcome screen (:30500-30515, shown by
+    # run_encounter) waits for a key before control returns here. The wait is the
+    # combat subroutine's own, for every caller; run_encounter does not yield it yet,
+    # so this handler does.
+    yield _KEY_WAIT
 
-    # :15315 (loss — on_loss: [], nothing) / :15320-15321 (win — loot + score +
-    # message). The whole declarable consequence rides the encounter's on_win/on_loss.
+    # :15315 (loss — on_loss: [], nothing; ``return``, no further wait) / :15320-15321
+    # (win — loot + score + message, then ``goto1100``). The whole declarable
+    # consequence rides the encounter's on_win/on_loss.
     yield from apply_outcome(ctx, enc, result)
+    if result.winner == 1:
+        yield _KEY_WAIT  # :15321 ...:gosub1160:goto1100
     return []

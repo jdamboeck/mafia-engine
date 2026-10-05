@@ -280,6 +280,20 @@ class TestSphGambleThroughClient:
         out2 = run_play(monkeypatch, seed=42, stdin_keys=keys)
         assert out1 == out2
 
+    def test_ae6_a_hand_waits_for_one_key_under_its_result(self, monkeypatch):
+        """:16040 ``print"{down}du hast"p"$ gewonnen!":...:goto1100``: the result stays on
+        screen with the pause line under it -- no clear between -- until ONE key; the
+        next key reaches the map, where ``x`` is not a move and says so."""
+        keys = [*self._walk_and_play_keys(), "", "x"]
+        output = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        shown = output.index("gewonnen")
+        paused = output.index("press any key", shown)
+        assert CLEAR not in output[shown:paused], "the result was cleared before the wait"
+        cleared = output.find(CLEAR, paused)
+        assert cleared != -1, "the map never came back"
+        # The wait took the blank line; the map read "x" (one note), not both (two).
+        assert output.count("(use W/A/S/D, M, P or Q)", cleared) == 1
+
 
 # --------------------------------------------------------------------------- #
 # waf buy (grenade roll) and waf train through the client — same root cause    #
@@ -1043,7 +1057,8 @@ class TestKdhLocationThroughClient:
         inp = TerminalInput(
             resolver=resolver,
             colors=_COLORS,
-            stdin=io.StringIO("2000\n"),
+            # the amount, then :15030 goto1100's key wait
+            stdin=io.StringIO("2000\n\n"),
             stdout=out,
             weapon_names=[],
         )
@@ -1057,7 +1072,8 @@ class TestKdhLocationThroughClient:
         inp = TerminalInput(
             resolver=resolver,
             colors=_COLORS,
-            stdin=io.StringIO("2000\n"),
+            # the amount, then :15075 goto1100's key wait
+            stdin=io.StringIO("2000\n\n"),
             stdout=out,
             weapon_names=[],
         )
@@ -1065,10 +1081,15 @@ class TestKdhLocationThroughClient:
         assert game.debt(result.state.players[0]) == Debt()
         state = result.state
 
-        # 3. Buy the shop at this tile (seed=3: price rolls 5300$; "j" confirms).
+        # 3. Buy the shop at this tile (seed=3: price rolls 5300$; "j" confirms), then
+        # :15120 gosub1100's key wait and :15125 goto15200's capital screen (0 leaves).
         out = io.StringIO()
         inp = TerminalInput(
-            resolver=resolver, colors=_COLORS, stdin=io.StringIO("j\n"), stdout=out, weapon_names=[]
+            resolver=resolver,
+            colors=_COLORS,
+            stdin=io.StringIO("j\n\n0\n"),
+            stdout=out,
+            weapon_names=[],
         )
         result = run_option(shell, "trade", state, ln=1, input_source=inp, rng=Rng(3))
         assert game.business(result.state.players[0]).shop_tile == 1
@@ -1095,7 +1116,8 @@ class TestKdhLocationThroughClient:
         inp = TerminalInput(
             resolver=resolver,
             colors=_COLORS,
-            stdin=io.StringIO("surrender\n"),
+            # :15312 gosub1100's key wait before the fight, the fight, :30520's wait
+            stdin=io.StringIO("\nsurrender\n\n"),
             stdout=out,
             weapon_names=[],
         )
@@ -1730,7 +1752,8 @@ class TestDebtDefaultThroughClient:
         inp = TerminalInput(
             resolver=resolver,
             colors=_COLORS,
-            stdin=io.StringIO("3000\n"),
+            # the amount, then :15030 goto1100's key wait
+            stdin=io.StringIO("3000\n\n"),
             stdout=out,
             weapon_names=[],
         )
@@ -1779,7 +1802,8 @@ class TestDebtDefaultThroughClient:
         inp = TerminalInput(
             resolver=resolver,
             colors=_COLORS,
-            stdin=io.StringIO("3000\n"),
+            # the amount, then :15075 goto1100's key wait
+            stdin=io.StringIO("3000\n\n"),
             stdout=out,
             weapon_names=[],
         )

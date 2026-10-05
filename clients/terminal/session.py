@@ -77,6 +77,7 @@ from engine.state import GameState
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
+    KEY_WAIT_SCREEN,
     LOCATION_CLOSED_SCREEN,
     SETUP_HANDLER_KEY,
     STANDINGS_SCREEN,
@@ -587,6 +588,10 @@ class _RollKeyboard:
 #: The turn runner's own acknowledgement screens; every other one is a handler's.
 _RUNNER_SCREENS = frozenset({UPKEEP_SCREEN, TURN_OVER_SCREEN, STANDINGS_SCREEN, YEAR_END_SCREEN})
 
+#: The acknowledgements that only wait for a key under what is on screen, clearing
+#: nothing: the eigenschaften screen's ``:316 goto1100`` and a handler's ``:1100``.
+_IN_PLACE_WAITS = frozenset({_EIGENSCHAFTEN_SCREEN, KEY_WAIT_SCREEN})
+
 
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
@@ -842,10 +847,12 @@ class TerminalSession:
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``.
 
         A location option's result ends in ``:1100``'s key wait (``taste druecken!``)
-        on nearly every path (``:1125`` ``...zu wenig kies!":goto1100``, ``:10045``):
-        when an option completes with a message still unread on screen, the wait comes
-        before the map is drawn over it. A cancelled option (``ify=0thenreturn``) and
-        one whose last screen already waited for a key return without one.
+        on nearly every path (``:1125`` ``...zu wenig kies!":goto1100``, ``:10045``).
+        A handler that yields that wait itself (``Acknowledge(KEY_WAIT_SCREEN)``) gets
+        it in place, under its result; for the rest, when an option completes with a
+        message still unread on screen, the wait comes before the map is drawn over
+        it. A cancelled option (``ify=0thenreturn``) and one whose last screen already
+        waited for a key return without one.
         """
         if isinstance(interaction, OptionDone):
             unread, self._unread = self._unread, False
@@ -861,7 +868,11 @@ class TerminalSession:
             # The board clears the screen when it is drawn, so the whose-turn line goes
             # under the clear, with the board, not before it.
             return self.inp.answer(interaction, banner=self.whose_turn(interaction))
-        if isinstance(interaction, Acknowledge) and interaction.key not in _RUNNER_SCREENS:
+        if (
+            isinstance(interaction, Acknowledge)
+            and interaction.key not in _RUNNER_SCREENS
+            and interaction.key not in _IN_PLACE_WAITS
+        ):
             # A handler's own screen clears too (see acknowledge()).
             return self.acknowledge(interaction, banner=self.whose_turn(interaction))
         self.announce_player(interaction)
@@ -939,8 +950,9 @@ class TerminalSession:
             _write_press_any_key(self.resolver, self.out)
             _read_line_visible(sys.stdin, self.out)
             return None
-        if screen.key == _EIGENSCHAFTEN_SCREEN:
-            # :316 goto1100: the key wait under the stats, which stay on screen.
+        if screen.key in _IN_PLACE_WAITS:
+            # :1100 (:316 goto1100 under the stats; a handler's goto1100/goto1125 under
+            # its result): the key wait under what is on screen, which stays there.
             _write_press_any_key(self.resolver, self.out)
             _read_key()
             return None
