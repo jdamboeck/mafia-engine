@@ -23,7 +23,7 @@ from typing import Any, Callable, NoReturn
 
 import yaml
 
-from engine.config_loader import load_config
+from engine.config_loader import load_config, load_game_config
 from engine.strings import Resolver
 
 from clients.terminal.palette import Palette, load_palette, read_palette_overrides
@@ -138,6 +138,23 @@ def main(argv: list[str] | None = None) -> None:
             parser.error(
                 text("out_of_range", flag=flag, min=bounds["min"], max=bounds["max"], value=value)
             )
+    # The weight's text must also pass the setup's own reading (the C64's parser by the
+    # c64_float_score house rule): "1.1_5" is a number to float() but not to setup, and
+    # would otherwise be refused only after the title, as a traceback. The rule is the
+    # config's (score_weight_accepted); the client holds none of its own.
+    if args.score_weight is not None and not load_game_config(
+        _CONFIG_DIR
+    ).module.score_weight_accepted(args.score_weight, ranges):
+        bounds = ranges["score_weight"]
+        parser.error(
+            text(
+                "out_of_range",
+                flag="--score-weight",
+                min=bounds["min"],
+                max=bounds["max"],
+                value=args.score_weight,
+            )
+        )
     players = None
     if args.players:
         players = []

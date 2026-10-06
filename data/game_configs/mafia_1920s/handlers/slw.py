@@ -36,11 +36,10 @@ from __future__ import annotations
 
 from engine.effects import MoneyChange
 from ..effects import RentAccrue, SetTenancy
-from engine.interactions import Acknowledge, PromptInt, ShowMessage
+from engine.interactions import PromptInt, ShowMessage
 from engine.locations import register
-from engine.turns import KEY_WAIT_SCREEN
 
-from ..setup import fnm
+from ..setup import KEY_WAIT, fnm
 from ..state import tenant
 
 __all__ = ["slw_rent", "slw_pay_rent"]
@@ -60,7 +59,7 @@ def slw_rent(ctx):
     ln = ctx.state.players[ctx.state.clock.active_player].last_location
     if tenant(ctx.state, ln) is not None:  # :10010 ifuk(ln)<>0
         yield ShowMessage("locations.slw.no_room")
-        yield Acknowledge(KEY_WAIT_SCREEN)  # :10010 ...:goto1100
+        yield KEY_WAIT  # :10010 ...:goto1100
         return []
     return (yield from _rent_block(ctx))
 
@@ -76,7 +75,7 @@ def slw_pay_rent(ctx):
     ln = ctx.state.players[sp].last_location
     if tenant(ctx.state, ln) != sp:  # :10100 ifuk(ln)<>sp
         yield ShowMessage("locations.slw.not_resident")
-        yield Acknowledge(KEY_WAIT_SCREEN)  # :10100 ...:nm=1:goto1100
+        yield KEY_WAIT  # :10100 ...:nm=1:goto1100
         return []
     return (yield from _rent_block(ctx))
 
@@ -98,7 +97,7 @@ def _rent_block(ctx):
        ``um(sp)+=x``, then greet and wait for a key (``goto1100``).
 
     Every exit but ``:10030`` ends in ``:1100``'s key wait, as do both refusals before
-    the block: the handler yields ``Acknowledge(KEY_WAIT_SCREEN)`` there.
+    the block: the handler yields ``KEY_WAIT`` there.
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -119,7 +118,7 @@ def _rent_block(ctx):
     # :10035 — affordability, `ka(sp)<x*p`.
     if active.ka < x * p:
         yield ShowMessage("system.not_enough_money")
-        yield Acknowledge(KEY_WAIT_SCREEN)  # :1125 ...:goto1100
+        yield KEY_WAIT  # :1125 ...:goto1100
         return []
 
     # :10040-10045 — success. Deduct rent (:10040 `ka(sp)=ka(sp)-x*p`),
@@ -128,5 +127,5 @@ def _rent_block(ctx):
     ctx.apply(SetTenancy(ln))
     ctx.apply(RentAccrue(x))
     yield ShowMessage("locations.slw.success")
-    yield Acknowledge(KEY_WAIT_SCREEN)  # :10045 ...:goto1100
+    yield KEY_WAIT  # :10045 ...:goto1100
     return []

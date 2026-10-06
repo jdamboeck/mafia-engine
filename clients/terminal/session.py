@@ -268,6 +268,8 @@ def _read_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
     if ch == "\x03":
         raise KeyboardInterrupt
+    if ch == "":  # a hung-up terminal reads nothing: EOF, a quit as on the piped path
+        return "q"
     return ch.lower()
 
 

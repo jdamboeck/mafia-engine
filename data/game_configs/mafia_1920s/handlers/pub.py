@@ -252,6 +252,7 @@ def pub_drink(ctx):
     y = yield _count_prompt(ctx.state, "locations.pub.sell_quantity_prompt", held)
     if y == 0:  # :12065 ``ify=0thenreturn``
         return []
+    yield ShowMessage("locations.pub.sell_greed")  # :12070 ...:goto12075
 
     # :12075 — settle unconditionally, no score effect: `ka(sp)=ka(sp)+y*x`. A
     # negative y takes the cash with no check that the player has it.

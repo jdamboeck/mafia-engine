@@ -30,6 +30,8 @@ locations:
     drink_quantity_prompt: "wieviele willst du"  # :12027 `wieviele willst du (0-`
     sell_offer: "'nein. vielleicht hast du aber was fuer mich? ich zahle{price}$ pro fass!'"  # :12055-12056 `vielleicht hast du aber was fuer`
     sell_quantity_prompt: "wieviel willst du abgeben"  # :12060 `wieviel willst du abgeben (0-`
+    # {$a0} is the C64's shifted space; it prints as a space.
+    sell_greed: "'besorg noch mehr (gier)!'"  # :12070 `'besorg noch mehr`
 
     # --- tips (mf-prg.bas:12200-12252) ---
     tip_too_inexperienced: "'du bist noch zu unerfahren!'"  # :12205 `du bist noch zu unerfahren!`

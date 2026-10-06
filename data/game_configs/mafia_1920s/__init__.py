@@ -16,8 +16,9 @@ This is the top-level package the engine loads BY PATH (via
   (``content/house_rules.yaml``), so a bad entry fails the config load,
 * validates the weapon table, so a weapon requirement naming an undeclared stat is
   refused when the config loads rather than at the first shop visit, and
-* exposes the config's ``new_game`` and ``fnm`` entry points so the engine loader
-  and tests can reach them.
+* exposes the config's ``new_game`` and ``fnm`` entry points, and the setup's
+  ``score_weight_accepted`` rule (the terminal client checks ``--score-weight`` with it),
+  so the engine loader, the client and tests can reach them.
 
 A new game in this genre is a *copy of this directory* — its data (``config.yaml``,
 ``content/``, ``entities/``, ``themes/``), its Python handlers, and this setup code
@@ -35,7 +36,7 @@ from . import house_rules  # the quirk catalogue, schema-checked on import
 from .gangster import Gangster
 
 from .combat_rules import build_rules, equipper
-from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game
+from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game, score_weight_accepted
 
 # Refuse a bad weapon table at config load (a ConfigValidationError out of the import).
 load_weapons(Path(__file__).resolve().parent / "entities" / "weapons.yaml")
@@ -43,6 +44,7 @@ load_weapons(Path(__file__).resolve().parent / "entities" / "weapons.yaml")
 __all__ = [
     "new_game",
     "fnm",
+    "score_weight_accepted",
     "effects",
     "handlers",
     "house_rules",

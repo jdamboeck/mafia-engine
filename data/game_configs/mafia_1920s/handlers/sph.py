@@ -25,9 +25,10 @@ on a win (``ka += p`` where ``p`` was reassigned to the gross). So the NET delta
 from __future__ import annotations
 
 from engine.effects import MoneyChange
-from engine.interactions import Acknowledge, PromptChoice, PromptInt, ShowMessage
+from engine.interactions import PromptChoice, PromptInt, ShowMessage
 from engine.locations import register
-from engine.turns import KEY_WAIT_SCREEN
+
+from ..setup import KEY_WAIT
 
 __all__ = ["sph"]
 
@@ -54,7 +55,7 @@ def sph(ctx):
        win/loss message.
 
     A played hand and the broke refusal end in the key wait (``:1100``), reached by
-    ``goto1100`` and ``goto1125``: the handler yields ``Acknowledge(KEY_WAIT_SCREEN)``. Choosing nothing
+    ``goto1100`` and ``goto1125``: the handler yields ``KEY_WAIT``. Choosing nothing
     (``:16015 ifx=0thenreturn``) and a wager of 0 return without one.
     """
     sp = ctx.state.clock.active_player
@@ -88,7 +89,7 @@ def sph(ctx):
     # 16025 — affordability.
     if stake > active.ka:
         yield ShowMessage("system.not_enough_money")
-        yield Acknowledge(KEY_WAIT_SCREEN)  # :16025 goto1125 -> :1125 ...:goto1100
+        yield KEY_WAIT  # :16025 goto1125 -> :1125 ...:goto1100
         return []
 
     # 16026-16040 — resolve with a single rng draw.
@@ -103,5 +104,5 @@ def sph(ctx):
         yield ShowMessage("locations.sph.lost")
     # :16035 print"{down}leider verloren!":goto1100 / :16040 ...:goto1100 -- the hand's
     # result stays on screen until a key.
-    yield Acknowledge(KEY_WAIT_SCREEN)
+    yield KEY_WAIT
     return []

@@ -227,6 +227,24 @@ def test_sell_settle_moves_money_and_barrels_no_score_effect():
     assert result.state.players[0].gf == 0.0  # unchanged -- no score effect on sell
 
 
+def test_a_sale_shows_the_greed_line_before_its_key_wait():
+    """:12070 ``print"{down}'besorg noch mehr{$a0}(gier)!'":goto12075`` -- printed on
+    every sale (y<>0) after the count, then :12075 settles and waits; a count of 0
+    returns at :12065 before it."""
+    source = _scripted(5)
+    run_pure(
+        HANDLERS["pub.drink"], source, state=_state(ln=2, ka=1000, barrels=20), rng=_StubRng(1, 15)
+    )
+    keys = source.message_keys()
+    assert keys[-1] == "locations.pub.sell_greed"
+    assert source.ends_in_key_wait()
+    zero = _scripted(0)
+    run_pure(
+        HANDLERS["pub.drink"], zero, state=_state(ln=2, ka=1000, barrels=20), rng=_StubRng(1, 15)
+    )
+    assert "locations.pub.sell_greed" not in zero.message_keys()
+
+
 def test_run_pure_clean_for_buy_and_sell():
     st = _state(ln=4, ka=100000)
     rng = _StubRng(150, 7, 0)

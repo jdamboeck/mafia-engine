@@ -49,6 +49,25 @@ and no weakening of the tests.
 
 - **#157**, **#158** — review reports (PR #148; the whole repository).
 
+## Code review findings left for later
+
+From the branch's code review (correctness, testing, maintainability, standards, reliability,
+adversarial and a Codex pass; the fixable ones were fixed before the PR):
+- `run()` in `engine/interactions.py` turns an input source that runs dry *mid-fight* into a
+  clean completion: the handler's pre-fight effects commit as `completed`. The #156 class,
+  outside `_drive_fight`; this behaviour predates the branch (a deliberate scripted-caller
+  contract), and a run()-level test would pin the fix.
+- Under the intent arm of `c64_float_score`, a typed weight of 16+ significant digits
+  (`0.3333333333333333`) makes sums exceed a double's precision, so equal awards split
+  differently can truncate a cent apart. A real fix keeps an exact decimal score beside the float.
+- `data/game_configs/mafia_1920s/setup.py` passed 1000 lines with the score-weight parsing; the
+  weight helpers could move to their own module.
+- The ledger's player-facing gate is per block: one cited print passes a block even if another
+  print in it is never shown (how `:12070` hid). A line-granular rule for prints with text would
+  catch the next one.
+- A location menu offering 10+ options could not pick the 10th with one key; no config does today.
+- Untested wait counts: ban.safe's prologue exit, the gang war's solo and too-early refusals.
+
 ## Found during the Open Issues Fidelity plan
 
 **Input and parsing**
@@ -69,7 +88,6 @@ and no weakening of the tests.
 - `:4620` with a negative fine (cash below zero) drops the minus the C64 prints at column 39 of
   the blank row (pinned in `test_a_negative_seizure_drops_only_the_minus_at_column_39`).
 - `:12022` prints the uncapped barrel roll before `:12025`'s cap; the port shows the capped stock.
-- `:12070`'s "'besorg noch mehr (gier)!'" has no theme string.
 - The tip-4 text shows twice (`tip_waffenschmuggel`, `arms_deal_offer`); the source prints it once.
 - The pub job and loan-shark strings add `'…'` quote marks the source lines lack.
 - `jobs`' "welchen trick (1-3)" is a prompt the port invented; the source prints none.

@@ -493,14 +493,18 @@ class TestSetupFlags:
         weights = {state.config.formula_params["score_mult"] for state in (flagged, prompted)}
         assert weights == {c64_val(text)}
 
-    def test_a_score_weight_flag_that_is_no_number_is_refused(self, monkeypatch, capsys):
+    @pytest.mark.parametrize("text", ["1.5x", "1.1_5", "1" + "0" * 40 + "e-40"])
+    def test_a_score_weight_flag_that_is_no_number_is_refused(self, monkeypatch, capsys, text):
+        # "1.1_5" and the 41-digit text are numbers to float() but not to the setup's
+        # reading (the C64 parser): refused here, not as a traceback after the title.
         monkeypatch.setattr(sys, "stdin", io.StringIO(""))
         with pytest.raises(SystemExit) as exc:
-            main(["--score-weight", "1.5x"])
+            main(["--score-weight", text])
         assert exc.value.code == 2
         captured = capsys.readouterr()
         assert captured.out == "", "the game started (the title screen was drawn)"
-        assert "--score-weight" in captured.err and "1.5x" in captured.err
+        assert "--score-weight" in captured.err and text in captured.err
+        assert "Traceback" not in captured.err
 
     @pytest.mark.parametrize("spec", ["", ":gang", "a" * 14, "name:" + "g" * 14])
     def test_a_player_name_over_13_characters_or_empty_is_rejected(self, monkeypatch, capsys, spec):

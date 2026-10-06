@@ -36,7 +36,7 @@ even offering the option, and kdh never does that):
 Faithfulness notes
 -------------------
 - The key wait (``:1100``); every exit the source sends through ``goto1100``/
-  ``gosub1100`` or ``goto1125`` yields ``_KEY_WAIT``; every ``return`` exit
+  ``gosub1100`` or ``goto1125`` yields ``KEY_WAIT``; every ``return`` exit
   (``:15020``, ``:15051``, ``:15111``, ``:15151``, ``:15155``, ``:15208``, ``:15220``,
   ``:15315``) returns without one.
 - ALL game-balance numbers (loan bounds, price rolls, ambush odds, loot range) come
@@ -64,11 +64,11 @@ from pathlib import Path
 from engine.effects import MoneyChange
 from ..effects import DebtChange, DebtClear, ShopChange
 from ..state import business, debt
-from engine.interactions import Acknowledge, Confirm, PromptInt, ShowMessage
+from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
-from engine.turns import KEY_WAIT_SCREEN
 
 from ..setup import (
+    KEY_WAIT,
     apply_outcome,
     load_encounter,
     run_encounter,
@@ -83,9 +83,6 @@ _CONFIG_DIR = Path(__file__).resolve().parents[1]
 #: including its win consequence (loot roll + score + message). The NAME is read
 #: back off the loaded encounter for the outcome narration; nothing about the fight
 #: is assembled inline.
-#: The ``:1100`` key wait (``print"{down}taste druecken!":poke198,0:wait198,1``).
-_KEY_WAIT = Acknowledge(KEY_WAIT_SCREEN)
-
 _AMBUSH_ENCOUNTER = load_encounter(_CONFIG_DIR / "content" / "encounters" / "kdh_ambush.yaml")
 
 
@@ -110,7 +107,7 @@ def kdh_borrow(ctx):
     # :15010 — one loan at a time.
     if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_old_debts_first")
-        yield _KEY_WAIT  # :15010 ...:goto1100
+        yield KEY_WAIT  # :15010 ...:goto1100
         return []
 
     x = yield PromptInt(
@@ -126,7 +123,7 @@ def kdh_borrow(ctx):
     yield ShowMessage("locations.kdh.borrow_grace_notice")
     ctx.apply(DebtChange(amount=x, months=params["kdh_borrow_grace_months"]))
     ctx.apply(MoneyChange(x))
-    yield _KEY_WAIT  # :15030 ...:kz(sp)=6:goto1100
+    yield KEY_WAIT  # :15030 ...:kz(sp)=6:goto1100
     return []
 
 
@@ -163,7 +160,7 @@ def kdh_repay(ctx):
     # :15060 — afford check, runs BEFORE any write.
     if active.ka < x:
         yield ShowMessage("system.not_enough_money")
-        yield _KEY_WAIT  # goto1125 -> :1125 ...:goto1100
+        yield KEY_WAIT  # goto1125 -> :1125 ...:goto1100
         return []
 
     # :15065 — settle.
@@ -178,7 +175,7 @@ def kdh_repay(ctx):
     else:
         # :15070 — partial: report the remaining balance.
         yield ShowMessage("locations.kdh.repay_partial", {"remaining": remaining})
-    yield _KEY_WAIT  # :15070 / :15075 ...:goto1100
+    yield KEY_WAIT  # :15070 / :15075 ...:goto1100
     return []
 
 
@@ -214,13 +211,13 @@ def _buy(ctx, *, ln: int, params: dict):
     # :15105 — already own a DIFFERENT shop.
     if business(active).shop_tile != 0:
         yield ShowMessage("locations.kdh.already_own_a_shop")
-        yield _KEY_WAIT  # :15105 ...:goto1100
+        yield KEY_WAIT  # :15105 ...:goto1100
         return
 
     # :15106 — own outstanding debt.
     if debt(active).amount != 0:
         yield ShowMessage("locations.kdh.pay_own_debts_first")
-        yield _KEY_WAIT  # :15106 ...:goto1100
+        yield KEY_WAIT  # :15106 ...:goto1100
         return
 
     # :15107-15108 — rival scan: any OTHER player already own this tile?
@@ -229,7 +226,7 @@ def _buy(ctx, *, ln: int, params: dict):
             continue
         if business(other).shop_tile == ln:
             yield ShowMessage("locations.kdh.shop_belongs_to", {"name": other.name})
-            yield _KEY_WAIT  # :15108 ...:goto1100
+            yield KEY_WAIT  # :15108 ...:goto1100
             return
 
     # :15110-15111 — price roll + confirm. :15110 `p=int(rnd(1)*11)*100+5000`
@@ -244,14 +241,14 @@ def _buy(ctx, *, ln: int, params: dict):
     # :15115 — afford check.
     if active.ka < price:
         yield ShowMessage("system.not_enough_money")
-        yield _KEY_WAIT  # :15115 goto1125 -> :1125 ...:goto1100
+        yield KEY_WAIT  # :15115 goto1125 -> :1125 ...:goto1100
         return
 
     # :15120 — settle, then wait for a key (``gosub1100``).
     ctx.apply(MoneyChange(-price))
     ctx.apply(ShopChange(tile=ln))
     yield ShowMessage("locations.kdh.bought")
-    yield _KEY_WAIT
+    yield KEY_WAIT
 
     # :15125 goto15200 — the capital screen follows in the same option. Its :15200
     # owner check passes (:15120 just set kg(sp)=ln). ``ctx.apply`` only buffers, so
@@ -304,7 +301,7 @@ def kdh_capital(ctx):
     # :15200 — must own this tile.
     if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
-        yield _KEY_WAIT  # :15200 ...:goto1100
+        yield KEY_WAIT  # :15200 ...:goto1100
         return []
 
     yield from _capital_screen(
@@ -329,7 +326,7 @@ def _capital_screen(ctx, *, cash: int, capital: int, params: dict):
     # :15215 — afford check against cash.
     if cash < x:
         yield ShowMessage("system.not_enough_money")
-        yield _KEY_WAIT  # :15215 goto1125 -> :1125 ...:goto1100
+        yield KEY_WAIT  # :15215 goto1125 -> :1125 ...:goto1100
         return
 
     # :15220 — settle, and ``return`` with no key wait.
@@ -366,7 +363,7 @@ def kdh_collect(ctx):
     # :15300 — must own this tile.
     if business(active).shop_tile != ln:
         yield ShowMessage("locations.kdh.not_your_shop")
-        yield _KEY_WAIT  # :15300 ...:goto1100
+        yield KEY_WAIT  # :15300 ...:goto1100
         return []
 
     capital = business(active).shop_capital
@@ -374,13 +371,13 @@ def kdh_collect(ctx):
     ambush = capital != 0 and ctx.rng.range(params["kdh_ambush_roll"]) != 0
     if not ambush:
         yield ShowMessage("locations.kdh.debts_paid_on_time")
-        yield _KEY_WAIT  # :15306 ...:goto1100
+        yield KEY_WAIT  # :15306 ...:goto1100
         return []
 
     # :15310-15312 — the ambush fight, the declared encounter run by the shared fight
     # helper (which also shows the outcome screen, :30500-30515).
     yield ShowMessage("locations.kdh.ambush_intro")
-    yield _KEY_WAIT  # :15312 gosub1100, before the fight (gosub5000)
+    yield KEY_WAIT  # :15312 gosub1100, before the fight (gosub5000)
     enc = _AMBUSH_ENCOUNTER
     # The outcome screen (:30500-30515) and its :30520 ``print:goto1100`` key wait are
     # the combat subroutine's, shown by run_encounter for every caller.
@@ -391,5 +388,5 @@ def kdh_collect(ctx):
     # consequence rides the encounter's on_win/on_loss.
     yield from apply_outcome(ctx, enc, result)
     if result.winner == 1:
-        yield _KEY_WAIT  # :15321 ...:gosub1160:goto1100
+        yield KEY_WAIT  # :15321 ...:gosub1160:goto1100
     return []
