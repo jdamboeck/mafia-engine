@@ -125,6 +125,9 @@ def waf_buy(ctx):
     # ln=1 grenade roll (13011). So the stock range + grenade roll live INSIDE the loop:
     # each re-entry re-rolls, matching the original's stock churn and RNG draw count.
     while True:
+        # :13010 ``print"{clr}{down}ok, wir haben folgendes:":print`` -- before the stock
+        # is known, so the grenade news (:13011's gosub13090) prints under it.
+        yield ShowMessage("locations.waf.weapon_list")
         # 13011-13013 — stock range from the tile ln.
         if ln == 1:
             lo, hi = 3, 7
@@ -141,7 +144,13 @@ def waf_buy(ctx):
         else:  # ln == 3 (13013)
             lo, hi = 1, 4
 
-        # 13015-13020 — list weapons in [lo, hi]; pick one. 0 cancels the whole buy.
+        # :13015 ``fori=atob:printmid$(str$(i),2)" - "wa$(i);wp(i)"$":next``
+        for i in range(lo, hi + 1):
+            yield ShowMessage(
+                "locations.waf.weapon_row",
+                {"number": i, "name": weapons[i]["name"], "price": weapons[i]["price"]},
+            )
+        # 13020 — pick one of the listed weapons. 0 cancels the whole buy.
         x = yield PromptInt(
             "locations.waf.weapon_prompt",
             min=lo,

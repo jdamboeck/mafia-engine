@@ -16,6 +16,8 @@ locations:
       leave: "'DANKE, DANKE! KEIN BEDARF. BYE!'"
 
     # --- buy (13010-13091) ---
+    weapon_list: "ok, wir haben folgendes:\n"  # :13010 `ok, wir haben folgendes:`
+    weapon_row: "{number:mid$} - {name}{price}$"  # :13015 `printmid$(str$(i),2)" - "wa$(i);wp(i)"$"`
     weapon_prompt: "ihre wahl:"  # :13020 `ihre wahl:`
     grenades_in: "...brandheiss! eine ladung army-handgranaten ist gerade eingetroffen!"  # :13090-13091
     gangster_prompt: "fuer welchen gangster:"  # :13035 `fuer welchen gangster:`

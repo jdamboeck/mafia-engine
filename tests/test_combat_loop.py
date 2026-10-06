@@ -924,3 +924,83 @@ def test_energy_survives_a_save_and_load_after_a_two_owner_fight(tmp_path):
     loaded = load_game(path, config.registries).state
     assert [g.vitality for g in loaded.players[0].roster] == [0, 9]
     assert [g.vitality for g in loaded.players[1].roster] == [8, 2]
+
+
+# --------------------------------------------------------------------------- #
+# #171 — the fight's opening (:30015, :30025) and the CPU's label (:30400)    #
+# --------------------------------------------------------------------------- #
+def _screens(start_kw, src_answer, *, rng):
+    """Every CombatScreen a ``StartCombat(**start_kw)`` fight shows, in order."""
+    seen = []
+
+    def handler(ctx):
+        yield StartCombat(**start_kw)
+        return []
+
+    def src(interaction):
+        assert isinstance(interaction, CombatScreen), interaction
+        seen.append(interaction)
+        return src_answer(interaction)
+
+    run(handler, src, state=None, rng=rng)
+    return seen
+
+
+def test_a_fight_opens_on_both_side_names_and_the_begins_banner():
+    """:30015 ``poke211,-20*(i=2):poke214,16:syscs:printbn$(ks(i)):next`` prints each
+    side's name under the board, where it stays; :30025 ``print"{rvon}der kampf
+    beginnt..."`` shows once, before the first activation (:30030 ``gosub1450``
+    erases it)."""
+    sides = (
+        (
+            _f(name="a", weapon=5, energie=20, position=100, kraft=30, brutalitaet=0),
+            _f(name="b", weapon=5, energie=20, position=140, kraft=30, brutalitaet=0),
+        ),
+        (
+            _f(name="x", weapon=0, energie=1, position=101),
+            _f(name="y", weapon=0, energie=1, position=141),
+        ),
+    )
+    seen = _screens(
+        {**_spec(sides=sides), "names": ("capones", "wurstfinger-fred")},
+        lambda s: ("shoot", +1),
+        rng=_StubRng(1, 10, 0, 1, 10, 0),
+    )
+    assert len(seen) == 2
+    assert seen[0].message == "begins"
+    assert seen[1].message != "begins"
+    payloads = [s.to_json() for s in seen]
+    assert [p["names"] for p in payloads] == [["capones", "wurstfinger-fred"]] * 2
+    assert json.loads(json.dumps(payloads[0])) == payloads[0]
+
+
+def test_a_cpu_activation_leaves_its_fighter_label_on_the_board():
+    """:30400 ``poke211,20:poke214,18:syscs:print"{rvon}spieler"f`` -- every CPU
+    activation prints its fighter's number at column 20 of row 18, with no wait;
+    nothing erases it (:30108's and :30116's ``gosub1400`` clear rows 20-22), so the
+    human's next screen still shows the last CPU fighter's label."""
+    from engine.fight_loop import HumanDriver
+
+    cpu, calls = _counting_cpu()
+    seen = []
+
+    class _Src:
+        observes_ai = True
+
+        def __call__(self, interaction):
+            seen.append(interaction)
+            return ("shoot", +1) if interaction.prompt == "action" else None
+
+    run_fight(
+        sides=_observe_fight_sides(),
+        rules=build_rules({}),
+        drivers={1: HumanDriver(), 2: cpu},
+        input_source=_Src(),
+        rng=Rng(42),
+    )
+    assert calls, "no CPU activation ran"
+    assert seen[0].cpu_fighter is None, "no CPU fighter has acted before the first screen"
+    observed = [s for s in seen if s.prompt == "observe"]
+    assert observed and all(s.cpu_fighter == 1 for s in observed)
+    later = [s for s in seen[1:] if s.prompt == "action"]
+    assert later and all(s.to_json()["cpu_fighter"] == 1 for s in later)

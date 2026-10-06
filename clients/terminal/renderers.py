@@ -390,6 +390,21 @@ def render_combat_message(payload: dict, resolver: Any, out: TextIO, colors: Col
     out.write(f"{colors.fg('yellow')}{text}{RESET_FG}\n")
 
 
+def render_combat_labels(payload: dict, resolver: Any, out: TextIO, colors: Colors) -> None:
+    """The board's labels under the grid: each side's name (``mf-prg.bas:30015``,
+    ``combat.side_names``), then the last CPU fighter's label (``:30400``,
+    ``combat.cpu_label``) once a CPU fighter has acted. A payload with no names (a
+    fight that names no side) prints no name row."""
+    names = payload.get("names") or []
+    if len(names) == 2:
+        text = resolver.resolve("combat.side_names", {"name1": names[0], "name2": names[1]})
+        out.write(f"{colors.fg('light_grey')}{text}{RESET_FG}\n")
+    fighter = payload.get("cpu_fighter")
+    if fighter is not None:
+        text = resolver.resolve("combat.cpu_label", {"fighter": fighter})
+        out.write(f"{colors.fg('light_grey')}{text}{RESET_FG}\n")
+
+
 def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:
     """Render the per-side losses line (``mf-prg.bas:30510-30515``)."""
     losses = payload.get("losses") or [0, 0]

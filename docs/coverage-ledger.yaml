@@ -114,8 +114,7 @@ blocks:
   - {start: 12320, end: 12322, player_facing: true, status: ported}
   - {start: 12330, end: 12335, player_facing: true, status: ported}
   - {start: 13000, end: 13005, player_facing: false, status: ported}
-  - {start: 13010, end: 13015, player_facing: true, status: ported,
-     screen: deferred, screen_reason: "The weapon list: :13010 prints \"ok, wir haben folgendes:\" and :13015 each model's number, name and price; the port asks only :13020's \"ihre wahl:\". #171."}
+  - {start: 13010, end: 13015, player_facing: true, status: ported}
   - {start: 13020, end: 13025, player_facing: true, status: ported}
   - {start: 13035, end: 13073, player_facing: true, status: ported}
   - {start: 13075, end: 13080, player_facing: true, status: ported}
@@ -205,8 +204,7 @@ blocks:
   - {start: 22105, end: 22120, player_facing: true, status: ported}
   - {start: 23000, end: 23030, player_facing: true, status: ported}
   - {start: 24000, end: 24020, player_facing: true, status: ported}
-  - {start: 25000, end: 25010, player_facing: true, status: ported,
-     screen: deferred, screen_reason: "The job screen's header: :25000 prints the player's name and \"job als\" in reverse video (and :25015/:25100/:25200 the job's name); the port opens on the job's narration. #171."}
+  - {start: 25000, end: 25010, player_facing: true, status: ported}
   - {start: 25015, end: 25040, player_facing: true, status: ported}
   - {start: 25041, end: 25041, player_facing: false, status: ported}
   - {start: 25042, end: 25042, player_facing: false, status: ported}
@@ -235,8 +233,7 @@ blocks:
   - {start: 27100, end: 27145, player_facing: true, status: ported}
   - {start: 27146, end: 27146, player_facing: false, status: ported}
   - {start: 27150, end: 27150, player_facing: false, status: ported}
-  - {start: 30000, end: 30100, player_facing: true, status: ported,
-     screen: deferred, screen_reason: "The fight's opening: :30015 prints each side's name over the grid and :30025 \"der kampf beginnt...\"; the port draws the grid without them. #171."}
+  - {start: 30000, end: 30100, player_facing: true, status: ported}
   - {start: 30105, end: 30108, player_facing: false, status: ported}
   - {start: 30109, end: 30120, player_facing: true, status: ported}
   - {start: 30125, end: 30139, player_facing: true, status: ported}
@@ -255,8 +252,7 @@ blocks:
   - {start: 30300, end: 30305, player_facing: true, status: ported}
   - {start: 30310, end: 30310, player_facing: false, status: ported}
   - {start: 30350, end: 30355, player_facing: true, status: ported}
-  - {start: 30400, end: 30415, player_facing: true, status: ported,
-     screen: deferred, screen_reason: "The CPU fighter's turn label: :30400 prints \"spieler\" and its number; the port shows nothing for a CPU activation. #171."}
+  - {start: 30400, end: 30415, player_facing: true, status: ported}
   - {start: 30420, end: 30425, player_facing: false, status: ported}
   - {start: 30450, end: 30458, player_facing: false, status: ported}
   - {start: 30460, end: 30462, player_facing: false, status: ported}

@@ -501,15 +501,18 @@ def run_encounter(
         # Side 1's gang is its owner's: its energy is written back to them.
         owner=ctx.state.clock.active_player if owner is None else owner,
     )
+    # :30015 and :30500-30515 name the gangs, bn$(ks(1)): side 1's owner's gang name
+    # (the active player's), and the encounter's bn$(0).
+    player_name = _gang_name(active if owner is None else ctx.state.players[owner])
+    names = (player_name, spec.name)
     if owner is None:
-        result = yield StartCombat(scenario=scenario)
-        # :30500-30515 print the gangs, bn$(ks(1)): the active player's gang name.
-        player_name = _gang_name(active)
+        result = yield StartCombat(scenario=scenario, names=names)
     else:
         result = yield StartCombat(
-            scenario=scenario, drivers={1: HumanDriver(player=owner), 2: AiDriver()}
+            scenario=scenario,
+            drivers={1: HumanDriver(player=owner), 2: AiDriver()},
+            names=names,
         )
-        player_name = _gang_name(ctx.state.players[owner])
     # The outcome screen is the caller's to show (_run_combat yields no final screen);
     # the losses come off the CombatResult, which is right for a many-fighter side.
     yield from narrate_combat_outcome(
@@ -569,14 +572,17 @@ def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
         # :30020 seeds the direction memory for a CPU side only (ks(2)=0): none here.
         dir_memory={},
     )
+    # :30015 and :30500-30515 name the gangs, bn$(ks(i)).
+    names = (_gang_name(players[defender]), _gang_name(players[attacker]))
     result = yield StartCombat(
         scenario=scenario,
         drivers={1: HumanDriver(player=defender), 2: HumanDriver(player=attacker)},
+        names=names,
     )
     yield from narrate_combat_outcome(
         winner=result.winner,
-        player_name=_gang_name(players[defender]),
-        enemy_name=_gang_name(players[attacker]),
+        player_name=names[0],
+        enemy_name=names[1],
         player_losses=result.losses[0],
         enemy_losses=result.losses[1],
     )

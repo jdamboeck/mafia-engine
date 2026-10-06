@@ -64,6 +64,11 @@ _SOLO_ARGS = ["--player", ":".join(SOLO[0])]
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 
 
+def _plain(text: str) -> str:
+    """``text`` without its ANSI colour and cursor codes."""
+    return re.sub(r"\033\[[0-9;?]*[A-Za-z]", "", text)
+
+
 def _resolver():
     return Resolver.from_config(_CONFIG_DIR, theme="classic")
 
@@ -833,6 +838,33 @@ class TestWatchAi:
         text = self._shift_fight_output(monkeypatch, [])
         assert _resolver().resolve("combat.key_legend") in text, "the fight never started"
         assert _resolver().resolve("combat.observe_prompt") not in text
+
+    def test_a_fight_opens_on_both_gang_names_and_the_begins_banner(self, monkeypatch):
+        """:30015 ``printbn$(ks(i))`` -- side 1's gang at column 0, side 2's at column
+        20, under the board on every screen; :30025 ``print"{rvon}der kampf
+        beginnt..."`` on the first screen only."""
+        text = self._shift_fight_output(monkeypatch, [])
+        boards = text.split(_resolver().resolve("combat.key_legend"))[:-1]
+        assert len(boards) >= 2, "the fight never reached a second activation"
+        assert "der kampf beginnt..." in boards[0]
+        assert all("der kampf beginnt..." not in board for board in boards[1:])
+        # :25035-25042: seed 5's bouncer shift draws one of the three brawlers.
+        brawlers = ("wurstfinger-fred", "affenface-alf", "der schlachter")
+        rows = {f"{SOLO[0][1]:<20}{name}" for name in brawlers}
+        for board in boards:
+            assert rows & set(_plain(board).split("\n")), board
+
+    def test_a_cpu_activation_leaves_spieler_and_its_number_on_the_board(self, monkeypatch):
+        """:30400 ``poke211,20:poke214,18:syscs:print"{rvon}spieler"f`` on every CPU
+        activation: column 20, the number with PRINT's spaces. Nothing erases it, so
+        the human's next board shows it; the first board, before any CPU move, does not."""
+        text = self._shift_fight_output(monkeypatch, [])
+        boards = [
+            _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
+        ]
+        label = " " * 20 + "spieler 1 "
+        assert label not in boards[0]
+        assert all(label in board for board in boards[1:])
 
 
 # --------------------------------------------------------------------------- #

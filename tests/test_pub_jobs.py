@@ -471,3 +471,33 @@ def test_a_shift_fight_waits_before_it_starts_and_under_its_outcome():
         "job.shift_failed",
         KEY_WAIT_SCREEN,
     ]
+
+
+@pytest.mark.parametrize(
+    ("job_type", "draws", "answers", "title", "then"),
+    [
+        # :25015 print"{rvon} rausschmeisser ", then :25020's wait
+        (1, (0,), (), "rausschmeisser", "bouncer_wait"),
+        # :25010 sends the doorman (3) to :25015 too
+        (3, (0,), (), "rausschmeisser", "bouncer_wait"),
+        # :25100 print"{rvon} croupier ", then :25105's intro
+        (2, (1, 300), (1,), "croupier", "croupier_intro"),
+        # :25200 print"{rvon} killer ", then :25205's intro
+        (4, (), ("surrender",), "killer", "killer_intro"),
+    ],
+)
+def test_the_shift_opens_on_the_player_s_name_and_the_job(job_type, draws, answers, title, then):
+    """:25000 ``print"{clr}{down}{rvon}{blk} "sp$(sp)":{$a0}job als ":print``, then
+    :25010 ``onjo(sp)goto25015,25100,25015,25200`` prints the job's name, before the
+    job's own narration."""
+    from engine.interactions import ShowMessage
+    from engine.strings import Resolver
+
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    src = _scripted(*answers)
+    st = _state(jobs=Job(type=job_type, pending_pay=2200, months_left=2))
+    run_pure(HANDLERS["job.shift"], src, state=st, rng=_StubRng(*draws))
+    shown = [x for x in src.seen if isinstance(x, ShowMessage)]
+    rows = "\n".join(resolver.resolve(x.key, x.params) for x in shown[:2]).split("\n")
+    assert rows == ["p0: job als", "", title]
+    assert shown[2].key == f"job.shift_{then}"

@@ -6,6 +6,18 @@
 # byte-for-byte from research-data/pass-1/game-text.yaml + mf-prg.bas:30100-30520.
 # {name}/{side}/{losses1}/{losses2} are template params the renderer fills.
 combat:
+  # :30025 print"{rvon}der kampf beginnt..." -- the first screen's message (the engine's
+  # `begins` key), shown once before the first activation.
+  begins: "der kampf beginnt..."  # :30025 `der kampf beginnt...`
+
+  # :30015 poke211,-20*(i=2):poke214,16:syscs:printbn$(ks(i)) -- each side's name
+  # under the board, side 1's at column 0 and side 2's at column 20; it stays all fight.
+  side_names: "{name1}{tab(20)}{name2}"  # :30015 `printbn$(ks(i))`
+
+  # :30400 poke211,20:poke214,18:syscs:print"{rvon}spieler"f -- the last CPU fighter's
+  # number at column 20 (PRINT's sign space and trailing space around it).
+  cpu_label: "{tab(20)}spieler{fighter}"  # :30400 `print"{rvon}spieler"f`
+
   # 30125/30139: unrecognized key falls back to the GET wait -- re-prompt, no text
   # printed by the original at that exact point; the client still needs SOME line.
   unknown_action: "?"

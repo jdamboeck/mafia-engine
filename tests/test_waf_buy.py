@@ -175,6 +175,46 @@ def test_stock_range_by_ln():
         assert (prompt.min, prompt.max) == (lo, hi)
 
 
+def _list_screen(state, rng) -> list[str]:
+    """The rows ``waf.buy`` shows before its first ``ihre wahl:`` prompt, resolved."""
+    from engine.strings import Resolver
+
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    seen = _observe(HANDLERS["waf.buy"], state, rng, {PromptInt: [CANCEL]})
+    shown = seen[: next(i for i, x in enumerate(seen) if isinstance(x, PromptInt))]
+    assert all(isinstance(x, ShowMessage) for x in shown), shown
+    return "\n".join(resolver.resolve(x.key, x.params) for x in shown).split("\n")
+
+
+def test_the_weapon_list_shows_each_offered_weapon_with_its_price():
+    """:13010 ``print"{clr}{down}ok, wir haben folgendes:":print``, then :13015
+    ``fori=atob:printmid$(str$(i),2)" - "wa$(i);wp(i)"$":next`` -- the number without
+    its sign position, the name, the price as PRINT prints a number (" 50 ")."""
+    assert _list_screen(_state(ln=2), _StubRng()) == [
+        "ok, wir haben folgendes:",
+        "",
+        "1 - messer 50 $",
+        "2 - knueppel 100 $",
+        "3 - schlagkette 500 $",
+        "4 - wurfsterne 3000 $",
+        "5 - revolver 4000 $",
+    ]
+    assert _list_screen(_state(ln=3), _StubRng())[-1] == "4 - wurfsterne 3000 $"
+    # :13011 a=3:b=7 on tile 1; the grenade news (:13090) prints after :13010's
+    # heading and before the list, which then runs to b=8.
+    rows = _list_screen(_state(ln=1, rank=6), _StubRng(0))
+    assert rows[:2] == ["ok, wir haben folgendes:", ""]
+    assert rows[2].startswith("...brandheiss!")
+    assert rows[-6:] == [
+        "3 - schlagkette 500 $",
+        "4 - wurfsterne 3000 $",
+        "5 - revolver 4000 $",
+        "6 - gewehr 4500 $",
+        "7 - maschinenpistole 8000 $",
+        "8 - handgranaten 10000 $",
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # Grenade roll (R5)                                                           #
 # --------------------------------------------------------------------------- #

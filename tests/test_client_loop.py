@@ -740,6 +740,10 @@ class TestJobShiftThroughClient:
         # The job-shift screen rendered (its own header), not a second map draw
         # between the two turn_over screens.
         assert "job" in output
+        # :25000's header (the player's name, "job als") and :25015's job name reach
+        # the player before the shift's narration (:25020).
+        opened = output.index(": job als")
+        assert output.index("rausschmeisser", opened) < output.index("du wartest", opened)
         assert "deine aktion:" in output  # the combat-screen action prompt (U7 wire)
         # No third "move: W/A/S/D" prompt appears between the two turn-over screens
         # -- the employed turn never reached the map loop at all.

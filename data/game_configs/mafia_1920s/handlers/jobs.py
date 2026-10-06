@@ -129,12 +129,17 @@ def job_shift(ctx):
 
     won = True  # quiet day / successful cheat default to "no fight, shift succeeds"
 
+    # :25000 ``print"{clr}{down}{rvon}{blk} "sp$(sp)":{$a0}job als ":print`` -- the
+    # screen's header, under the runner's job-shift screen clear.
+    yield ShowMessage("job.shift_header", {"name": active.name})
+
     if job_type in (JOB_BOUNCER, JOB_DOORMAN):
         # :25015-25045 -- shared bouncer/doorman flow. Source-confirmed quirk: the
         # ON-GOTO at :25010 sends BOTH job types to the SAME line 25015, which prints
         # the "rausschmeisser" (bouncer) header/narration even for an employed
         # DOORMAN -- there is no separate doorman-specific text block in the source,
         # so reusing the bouncer strings for both is faithful, not a shortcut.
+        yield ShowMessage("job.shift_bouncer_title")  # :25015
         yield ShowMessage("job.shift_bouncer_wait")
         if ctx.rng.range(2) == 0:
             # :25025 -- 50% quiet day.
@@ -151,6 +156,7 @@ def job_shift(ctx):
 
     elif job_type == JOB_CROUPIER:
         # :25100-25140 -- pick a trick, catch check, bonus or fight.
+        yield ShowMessage("job.shift_croupier_title")  # :25100
         yield ShowMessage("job.shift_croupier_intro")
         trick = yield PromptInt("job.shift_croupier_pick", min=1, max=3)
         if ctx.rng.range(6 - trick) == 0:  # :25120 `int(rnd(1)*(6-x))=0`
@@ -171,6 +177,7 @@ def job_shift(ctx):
 
     elif job_type == JOB_KILLER:
         # :25200-25210 -- always fight the victim.
+        yield ShowMessage("job.shift_killer_title")  # :25200
         yield ShowMessage("job.shift_killer_intro")
         yield KEY_WAIT  # :25206 ...:gosub1100, before the fight
         winner = yield from _fight(ctx, _KILLER_ENCOUNTER)
