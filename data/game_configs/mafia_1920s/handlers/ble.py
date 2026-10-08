@@ -49,7 +49,7 @@ from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import MarkSet
-from ..setup import score_and_rank
+from ..setup import KEY_WAIT, score_and_rank
 
 __all__ = ["ble_counterfeit", "ble_passport"]
 
@@ -76,6 +76,7 @@ def ble_passport(ctx):
 
     if active.ka < price:  # :22014 ``ifka(sp)<pgoto1125``
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :1125 ...:goto1100
         return []
 
     yield ShowMessage("locations.ble.passport_done")  # :22015
@@ -83,6 +84,7 @@ def ble_passport(ctx):
     ctx.apply(MoneyChange(-price))
     ctx.apply(MarkSet(fake_papers=True))
     ctx.apply(score_and_rank(params["ble_passport_score"], params))
+    yield KEY_WAIT  # :22020 ...:goto1100
     return []
 
 
@@ -111,4 +113,4 @@ def ble_counterfeit(ctx):
     ctx.apply(MoneyChange(p - q))
     ctx.apply(MarkSet(counterfeit=True))
     ctx.apply(score_and_rank(params["ble_counterfeit_score"], params))
-    return []
+    return []  # :22120 ...:gosub1160:return -- no key wait

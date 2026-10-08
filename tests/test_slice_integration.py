@@ -46,9 +46,10 @@ import pytest
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.interactions import PromptInt, ShowMessage, run
+from engine.interactions import Acknowledge, PromptInt, ShowMessage, run
 from engine.locations import available_options, load_location
 from engine.movement import DOWN, LEFT, UP, load_city, try_move
+from engine.turns import KEY_WAIT_SCREEN
 from tests.helpers import deadline, with_player, with_tenancy
 import data.game_configs.mafia_1920s.state as game
 
@@ -84,7 +85,8 @@ class _Recorder:
     Since #43 that includes ``ShowMessage``: narration is DELIVERED to the source (so
     a client can render it) but is never asked for an answer, so it consumes no
     scripted response — only real prompts do. That is what lets ``self.seen`` be the
-    FULL presented sequence rather than just the prompts.
+    FULL presented sequence rather than just the prompts. The ``:1100`` key wait
+    (``Acknowledge(KEY_WAIT_SCREEN)``) is delivered the same way.
     """
 
     def __init__(self, *answers):
@@ -93,7 +95,9 @@ class _Recorder:
 
     def __call__(self, interaction):
         self.seen.append(interaction)
-        if isinstance(interaction, ShowMessage):
+        if isinstance(interaction, ShowMessage) or (
+            isinstance(interaction, Acknowledge) and interaction.key == KEY_WAIT_SCREEN
+        ):
             return None
         return next(self._answers)
 
@@ -197,10 +201,10 @@ def _play_trajectory():
     assert game.tenant(state, 2) == 0  # tenancy set to sp (active player index 0)
     assert game.rented_months(p) == 2
     # The FULL presented interaction sequence, straight off the recording input_source
-    # (#43): quote -> months prompt -> success. Before narration was delivered this
+    # (#43): quote -> months prompt -> success -> :10045's key wait. Before narration was delivered this
     # had to be observed out-of-band by hand-driving the generator, which proved the
     # handler YIELDED the messages but not that any client could receive them.
-    assert rent_rec.types == [ShowMessage, PromptInt, ShowMessage]
+    assert rent_rec.types == [ShowMessage, PromptInt, ShowMessage, Acknowledge]
     obs["cash_after_positive_rent"] = p.ka
     obs["tenancy_after_rent"] = _tenancy(state)
     obs["rented_months_after_rent"] = game.rented_months(p)
@@ -239,7 +243,7 @@ def _play_trajectory():
     occ_rec = _Recorder()
     occ_result = _drive_option(slw, "rent", occupied, ln=2, recorder=occ_rec)
     assert occ_result.effects == []
-    assert occ_rec.keys == ["locations.slw.no_room"]
+    assert occ_rec.keys == ["locations.slw.no_room", KEY_WAIT_SCREEN]
 
     # Pay-rent-not-resident: tile owned by a NON-active player -> :10100 refuses.
     not_resident = _fresh_state()
@@ -249,7 +253,7 @@ def _play_trajectory():
     nr_rec = _Recorder()
     nr_result = _drive_option(slw, "pay_rent", not_resident, ln=2, recorder=nr_rec)
     assert nr_result.effects == []
-    assert nr_rec.keys == ["locations.slw.not_resident"]
+    assert nr_rec.keys == ["locations.slw.not_resident", KEY_WAIT_SCREEN]
 
     # ================================================================= #
     # C. 0-month quiet cancel (:10030) — ZERO effects, cash UNCHANGED.    #
@@ -289,7 +293,8 @@ def _play_trajectory():
     recruit_rec = _Recorder()
     recruit_result = _drive_option(pub, "recruit", state, ln=1, recorder=recruit_rec)
     # :12100-12102 -- rank 1 is refused inside the handler; nothing committed.
-    assert recruit_rec.keys == ["locations.pub.rank_too_low"]
+    # :12102 ...:goto1100 -- the refusal, then the key wait.
+    assert recruit_rec.keys == ["locations.pub.rank_too_low", KEY_WAIT_SCREEN]
     assert recruit_result.effects == []
 
     # --- final-state fingerprint (for determinism) ------------------------- #
@@ -461,7 +466,8 @@ def _smoke_plan():
                 state = commit(state, [MsChange(-ENTER_COST)]).state
                 over = state.players[state.clock.active_player].ms <= 0
                 # the hand's result waits for a key (:16035/:16040 ``goto1100``)
-                return keys + ["", "0", "0", "100", ""], state, over
+                # sph: play (option 1), poker (game 0), wager 100.
+                return keys + ["", "1", "0", "100", ""], state, over
             if kind != "step" or result.payload.turn_over:
                 return None  # the walk needs more than this turn's movement
         return None

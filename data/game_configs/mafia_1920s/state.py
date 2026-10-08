@@ -328,18 +328,19 @@ def _sp(state: GameState, ln: int | None) -> int:
 
 @register_guard_variable("tenancy")
 def _tenancy(state: GameState, ln: int | None) -> int:
-    """``uk(ln)`` for the current tile: the tenant's index, 0 when vacant.
+    """``uk(ln)`` for the current tile: the tenant's 0-based index, -1 when vacant.
 
-    A vacant tile reads 0, as ``uk(ln)=0`` does in the source; with 0-based player
-    indices that is also player 0's own tile, so a ``tenancy = 0`` guard cannot tell
-    the two apart. This config's slw options therefore guard nothing and check the
-    tenancy inside their handlers (``handlers/slw.py``, #122). A tenancy guard is
-    meaningless without a tile, so ``ln is None`` raises ``ValueError``.
+    The source's vacant room is ``uk(ln)=0`` with 1-based players; the port's players
+    are 0-based, so a vacant room reads :data:`VACANT` (-1) and player 0's own room
+    reads 0 -- a ``tenancy = -1`` guard is the source's ``uk(ln)=0`` (#146). No shell
+    of this config guards on it: slw checks the tenancy inside its handlers
+    (``handlers/slw.py``, #122). A tenancy guard is meaningless without a tile, so
+    ``ln is None`` raises ``ValueError``.
     """
     if ln is None:
         raise ValueError("guard variable 'tenancy' requires a tile context (ln), but ln is None")
     owner = tenant(state, ln)
-    return 0 if owner is None else owner
+    return VACANT if owner is None else owner
 
 
 @register_guard_variable("tip")

@@ -65,10 +65,11 @@ def _rules() -> dict[str, str]:
         "shared_direction_memory": "faithful",
         "stale_bribe_price": "faithful",
         "flight_odds_by_seat": "faithful",
-        "chief_bribe_negative_months": "faithful",
+        "c64_input_negatives": "faithful",
         "chief_bribe_empty_answer": "faithful",
         "gang_war_score_to_the_attacker": "faithful",
         "prison_brawl_zeroes_the_attackers_boss": "faithful",
+        "c64_float_score": "faithful",
     }
 
 
@@ -325,3 +326,46 @@ def test_a_number_above_the_gang_is_asked_again():
     run_pure(HANDLERS["sub.platform"], source, state=_state(roster=(_THIEF, second)), rng=rng)
     assert len([i for i in source.seen if isinstance(i, PromptInt) and i.key == _PICK]) == 2
     assert rng.calls[1] == ("range", 11)
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_EXITS = [
+    # id, option, state fields, answers, rng draws, key waits, ends in the wait
+    # :18020 ...gosub1110:ifx$="n"thenreturn
+    ("18020-no-ticket", "sub.train", {}, (False,), (), 0, False),
+    # :18025 ifka(sp)<50goto1125
+    ("18025-too-poor", "sub.train", {"ka": 49}, (True,), (), 1, True),
+    # :18035 ...gosub1130:ify=0thenreturn
+    ("18035-pick-0", "sub.platform", {}, (0,), (), 0, False),
+    # :18042 ...gosub1100:goto26020 -> :26080's goto1100
+    ("18042-caught", "sub.platform", {}, (1, _SURRENDER), (_NO_MANUAL, 9, 0), 2, True),
+    # :18047 ...:ka(sp)=ka(sp)+50:goto1100 (and every loot line, :18046-18051)
+    ("18047-camera", "sub.platform", {}, (1,), (_NO_MANUAL, _FREE, 0), 1, True),
+    ("18051-diamond", "sub.train", {}, (True, 1), (_NO_MANUAL, _FREE, 3), 1, True),
+    # :18052 print"{down}...eine anleitung -der safeknacker- ??!":s9(sp)=5:goto1100
+    ("18052-manual", "sub.platform", {}, (1,), (10,), 1, True),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws", "waits", "ends"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(key, fields, answers, draws, waits, ends):
+    _, source = _run(key, _state(**fields), answers=answers, draws=draws)
+    assert source.key_waits() == waits
+    assert source.ends_in_key_wait() == ends
+
+
+def test_a_caught_pickpocket_waits_before_the_arrest():
+    """:18042 ``...du wirst erwischt!":gosub1100:goto26020``: the wait, then :26020."""
+    from engine.interactions import Acknowledge, ShowMessage
+    from engine.turns import KEY_WAIT_SCREEN
+
+    _, source = _run("sub.platform", _state(), answers=(1, _SURRENDER), draws=(_NO_MANUAL, 9, 0))
+    keys = [i.key for i in source.seen if isinstance(i, (Acknowledge, ShowMessage))]
+    caught = keys.index("locations.sub.caught")
+    assert keys[caught + 1 : caught + 3] == [KEY_WAIT_SCREEN, "police.caught"]

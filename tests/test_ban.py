@@ -53,6 +53,7 @@ from engine.effects import MoneyChange, SetMovementPoints, Teleport
 from engine.interactions import (
     CANCEL,
     Acknowledge,
+    CombatScreen,
     Ctx,
     PromptChoice,
     PromptInt,
@@ -61,6 +62,7 @@ from engine.interactions import (
 )
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
+from engine.turns import KEY_WAIT_SCREEN
 from tests.helpers import StubRng, run_pure, scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -83,10 +85,11 @@ def _rules() -> dict[str, str]:
         "shared_direction_memory": "faithful",
         "stale_bribe_price": "faithful",
         "flight_odds_by_seat": "faithful",
-        "chief_bribe_negative_months": "faithful",
+        "c64_input_negatives": "faithful",
         "chief_bribe_empty_answer": "faithful",
         "gang_war_score_to_the_attacker": "faithful",
         "prison_brawl_zeroes_the_attackers_boss": "faithful",
+        "c64_float_score": "faithful",
     }
 
 
@@ -283,6 +286,7 @@ def test_tile_1_sends_four_guards_while_the_text_says_three():
     gen = HANDLERS["ban.holdup"](Ctx(state=st, rng=StubRng(1)))
     shown = next(gen)
     assert shown.key == "locations.ban.guards"
+    assert gen.send(None).key == KEY_WAIT_SCREEN  # :20012 ``gosub1100``
     start = gen.send(None)
     gen.close()
     assert isinstance(start, StartCombat)
@@ -587,3 +591,72 @@ def test_a_cracked_safe_pays_the_banks_tile_terms():
         st = _state(ln=ln, tip=tip, roster=(_BOSS,))
         result, _, _ = _run("safe", st, answers=(1, _F5, None), draws=(*_CODE, _NO_SLIP, 1234))
         assert result.effects == [SafeSkillSet(0), _score(-1), *head, MoneyChange(p), _score(4)]
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_WEAK = Gangster(name="weak", energie=40, kraft=15, intelligenz=0, brutalitaet=20)
+
+_EXITS = [
+    # id, option, state fields, answers, rng draws, key waits, ends in the wait
+    # :20003 ifra(sp)<3thenprint"werde erst '"ra$(3)"'!":goto1100
+    ("20003-rank", "holdup", {"rank": 2}, (), (), 1, True),
+    # :20009 ifgz(sp)=1thenprint"du brauchst einen begleiter!":goto1100
+    ("20009-alone", "holdup", {"roster": (_G,)}, (), (), 1, True),
+    # :20010 ...goto20050 -> :20060 ...:x=4:gosub1160:goto1100
+    ("20060-no-guards", "holdup", {}, (), (0, 1234), 1, True),
+    # :20012 gosub1100, the fight's :30520 wait, :20015 ifs=2goto26020 -> :26080's
+    ("20015-guards-won", "holdup", {}, (_SURRENDER_FIGHT, _SURRENDER), (1, 0), 3, True),
+    # :20101 print"{clr}{down}{gry2}du musst noch trainieren!":goto1100
+    ("20101-untrained", "safe", {"roster": (_WEAK,)}, (), (), 1, True),
+    # :20104 ...gosub1130:ify=0thenreturn
+    ("20104-pick-0", "safe", {"roster": (_BOSS,)}, (0,), (), 0, False),
+    # :20107 gosub1100; :20150's own wait198 (the opened safe, not a :1100 wait);
+    # :20060's goto1100
+    (
+        "20150-cracked",
+        "safe",
+        {"ln": 1, "roster": (_BOSS,)},
+        (1, _F5, None),
+        (*_CODE, _NO_SLIP, 1234),
+        2,
+        True,
+    ),
+    # :20107's wait, :20142 gosub1100, the police fight's wait, :26080's
+    (
+        "20142-failed",
+        "safe",
+        {"roster": (_BOSS, _WEAK)},
+        (2, *(_F5,) * 20, _SURRENDER_FIGHT, _SURRENDER),
+        (*_CODE, *(0,) * 20, 0, 0, 0),
+        4,
+        True,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws", "waits", "ends"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(key, fields, answers, draws, waits, ends):
+    _, source, _ = _run(key, _state(**fields), answers=answers, draws=draws)
+    assert source.key_waits() == waits
+    assert source.ends_in_key_wait() == ends
+
+
+def test_the_safe_waits_before_the_dials_and_before_the_police():
+    """:20107 ``...mit f1, f3 und f5!)":gosub1100`` before the dials (:20110), and
+    :20142 ``...es kommt jemand!'":gosub1100`` before ``goto26000``."""
+    st = _state(roster=(_BOSS, _WEAK))
+    answers = (2, *(_F5,) * 20, _SURRENDER_FIGHT, _SURRENDER)
+    _, source, _ = _run("safe", st, answers=answers, draws=(*_CODE, *(0,) * 20, 0, 0, 0))
+    keys = [i.key for i in source.seen if isinstance(i, (Acknowledge, ShowMessage))]
+    stethoscope = keys.index("locations.ban.safe_stethoscope")
+    assert keys[stethoscope + 1 : stethoscope + 3] == [KEY_WAIT_SCREEN, f"{_SAFE}dials"]
+    failed = keys.index("locations.ban.safe_failed")
+    assert keys[failed + 1] == KEY_WAIT_SCREEN
+    fight = next(i for i, x in enumerate(source.seen) if isinstance(x, CombatScreen))
+    assert getattr(source.seen[fight - 1], "key", None) == KEY_WAIT_SCREEN

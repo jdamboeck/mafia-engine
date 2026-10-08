@@ -578,8 +578,9 @@ def test_the_jailed_players_board_is_announced(monkeypatch, tmp_path):
     save = tmp_path / "menu.jsonl"
     save_game(save, state, registries=_CONFIG.registries, effect_log=[], rng_log=[], seed=42)
     # 3 gang war, 2 moran, j; "verteidige dich" needs a key; moran gives up; the
-    # outcome needs no key; then quit at the menu.
-    lines = ["3", "2", "j", "", "surrender", "", "q"]
+    # outcome screen's key (:30520) and the lost brawl's (:27150 goto1100); then quit
+    # at the menu.
+    lines = ["3", "2", "j", "", "surrender", "", "", "q"]
     out = io.StringIO()
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
     monkeypatch.setattr(sys, "stdout", out)
@@ -612,3 +613,42 @@ def test_the_lost_brawl_zeroes_one_boss_energy(monkeypatch, setting):
     jailed_boss = result.state.players[_DEFENDER].roster[0].vitality
     expected = {"faithful": (0, 30), "intent": (40, 0)}[setting]
     assert (attacker_boss, jailed_boss) == expected
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+def _last_wait(source) -> str | None:
+    """The key of the trailing acknowledgement (a gang-war screen or the :1100 wait),
+    or ``None`` when the handler ended on something else."""
+    last = source.seen[-1] if source.seen else None
+    return last.key if isinstance(last, Acknowledge) else None
+
+
+def test_each_gang_war_exit_waits_for_a_key_where_the_source_does(monkeypatch):
+    """Every ``goto1100``/``goto1125`` exit ends on a key: the refusals (:27000,
+    :27001, :27115) and the duel's result (:27045) are gang-war screens, closed by
+    the key; the lost brawl (:27146 -> :27150 ``goto1100``) waits under the fight. The
+    ``return`` exits (:27016 ``ifus=0``, :27110 ``ifx$="n"``) wait for nothing."""
+    from engine.turns import KEY_WAIT_SCREEN
+
+    _fights(monkeypatch, 2)
+    _, source = _duel(_state())  # :27045 ms=ms-10:goto1100
+    assert _last_wait(source) == GANG_WAR_SCREEN
+
+    _, source = _duel(_state(players=_TWO), answers=("0",), draws=())  # :27016
+    assert _last_wait(source) is None and source.key_waits() == 0
+
+    _, source = _duel(_jailed(), answers=("2", False), draws=())  # :27110
+    assert _last_wait(source) is None and source.key_waits() == 0
+
+    _, source = _duel(_jailed(p0={"ka": 2999}), answers=("2", True), draws=())  # :27115
+    assert _last_wait(source) == GANG_WAR_SCREEN and source.key_waits() == 0
+
+    _brawls(monkeypatch, CombatResult(winner=1, losses=(0, 0)))
+    _, source = _duel(_jailed(), answers=("2", True), draws=(0,))  # :27140-27150
+    assert _last_wait(source) == GANG_WAR_SCREEN and source.key_waits() == 0
+
+    _brawls(monkeypatch, CombatResult(winner=2, losses=(0, 0)))
+    _, source = _duel(_jailed(), answers=("2", True), draws=())  # :27146-27150
+    assert _last_wait(source) == KEY_WAIT_SCREEN and source.key_waits() == 1

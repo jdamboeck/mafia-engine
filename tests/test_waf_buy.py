@@ -11,9 +11,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.config_loader import load_game_config
 from engine.effects import AssignWeapon, MoneyChange, ScoreChange
 from engine.interactions import (
+    Acknowledge,
     CANCEL,
     Confirm,
     LoadSubState,
@@ -23,7 +26,8 @@ from engine.interactions import (
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import StubRng as _StubRng, run_pure
+from engine.turns import KEY_WAIT_SCREEN
+from tests.helpers import StubRng as _StubRng, run_pure, scripted
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 load_game_config(_CONFIG_DIR)
@@ -99,7 +103,8 @@ def _observe(handler, state, rng, answers):
     try:
         while True:
             seen.append(interaction)
-            if isinstance(interaction, ShowMessage):
+            if isinstance(interaction, (ShowMessage, Acknowledge)):
+                # Narration and the :1100 key wait: delivered, not asked.
                 interaction = gen.send(Ack)
             elif isinstance(interaction, LoadSubState):
                 child = SUBSTATES[interaction.kind](ctx, interaction.params)
@@ -107,7 +112,8 @@ def _observe(handler, state, rng, answers):
                 cval = None
                 try:
                     while True:
-                        # child sub-state only yields ShowMessage here (display-only).
+                        # the child sub-state only yields display-only interactions here
+                        # (its ShowMessages and its :13525 key wait).
                         child.send(Ack)
                 except StopIteration as stop:
                     cval = stop.value
@@ -133,9 +139,10 @@ def _by_type_source(answers):
     iters = {k: iter(v) for k, v in answers.items()}
 
     def source(interaction):
-        if isinstance(interaction, ShowMessage):
+        if isinstance(interaction, (ShowMessage, Acknowledge)):
             # #43: narration is DELIVERED, not asked. It consumes no scripted answer,
-            # and the driver acks regardless of what we return here.
+            # and the driver acks regardless of what we return here. So does the
+            # :1100 key wait (``Acknowledge(KEY_WAIT_SCREEN)``).
             return None
         return _scripted_answer(iters, interaction)
 
@@ -166,6 +173,46 @@ def test_stock_range_by_ln():
         assert result.status == "cancelled"
         prompt = next(i for i in seen if isinstance(i, PromptInt))
         assert (prompt.min, prompt.max) == (lo, hi)
+
+
+def _list_screen(state, rng) -> list[str]:
+    """The rows ``waf.buy`` shows before its first ``ihre wahl:`` prompt, resolved."""
+    from engine.strings import Resolver
+
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    seen = _observe(HANDLERS["waf.buy"], state, rng, {PromptInt: [CANCEL]})
+    shown = seen[: next(i for i, x in enumerate(seen) if isinstance(x, PromptInt))]
+    assert all(isinstance(x, ShowMessage) for x in shown), shown
+    return "\n".join(resolver.resolve(x.key, x.params) for x in shown).split("\n")
+
+
+def test_the_weapon_list_shows_each_offered_weapon_with_its_price():
+    """:13010 ``print"{clr}{down}ok, wir haben folgendes:":print``, then :13015
+    ``fori=atob:printmid$(str$(i),2)" - "wa$(i);wp(i)"$":next`` -- the number without
+    its sign position, the name, the price as PRINT prints a number (" 50 ")."""
+    assert _list_screen(_state(ln=2), _StubRng()) == [
+        "ok, wir haben folgendes:",
+        "",
+        "1 - messer 50 $",
+        "2 - knueppel 100 $",
+        "3 - schlagkette 500 $",
+        "4 - wurfsterne 3000 $",
+        "5 - revolver 4000 $",
+    ]
+    assert _list_screen(_state(ln=3), _StubRng())[-1] == "4 - wurfsterne 3000 $"
+    # :13011 a=3:b=7 on tile 1; the grenade news (:13090) prints after :13010's
+    # heading and before the list, which then runs to b=8.
+    rows = _list_screen(_state(ln=1, rank=6), _StubRng(0))
+    assert rows[:2] == ["ok, wir haben folgendes:", ""]
+    assert rows[2].startswith("...brandheiss!")
+    assert rows[-6:] == [
+        "3 - schlagkette 500 $",
+        "4 - wurfsterne 3000 $",
+        "5 - revolver 4000 $",
+        "6 - gewehr 4500 $",
+        "7 - maschinenpistole 8000 $",
+        "8 - handgranaten 10000 $",
+    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -560,3 +607,132 @@ def test_cancel_at_gangster_pick_commits_nothing():
     assert result.status == "cancelled"
     assert result.effects == []
     assert result.state.players[0].roster[0].weapon == 0  # unchanged
+
+
+# --------------------------------------------------------------------------- #
+# Spec-sheet labels (#146 item 4)                                              #
+# --------------------------------------------------------------------------- #
+#: Each weapon's sheet as the source prints it: :13515
+#: ``printtab(8)"{down}treffgenauigkeit: "ts$(int(ts(x)/2))``, :13520
+#: ``printtab(8)"{down}wirkung: "tg$(int(tg(x)/4)+1)``, with the labels :125
+#: ``fori=1to3:readts$(i):next:fori=1to5:readtg$(i):next`` reads from :50500
+#: ``"mies","ganz gut","todsicher","laecherlich","maessig","schlimm!"`` and :50505
+#: ``"brutal","erschreckend!"``. Worked by hand from the (ts, tg) pairs of :50100-50115
+#: (no weapon has ts < 2, so none reaches the never-assigned ts$(0)).
+_SPEC_LABELS = {
+    "haende": ("mies", "laecherlich"),  # ts 2 -> 1, tg 2 -> 1
+    "messer": ("mies", "maessig"),  # ts 3 -> 1, tg 5 -> 2
+    "knueppel": ("ganz gut", "laecherlich"),  # ts 4 -> 2, tg 3 -> 1
+    "schlagkette": ("ganz gut", "maessig"),  # ts 4 -> 2, tg 4 -> 2
+    "wurfsterne": ("mies", "maessig"),  # ts 2 -> 1, tg 7 -> 2
+    "revolver": ("ganz gut", "schlimm!"),  # ts 5 -> 2, tg 10 -> 3
+    "gewehr": ("ganz gut", "brutal"),  # ts 5 -> 2, tg 12 -> 4
+    "maschinenpistole": ("todsicher", "brutal"),  # ts 6 -> 3, tg 15 -> 4
+    "handgranaten": ("todsicher", "erschreckend!"),  # ts 7 -> 3, tg 18 -> 5
+}
+
+
+def _spec_screen(weapon) -> list[str]:
+    """Run the spec-sheet sub-state for ``weapon`` and return its resolved screen rows."""
+    from engine.interactions import Ack, Ctx
+    from engine.strings import Resolver
+    from engine.substates import SUBSTATES
+
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    child = SUBSTATES["weapon_spec"](Ctx(state=_state(), rng=_StubRng()), {"weapon": weapon})
+    text: list[str] = []
+    interaction = next(child)
+    try:
+        while True:
+            if isinstance(interaction, Acknowledge) and interaction.key == KEY_WAIT_SCREEN:
+                # :13525's key wait: no row of the sheet.
+                interaction = child.send(Ack)
+                continue
+            assert isinstance(interaction, ShowMessage), interaction
+            text.append(resolver.resolve(interaction.key, interaction.params))
+            interaction = child.send(Ack)
+    except StopIteration:
+        pass
+    return "\n".join(text).split("\n")
+
+
+def test_every_weapon_s_spec_sheet_prints_the_source_labels():
+    import yaml
+
+    table = yaml.safe_load((_CONFIG_DIR / "entities" / "weapons.yaml").read_text())["weapons"]
+    assert [w["name"] for w in table] == list(_SPEC_LABELS)
+    for weapon in table:
+        accuracy, effect = _SPEC_LABELS[weapon["name"]]
+        rows = _spec_screen(weapon)
+        # :13500 ``print"{clr}{down}{rght}{rvon}{blk} waffe: "wa$(x)" {gry3}"``, :13510
+        # ``"{home}{down}{down}{down}"tab(8)"{blk}preis:"wp(x)"$"``, then each label line
+        # one row further down (its ``{down}``) at column 8.
+        assert rows == [
+            f"waffe: {weapon['name']}",
+            "",
+            f"        preis: {weapon['price']} $",
+            "",
+            f"        treffgenauigkeit: {accuracy}",
+            "",
+            f"        wirkung: {effect}",
+        ], weapon["name"]
+
+
+def test_an_accuracy_below_two_prints_the_empty_ts_label():
+    """``int(ts/2)`` = 0 indexes ``ts$(0)``, which :125 never assigns: the C64 prints
+    nothing after the colon."""
+    rows = _spec_screen({"name": "x", "price": 1, "ts": 1, "tg": 2})
+    assert rows[4] == "        treffgenauigkeit: "
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+def test_the_spec_sheet_ends_in_its_own_key_wait():
+    """:13525 ``print"{down}{down} taste druecken!":poke198,0:wait198,1:...:return``."""
+    from engine.interactions import Ack, Ctx
+    from engine.substates import SUBSTATES
+
+    weapon = {"name": "messer", "price": 50, "ts": 3, "tg": 5}
+    child = SUBSTATES["weapon_spec"](Ctx(state=_state(), rng=_StubRng()), {"weapon": weapon})
+    seen = [next(child)]
+    try:
+        while True:
+            seen.append(child.send(Ack))
+    except StopIteration:
+        pass
+    assert [type(i).__name__ for i in seen] == ["ShowMessage"] * 3 + ["Acknowledge"]
+    assert seen[-1] == Acknowledge(KEY_WAIT_SCREEN)
+
+
+_DUMB = Gangster(name="g0", kraft=10, intelligenz=50, brutalitaet=50)
+_STRONG = Gangster(name="g0", kraft=30, intelligenz=50, brutalitaet=50)
+_ARMED = Gangster(name="g0", kraft=30, intelligenz=50, brutalitaet=50, weapon=1)
+
+_BUY_EXITS = [
+    # id, state kwargs, answers, waits, ends in the wait
+    # :13020 input"{down}ihre wahl:";x:ifx=0thenreturn
+    ("13020-nothing", {}, (CANCEL,), 0, False),
+    # :13025 ifka(sp)<wp(x)thengosub1125:goto13010 -- then nothing
+    ("13025-too-poor", {"ka": 10}, (5, CANCEL), 1, False),
+    # :13035 gosub13500 (:13525's wait) ...:gosub1130:ify=0goto13010 -- then nothing
+    ("13035-pick-0", {}, (1, 0, CANCEL), 1, False),
+    # :13035's sheet, :13055 ...:gosub1100:goto13035, the sheet again, 0, nothing
+    ("13055-too-weak", {"roster": (_DUMB,)}, (2, 1, 0, CANCEL), 3, False),
+    # :13035's sheet, :13071 ...gosub1110:ifx$="n"goto13010 -- then nothing
+    ("13071-declined", {"roster": (_ARMED,)}, (2, 1, False, CANCEL), 1, False),
+    # :13035's sheet, :13080 print"{down}du hast nun die neue waffe!":goto1100
+    ("13080-bought", {"roster": (_STRONG,)}, (2, 1), 2, True),
+]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "answers", "waits", "ends"),
+    [case[1:] for case in _BUY_EXITS],
+    ids=[case[0] for case in _BUY_EXITS],
+)
+def test_each_buy_exit_waits_for_a_key_where_the_source_does(kwargs, answers, waits, ends):
+    src = scripted(*answers)
+    run_pure(HANDLERS["waf.buy"], src, state=_state(**kwargs), rng=_StubRng())
+    assert src.key_waits() == waits
+    assert src.ends_in_key_wait() == ends

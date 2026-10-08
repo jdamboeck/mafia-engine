@@ -7,6 +7,9 @@
 # c64 number style prints the spaces C64 PRINT puts around it.
 locations:
   ble:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "BLUETEN-EDDIE"
     entry_prompt: "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
     menu:
       passport: "'YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'"
@@ -14,13 +17,13 @@ locations:
       leave: "'DANKE, EDDIE, VIELLEICHT BEIM NAECHS-  TEN MAL. BYE!'"
 
     # --- passport (22010-22020) ---
-    passport_for_one: "gut, mein sohn. fuer einen pass"        # 22010-22011
-    passport_for_many: "gut, mein sohn. fuer{count}paesse"   # 22010, 22012
-    passport_price: "macht das{price}$."                      # 22013
-    passport_done: "hier, noch druckfrisch, he, he!"           # 22015
-    confirm: "ok (j/n)?"                                       # 1110
+    passport_for_one: "gut, mein sohn. fuer einen pass"        # :22010-22011 `gut, mein sohn.`
+    passport_for_many: "gut, mein sohn. fuer{count}paesse"   # :22010, :22012 `gut, mein sohn.`
+    passport_price: "macht das{price}$."                      # :22013 `macht das`
+    passport_done: "hier, noch druckfrisch, he, he!"           # :22015 `hier, noch druckfrisch, he, he!`
+    confirm: "ok (j/n)?"                                       # :1110 `ok (j/n)?`
 
     # --- counterfeit money (22100-22120) ---
-    counterfeit_reluctant: "nng...hoechst ungern! wieviel dollar"   # 22100
-    counterfeit_prompt: "willst du anlegen (0-5000)"                # 22105
-    counterfeit_offer: "ich gebe dir{amount}$ blueten dafuer."     # 22110
+    counterfeit_reluctant: "nng...hoechst ungern! wieviel dollar"   # :22100 `nng...hoechst ungern! wieviel dollar`
+    counterfeit_prompt: "willst du anlegen (0-5000)"                # :22105 `willst du anlegen (0-5000)`
+    counterfeit_offer: "ich gebe dir{amount}$ blueten dafuer."     # :22110 `$ blueten dafuer.`

@@ -15,6 +15,7 @@ Run:  ``python -m clients.terminal [--seed N] [--player NAME:GANG ...] [--end-ye
 from __future__ import annotations
 
 import argparse
+import math
 import os
 import sys
 from pathlib import Path
@@ -22,7 +23,7 @@ from typing import Any, Callable, NoReturn
 
 import yaml
 
-from engine.config_loader import load_config
+from engine.config_loader import load_config, load_game_config
 from engine.strings import Resolver
 
 from clients.terminal.palette import Palette, load_palette, read_palette_overrides
@@ -65,7 +66,7 @@ def main(argv: list[str] | None = None) -> None:
     )
     parser.add_argument(
         "--score-weight",
-        type=float,
+        type=number,
         default=None,
         help=help_text("help_score_weight"),
     )
@@ -133,10 +134,27 @@ def main(argv: list[str] | None = None) -> None:
         ("--end-year", args.end_year, ranges["end_year"]),
         ("--score-weight", args.score_weight, ranges["score_weight"]),
     ):
-        if value is not None and not _in_range(value, bounds):
+        if value is not None and not _in_range(float(value), bounds):
             parser.error(
                 text("out_of_range", flag=flag, min=bounds["min"], max=bounds["max"], value=value)
             )
+    # The weight's text must also pass the setup's own reading (the C64's parser by the
+    # c64_float_score house rule): "1.1_5" is a number to float() but not to setup, and
+    # would otherwise be refused only after the title, as a traceback. The rule is the
+    # config's (score_weight_accepted); the client holds none of its own.
+    if args.score_weight is not None and not load_game_config(
+        _CONFIG_DIR
+    ).module.score_weight_accepted(args.score_weight, ranges):
+        bounds = ranges["score_weight"]
+        parser.error(
+            text(
+                "out_of_range",
+                flag="--score-weight",
+                min=bounds["min"],
+                max=bounds["max"],
+                value=args.score_weight,
+            )
+        )
     players = None
     if args.players:
         players = []
@@ -183,6 +201,19 @@ def main(argv: list[str] | None = None) -> None:
 #: theme -- where every other line lives -- cannot be loaded. The options are then
 #: listed without help text. Minimal by design: just enough to say why.
 _FALLBACK_DESCRIPTION = "(no help text: theme strings could not be loaded: {error})"
+
+
+def number(text: str) -> str:
+    """``--score-weight``'s type: a number, kept as the text typed.
+
+    The setup parses the text as the setup prompt does (the C64's parser or ``float``,
+    by the ``c64_float_score`` house rule), so the flag and the prompt reach the same
+    weight for the same text. Text ``float`` cannot read is refused here, as argparse
+    refuses a bad ``type``.
+    """
+    if not math.isfinite(float(text)):  # a ValueError is argparse's "invalid number value"
+        raise ValueError(text)
+    return text
 
 
 def _in_range(value: float, bounds: dict) -> bool:

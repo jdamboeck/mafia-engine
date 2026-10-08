@@ -133,3 +133,47 @@ def test_forced_win_blackjack_payout():
     rng = _StubRng(0)
     result = run_pure(HANDLERS["sph"], _scripted(1, 200), state=st, rng=rng)
     assert result.effects == [MoneyChange(+300)]
+
+
+# --------------------------------------------------------------------------- #
+# AE6 / #160: the :1100 key wait at each exit                                  #
+# --------------------------------------------------------------------------- #
+def _sph_exit(answers, rng):
+    src = _scripted(*answers)
+    result = run_pure(HANDLERS["sph"], src, state=_state(ka=5000), rng=rng)
+    return src, result
+
+
+def test_a_lost_hand_waits_for_a_key():
+    # :16035 print"{down}leider verloren!":goto1100
+    src, _ = _sph_exit((0, 100), _StubRng(1))
+    assert src.message_keys()[-1] == "locations.sph.lost"
+    assert src.ends_in_key_wait() and src.key_waits() == 1
+
+
+def test_a_won_hand_waits_for_a_key():
+    # :16040 print"{down}du hast"p"$ gewonnen!":ka(sp)=ka(sp)+p:goto1100
+    src, _ = _sph_exit((0, 100), _StubRng(0))
+    assert src.message_keys()[-1] == "locations.sph.won"
+    assert src.ends_in_key_wait() and src.key_waits() == 1
+
+
+def test_a_wager_above_cash_waits_for_a_key():
+    # :16025 ifp>ka(sp)goto1125 -> :1125 ...:goto1100
+    src, _ = _sph_exit((0, 6000), _StubRng())
+    assert src.ends_in_key_wait() and src.key_waits() == 1
+
+
+def test_choosing_nothing_returns_without_a_key_wait():
+    # :16015 ifx=0thenreturn
+    from engine.interactions import CANCEL
+
+    src, result = _sph_exit((CANCEL,), _StubRng())
+    assert result.status == "cancelled"
+    assert src.key_waits() == 0
+
+
+def test_a_wager_of_zero_returns_without_a_key_wait():
+    # :16020 ...inputp:ifp=0orp<0 thenreturn
+    src, _ = _sph_exit((0, 0), _StubRng())
+    assert src.key_waits() == 0

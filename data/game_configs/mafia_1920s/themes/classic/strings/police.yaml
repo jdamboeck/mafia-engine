@@ -9,7 +9,7 @@
 police:
   # :26020 — the arrest, printed on every entry to the caught menu.
   caught: "du bist von der polizei gefasst worden."
-  # :26022-26023 — the menu.
+  # :26022-26023 — the menu; :26025 `getx$:ifx$<"1"orx$>"3"goto26025` reads its key.
   menu: "was nun:"
   menu_bribe: "1 polizisten bestechen"
   menu_flee: "2 fluchtversuch"

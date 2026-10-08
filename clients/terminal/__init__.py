@@ -338,7 +338,7 @@ class TerminalInput:
         footer: tuple[str, ...] = ("combat.action_prompt", "combat.key_legend"),
         banner: str | None = None,
     ) -> None:
-        """Draw one activation's full combat screen: grid, message, panel, prompt.
+        """Draw one activation's full combat screen: grid, message, labels, panel, prompt.
 
         ``footer`` is the theme keys printed under the panel: the action prompt + key
         legend for a real activation, or the "press a key" line for an observe frame.
@@ -351,6 +351,7 @@ class TerminalInput:
         """
         from clients.terminal.renderers import (
             render_combat_grid,
+            render_combat_labels,
             render_combat_message,
             render_fighter_panel,
             render_screen_clear,
@@ -362,6 +363,7 @@ class TerminalInput:
             self._stdout.write(banner + "\n")
         render_combat_grid(payload, self._stdout, self._colors)
         render_combat_message(payload, self._resolver, self._stdout, self._colors)
+        render_combat_labels(payload, self._resolver, self._stdout, self._colors)
         render_fighter_panel(
             payload, self._resolver, self._weapon_names, self._stdout, self._colors
         )
@@ -400,6 +402,7 @@ class TerminalInput:
             aim_raw = self._stdin.readline()
             if aim_raw == "":
                 return CANCEL
+            # :30205 `getx$:ifx$=""goto30205`: the aim key, read after the fire key.
             aim_key = aim_raw.rstrip("\n").strip().lower()
             if aim_key in _COMBAT_AIM_KEYS:
                 return ("shoot", _COMBAT_AIM_KEYS[aim_key])

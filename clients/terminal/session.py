@@ -77,6 +77,7 @@ from engine.state import GameState
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
+    KEY_WAIT_SCREEN,
     LOCATION_CLOSED_SCREEN,
     SETUP_HANDLER_KEY,
     STANDINGS_SCREEN,
@@ -105,8 +106,8 @@ from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, Colors, Palette,
 from clients.terminal.renderers import (
     render_body,
     render_header,
+    render_location_title,
     render_menu_option,
-    render_prompt,
     render_screen_clear,
     render_status_bar_from_state,
 )
@@ -267,6 +268,8 @@ def _read_key() -> str:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
     if ch == "\x03":
         raise KeyboardInterrupt
+    if ch == "":  # a hung-up terminal reads nothing: EOF, a quit as on the piped path
+        return "q"
     return ch.lower()
 
 
@@ -407,12 +410,17 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
 def _render_location_menu(
     menu: LocationMenu, resolver: Resolver, colors: Colors, out, stdin=None
 ) -> Any:
-    """Show a location's menu (the runner's :class:`LocationMenu`); return the pick.
+    """Show a location's screen (the runner's :class:`LocationMenu`); return the pick.
 
-    Returns the chosen 0-based index. A blank line or a key that is not an offered
-    option is ignored and the prompt waits again, as the runner does
-    (``mf-prg.bas:3040``): only the shell's own leave option leaves. EOF returns
-    ``_QUIT`` (the session ends). With no options there is nothing to pick: ``None``.
+    The screen is ``:3025-3030``'s: the location's title in reverse video, its
+    description, and its options numbered from 1. The pick is one key
+    (:func:`_read_key`), as ``:3040`` ``getx$:w=val(x$):ifw<1orw>awgoto3040`` reads it:
+    a key from 1 to the option count picks, returned as the 0-based index the runner
+    takes; every other key (``0``, a number past the count, a letter, a blank line on
+    piped input) is ignored and the screen waits again. Only the shell's own leave
+    option leaves the location; ``q`` (which :func:`_read_key` also returns at EOF)
+    returns ``_QUIT`` and the session ends. With no options there is nothing to pick:
+    ``None``.
     """
     if stdin is None:
         stdin = sys.stdin
@@ -439,26 +447,34 @@ def _render_location_menu(
         out.flush()
         _read_line_visible(stdin, out)
         render_screen_clear(out)
-    render_header(location_key, out, colors)
+    # :3025 print"{clr}{down}{rvon} "x$": ":input#1,x$:print"{down}{down}"x$ -- the
+    # title, then the description two lines further down.
+    try:
+        title = resolver.resolve(f"locations.{location_key}.title")
+    except Exception:
+        title = location_key
+    render_location_title(title, out, colors)
+    out.write("\n\n")
     render_body(entry_text, out, colors)
+    # :3030 print:fori=1toaw:input#1,x$:print"{down}"mid$(str$(i),2)" "x$
     out.write("\n")
-    for i, option_id in enumerate(menu.options):
+    for number, option_id in enumerate(menu.options, start=1):
         try:
             label = resolver.resolve(f"locations.{location_key}.menu.{option_id}")
         except Exception:
             label = option_id
-        render_menu_option(i, label, out, colors)
+        render_menu_option(number, label, out, colors)
+    keys = "123456789"[: len(menu.options)]
     while True:
-        render_prompt(out)
         out.flush()
-        line = _read_line_visible(stdin, out)
-        if line == "":  # EOF
+        # :3040 getx$:w=val(x$):ifw<1orw>awgoto3040 -- one key, 1 to the option count.
+        key = _read_key()
+        if key == "q":
             return _QUIT
-        raw = line.strip()
-        if raw.isdigit() and int(raw) < len(menu.options):
+        if key and key in keys:
             # :3050 ``print"{clr}"``: the pick clears the screen for the option's handler.
             render_screen_clear(out)
-            return int(raw)
+            return int(key) - 1
 
 
 def _render_lines_screen(header: str, lines, resolver: Resolver, colors: Colors, out) -> bool:
@@ -574,6 +590,10 @@ class _RollKeyboard:
 #: The turn runner's own acknowledgement screens; every other one is a handler's.
 _RUNNER_SCREENS = frozenset({UPKEEP_SCREEN, TURN_OVER_SCREEN, STANDINGS_SCREEN, YEAR_END_SCREEN})
 
+#: The acknowledgements that only wait for a key under what is on screen, clearing
+#: nothing: the eigenschaften screen's ``:316 goto1100`` and a handler's ``:1100``.
+_IN_PLACE_WAITS = frozenset({_EIGENSCHAFTEN_SCREEN, KEY_WAIT_SCREEN})
+
 
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
@@ -592,7 +612,7 @@ class TerminalSession:
         seed: int | None,
         players: list[tuple[str, str]] | None,
         end_year: int | None,
-        score_weight: float | None,
+        score_weight: float | str | None,
         load: str | Path | None,
         save: str | Path | None,
         watch_ai: bool,
@@ -658,8 +678,6 @@ class TerminalSession:
         self._last_prompt: str | None = None
         self._rolling: str | None = None
         self._roll_keys = _RollKeyboard()
-        #: Whether a message is on screen that no read has followed yet (see render()).
-        self._unread = False
 
     def text(self, key: str, params: dict | None = None) -> str:
         """Resolve a theme key through this session's resolver."""
@@ -828,27 +846,20 @@ class TerminalSession:
     def render(self, interaction):
         """Show one interaction of the turn runner; return its answer, or ``_QUIT``.
 
-        A location option's result ends in ``:1100``'s key wait (``taste druecken!``)
-        on nearly every path (``:1125`` ``...zu wenig kies!":goto1100``, ``:10045``):
-        when an option completes with a message still unread on screen, the wait comes
-        before the map is drawn over it. A cancelled option (``ify=0thenreturn``) and
-        one whose last screen already waited for a key return without one.
+        The client adds no key wait of its own after a location option: ``:1100``'s
+        wait (``taste druecken!``) comes where the handler yields it
+        (``Acknowledge(KEY_WAIT_SCREEN)``, drawn in place under its result), path by
+        path as the source reaches it, and nowhere else.
         """
-        if isinstance(interaction, OptionDone):
-            unread, self._unread = self._unread, False
-            if unread and interaction.status != "cancelled":
-                _write_press_any_key(self.resolver, self.out)
-                _read_key()
-        else:
-            self._unread = isinstance(interaction, ShowMessage)
-        return self._render(interaction)
-
-    def _render(self, interaction):
         if isinstance(interaction, CombatScreen):
             # The board clears the screen when it is drawn, so the whose-turn line goes
             # under the clear, with the board, not before it.
             return self.inp.answer(interaction, banner=self.whose_turn(interaction))
-        if isinstance(interaction, Acknowledge) and interaction.key not in _RUNNER_SCREENS:
+        if (
+            isinstance(interaction, Acknowledge)
+            and interaction.key not in _RUNNER_SCREENS
+            and interaction.key not in _IN_PLACE_WAITS
+        ):
             # A handler's own screen clears too (see acknowledge()).
             return self.acknowledge(interaction, banner=self.whose_turn(interaction))
         self.announce_player(interaction)
@@ -926,8 +937,9 @@ class TerminalSession:
             _write_press_any_key(self.resolver, self.out)
             _read_line_visible(sys.stdin, self.out)
             return None
-        if screen.key == _EIGENSCHAFTEN_SCREEN:
-            # :316 goto1100: the key wait under the stats, which stay on screen.
+        if screen.key in _IN_PLACE_WAITS:
+            # :1100 (:316 goto1100 under the stats; a handler's goto1100/goto1125 under
+            # its result): the key wait under what is on screen, which stays there.
             _write_press_any_key(self.resolver, self.out)
             _read_key()
             return None
@@ -1101,7 +1113,7 @@ def play(
     players: list[tuple[str, str]] | None = None,
     *,
     end_year: int | None = None,
-    score_weight: float | None = None,
+    score_weight: float | str | None = None,
     load: str | Path | None = None,
     save: str | Path | None = None,
     watch_ai: bool = False,

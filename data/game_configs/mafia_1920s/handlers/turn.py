@@ -47,12 +47,14 @@ the jail skip and the early win yield (display-only screens).
 from __future__ import annotations
 
 import math
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 
 from engine.c64_numbers import c64_divide, c64_float
 from engine.effects import SetScore
 from engine.interactions import Acknowledge
 from engine.locations import register
+from engine.state import INTENT
 from engine.turns import (
     EARLY_WIN_HOOK_KEY,
     JAIL_HOOK_KEY,
@@ -63,7 +65,7 @@ from engine.turns import (
     SCORE_TRUNCATION_HOOK_KEY,
 )
 
-from ..effects import Jail, PendingRankReset
+from ..effects import C64_FLOAT_SCORE, Jail, PendingRankReset
 from ..setup import gangster_line, load_ranks, load_vehicles, load_weapons
 from ..state import contraband, job, next_rank, rented_months, wanted
 
@@ -88,7 +90,7 @@ __all__ = [
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
 
-def truncated_score(gf: float) -> float:
+def truncated_score(gf: float, *, decimal: bool = False) -> float:
     """``:1013`` ``gf(sp)=int(gf(sp)*100)/100``: the score cut to two decimals, as the C64
     computes it in its 5-byte floats (:mod:`engine.c64_numbers`).
 
@@ -102,12 +104,14 @@ def truncated_score(gf: float) -> float:
     so it becomes ``25.39`` (the capture in ``tests/fixtures/c64_float/``), and ``12.34``
     loses a cent on each of two turns before it holds at ``12.32``.
 
-    The score the port hands in is a double built by ``:1160``'s sums, which the port
-    does not round as the C64 does; a sum the C64 ends a hair below a cent can arrive
-    here a hair above it, and the cent then survives where the original drops it.
-    Only this line is emulated (``tests/test_c64_float.py`` pins how far a replay of
-    the captured sums agrees).
+    The faithful score reaching it is the C64's own sum (``:1160`` in the C64's
+    arithmetic, :class:`..effects.ScoreAndRank`), so the series of the capture stay on
+    the C64's cents. With ``decimal`` (the ``c64_float_score`` house rule at intent) the
+    score is cut as the decimal it is written as instead (``25.4`` stays ``25.4``), to
+    match that rule's exact decimal sums.
     """
+    if decimal:
+        return float(Decimal(repr(float(gf))).quantize(Decimal("0.01"), rounding=ROUND_FLOOR))
     cents = math.floor(c64_float(gf) * 100)  # int(gf(sp)*100): a 32-bit mantissa times 100 is exact
     return c64_divide(cents, 100)
 
@@ -171,7 +175,11 @@ def score_truncation(ctx):
     """
     yield from ()
     active = ctx.state.players[ctx.state.clock.active_player]
-    ctx.apply(SetScore(truncated_score(active.gf)))
+    # The c64_float_score house rule: the C64's cut (faithful) or the decimal's (intent).
+    # Read off the map, not through ``intent``: this runs every turn, also in a copy of
+    # this config whose catalogue offers other switches (a missing switch is faithful).
+    exact = ctx.state.config.house_rules.get(C64_FLOAT_SCORE) == INTENT
+    ctx.apply(SetScore(truncated_score(active.gf, decimal=exact)))
     return []
 
 

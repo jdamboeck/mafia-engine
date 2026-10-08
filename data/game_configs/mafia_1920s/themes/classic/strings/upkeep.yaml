@@ -43,9 +43,14 @@ upkeep:
 
   # Rent slot (mf-prg.bas:4600-4652) — the late-rent consequence once the prepaid
   # months (um) run out. Both screens end in :1100's "taste druecken!" pause, which
-  # the client supplies for every message. The source's line breaks are the C64's
-  # 40 columns, so each screen reads as one sentence here.
-  # :4610-4620 — the fine; {amount} is the fine p after the cap at cash.
-  rent_late: "du hast deine miete nicht puenktlich gezahlt. man hat dir moebel im wert von{amount}$ gepfaendet!"
+  # the client supplies for every message.
+  # :4610-4620 — the fine; {amount} is the fine p after the cap at cash. The rows are
+  # the C64's (tests/fixtures/c64_rent_seizure, captured in VICE): each {down} leaves
+  # a blank row, and :4620's {left} at column 0 steps back to column 39 of the blank
+  # row above, where p's sign space lands, so the amount opens its own row at column
+  # 0 ("250 $ gepfaendet!"). {amount:mid$} is that row: the digits without the sign
+  # position, then PRINT's trailing space. A negative fine's minus sits at column 39
+  # of the blank row, which this text cannot show; the amount row still matches.
+  rent_late: "du hast deine miete nicht puenktlich\n\ngezahlt. man hat dir moebel im wert von\n\n{amount:mid$} $ gepfaendet!"
   # :4650-4651 — the eviction (no cash to seize); the gang walks out.
   rent_evicted: "deine wohnung wird dir gekuendigt!\ndeine gangster suchen sich einen anderen boss..."

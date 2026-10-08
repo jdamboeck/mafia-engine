@@ -31,7 +31,7 @@ The clock starts in January 1925. Players take turns at the same keyboard. When 
 | number | turn menu | overview, walk the city, gang war, next player |
 | `W` `A` `S` `D` | map | move; walk into a door to enter a location |
 | `M` | map | back to the turn menu |
-| number | location menu | pick an option (the number shown next to it) |
+| `1`-`9` | location menu | pick an option by its number, one key, no Enter |
 | `P` | turn menu, map | save the game |
 | `Q` | turn menu, map, turn-over | quit |
 | `W` `A` `S` `D` | fight | move the active gangster |
@@ -52,12 +52,13 @@ To debug fights on their own, see the fight lab: [clients/terminal/FIGHTLAB.md](
 
 ### What works today
 
-- The original's setup: end year, score weight, 1-4 players with names and gang names, and the eigenschaften screen where each player stops their own stat rolls. Optional house rules switch the original's quirks to their intended behavior.
+- The original's setup: end year, score weight, 1-4 players with names and gang names, and the eigenschaften screen where each player stops their own stat rolls. Optional house rules switch the original's quirks to their intended behavior, among them the C64's float arithmetic in the score and the negative numbers the C64 accepts at some prompts.
 - The city map with movement points per vehicle and hot-seat turn rotation.
 - All 12 locations: the motel (`slw`), pub (`pub`), weapon shop (`waf`), car dealer (`aut`), loan shark (`kdh`), casino (`sph`), the shop to squeeze for protection money (`sgl`), subway (`sub`), railway station (`bhf`), bank and post office (`ban`), police headquarters (`pol`) and the counterfeiter (`ble`), with jobs and turn-start upkeep (rent, debt collectors, promotions).
 - Crime and the police: roadblocks and wanted posters, arrest, the trial with its lawyer, bribing the police chief or the guards, jail and the prison brawl.
 - The two map-triggered win flows (the cash transport and the mayor), the early win at the top rank, and the gang war between players.
 - Tactical combat on the 40x13 grid against computer-controlled gangs, with recording and replay.
+- The original's pacing: a location result, a fight's outcome and the screens that wait in the original wait for a key; the turn-start upkeep messages share one screen.
 - Standings after every round, and the year-end winner or tie screen.
 - Save and resume with the exact same random sequence.
 

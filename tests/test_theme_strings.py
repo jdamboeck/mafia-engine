@@ -85,3 +85,51 @@ def test_no_unresolved_placeholders_in_final_strings():
             opens = val.count("{")
             closes = val.count("}")
             assert opens == closes, f"mismatched braces in {key}: {opens} opens, {closes} closes"
+
+
+#: Each location's title as ``:3025`` reads it from the location's disk file (``input#1,x$``)
+#: and prints it, verbatim from ``research-data/pass-2/location-dialogue.yaml`` (``title``);
+#: sgl's run of spaces is the file's.
+_LOCATION_TITLES = {
+    "slw": "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)",
+    "pub": "PUB/BAR (EIN ZWIELICHTIGES LOKAL)",
+    "waf": "WAFFENLADEN",
+    "aut": "AUTOMOBIL-HAENDLER",
+    "kdh": "KREDIT-HAI",
+    "sph": "SPIELHOELLE",
+    "sgl": "EINFACHER LADEN (WIE GESCHAFFEN ZUM     SCHUTZGELD EINTREIBEN!)",
+    "sub": "SUBWAY-STATION (U-BAHN)",
+    "bhf": "RAILWAY-STATION (BAHNHOF)",
+    "ban": "BANK/POSTAMT",
+    "pol": "POLIZEI-PRAESIDIUM",
+    "ble": "BLUETEN-EDDIE",
+}
+
+_LOCATION_DIALOGUE = (
+    Path(__file__).resolve().parents[2]
+    / "research"
+    / "research-data"
+    / "pass-2"
+    / "location-dialogue.yaml"
+)
+
+
+def test_every_location_title_resolves_from_the_theme():
+    """``locations.<key>.title`` for each of the twelve locations, as :3025 prints it."""
+    from engine.strings import Resolver
+
+    resolver = Resolver.from_config(_THEME_DIR.parents[1], theme="classic")
+    assert {key: resolver.resolve(f"locations.{key}.title") for key in _LOCATION_TITLES} == (
+        _LOCATION_TITLES
+    )
+
+
+def test_the_location_titles_are_the_research_titles():
+    """The table above is the research's, title by title, for every location it has."""
+    import pytest
+
+    if not _LOCATION_DIALOGUE.exists():
+        pytest.skip(f"this test needs the research tree: {_LOCATION_DIALOGUE} is not present")
+    data = yaml.safe_load(_LOCATION_DIALOGUE.read_text(encoding="utf-8"))
+    research = {loc["key"]: loc["title"] for loc in data["location_dialogue"]["locations"]}
+    assert research == _LOCATION_TITLES

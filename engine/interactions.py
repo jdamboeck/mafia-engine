@@ -59,6 +59,7 @@ __all__ = [
     "StartCombat",
     "CombatScreen",
     "OBSERVE_PROMPT",
+    "BEGINS_MESSAGE",
     "LoadSubState",
     "Acknowledge",
     "Heading",
@@ -255,10 +256,16 @@ class StartCombat:
     #: The player whose handler starts the fight (``None``: the active player). Who
     #: answers each side's screens is the side's driver's (``HumanDriver.player``).
     player: int | None = None
+    #: Each side's name, side 1's first: the caller's data (``mf-prg.bas:30015``
+    #: ``printbn$(ks(i))``, the gang names), carried onto every :class:`CombatScreen`
+    #: for the client to print under the board. Empty: the fight names no side.
+    names: Any = ()
 
 
 #: The ``CombatScreen.prompt`` of a display-only observation frame.
 OBSERVE_PROMPT = "observe"
+#: The ``CombatScreen.message`` key of a fight's first screen: ``:30025``'s banner.
+BEGINS_MESSAGE = "begins"
 
 
 @dataclass(frozen=True)
@@ -292,6 +299,13 @@ class CombatScreen:
     client that wants a separate aim step (the original reads the direction in a second
     GET at ``30205``) can be served without changing the interaction's type.
 
+    ``names`` is each side's name as :attr:`StartCombat.names` gave it (``:30015``
+    prints them under the board once, and they stay). The first screen of a fight
+    carries ``message`` :data:`BEGINS_MESSAGE` (``:30025``'s banner) unless an earlier
+    CPU activation left its own. ``cpu_fighter`` is the number of the last CPU fighter
+    that acted, ``None`` before any did: ``:30400`` prints its label on every CPU
+    activation and nothing erases it, so it is still on the board for the next screen.
+
     ``prompt == "observe"`` (:data:`OBSERVE_PROMPT`) is a **display-only** frame:
     the board right after a NON-human activation applied, delivered only to an input
     source that opts in (``observes_ai = True`` — see
@@ -316,6 +330,8 @@ class CombatScreen:
     #: Who answers this screen: the controller of the acting side
     #: (:attr:`engine.fight_loop.HumanDriver.player`); ``None``: the active player.
     player: int | None = None
+    names: Any = ()
+    cpu_fighter: int | None = None
 
     def to_json(self) -> dict:
         """Return the JSON-serializable payload (plain dicts/lists/scalars only).
@@ -336,6 +352,8 @@ class CombatScreen:
             "message": json_safe(self.message) if self.message is not None else None,
             "player": self.player,
             "fighter": self._active_fighter_panel(json_safe),
+            "names": list(self.names),
+            "cpu_fighter": self.cpu_fighter,
         }
 
     def _active_fighter_panel(self, json_safe: Callable[[Any], Any]) -> Any:

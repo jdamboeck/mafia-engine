@@ -76,7 +76,7 @@ def test_guard_denied_returns_blocked_with_no_effects_and_unchanged_state():
         options=[
             Option(
                 id="rent",
-                guard={"var": "tenancy", "op": "=", "value": 0},
+                guard={"var": "tenancy", "op": "=", "value": -1},
                 on_denied="locations.slw.no_room",
                 consequences=[{"type": "ms_change", "amount": 0}],
             )
@@ -96,7 +96,7 @@ def test_guard_denied_returns_blocked_with_no_effects_and_unchanged_state():
         location_key="slw",
         option_id="rent",
         reason_key="locations.slw.no_room",
-        guard={"var": "tenancy", "op": "=", "value": 0},
+        guard={"var": "tenancy", "op": "=", "value": -1},
     )
 
 
@@ -107,7 +107,7 @@ def test_guard_denied_ln_participates_in_guard_context():
         options=[
             Option(
                 id="rent",
-                guard={"var": "tenancy", "op": "=", "value": 0},
+                guard={"var": "tenancy", "op": "=", "value": -1},
                 consequences=[{"type": "ms_change", "amount": 0}],
             )
         ],

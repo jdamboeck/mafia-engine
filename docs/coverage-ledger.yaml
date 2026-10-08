@@ -6,7 +6,8 @@
 # `exception`: the port leaves the block out, for the category and reason given.
 # `player_facing`: the block prints, prompts (input/get) or waits for a key (wait198),
 # outside strings and rems; then a ported block also needs a citation where its text is
-# shown (a theme's strings/*.yaml or clients/), or `screen: deferred` with a
+# shown (a theme's strings/*.yaml or clients/) that spans at most 3 blocks (a theme
+# file's header range shows no one block), or `screen: deferred` with a
 # `screen_reason` naming the issue that will show it.
 # Checked by tests/test_coverage_ledger.py; the boundaries are committed so the
 # citation checks run without ../research/ (CI). Regenerate the boundaries only by
@@ -58,8 +59,7 @@ blocks:
   - {start: 3000, end: 3006, player_facing: true, status: ported}
   - {start: 3007, end: 3008, player_facing: false, status: ported}
   - {start: 3010, end: 3012, player_facing: false, status: ported}
-  - {start: 3015, end: 3035, player_facing: true, status: ported, screen: deferred,
-     screen_reason: "The location screen read from disk: the client shows the description and the options, but not the title (:3025), and numbers the options from 0 where :3030 prints them from 1 and :3040 reads 1..aw (#159)."}
+  - {start: 3015, end: 3035, player_facing: true, status: ported}
   - {start: 3040, end: 3040, player_facing: true, status: ported}
   - {start: 3045, end: 3105, player_facing: true, status: ported}
   - {start: 3110, end: 3110, player_facing: false, status: ported}

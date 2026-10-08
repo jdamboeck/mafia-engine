@@ -26,6 +26,8 @@ from engine.conditions import GUARD_VARIABLES, build_context, evaluate
 from engine.config_loader import load_game_config
 from engine.locations import available_options, load_location
 from engine.state import GameState, ValueSpec
+from engine.effects import commit
+from data.game_configs.mafia_1920s.effects import SetTenancy
 from tests.helpers import run_pure, scripted, with_player
 import data.game_configs.mafia_1920s.state as game
 
@@ -220,9 +222,18 @@ def test_no_shell_of_this_config_guards_an_option():
 
 
 def test_the_tenancy_guard_reads_the_global_value_map():
+    """``tenancy`` is the tenant's 0-based index, -1 for a vacant room (#146): a vacant
+    room and player 0's room read apart, as ``uk(ln)=0`` and ``uk(ln)=1`` do in the
+    1-based source (:10010 ``ifuk(ln)<>0``)."""
     state = _new_game()
     ctx = build_context(state, ln=2)
-    assert evaluate({"var": "tenancy", "op": "=", "value": 0}, ctx) is True  # vacant
+    assert evaluate({"var": "tenancy", "op": "=", "value": -1}, ctx) is True  # vacant
+    assert evaluate({"var": "tenancy", "op": "=", "value": 0}, ctx) is False
+    own = commit(state, [SetTenancy(ln=2)]).state  # :10040 uk(ln)=sp, sp = player 0
+    assert game.tenant(own, 2) == 0
+    ctx = build_context(own, ln=2)
+    assert evaluate({"var": "tenancy", "op": "=", "value": 0}, ctx) is True
+    assert evaluate({"var": "tenancy", "op": "=", "value": -1}, ctx) is False
     rented = dataclasses.replace(state, values={**state.values, "tenancy.2": 1})
     ctx = build_context(rented, ln=2)
     assert evaluate({"var": "tenancy", "op": "=", "value": 1}, ctx) is True

@@ -39,7 +39,7 @@ from ..effects import RentAccrue, SetTenancy
 from engine.interactions import PromptInt, ShowMessage
 from engine.locations import register
 
-from ..setup import fnm
+from ..setup import KEY_WAIT, fnm
 from ..state import tenant
 
 __all__ = ["slw_rent", "slw_pay_rent"]
@@ -59,6 +59,7 @@ def slw_rent(ctx):
     ln = ctx.state.players[ctx.state.clock.active_player].last_location
     if tenant(ctx.state, ln) is not None:  # :10010 ifuk(ln)<>0
         yield ShowMessage("locations.slw.no_room")
+        yield KEY_WAIT  # :10010 ...:goto1100
         return []
     return (yield from _rent_block(ctx))
 
@@ -74,6 +75,7 @@ def slw_pay_rent(ctx):
     ln = ctx.state.players[sp].last_location
     if tenant(ctx.state, ln) != sp:  # :10100 ifuk(ln)<>sp
         yield ShowMessage("locations.slw.not_resident")
+        yield KEY_WAIT  # :10100 ...:nm=1:goto1100
         return []
     return (yield from _rent_block(ctx))
 
@@ -88,10 +90,14 @@ def _rent_block(ctx):
        ``fnm(3) == fnm(4) == 100``, else 50).
     2. Quote the rent (``rent_quote``) and ask for a month count (``:10025``).
     3. ``:10030`` — ``x=0orx<0`` (``x <= 0``) is a quiet abort: return immediately with NO
-       effects (atomic by construction, since nothing was applied yet).
+       effects (atomic by construction, since nothing was applied yet) and no key wait.
     4. ``:10035`` — affordability: if ``ka < x*p`` emit ``not_enough_money`` and
-       return with no deduction.
-    5. ``:10040-10045`` — success: deduct ``x*p``, set tenancy ``uk(ln)=sp``, accrue ``um(sp)+=x``, then greet.
+       return with no deduction (``goto1125``, which waits for a key at ``:1100``).
+    5. ``:10040-10045`` — success: deduct ``x*p``, set tenancy ``uk(ln)=sp``, accrue
+       ``um(sp)+=x``, then greet and wait for a key (``goto1100``).
+
+    Every exit but ``:10030`` ends in ``:1100``'s key wait, as do both refusals before
+    the block: the handler yields ``KEY_WAIT`` there.
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -104,13 +110,15 @@ def _rent_block(ctx):
     yield ShowMessage("locations.slw.rent_quote", {"price": p})
     x = yield PromptInt("locations.slw.months_prompt", min=0, max=_MAX_MONTHS)
 
-    # :10030 — "ifx=0orx<0thennm=1:return": zero/negative months = quiet abort.
+    # :10030 — "ifx=0orx<0thennm=1:return": zero/negative months = quiet abort, no
+    # key wait.
     if x <= 0:
         return []
 
     # :10035 — affordability, `ka(sp)<x*p`.
     if active.ka < x * p:
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :1125 ...:goto1100
         return []
 
     # :10040-10045 — success. Deduct rent (:10040 `ka(sp)=ka(sp)-x*p`),
@@ -119,4 +127,5 @@ def _rent_block(ctx):
     ctx.apply(SetTenancy(ln))
     ctx.apply(RentAccrue(x))
     yield ShowMessage("locations.slw.success")
+    yield KEY_WAIT  # :10045 ...:goto1100
     return []

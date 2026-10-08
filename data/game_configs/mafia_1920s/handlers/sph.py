@@ -28,6 +28,8 @@ from engine.effects import MoneyChange
 from engine.interactions import PromptChoice, PromptInt, ShowMessage
 from engine.locations import register
 
+from ..setup import KEY_WAIT
+
 __all__ = ["sph"]
 
 #: Sane upper bound on the wager PromptInt (the original reads a free int; a cap keeps
@@ -51,6 +53,10 @@ def sph(ctx):
        win the gross payout is ``int(stake*(offset+x))`` (offset 0.5 from config), and the
        net cash delta is ``payout - stake``; on a loss the delta is ``-stake``. Emit the
        win/loss message.
+
+    A played hand and the broke refusal end in the key wait (``:1100``), reached by
+    ``goto1100`` and ``goto1125``: the handler yields ``KEY_WAIT``. Choosing nothing
+    (``:16015 ifx=0thenreturn``) and a wager of 0 return without one.
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -58,6 +64,9 @@ def sph(ctx):
     payout_offset = params["casino_payout_offset"]
 
     # 16010-16016 — game menu; cancelling aborts the whole action (driver discard).
+    # The C64 INPUT at :16015 takes a fraction, and 2.5 passes :16016's 1-3 check and
+    # plays with x=2.5; the menu offers the three games only (a departure, noted in
+    # content/house_rules.yaml).
     choice = yield PromptChoice(
         "locations.sph.game_menu",
         options=[
@@ -69,7 +78,9 @@ def sph(ctx):
     )
     x = choice + 1  # game index: poker=1, black jack=2, roulette=3
 
-    # 16020 — show cash, ask for a wager; wager <= 0 is a quiet abort.
+    # 16020 — show cash, ask for a wager; wager <= 0 is a quiet abort (``return``, no
+    # key wait; nor does choosing nothing at :16015 wait).
+    # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only.
     yield ShowMessage("locations.sph.cash", {"cash": active.ka})
     stake = yield PromptInt("locations.sph.wager_prompt", min=0, max=_MAX_WAGER)
     if stake <= 0:
@@ -78,6 +89,7 @@ def sph(ctx):
     # 16025 — affordability.
     if stake > active.ka:
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :16025 goto1125 -> :1125 ...:goto1100
         return []
 
     # 16026-16040 — resolve with a single rng draw.
@@ -90,4 +102,7 @@ def sph(ctx):
     else:
         ctx.apply(MoneyChange(-stake))  # 16026 stake gone, no re-add
         yield ShowMessage("locations.sph.lost")
+    # :16035 print"{down}leider verloren!":goto1100 / :16040 ...:goto1100 -- the hand's
+    # result stays on screen until a key.
+    yield KEY_WAIT
     return []

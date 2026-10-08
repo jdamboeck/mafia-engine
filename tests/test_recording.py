@@ -554,3 +554,70 @@ def test_a_recording_with_no_map_is_refused(ambush_recording, tmp_path, with_rul
     with pytest.raises(HouseRulesError) as exc:
         load(path, rules=build_rules({}) if with_rules else None)
     assert str(exc.value) == "the recording stores no house-rules map"
+
+
+# --------------------------------------------------------------------------- #
+# #156 — an exhausted scripted input surfaces; it never passes as a finished fight
+# --------------------------------------------------------------------------- #
+class _ScriptedClient:
+    """A scripted human client: one ``next(answers)`` per action prompt.
+
+    Opts in to observation frames so every NON-human activation is visible as a counted
+    ``"observe"`` frame (proof an activation applied) without consuming an answer.
+    """
+
+    observes_ai = True
+
+    def __init__(self, answers) -> None:
+        self._answers = iter(answers)
+        self.consumed = 0
+        self.observed = 0
+
+    def __call__(self, screen):
+        if screen.prompt == "observe":
+            self.observed += 1
+            return None  # display-only; the loop ignores it
+        answer = next(self._answers)
+        self.consumed += 1
+        return answer
+
+
+def test_an_empty_scripted_input_raises_out_of_record_fight_instead_of_a_result():
+    """#156's reproduction: an input that is dry before the first human prompt raises
+    ``StopIteration`` out of ``record_fight`` — no ``(result, recording)`` comes back."""
+    from engine.fight_loop import HumanDriver
+
+    answers = iter(())
+    returned = None
+    with pytest.raises(StopIteration):
+        returned = record_fight(
+            _kdh_ambush_scenario(),
+            {1: HumanDriver(), 2: AiDriver()},
+            input_source=lambda screen: next(answers),
+        )
+    assert returned is None
+
+
+def test_a_scripted_input_that_runs_dry_mid_fight_raises_after_an_activation():
+    """An answer list that runs out after the fight has started raises too: the human
+    answered once and the AI side activated in between, yet the fight is not finished."""
+    from engine.fight_loop import HumanDriver
+
+    def endless_shots():
+        while True:
+            yield ("shoot", +1)
+
+    # Calibrate outcome-agnostically: how many answers the whole fight needs.
+    full = _ScriptedClient(endless_shots())
+    record_fight(_kdh_ambush_scenario(), {1: HumanDriver(), 2: AiDriver()}, input_source=full)
+    assert full.consumed >= 2, "the fixture must ask the human more than once"
+
+    dry = _ScriptedClient([("shoot", +1)] * (full.consumed - 1))
+    returned = None
+    with pytest.raises(StopIteration):
+        returned = record_fight(
+            _kdh_ambush_scenario(), {1: HumanDriver(), 2: AiDriver()}, input_source=dry
+        )
+    assert returned is None
+    assert dry.consumed == full.consumed - 1
+    assert dry.observed >= 1, "at least one AI activation applied before the input ran dry"

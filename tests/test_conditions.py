@@ -239,18 +239,22 @@ def test_tenancy_requires_ln():
 
 
 def test_slw_rent_guard():
-    """slw option 1 (rent): available when unit is free — tenancy==0.
+    """slw option 1 (rent): available when unit is free — tenancy==-1 (vacant).
 
-    Research: mf-prg.bas:10010, denied when uk(ln)<>0 -> "nichts mehr frei".
+    Research: mf-prg.bas:10010, denied when uk(ln)<>0 -> "nichts mehr frei". The
+    source's 0 is the port's -1: players are 0-based, so player 0 is a tenant (#146).
     """
-    guard = {"var": "tenancy", "op": "=", "value": 0}
+    guard = {"var": "tenancy", "op": "=", "value": -1}
     free = _state()
-    ctx_free = build_context(free, ln=3)  # tenancy.get(3,0) == 0
+    ctx_free = build_context(free, ln=3)  # vacant reads -1
     assert evaluate(guard, ctx_free) is True
 
     occupied = with_tenancy(_state(), ln=3, owner=2)
     ctx_occ = build_context(occupied, ln=3)
     assert evaluate(guard, ctx_occ) is False
+
+    own = with_tenancy(_state(), ln=3, owner=0)  # player 0's room is not vacant
+    assert evaluate(guard, build_context(own, ln=3)) is False
 
 
 def test_slw_lease_guard_variable_rhs():

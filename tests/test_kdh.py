@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.combat import STEP_RIGHT
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
@@ -24,6 +26,7 @@ from engine.rng import Rng
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.state import Business, Debt
 from data.game_configs.mafia_1920s.gangster import Gangster
+from engine.turns import KEY_WAIT_SCREEN
 from engine.upkeep import UPKEEP_HANDLER_KEY
 from tests.helpers import is_effect, StubRng as _StubRng, run_pure, scripted as _scripted
 import data.game_configs.mafia_1920s.state as game
@@ -226,7 +229,8 @@ def test_buy_price_rolled_5000_to_6000_step_100():
     st = _state([_player(ka=100000, last_location=1)])
     for roll, expected_price in [(0, 5000), (5, 5500), (10, 6000)]:
         rng = _StubRng(roll)
-        result = run_pure(HANDLERS["kdh.trade"], _scripted(True), state=st, rng=rng)
+        # True buys; 0 leaves the capital screen :15125 goto15200 opens (:15208).
+        result = run_pure(HANDLERS["kdh.trade"], _scripted(True, 0), state=st, rng=rng)
         assert rng.calls[0] == ("range", 11)
         money_changes = [e for e in result.effects if isinstance(e, MoneyChange)]
         assert money_changes == [MoneyChange(-expected_price)]
@@ -250,7 +254,8 @@ def test_buy_afford_check_denies_and_no_state_change():
 def test_buy_settles_cash_and_shop_tile():
     st = _state([_player(ka=100000, last_location=1)])
     rng = _StubRng(0)  # price 5000
-    result = run_pure(HANDLERS["kdh.trade"], _scripted(True), state=st, rng=rng)
+    # True buys; 0 leaves the capital screen :15125 goto15200 opens (:15208).
+    result = run_pure(HANDLERS["kdh.trade"], _scripted(True, 0), state=st, rng=rng)
     assert result.effects == [
         MoneyChange(-5000),
         ShopChange(tile=1),
@@ -470,3 +475,146 @@ def test_income_earned_is_10_to_15_percent_of_capital():
         money_changes = [e for e in result.effects if isinstance(e, MoneyChange)]
         assert money_changes == [MoneyChange(expected_income)]
         assert rng.calls == [("range", 3), ("range", 1000)]
+
+
+# --------------------------------------------------------------------------- #
+# #160: the :1100 key wait at each exit — goto1100/goto1125 waits, return not  #
+# --------------------------------------------------------------------------- #
+_OWN = {"business": Business(shop_tile=1, shop_capital=500), "last_location": 1}
+
+_EXITS = [
+    # handler, player kwargs, rng draws, answers, waits
+    # :15010 ifkr(sp)then...:goto1100
+    ("15010-old-debt", "kdh.borrow", {"debt": Debt(amount=500, months=3)}, (), (), 1),
+    # :15020 ifx=0thenreturn
+    ("15020-borrow-zero", "kdh.borrow", {}, (), (0,), 0),
+    # :15030 kr(sp)=kr(sp)+x:...:goto1100
+    ("15030-borrowed", "kdh.borrow", {}, (), (3000,), 1),
+    # :15051 ...:ifx=0thenreturn
+    ("15051-repay-zero", "kdh.repay", {"debt": Debt(amount=500, months=3)}, (), (0,), 0),
+    # :15060 ifka(sp)<xgoto1125
+    ("15060-too-poor", "kdh.repay", {"ka": 100, "debt": Debt(amount=500, months=3)}, (), (400,), 1),
+    # :15070 ...print"{down}schulden!":goto1100
+    ("15070-partly-repaid", "kdh.repay", {"debt": Debt(amount=500, months=3)}, (), (200,), 1),
+    # :15075 kz(sp)=0:print"...zurueckgezahlt!":goto1100
+    ("15075-repaid", "kdh.repay", {"debt": Debt(amount=500, months=3)}, (), (500,), 1),
+    # :15105 ifkg(sp)then...:goto1100
+    ("15105-own-a-shop", "kdh.trade", {"business": Business(shop_tile=2)}, (), (), 1),
+    # :15106 ifkr(sp)then...:goto1100
+    ("15106-own-debts", "kdh.trade", {"debt": Debt(amount=500, months=3)}, (), (), 1),
+    # :15111 print:gosub1110:ifx$="n"thenreturn
+    ("15111-buy-declined", "kdh.trade", {}, (0,), (False,), 0),
+    # :15115 ifka(sp)<pgoto1125
+    ("15115-too-poor", "kdh.trade", {"ka": 100}, (0,), (True,), 1),
+    # :15151 ...gosub1115:ifx$="n"thenreturn
+    ("15151-sell-declined", "kdh.trade", {"business": Business(shop_tile=1)}, (0,), (False,), 0),
+    # :15155 ka(sp)=ka(sp)+p:kg(sp)=0:return
+    ("15155-sold", "kdh.trade", {"business": Business(shop_tile=1)}, (0,), (True,), 0),
+    # :15200 ifkg(sp)<>lnthen...:goto1100
+    ("15200-not-owner", "kdh.capital", {"business": Business(shop_tile=2)}, (), (), 1),
+    # :15208 ...:ifx=0thenreturn
+    ("15208-capital-zero", "kdh.capital", _OWN, (), (0,), 0),
+    # :15215 ifka(sp)<xgoto1125
+    ("15215-too-poor", "kdh.capital", {**_OWN, "ka": 100}, (), (1000,), 1),
+    # :15220 ka(sp)=ka(sp)-x:kk(sp)=kk(sp)+x:return
+    ("15220-capital-changed", "kdh.capital", _OWN, (), (1000,), 0),
+    # :15300 ifkg(sp)<>lnthen...:goto1100
+    ("15300-not-owner", "kdh.collect", {"business": Business(shop_tile=2)}, (), (), 1),
+    # :15306 print"alle schuldner haben puenktlich ge-":print"{down}zahlt!":goto1100
+    ("15306-paid-on-time", "kdh.collect", _OWN, (0,), (), 1),
+]
+
+
+@pytest.mark.parametrize(
+    ("handler", "kwargs", "draws", "answers", "waits"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(handler, kwargs, draws, answers, waits):
+    st = _state([_player(**kwargs)])
+    src = _scripted(*answers)
+    run_pure(HANDLERS[handler], src, state=st, rng=_StubRng(*draws))
+    assert src.key_waits() == waits
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
+
+
+def test_rival_owner_refusal_waits_for_a_key():
+    # :15108 print"der laden gehoert "sp$(i)"!":goto1100
+    st = _state([_player(last_location=1), _player("p1", business=Business(shop_tile=1))])
+    src = _scripted()
+    run_pure(HANDLERS["kdh.trade"], src, state=st, rng=_StubRng())
+    assert src.message_keys() == ["locations.kdh.shop_belongs_to"]
+    assert src.ends_in_key_wait() and src.key_waits() == 1
+
+
+def test_buying_waits_once_then_opens_the_capital_screen():
+    """:15120 ``...print"{down}der laden gehoert nun dir!":gosub1100`` then :15125
+    ``goto15200``: the purchase waits for a key, then the capital screen follows in the
+    same option; :15208's ``x=0`` returns from there without another wait."""
+    from engine.interactions import PromptInt
+
+    st = _state([_player(ka=100000, last_location=1)])
+    src = _scripted(True, 0)
+    result = run_pure(HANDLERS["kdh.trade"], src, state=st, rng=_StubRng(0))
+    keys = [getattr(i, "key", None) for i in src.seen]
+    bought = keys.index("locations.kdh.bought")
+    assert keys[bought + 1] == KEY_WAIT_SCREEN
+    assert keys[bought + 2 :] == ["locations.kdh.capital_status", "locations.kdh.capital_prompt"]
+    prompt = src.seen[-1]
+    assert isinstance(prompt, PromptInt) and (prompt.min, prompt.max) == (0, 5000)
+    assert src.key_waits() == 1
+    assert result.effects == [MoneyChange(-5000), ShopChange(tile=1)]
+
+
+def test_a_capital_answer_after_buying_changes_the_capital():
+    # :15220 ka(sp)=ka(sp)-x:kk(sp)=kk(sp)+x:return -- on the cash the purchase left.
+    st = _state([_player(ka=8000, last_location=1)])
+    src = _scripted(True, 2000)
+    result = run_pure(HANDLERS["kdh.trade"], src, state=st, rng=_StubRng(0))
+    assert game.business(result.state.players[0]) == Business(shop_tile=1, shop_capital=2000)
+    assert result.state.players[0].ka == 1000
+    assert src.key_waits() == 1
+
+
+def test_a_capital_deposit_beyond_the_cash_left_after_buying_waits():
+    # :15215 ifka(sp)<xgoto1125 -- the cash after :15120's price, not before it.
+    st = _state([_player(ka=5500, last_location=1)])
+    src = _scripted(True, 1000)
+    result = run_pure(HANDLERS["kdh.trade"], src, state=st, rng=_StubRng(0))
+    assert game.business(result.state.players[0]) == Business(shop_tile=1)
+    assert result.state.players[0].ka == 500
+    assert src.message_keys()[-1] == "system.not_enough_money"
+    assert src.ends_in_key_wait() and src.key_waits() == 2
+
+
+def _first_fight_screen(src) -> int:
+    from engine.interactions import CombatScreen
+
+    return next(i for i, x in enumerate(src.seen) if isinstance(x, CombatScreen))
+
+
+def test_the_ambush_waits_before_the_fight_and_a_loss_returns_after_the_outcome():
+    """:15312 ``gosub1100`` before ``gosub5000``; the outcome screen's ``:30520
+    print:goto1100`` waits; the loss returns (:15315 ``ifs=2thenreturn``)."""
+    st = _state([_player(ka=1000, **_OWN)])
+    src = _scripted("surrender")
+    run_pure(HANDLERS["kdh.collect"], src, state=st, rng=_StubRng(1))
+    keys = [getattr(i, "key", None) for i in src.seen]
+    fight = _first_fight_screen(src)
+    assert keys[fight - 2 : fight] == ["locations.kdh.ambush_intro", KEY_WAIT_SCREEN]
+    assert src.message_keys()[-1] == "combat.losses_line"
+    assert src.ends_in_key_wait() and src.key_waits() == 2
+
+
+def test_an_ambush_win_waits_after_the_outcome_and_after_the_loot():
+    """:30520 waits under the outcome screen, then :15321 prints the loot and ``goto1100``."""
+    roster = (Gangster(name="p0", energie=100, kraft=50, brutalitaet=50, weapon=8),)
+    st = _state([_player(ka=1000, roster=roster, **_OWN)])
+    src = _scripted(*([("shoot", STEP_RIGHT)] * 40 + ["surrender"]))
+    run_pure(HANDLERS["kdh.collect"], src, state=st, rng=Rng(0))
+    keys = [getattr(i, "key", None) for i in src.seen]
+    loot = keys.index("locations.kdh.ambush_loot")
+    assert keys[loot - 2 : loot] == ["combat.losses_line", KEY_WAIT_SCREEN]
+    assert keys[loot + 1 :] == [KEY_WAIT_SCREEN]
+    assert src.key_waits() == 3

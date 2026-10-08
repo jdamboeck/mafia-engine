@@ -69,7 +69,14 @@ from engine.locations import register
 from engine.substates import register_substate
 
 from ..effects import SafeSkillSet, TipClear
-from ..setup import load_encounter, load_ranks, pick_gangster, run_encounter, score_and_rank
+from ..setup import (
+    KEY_WAIT,
+    load_encounter,
+    load_ranks,
+    pick_gangster,
+    run_encounter,
+    score_and_rank,
+)
 from ..state import safe_skill, tip_target
 from .police import Arrest, caught, police_fight
 from .sgl import revisit_trap
@@ -114,6 +121,7 @@ def _prologue(ctx):
     if active.rank < rank:
         ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
         yield ShowMessage("locations.ban.rank_too_low", {"rank": ranks[rank - 1]})
+        yield KEY_WAIT  # :20003 ...:goto1100
         return True
     # :20004 ``ifll(sp)=20*la+lngoto17008``
     return (yield from revisit_trap(ctx))
@@ -132,10 +140,12 @@ def ban_holdup(ctx):
     # :20009 ``ifgz(sp)=1thenprint"du brauchst einen begleiter!":goto1100``
     if len(active.roster) == params["ban_alone_gang"]:
         yield ShowMessage("locations.ban.alone")
+        yield KEY_WAIT  # :20009 ...:goto1100
         return []
     # :20010 ``ifint(rnd(1)*3)=0goto20050``
     if ctx.rng.range(params["ban_fight_roll"]) != 0:
-        yield ShowMessage("locations.ban.guards")  # :20011-20012, then :1100's key
+        yield ShowMessage("locations.ban.guards")  # :20011-20012
+        yield KEY_WAIT  # :20012 ...:gosub1100, before the fight
         # :20012 ``gz(0)=3-(ln=1)``; :20015 ``bn$(0)="wachmaenner":e=30:w=6:kf$="kb":
         # gosub5000:ifs=2goto26020``
         variant = 1 if ln == params["ban_main_tile"] else 0
@@ -176,7 +186,8 @@ def ban_safe(ctx):
         and boss.get("kraft", 0) >= params["ban_safe_kraft"]
         and boss.get("brutalitaet", 0) >= params["ban_safe_brutalitaet"]
     ):
-        yield ShowMessage("locations.ban.safe_untrained")  # :20101, then :1100's key
+        yield ShowMessage("locations.ban.safe_untrained")  # :20101
+        yield KEY_WAIT  # :20101 ...:goto1100
         return []
     # :20104 ``print"...wer soll den kasten knacken:":gosub1130:ify=0thenreturn``
     yield ShowMessage("locations.ban.safe_who")
@@ -185,6 +196,7 @@ def ban_safe(ctx):
         return []
     # :20105-20107 the stethoscope, then :1100's key.
     yield ShowMessage("locations.ban.safe_stethoscope")
+    yield KEY_WAIT  # :20107 ...:gosub1100, before the dials
     # :20110-20135 the minigame; :1155 ``gosub1350`` loaded the cracker's ``in``.
     outcome = yield LoadSubState(
         "safe_crack", {"intelligenz": active.roster[y].attrs["intelligenz"]}
@@ -200,6 +212,7 @@ def ban_safe(ctx):
     # goto26000`` — ``p`` is the map step's (:2030 ``p=br+po(sp)+x``); see the module
     # docstring.
     yield ShowMessage("locations.ban.safe_failed")
+    yield KEY_WAIT  # :20142 ...:gosub1100, before the police
     door = door_cells()[(active.last_la, active.last_location)]
     yield from police_fight(ctx, Arrest(p=params["map_screen_base"] + door), grid=_POLICE_GRID)
     return []
@@ -285,7 +298,8 @@ def heist_payout(ctx, *, tip_bonus: bool, adjust: int = 0):
     caller's ``-500*(la=10andln=1)`` term (C64 true is -1, so it is +500 on the bank's
     tile 1, 0 elsewhere). ``:20051 if(x=1andla=9)or(x=2andla=10andln=2)or(x=3andla=13)
     thentp(sp)=0:p=p+3000`` — ``tip_bonus`` is whether the held tip matches the heist.
-    ``:20055-20060`` the loot is shown, ``ka(sp)=ka(sp)+p:x=4:gosub1160``.
+    ``:20055-20060`` the loot is shown, ``ka(sp)=ka(sp)+p:x=4:gosub1160``, and
+    ``goto1100`` waits for a key, for every caller.
     """
     params = ctx.state.config.formula_params
     p = ctx.rng.range(params["heist_pay_spread"]) + params["heist_pay_min"] + adjust
@@ -295,3 +309,4 @@ def heist_payout(ctx, *, tip_bonus: bool, adjust: int = 0):
     yield ShowMessage("locations.ban.loot", {"p": p})
     ctx.apply(MoneyChange(p))
     ctx.apply(score_and_rank(params["heist_score"], params))
+    yield KEY_WAIT  # :20060 ...:x=4:gosub1160:goto1100

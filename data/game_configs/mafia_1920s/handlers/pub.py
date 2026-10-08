@@ -67,9 +67,11 @@ from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from ..gangster import Gangster
+from ..house_rules import intent
 from ..state import contraband, hired_ids, tenant
 
-from ..setup import load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
+from ..setup import KEY_WAIT, load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
+from .pol import C64_INPUT_NEGATIVES
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -89,6 +91,16 @@ _MAX_OFFERS = 3
 
 #: Pub tile that never has recruits available (mf-prg.bas:12107's `orln=3`).
 _NO_RECRUIT_TILE = 3
+
+#: The count prompts' floor under faithful ``c64_input_negatives``: the C64 INPUT at
+#: :12027/:12060 stores any whole negative exactly (-99999999 in
+#: tests/fixtures/c64_input/vice_capture.txt; its float holds whole numbers exactly up
+#: to 2**32), and no line of the trade refuses one, so the floor only keeps the prompt
+#: finite. -(2**31), the floor of the chief's months (``handlers/pol.py``) and the
+#: counterfeiter's stake (``handlers/ble.py``), lies far below any count a trade has a
+#: use for (the cash a sale would cost or a purchase bring is the only limit, and the
+#: source sets none).
+_ANY_NEGATIVE = -(2**31)
 
 #: Alcohol tiles: these ``ln`` sell (mf-prg.bas:12010 ``ifln=4orln=5goto12020``; 5 is
 #: the station pub, see module docstring). Every other tile falls into the 50%
@@ -169,15 +181,19 @@ def pub_drink(ctx):
        BUY path (tiles 4 and 5): ``:12020-12035``.
        a. Roll stock ``x`` (100-299 barrels) and price ``p`` (5-9$/barrel).
        b. Cap the offer by the vehicle's free capacity: ``x = min(x, tank - barrels)``.
-       c. Prompt a quantity in ``[0, x]``; 0 is a quiet abort (``:12029``).
+       c. Prompt a quantity up to ``x`` (``:12028``); 0 is a quiet abort (``:12029``).
+          Faithful ``c64_input_negatives`` takes a negative quantity, as the C64
+          INPUT does; intent asks it again (see ``_count_prompt``).
        d. Afford check ``ka < y*p`` -> ``not_enough_money``, no state change (``:12030``).
        e. Settle: ``+y`` barrels, ``-y*p`` cash, score+rank reward ``x=2`` (``:12035``).
     2. ``:12015`` — elsewhere: 1-in-2 refusal ("verboten!"); else the SELL path.
        SELL path (``:12050-12075``):
        a. Roll the dealer's buy price ``x`` (10-29$/barrel).
-       b. Prompt a quantity in ``[0, current barrels]``; 0 is a quiet abort (``:12065``).
-       c. Settle unconditionally (selling never fails on affordability): ``+y*x`` cash,
-          ``-y`` barrels. NO score effect (``:12075`` has no ``gosub1160``, unlike buy).
+       b. Prompt a quantity up to the current barrels (``:12061``), negative as at the
+          buy; 0 is a quiet abort (``:12065``).
+       c. Settle unconditionally (no cash check, even for a negative sale): ``+y*x``
+          cash, ``-y`` barrels. NO score effect (``:12075`` has no ``gosub1160``,
+          unlike buy).
     """
     sp = ctx.state.clock.active_player
     active = ctx.state.players[sp]
@@ -201,16 +217,20 @@ def pub_drink(ctx):
             stock = free
 
         yield ShowMessage("locations.pub.drink_offer", {"stock": stock, "price": price})
-        y = yield PromptInt("locations.pub.drink_quantity_prompt", min=0, max=max(stock, 0))
-        if y == 0:
+        # :12027 ``inputy``, :12028 ``ify>xthen...goto12027`` (asked again).
+        y = yield _count_prompt(ctx.state, "locations.pub.drink_quantity_prompt", stock)
+        if y == 0:  # :12029 ``ify=0thenreturn``
             return []
 
-        # :12030 — afford check; broke -> no state change at all.
+        # :12030 — afford check; broke -> no state change at all. A negative y has a
+        # negative price, so it passes whenever the cash is not below it.
         if active.ka < y * price:
             yield ShowMessage("system.not_enough_money")
+            yield KEY_WAIT  # :12030 goto1125 -> :1125 ...:goto1100
             return []
 
-        # :12035 — settle + score/rank reward (x=2, gosub1160/1165).
+        # :12035 — settle + score/rank reward (x=2, gosub1160/1165), and ``return``
+        # with no key wait.
         # :12035 `ta(sp)=ta(sp)+y`, `ka(sp)=ka(sp)-p*y`.
         ctx.apply(BarrelChange(y))
         ctx.apply(MoneyChange(-price * y))
@@ -220,22 +240,40 @@ def pub_drink(ctx):
     # --- elsewhere: :12015 1-in-2 refusal, else the SELL offer -------------
     if ctx.rng.range(2) == 0:
         yield ShowMessage("locations.pub.drink_refused")
+        yield KEY_WAIT  # :12016 ...:goto1100
         return []
 
     # --- SELL path: :12050-12075 --------------------------------------------
     # :12050 `x=int(rnd(1)*20)+10` (the dealer's price per barrel).
     price = ctx.rng.hit(params["pub_alcohol_sell_price_min"], params["pub_alcohol_sell_price_max"])
     yield ShowMessage("locations.pub.sell_offer", {"price": price})
-    y = yield PromptInt(
-        "locations.pub.sell_quantity_prompt", min=0, max=max(contraband(active).alcohol_barrels, 0)
-    )
-    if y == 0:
+    # :12060 ``inputy``, :12061 ``ify>ta(sp)then...goto12060`` (asked again).
+    held = contraband(active).alcohol_barrels
+    y = yield _count_prompt(ctx.state, "locations.pub.sell_quantity_prompt", held)
+    if y == 0:  # :12065 ``ify=0thenreturn``
         return []
+    yield ShowMessage("locations.pub.sell_greed")  # :12070 ...:goto12075
 
-    # :12075 — settle unconditionally, no score effect: `ka(sp)=ka(sp)+y*x`.
+    # :12075 — settle unconditionally, no score effect: `ka(sp)=ka(sp)+y*x`. A
+    # negative y takes the cash with no check that the player has it.
     ctx.apply(MoneyChange(y * price))
     ctx.apply(BarrelChange(-y))
+    yield KEY_WAIT  # :12075 ...:goto1100
     return []
+
+
+def _count_prompt(state, key: str, most: int) -> PromptInt:
+    """The buy (``:12027``) or sell (``:12060``) count prompt, at most ``most``.
+
+    Faithful ``c64_input_negatives``: the C64 INPUT takes a negative count and only
+    ``y>most`` is asked again (``:12028``, ``:12061``), so any whole number up to
+    ``most`` goes through, ``most`` itself below 0 included (barrels above the tank at
+    ``:12025``, or below 0 at the sell): then 0 is asked again too. Intent: a count
+    below 0 is asked again, and the bound stays at least 0 so 0 always returns.
+    """
+    if intent(state, C64_INPUT_NEGATIVES):
+        return PromptInt(key, min=0, max=max(most, 0))
+    return PromptInt(key, min=_ANY_NEGATIVE, max=most)
 
 
 # --------------------------------------------------------------------------- #
@@ -268,22 +306,25 @@ def pub_tip(ctx):
     # :12200 — rank guard.
     if active.rank <= 3:
         yield ShowMessage("locations.pub.tip_too_inexperienced")
+        yield KEY_WAIT  # :12205 ...:goto1100
         return []
 
     # :12210 — 2/3 chance of nothing.
     if ctx.rng.range(3) != 0:
         yield ShowMessage("locations.pub.tip_nothing")
+        yield KEY_WAIT  # :12210 ...:goto1100
         return []
 
     # :12215-12216 — price roll + confirm. :12215 `p=1000+int(rnd(1)*3)*500`
     price = params["pub_tip_price_base"] + ctx.rng.range(3) * params["pub_tip_price_step"]
     yield ShowMessage("locations.pub.tip_teaser", {"price": price})
     if not (yield Confirm("locations.pub.tip_confirm")):
-        return []
+        return []  # :12216 ifx$="n"thenreturn -- no key wait
 
     # :12220 — afford check, runs BEFORE any write.
     if active.ka < price:
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :12220 goto1125 -> :1125 ...:goto1100
         return []
 
     # :12225-12226 — charge, roll the tip id, set it, show the flavour text.
@@ -294,19 +335,22 @@ def pub_tip(ctx):
     yield ShowMessage(_TIP_TEXT_KEYS[tip_id])
 
     if tip_id != ARMS_DEAL_TIP:
+        yield KEY_WAIT  # :12231 / :12236 / :12242 / :12252 ...:goto1100
         return []
 
     # :12245-12249 — tip 4's extra 5000$ stake sub-flow.
     yield ShowMessage("locations.pub.arms_deal_offer")
     if not (yield Confirm("locations.pub.arms_deal_confirm")):
         ctx.apply(TipClear())
-        return []
+        return []  # :12247 ...thentp(sp)=0:return -- no key wait
     if active.ka - price < ARMS_DEAL_STAKE:
         ctx.apply(TipClear())
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :12248 ...:goto1125 -> :1125 ...:goto1100
         return []
     ctx.apply(MoneyChange(-ARMS_DEAL_STAKE))
     yield ShowMessage("locations.pub.arms_deal_accepted")
+    yield KEY_WAIT  # :12249 ...:goto1100
     return []
 
 
@@ -347,16 +391,19 @@ def pub_recruit(ctx):
     if active.rank <= 4:
         ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
         yield ShowMessage("locations.pub.rank_too_low", {"rank": ranks[active.rank - 1]})
+        yield KEY_WAIT  # :12102 ...:goto1100
         return []
 
     # :12103-12104 — housing guard: at least one of 5 apartment slots (uk(i)=sp).
     if not any(tenant(ctx.state, i) == sp for i in range(1, 6)):
         yield ShowMessage("locations.pub.recruit_no_housing")
+        yield KEY_WAIT  # :12104 ...:goto1100
         return []
 
     # :12105 — crew cap (roster length INCLUDES the boss).
     if len(active.roster) == _CREW_CAP:
         yield ShowMessage("locations.pub.recruit_gang_full")
+        yield KEY_WAIT  # :12105 ...:goto1100
         return []
 
     candidates = _gangster_candidates()
@@ -370,6 +417,7 @@ def pub_recruit(ctx):
     offered = ctx.rng.range(pool + 1)
     if offered == 0 or ln == _NO_RECRUIT_TILE:
         yield ShowMessage("locations.pub.recruit_nobody_available")
+        yield KEY_WAIT  # :12107 ...:goto1100
         return []
 
     # :12108-12175 — per-candidate loop. ``ctx.state`` never reflects effects applied
@@ -412,6 +460,7 @@ def pub_recruit(ctx):
         # :12140 — afford check.
         if running_cash < candidate["price"]:
             yield ShowMessage("system.not_enough_money")
+            yield KEY_WAIT  # :12140 gosub1125 (-> :1100), then :12175 nexti
             continue
 
         # :12145 `ifgz(sp)=10goto12005` -- the cap, checked only after the offer, the
@@ -422,6 +471,7 @@ def pub_recruit(ctx):
         # :12105's gang-full message and the batch is over.
         if running_roster_size == _CREW_CAP:
             yield ShowMessage("locations.pub.recruit_gang_full")
+            yield KEY_WAIT  # :12105 ...:goto1100
             return []
 
         # :12160-12165 — settle: pay, append to roster at energy 5, mark hired.
@@ -442,8 +492,9 @@ def pub_recruit(ctx):
         running_cash -= candidate["price"]
         running_roster_size += 1
         yield ShowMessage("locations.pub.recruit_hired", {"gang_size": running_roster_size})
+        yield KEY_WAIT  # :12170 ...:gosub1100, then :12175 nexti
 
-    return []
+    return []  # :12175 nexti:return -- the batch ends with no wait of its own
 
 
 # --------------------------------------------------------------------------- #
@@ -480,11 +531,13 @@ def pub_job(ctx):
     if active.rank > _JOB_MAX_RANK:
         ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
         yield ShowMessage("locations.pub.job_rank_too_high", {"rank": ranks[active.rank - 1]})
+        yield KEY_WAIT  # :12301 ...:goto1100
         return []
 
     # :12302 — 1-in-5 nobody has work.
     if ctx.rng.range(5) == 0:
         yield ShowMessage("locations.pub.job_nobody_available")
+        yield KEY_WAIT  # :12302 ...:goto1100
         return []
 
     # :12305 — roll job type 1-4 uniform, source dispatch order: `x=int(rnd(1)*4)+1`.
@@ -501,10 +554,11 @@ def pub_job(ctx):
     # :12330 — show the pay, then confirm; "n" -> quiet return, no state change.
     yield ShowMessage("locations.pub.job_pay_confirm", {"pay": pay})
     if not (yield Confirm("locations.pub.job_pay_confirm_prompt")):
-        return []
+        return []  # :12330 ifx$="n"thenreturn -- no key wait
 
     # :12335 — accept: store the job, force-end the turn (ms=0, not a relative spend).
     ctx.apply(JobSet(type=job_type, pending_pay=pay, months_left=duration))
     ctx.apply(MsChange(amount=-active.ms))
     yield ShowMessage("locations.pub.job_accepted")
+    yield KEY_WAIT  # :12335 ...:ms=0:goto1100
     return []

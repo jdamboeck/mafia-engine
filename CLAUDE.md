@@ -60,7 +60,13 @@ commit + branch conventions, and how to pick up the next unit. Then:
    interactions, the new-game setup as a config handler under `SETUP_HANDLER_KEY` with
    the player count, names and stopped stat rolls, the client only drawing it; the
    ledger's player-facing rule; the location-result key wait, `:3050`'s clear and
-   `:20150`'s opened safe; closed #149–#154).
+   `:20150`'s opened safe; closed #149–#154),
+   and the Open Issues Fidelity plan (`2026-10-05-001-…`, U1–U11 — the fight loop's
+   input exhaustion fix, the `c64_input_negatives` and `c64_float_score` house rules
+   (ported C64 FADD/FMULT, parser and rank divide, VICE-captured), spec labels and
+   `:4620`'s rows, the location screen's title and one-key 1-based pick, explicit
+   per-exit `:1100` key waits with no client wait, the narrow player-facing ledger rule
+   and four ported screens; closed #146, #147, #155, #156, #159, #160 and #162–#172).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the feature branch the active plan names in its `branch:`

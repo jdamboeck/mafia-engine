@@ -20,7 +20,7 @@ The month prompt (``:21011``)
 ``input"{down}nehme ich 1000 $. wieviele monate:";x:p=1000*x:ifx=0thenreturn`` has no
 range check. Two answers are house rules (both checked in VICE):
 
-- a negative count (``chief_bribe_negative_months``): C64 ``INPUT`` takes "-3" as -3,
+- a negative count (``c64_input_negatives``): C64 ``INPUT`` takes "-3" as -3,
   the price is below 0 and ``:21015`` never refuses it, so the chief pays the player
   and the months drop. Intent asks again;
 - an empty answer (``chief_bribe_empty_answer``) keeps ``x``, which last held the map
@@ -60,20 +60,22 @@ from engine.locations import register
 from ..effects import BribeMonthsChange, Jail
 from ..gangster import Gangster
 from ..house_rules import intent
-from ..setup import score_and_rank
+from ..setup import KEY_WAIT, score_and_rank
 from ..state import wanted
 from .police import Arrest, sentence
 
 __all__ = [
+    "C64_INPUT_NEGATIVES",
     "CHIEF_BRIBE_EMPTY_ANSWER",
-    "CHIEF_BRIBE_NEGATIVE_MONTHS",
     "pol_bribe",
     "pol_free",
     "pol_surrender",
 ]
 
-#: House rule: a negative month count pays out (faithful) or is asked again.
-CHIEF_BRIBE_NEGATIVE_MONTHS = "chief_bribe_negative_months"
+#: House rule: a negative count at a C64 number prompt goes through (faithful) or is
+#: asked again; here, the month count, which then pays out. ``handlers/pub.py`` reads
+#: it for the pub's buy and sell counts.
+C64_INPUT_NEGATIVES = "c64_input_negatives"
 #: House rule: an empty month answer repeats the map step (faithful) or buys nothing.
 CHIEF_BRIBE_EMPTY_ANSWER = "chief_bribe_empty_answer"
 
@@ -93,7 +95,7 @@ def pol_bribe(ctx):
     """Bribe the police chief — ports ``mf-prg.bas:21010-21030``."""
     active = ctx.state.players[ctx.state.clock.active_player]
     params = ctx.state.config.formula_params
-    no_negatives = intent(ctx.state, CHIEF_BRIBE_NEGATIVE_MONTHS)
+    no_negatives = intent(ctx.state, C64_INPUT_NEGATIVES)
 
     yield ShowMessage("locations.pol.chief_offer")  # :21010
     # :21011 — see the module docstring for the empty and negative answers.
@@ -111,11 +113,12 @@ def pol_bribe(ctx):
     while no_negatives and months < 0:
         months = yield prompt
     price = params["pol_chief_price"] * months  # :21011 ``p=1000*x``
-    if months == 0:  # :21011 ``ifx=0thenreturn``
+    if months == 0:  # :21011 ``ifx=0thenreturn`` -- no key wait
         return []
 
     if active.ka < price:  # :21015 ``ifka(sp)<p``
         yield ShowMessage("locations.pol.chief_broke")
+        yield KEY_WAIT  # :21015 ...:goto1100
         return []
 
     # :21020 ``ka(sp)=ka(sp)-p:pl(sp)=pl(sp)+x+1:x=2:gosub1160``
@@ -125,6 +128,7 @@ def pol_bribe(ctx):
     # :21025-21030 the back exit: ``po(sp)=911``, and the turn goes on.
     yield ShowMessage("locations.pol.chief_done")
     ctx.apply(Teleport(params["pol_back_exit_cell"]))
+    yield KEY_WAIT  # :21030 ...:po(sp)=911:goto1100
     return []
 
 
@@ -146,6 +150,7 @@ def pol_free(ctx):
         inmates.append(None)
     if not inmates:  # :21110 ``ifx=1thenprint"es ist niemand inhaftiert."``
         yield ShowMessage("locations.pol.nobody_jailed")
+        yield KEY_WAIT  # :21110 ...:goto1100
         return []
 
     # :21116 the list, numbered 1..x. :21115's "wen willst du befreien:" is the pick's
@@ -172,19 +177,22 @@ def pol_free(ctx):
         return []
     if active.ka < price:  # :21135 ``ifka(sp)<pgoto1125``
         yield ShowMessage("system.not_enough_money")
+        yield KEY_WAIT  # :1125 ...:goto1100
         return []
 
     ctx.apply(MoneyChange(-price))  # :21140 ``ka(sp)=ka(sp)-p``
     yield ShowMessage("locations.pol.freed")  # :21200, never a failure
+    yield KEY_WAIT  # :21200 ...:gosub1100
 
     if inmate is None:
         # :21205 ``ifgz(sp)=10thenprint"{down}er bedankt sich und verschwindet..."``
         if len(active.roster) == params["pol_gang_cap"]:
             yield ShowMessage("locations.pol.phantom_leaves")
+            yield KEY_WAIT  # :21205 ...:goto1100
             return []
         # :21210 ``gn$(sp,x)="knasti":gw(sp,x)=0:ge$(sp,x)="05100540"`` — no score.
         ctx.apply(RosterAppend(gangster=Gangster(**params["pol_inmate"])))
-        return []
+        return []  # :21215 return -- no wait beyond :21200's
 
     thanks = yield from _thank_you(ctx, inmate, active.name)
     # :21255 ``ka(x)=ka(x)-y:ka(sp)=ka(sp)+y:gs(x)=0:x=2:gosub1160``
@@ -193,7 +201,7 @@ def pol_free(ctx):
         ctx.apply(MoneyChange(thanks))
     ctx.apply(Jail(months=0, player=inmate))
     ctx.apply(score_and_rank(params["pol_free_score"], params))
-    return []
+    return []  # :21255 ...:return -- no wait beyond :21200's
 
 
 def _thank_you(ctx, freed: int, rescuer: str):

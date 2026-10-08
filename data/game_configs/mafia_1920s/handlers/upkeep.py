@@ -84,6 +84,27 @@ RENT — ``:4045-4046`` and ``:4600-4652``
 ``:4600`` ``pokera,2:pokera+1,2`` sets the screen border/background (``:110``
 ``ra=53280``, the VIC border register) — presentation only, not ported.
 
+ONE SCREEN, ONE KEY — a deliberate departure (#146)
+---------------------------------------------------
+The source waits for a key after each upkeep screen it prints, and clears the screen
+for the next:
+
+* the promotion poster, ``:4200-4220``, ends ``:4220``
+  ``poke198,0:wait198,1:poke198,0:return``;
+* the debt warning ends ``:4309`` ``print"{down}abzuzahlen!":goto1100``;
+* the shop income ends ``:4420`` ``print"{down}machst"p"$ einnahmen.":goto1100``
+  (``:4406``'s quiet month likewise);
+* the rent fine ends ``:4620`` ``ka(sp)=ka(sp)-p:goto1100`` (``:4652`` the eviction);
+* the arms-deal payout ends ``:31010`` ``ka(sp)=ka(sp)+p:goto1100``;
+
+where ``:1100`` is ``print"{down}taste druecken!":poke198,0:wait198,1:poke198,0:return``.
+This port yields every upkeep message as a plain ``ShowMessage`` and the engine's
+turn runner (:mod:`engine.turns`) shows them together under one ``Heading``
+(``UPKEEP_SCREEN``), closed by one ``Acknowledge``: one screen and one key for the
+whole turn start. The messages, their order and their effects are the source's; only
+the number of key presses and screen clears differs. Porting the per-screen waits would make this generator yield a
+waited screen per slot and the runner drop its closing ``Acknowledge`` after one.
+
 COUNTER DIRECTION — the relational-sign landmine (``:4305``)
 -------------------------------------------------------------
 ``:4305`` is ``kz(sp)=kz(sp)+(kz(sp)>0)``. Under a ``true=+1`` reading of BASIC
@@ -146,7 +167,7 @@ from engine.interactions import ShowMessage
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
-from ..setup import load_encounter, run_encounter
+from ..setup import KEY_WAIT, load_encounter, run_encounter
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
@@ -264,6 +285,7 @@ def upkeep_turn_start(ctx):
             # :4350-4370 — the grace period has expired. Guarded on a NONZERO debt so
             # a fully repaid player (:15075 leaves kr=0 AND kz=0) is never ambushed.
             yield ShowMessage("upkeep.debt_collectors_intro")
+            yield KEY_WAIT  # :4350 ...:gosub1100, before the fight
             # The collectors' SETUP is the declared encounter (:4355 —
             # bn$(0)="eintreiber":w=3:e=30:gz(0)=5:kf$="ks"), run by the shared fight
             # helper, which also shows the outcome screen with the per-side losses (this

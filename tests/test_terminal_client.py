@@ -64,6 +64,11 @@ _SOLO_ARGS = ["--player", ":".join(SOLO[0])]
 _CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
 
 
+def _plain(text: str) -> str:
+    """``text`` without its ANSI colour and cursor codes."""
+    return re.sub(r"\033\[[0-9;?]*[A-Za-z]", "", text)
+
+
 def _resolver():
     return Resolver.from_config(_CONFIG_DIR, theme="classic")
 
@@ -468,6 +473,39 @@ class TestSetupFlags:
         assert state.clock.end_year == 1940
         assert state.config.formula_params["score_mult"] == 0.5
 
+    @pytest.mark.parametrize("text", ["1.99", "0.11", "1.5", "1.398259791907483378"])
+    def test_the_flag_and_the_prompt_reach_the_same_weight(self, monkeypatch, tmp_path, text):
+        """``--score-weight`` and the ``:175`` prompt parse the same text the same way:
+        under the faithful ``c64_float_score``, the C64 parser's value (``1.99`` and
+        ``0.11`` are a unit off the nearest 5-byte value, tests/test_c64_float.py). The
+        long one parses elsewhere than its double's shortest text would (the parse
+        capture), so the flag must hand over the text, not a float."""
+        from engine.c64_numbers import c64_val
+
+        _, flagged = self._main(
+            monkeypatch,
+            tmp_path,
+            [*_SOLO_ARGS, "--end-year", "1950", "--score-weight", text],
+            "\n\n\n\np\nq\n",
+        )
+        stdin = f"\n1950\n{text}\n\n\n\np\nq\n"
+        _, prompted = self._main(monkeypatch, tmp_path, _SOLO_ARGS, stdin)
+        weights = {state.config.formula_params["score_mult"] for state in (flagged, prompted)}
+        assert weights == {c64_val(text)}
+
+    @pytest.mark.parametrize("text", ["1.5x", "1.1_5", "1" + "0" * 40 + "e-40"])
+    def test_a_score_weight_flag_that_is_no_number_is_refused(self, monkeypatch, capsys, text):
+        # "1.1_5" and the 41-digit text are numbers to float() but not to the setup's
+        # reading (the C64 parser): refused here, not as a traceback after the title.
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        with pytest.raises(SystemExit) as exc:
+            main(["--score-weight", text])
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
+        assert "--score-weight" in captured.err and text in captured.err
+        assert "Traceback" not in captured.err
+
     @pytest.mark.parametrize("spec", ["", ":gang", "a" * 14, "name:" + "g" * 14])
     def test_a_player_name_over_13_characters_or_empty_is_rejected(self, monkeypatch, capsys, spec):
         # :291 ``ifx$=""orlen(x$)>13`` bounds both names; the flag is refused, not run.
@@ -786,8 +824,8 @@ class TestWatchAi:
         city_raw = load_city_raw()
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(5), city, find_door_cell(city_raw, "pub", ln=2))
-        # The pub's menu: 0 drink, 1 recruit, 2 tip, 3 job, 4 leave.
-        keys = [*NEW_GAME_ACKS, "2"] + walk + ["", "3", "j", "w", "x", "x", "x"] + ["p"] * 6
+        # The pub's menu: 1 drink, 2 recruit, 3 tip, 4 job, 5 leave.
+        keys = [*NEW_GAME_ACKS, "2"] + walk + ["", "4", "j", "w", "x", "x", "x"] + ["p"] * 6
         out = io.StringIO()
         monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(keys) + "\n"))
         monkeypatch.setattr(sys, "stdout", out)
@@ -804,6 +842,33 @@ class TestWatchAi:
         text = self._shift_fight_output(monkeypatch, [])
         assert _resolver().resolve("combat.key_legend") in text, "the fight never started"
         assert _resolver().resolve("combat.observe_prompt") not in text
+
+    def test_a_fight_opens_on_both_gang_names_and_the_begins_banner(self, monkeypatch):
+        """:30015 ``printbn$(ks(i))`` -- side 1's gang at column 0, side 2's at column
+        20, under the board on every screen; :30025 ``print"{rvon}der kampf
+        beginnt..."`` on the first screen only."""
+        text = self._shift_fight_output(monkeypatch, [])
+        boards = text.split(_resolver().resolve("combat.key_legend"))[:-1]
+        assert len(boards) >= 2, "the fight never reached a second activation"
+        assert "der kampf beginnt..." in boards[0]
+        assert all("der kampf beginnt..." not in board for board in boards[1:])
+        # :25035-25042: seed 5's bouncer shift draws one of the three brawlers.
+        brawlers = ("wurstfinger-fred", "affenface-alf", "der schlachter")
+        rows = {f"{SOLO[0][1]:<20}{name}" for name in brawlers}
+        for board in boards:
+            assert rows & set(_plain(board).split("\n")), board
+
+    def test_a_cpu_activation_leaves_spieler_and_its_number_on_the_board(self, monkeypatch):
+        """:30400 ``poke211,20:poke214,18:syscs:print"{rvon}spieler"f`` on every CPU
+        activation: column 20, the number with PRINT's spaces. Nothing erases it, so
+        the human's next board shows it; the first board, before any CPU move, does not."""
+        text = self._shift_fight_output(monkeypatch, [])
+        boards = [
+            _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
+        ]
+        label = " " * 20 + "spieler 1 "
+        assert label not in boards[0]
+        assert all(label in board for board in boards[1:])
 
 
 # --------------------------------------------------------------------------- #

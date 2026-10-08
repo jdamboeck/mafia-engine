@@ -17,7 +17,10 @@
 # house_rules.<id> (themes/classic/strings/house_rules.yaml).
 #
 # Deliberate departures of the port are not entries (the port does not play them
-# faithfully, so there is nothing to switch); each is a note at the code that departs:
+# faithfully, so there is nothing to switch); each is a note at the code that departs.
+# A negative answer the C64 takes at a number prompt is not a departure but the
+# c64_input_negatives entry below, which names its prompts; the notes here hold the
+# fractions, empty answers and keys the port reads differently:
 #   - kdh's debtor fight pins its backdrop to "ks": mf-prg.bas:15312 sets no kf$ and
 #     would inherit the last fight's (handlers/kdh.py).
 #   - the hit test draws both miss factors of mf-prg.bas:30247 even when the first
@@ -50,6 +53,10 @@
 #   - the gang war's opponent key (mf-prg.bas:27015 getx$) reads a number: a letter,
 #     which val() reads as 0 and so leaves on the C64 (:27016), is asked again here;
 #     RETURN leaves, as on the C64 (handlers/gang_war.py).
+#   - the casino's game choice and stake read whole numbers only: the C64 INPUT at
+#     mf-prg.bas:16015 takes a fraction, and 2.5 passes :16016's 1-3 check and plays
+#     with x=2.5; the stake at :16020 takes one too. The port offers the three games as
+#     a menu and asks a fractional stake again (handlers/sph.py).
 house_rules:
   - id: intelligence_or_30
     citation: ":311"
@@ -199,18 +206,28 @@ house_rules:
       behaviour exists.
     switch: false
 
-  - id: chief_bribe_negative_months
-    citation: ":21011"
-    quote: "p=1000*x:ifx=0thenreturn"
+  - id: c64_input_negatives
+    citation: ":12027"
+    quote: 'wieviele willst du (0-"mid$(str$(x),2)")";:inputy'
     faithful: >-
-      The police chief takes any month count the C64 INPUT reads, a negative one
-      included (checked in VICE). For x below 0 the price is below 0, so :21015
-      ``ifka(sp)<p`` never refuses, and :21020 ``ka(sp)=ka(sp)-p:pl(sp)=pl(sp)+x+1``
-      pays the player 1000 $ a month and lowers the bribe months, below 0 from x=-2
-      on. A negative count never ages (:4050 ``pl(sp)=pl(sp)+(pl(sp)>0)``), and any
-      count other than 0 arms the arrest's auto-pay (:26021 ``ifpl(sp)and``).
+      The C64 INPUT reads a negative number, and three number prompts take one. The
+      pub's buy count: a negative y passes :12028 ``ify>xthen`` and :12029
+      ``ify=0thenreturn``; its price is below 0, so :12030 ``ifka(sp)<y*pgoto1125``
+      refuses it only to cash below that price, and :12035
+      ``ta(sp)=ta(sp)+y:ka(sp)=ka(sp)-p*y:x=2:gosub1160`` lowers the barrels (below 0
+      too), raises the cash and still scores 2. The pub's sell count: a negative y
+      passes :12061 ``ify>ta(sp)then`` and :12065 ``ify=0thenreturn``, and :12075
+      ``ka(sp)=ka(sp)+y*x:ta(sp)=ta(sp)-y`` takes the cash, with no check that the
+      player has it, and adds the barrels. The police chief's months (:21011
+      ``p=1000*x:ifx=0thenreturn``, checked in VICE): for x below 0 the price is below
+      0, so :21015 ``ifka(sp)<p`` never refuses, and :21020
+      ``ka(sp)=ka(sp)-p:pl(sp)=pl(sp)+x+1`` pays the player 1000 $ a month and lowers
+      the bribe months, below 0 from x=-2 on. A negative count never ages (:4050
+      ``pl(sp)=pl(sp)+(pl(sp)>0)``), and any count other than 0 arms the arrest's
+      auto-pay (:26021 ``ifpl(sp)and``).
     intent: >-
-      Months are bought, not sold: a count below 0 is asked again.
+      Counts are bought and sold, never negative: a number below 0 at any of the three
+      prompts is asked again.
     switch: true
 
   - id: chief_bribe_empty_answer
@@ -387,4 +404,20 @@ house_rules:
       The beaten boss's energy is set to 0: the inmate is paid to beat up us, the
       jailed player (:27100-27110), and the attacker's gang takes no part in the
       brawl.
+    switch: true
+
+  - id: c64_float_score
+    citation: ":1160"
+    quote: "gf(sp)=gf(sp)+(x*x8)"
+    faithful: >-
+      The score adds each award times the score weight in the C64's 5-byte float (one
+      exponent byte and a 32-bit mantissa), as :1160 ``gf(sp)=gf(sp)+(x*x8)`` does
+      every time, so with a weight that is no exact binary fraction (0.1, say) the
+      score drifts from the exact decimal sum of its awards. The typed weight is the
+      C64 parser's value, and the turn's cut to whole cents (:1013) and the rank
+      (:1165) read the score in the same arithmetic.
+    intent: >-
+      The score adds in exact decimal arithmetic: its awards times the weight sum as
+      written, the typed weight is the decimal typed, and the turn's cut to whole cents
+      (:1013) and the rank (:1165) read that decimal.
     switch: true

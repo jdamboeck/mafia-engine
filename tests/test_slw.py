@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_game_config
@@ -243,3 +244,42 @@ def test_strings_load_verbatim():
     assert get("locations.slw.success") == "'guten tag, der herr!'"
     assert get("locations.slw.not_resident") == "du wohnst hier nicht!"
     assert get("system.not_enough_money") == "du hast zu wenig kies!"
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160): a ``goto1100``/``goto1125`` exit waits, #
+# a ``return`` exit does not                                                   #
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("handler", "kwargs", "answers", "waits"),
+    [
+        # :10010 ifuk(ln)<>0thenprint"'nichts mehr frei!'":goto1100
+        ("slw.rent", {"players": 2, "tenancy": {2: 1}}, (), True),
+        # :10100 ifuk(ln)<>spthenprint"du wohnst hier nicht!":nm=1:goto1100
+        ("slw.pay_rent", {"players": 2}, (), True),
+        # :10030 ifx=0orx<0 thennm=1:return
+        ("slw.rent", {}, (0,), False),
+        # :10035 ifka(sp)<x*pgoto1125 -> :1125 ...:goto1100
+        ("slw.rent", {"ka": 10}, (5,), True),
+        # :10045 print"{down}'guten tag, der herr!'":goto1100
+        ("slw.rent", {}, (2,), True),
+        # :10105 goto10020 -> the same block's :10045
+        ("slw.pay_rent", {"tenancy": {2: 0}}, (3,), True),
+    ],
+    ids=[
+        "10010-no-room",
+        "10100-not-resident",
+        "10030-zero-months",
+        "10035-too-poor",
+        "10045-rented",
+        "10105-rent-paid",
+    ],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(handler, kwargs, answers, waits):
+    src = _scripted(*answers)
+    run_pure(HANDLERS[handler], src, state=_state(ln=2, **kwargs), rng=None)
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
+        assert src.key_waits() == 1
+    else:
+        assert src.key_waits() == 0, "a return exit waited for a key"

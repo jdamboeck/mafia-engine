@@ -26,6 +26,12 @@ Faithfulness notes
   effects + logged RNG draws.
 - Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``, ``ctx.apply``,
   and its OWN config helpers (``..setup``).
+- The key wait (``:1100``, and the spec sheet's own inline ``:13525 ...wait198``):
+  each place the source reaches one yields ``KEY_WAIT`` -- the spec sheet, a refused
+  purchase (``:13025 gosub1125``) and a failed stat gate (``:13050-13060 gosub1100``)
+  before the flow goes back, and every ``goto1100``/``goto1125`` exit. A return to the
+  weapon list (``:13035 ify=0``, ``:13071``) and the ``return`` exits (``:13020``,
+  ``:13102``, ``:13115``, ``:13155``) wait for nothing.
 
 Cancellability rule
 -------------------
@@ -47,7 +53,7 @@ from engine.interactions import Confirm, LoadSubState, PromptChoice, PromptInt, 
 from engine.locations import register
 from engine.substates import register_substate
 
-from ..setup import load_weapons, pick_gangster, score_and_rank
+from ..setup import KEY_WAIT, load_weapons, pick_gangster, score_and_rank
 
 __all__ = ["waf_buy", "waf_train", "weapon_spec"]
 
@@ -80,23 +86,25 @@ def _weapons():
 def weapon_spec(ctx, params):
     """Show a weapon's spec sheet, then return — ports ``mf-prg.bas:13500-13525``.
 
-    A display-only sub-state: it yields one ``ShowMessage`` (the resolved spec
-    screen) and returns ``None``. The accuracy/effect labels are BUCKETED lookups, not
-    raw values: accuracy bucket = ``int(ts/2)`` (13515), effect bucket = ``int(tg/4)+1``
-    (13520). ``params`` carries the resolved weapon record + its index.
+    A display-only sub-state: one ``ShowMessage`` per source line, then the sheet's
+    own key wait (``:13525``), then ``None``. The
+    sheet (:13500 the name, :13510 the price) is one key; the accuracy and effect lines
+    print a LABEL the source indexes from its ``ts$``/``tg$`` arrays (:125 reads them
+    from :50500-50505), so each label line is a key per index the handler composes
+    (``spec_accuracy_<i>``, ``spec_effect_<i>``) and the theme holds the label text.
+    ``int(ts/2)`` = 0 is ``ts$(0)``, which :125 never assigns: its key prints the
+    empty label. ``params`` carries the weapon record.
     """
     w = params["weapon"]
+    yield ShowMessage("locations.waf.spec_sheet", {"name": w["name"], "price": w["price"]})
     # BASIC int() floors; use floor division (//) so the port stays faithful even if a
     # future config gives a negative ts/tg (float int() would truncate toward zero).
-    yield ShowMessage(
-        "locations.waf.spec_sheet",
-        {
-            "name": w["name"],
-            "price": w["price"],
-            "accuracy_bucket": w["ts"] // 2,  # 13515 ts$(int(ts/2))
-            "effect_bucket": w["tg"] // 4 + 1,  # 13520 tg$(int(tg/4)+1)
-        },
-    )
+    # :13515 ``printtab(8)"{down}treffgenauigkeit: "ts$(int(ts(x)/2))``
+    yield ShowMessage(f"locations.waf.spec_accuracy_{w['ts'] // 2}")
+    # :13520 ``printtab(8)"{down}wirkung: "tg$(int(tg(x)/4)+1)``
+    yield ShowMessage(f"locations.waf.spec_effect_{w['tg'] // 4 + 1}")
+    # :13525 ``print"{down}{down} taste druecken!":poke198,0:wait198,1:...:return``
+    yield KEY_WAIT
     return None
 
 
@@ -117,6 +125,9 @@ def waf_buy(ctx):
     # ln=1 grenade roll (13011). So the stock range + grenade roll live INSIDE the loop:
     # each re-entry re-rolls, matching the original's stock churn and RNG draw count.
     while True:
+        # :13010 ``print"{clr}{down}ok, wir haben folgendes:":print`` -- before the stock
+        # is known, so the grenade news (:13011's gosub13090) prints under it.
+        yield ShowMessage("locations.waf.weapon_list")
         # 13011-13013 — stock range from the tile ln.
         if ln == 1:
             lo, hi = 3, 7
@@ -133,7 +144,13 @@ def waf_buy(ctx):
         else:  # ln == 3 (13013)
             lo, hi = 1, 4
 
-        # 13015-13020 — list weapons in [lo, hi]; pick one. 0 cancels the whole buy.
+        # :13015 ``fori=atob:printmid$(str$(i),2)" - "wa$(i);wp(i)"$":next``
+        for i in range(lo, hi + 1):
+            yield ShowMessage(
+                "locations.waf.weapon_row",
+                {"number": i, "name": weapons[i]["name"], "price": weapons[i]["price"]},
+            )
+        # 13020 — pick one of the listed weapons. 0 cancels the whole buy.
         x = yield PromptInt(
             "locations.waf.weapon_prompt",
             min=lo,
@@ -144,6 +161,7 @@ def waf_buy(ctx):
         # 13025 — affordability against the model price; loops back to the list.
         if active.ka < weapons[x]["price"]:
             yield ShowMessage("system.not_enough_money")
+            yield KEY_WAIT  # :13025 gosub1125 (-> :1100), then goto13010
             continue
 
         # 13035 — spec sheet (sub-state), then pick the gangster to arm (0 goes back).
@@ -182,6 +200,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
         )
         if refusal is not None:
             yield ShowMessage(refusal)
+            yield KEY_WAIT  # :13050-13060 ...:gosub1100:goto13035
             continue
 
         old = g.weapon  # gw(sp,y) — the gangster's CURRENT weapon (0 = unarmed)
@@ -225,6 +244,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
         ctx.apply(MoneyChange(q - new_price))
         ctx.apply(AssignWeapon(weapon=x, gangster=y))
         yield ShowMessage("locations.waf.bought")
+        yield KEY_WAIT  # :13080 ...:goto1100
         return True
 
 
@@ -243,6 +263,7 @@ def waf_train(ctx):
     # 13100 — no gangster -> abort.
     if not active.roster:
         yield ShowMessage("locations.waf.no_gangster")
+        yield KEY_WAIT  # :13100 ...:goto1100
         return []
 
     # :13101 ``print"wen soll ich trainieren:"``, :13102 ``gosub1130:ify=0thenreturn``.
@@ -266,8 +287,9 @@ def waf_train(ctx):
         yield ShowMessage("locations.waf.camp_cost", {"price": p})
         if not (yield Confirm("locations.waf.confirm")):
             return []
-        if active.ka < p:  # 13160
+        if active.ka < p:  # 13160 goto1125 -> :1125 ...:goto1100
             yield ShowMessage("system.not_enough_money")
+            yield KEY_WAIT
             return []
         yield ShowMessage("locations.waf.camp_enter", {"name": active.roster[y].name})
         ctx.apply(MoneyChange(-p))  # 13170 ka -= p
@@ -281,14 +303,16 @@ def waf_train(ctx):
         # then the "...da ist er wieder!" flourish.
         ctx.apply(score_and_rank(2, params))
         yield ShowMessage("locations.waf.camp_done")
+        yield KEY_WAIT  # :13175 ...:goto1100
     else:
         # 13110-13130 — schiesstand (range). :13110 `p=800+200*ra(sp)`
         p = params["range_base"] + params["range_per_rank"] * active.rank
         yield ShowMessage("locations.waf.range_cost", {"price": p})
         if not (yield Confirm("locations.waf.confirm")):
             return []
-        if active.ka < p:  # 13116
+        if active.ka < p:  # 13116 goto1125 -> :1125 ...:goto1100
             yield ShowMessage("system.not_enough_money")
+            yield KEY_WAIT
             return []
         yield ShowMessage("locations.waf.range_enter")
         ctx.apply(MoneyChange(-p))  # 13125 ka -= p
@@ -305,6 +329,7 @@ def waf_train(ctx):
         ctx.apply(
             StatChangeCapped("brutalitaet", 2 - 3 * (-1 if ln == 2 else 0), cap=cap, gangster=y)
         )
-        # 13130 — score training reward x=1.
+        # 13130 — score training reward x=1, then ``goto1100``.
         ctx.apply(score_and_rank(1, params))
+        yield KEY_WAIT
     return []

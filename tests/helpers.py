@@ -51,7 +51,8 @@ from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
 from data.game_configs.mafia_1920s.state import tenancy_values, values_of
 from engine.combat import CombatFight
 from engine.effects import commit, effect_tag
-from engine.interactions import ShowMessage, run
+from engine.interactions import Acknowledge, ShowMessage, run
+from engine.turns import KEY_WAIT_SCREEN
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
 
@@ -185,6 +186,9 @@ class scripted:  # noqa: N801 - a callable used like a function at 200+ call sit
 
     ``seen``
         Every interaction the driver presented, in order (prompts and messages).
+    ``key_waits()`` / ``ends_in_key_wait()``
+        The ``:1100`` key waits delivered (``Acknowledge(KEY_WAIT_SCREEN)``), which,
+        like narration, consume no scripted answer.
     ``messages()``
         Just the ``ShowMessage`` interactions delivered so far — so a test whose
         subject IS the narration can assert on what a client would have rendered.
@@ -197,8 +201,10 @@ class scripted:  # noqa: N801 - a callable used like a function at 200+ call sit
 
     def __call__(self, interaction: Any) -> Any:
         self.seen.append(interaction)
-        if isinstance(interaction, ShowMessage):
-            # Delivered, not asked. Consumes no scripted answer; the driver acks.
+        if isinstance(interaction, ShowMessage) or _is_key_wait(interaction):
+            # Delivered, not asked. Consumes no scripted answer; the driver acks. The
+            # :1100 key wait is display-only too (the driver's ``_DISPLAY_ONLY``), so a
+            # handler that now waits where its source does keeps every script valid.
             return None
         try:
             return next(self._answers)
@@ -212,6 +218,18 @@ class scripted:  # noqa: N801 - a callable used like a function at 200+ call sit
 
     def message_keys(self) -> list[str]:
         return [i.key for i in self.messages()]
+
+    def key_waits(self) -> int:
+        """How many ``:1100`` key waits (``Acknowledge(KEY_WAIT_SCREEN)``) were delivered."""
+        return sum(1 for i in self.seen if _is_key_wait(i))
+
+    def ends_in_key_wait(self) -> bool:
+        """Whether the last interaction delivered was the ``:1100`` key wait."""
+        return bool(self.seen) and _is_key_wait(self.seen[-1])
+
+
+def _is_key_wait(interaction: Any) -> bool:
+    return isinstance(interaction, Acknowledge) and interaction.key == KEY_WAIT_SCREEN
 
 
 def is_effect(effect: Any, *classes: type) -> bool:

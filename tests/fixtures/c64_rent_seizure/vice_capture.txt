@@ -1,0 +1,36 @@
+P= 250 
+/                                        /
+/DU HAST DEINE MIETE NICHT PUENKTLICH    /
+/                                        /
+/GEZAHLT. MAN HAT DIR MOEBEL IM WERT VON /
+/                                        /
+/250 $ GEPFAENDET!                       /
+/                                        /
+/                                        /
+P= 3000 
+/                                        /
+/DU HAST DEINE MIETE NICHT PUENKTLICH    /
+/                                        /
+/GEZAHLT. MAN HAT DIR MOEBEL IM WERT VON /
+/                                        /
+/3000 $ GEPFAENDET!                      /
+/                                        /
+/                                        /
+P= 5 
+/                                        /
+/DU HAST DEINE MIETE NICHT PUENKTLICH    /
+/                                        /
+/GEZAHLT. MAN HAT DIR MOEBEL IM WERT VON /
+/                                        /
+/5 $ GEPFAENDET!                         /
+/                                        /
+/                                        /
+P=-50 
+/                                        /
+/DU HAST DEINE MIETE NICHT PUENKTLICH    /
+/                                        /
+/GEZAHLT. MAN HAT DIR MOEBEL IM WERT VON /
+/                                       -/
+/50 $ GEPFAENDET!                        /
+/                                        /
+/                                        /

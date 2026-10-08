@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
 from data.game_configs.mafia_1920s.effects import TipClear, TipSet
@@ -264,3 +266,43 @@ def test_run_pure_clean_for_tip_handler():
     rng = _StubRng(1)  # nothing-available branch
     result = run_pure(HANDLERS["pub.tip"], _scripted(), state=st, rng=rng)
     assert result.status == "completed"
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_TIP_EXITS = [
+    # id, state kwargs, rng draws, answers, waits
+    # :12205 print"'du bist noch zu unerfahren!'":goto1100
+    ("12205-too-green", {"rank": 3}, (), (), 1),
+    # :12210 ...print"'leider habe ich nichts fuer dich!'":goto1100
+    ("12210-nothing", {}, (1,), (), 1),
+    # :12216 ...gosub1110:ifx$="n"thenreturn
+    ("12216-declined", {}, (0, 0), (False,), 0),
+    # :12220 ifka(sp)<pgoto1125
+    ("12220-too-poor", {"ka": 500}, (0, 0), (True,), 1),
+    # :12231 / :12236 / :12242 / :12252 ...:goto1100
+    ("12231-mail-train", {}, (0, 0, 0), (True,), 1),
+    ("12236-bank", {}, (0, 0, 1), (True,), 1),
+    ("12242-cash-transport", {}, (0, 0, 2), (True,), 1),
+    ("12252-mayor", {}, (0, 0, 4), (True,), 1),
+    # :12247 gosub1110:ifx$="n"thentp(sp)=0:return
+    ("12247-stake-declined", {}, (0, 0, 3), (True, False), 0),
+    # :12248 ifka(sp)<5000thentp(sp)=0:goto1125
+    ("12248-stake-too-poor", {"ka": 2000}, (0, 0, 3), (True, True), 1),
+    # :12249 ...print"{down}'du wirst es nicht bereuen...'":goto1100
+    ("12249-staked", {}, (0, 0, 3), (True, True), 1),
+]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "draws", "answers", "waits"),
+    [case[1:] for case in _TIP_EXITS],
+    ids=[case[0] for case in _TIP_EXITS],
+)
+def test_each_tip_exit_waits_for_a_key_where_the_source_does(kwargs, draws, answers, waits):
+    src = _scripted(*answers)
+    run_pure(HANDLERS["pub.tip"], src, state=_state(**kwargs), rng=_StubRng(*draws))
+    assert src.key_waits() == waits
+    if waits:
+        assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"

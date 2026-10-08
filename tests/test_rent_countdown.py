@@ -268,12 +268,66 @@ def test_rent_messages_resolve_to_the_source_text():
     # :4610-4620
     assert "du hast deine miete nicht puenktlich" in late
     assert "gezahlt. man hat dir moebel im wert von" in late
-    assert "von 237 $ gepfaendet!" in late
+    assert "237 $ gepfaendet!" in late
     evicted = resolver.resolve("upkeep.rent_evicted", {})
     # :4650-4651
     assert "deine wohnung wird dir gekuendigt!" in evicted
     assert "deine gangster suchen sich einen anderen" in evicted
     assert "boss..." in evicted
+
+
+#: :4610-4620 run on the C64 ROM: ``tests/fixtures/c64_rent_seizure/seizure_cases.bas``
+#: prints the three source lines for a sample fine ``p`` in VICE 3.10 (``x64sc``) and
+#: writes screen rows 0-7 to ``vice_capture.txt`` (a ``P= <p>`` line, then one
+#: ``/<40 columns>/`` line per row, uppercased).
+_SEIZURE_CAPTURE = Path(__file__).parent / "fixtures" / "c64_rent_seizure" / "vice_capture.txt"
+
+
+def _seizure_screens() -> dict[int, list[str]]:
+    """Parse the capture into ``{p: [row 0, ..., row 7]}`` (rows lowercased)."""
+    screens: dict[int, list[str]] = {}
+    rows: list[str] = []
+    for line in _SEIZURE_CAPTURE.read_text(encoding="ascii").splitlines():
+        if line.startswith("P="):
+            rows = screens.setdefault(int(line[2:]), [])
+        elif line:
+            assert line[0] == line[-1] == "/" and len(line) == 42, line
+            rows.append(line[1:-1].lower())
+    assert all(len(r) == 8 for r in screens.values())
+    return screens
+
+
+_SEIZURE = _seizure_screens()
+
+
+def test_the_capture_holds_the_samples():
+    assert sorted(_SEIZURE) == [-50, 5, 250, 3000]
+
+
+@pytest.mark.parametrize("amount", [5, 250, 3000])
+def test_the_seizure_message_has_the_c64_s_rows(amount):
+    """:4620 ``print"{down}{left}"p"$ gepfaendet!"``: the ``{left}`` at column 0 steps
+    back to column 39 of the blank row, which takes ``p``'s sign space, so the amount
+    opens its own row at column 0 (``250 $ gepfaendet!``) under a blank one. The
+    message is the capture's rows 1-5 (row 0 is ``{clr}{down}``'s blank row)."""
+    late = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve(
+        "upkeep.rent_late", {"amount": amount}
+    )
+    assert late.split("\n") == [row.rstrip() for row in _SEIZURE[amount][1:6]]
+
+
+def test_a_negative_seizure_drops_only_the_minus_at_column_39():
+    """A fine capped at negative cash (``ifp>ka(sp)thenp=ka(sp)``) prints its minus in
+    the sign position, column 39 of the blank row; the port's rows have no column 39,
+    so it renders that row blank and the amount row as the C64 shows it."""
+    screen = _SEIZURE[-50]
+    assert screen[4] == " " * 39 + "-"
+    late = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve(
+        "upkeep.rent_late", {"amount": -50}
+    )
+    rows = late.split("\n")
+    assert rows[3] == ""
+    assert rows[4] == screen[5].rstrip() == "50 $ gepfaendet!"
 
 
 def test_run_upkeep_entry_point_applies_the_rent_slot():

@@ -98,10 +98,9 @@ def test_config_loads_with_waf_registered_and_strings_present():
         "camp_done",
     ]:
         assert get(f"locations.waf.{key}"), f"missing string for {key}"
-    # The bucketed ts$/tg$ label arrays are present (A2). YAML keeps the numeric bucket
-    # keys as ints, so index them directly rather than via the dotted-string helper.
-    assert get("locations.waf.accuracy_labels")[3] == "todsicher"
-    assert get("locations.waf.effect_labels")[5] == "erschreckend!"
+    # The ts$/tg$ label lines, one key per index (test_waf_buy checks every weapon's).
+    assert get("locations.waf.spec_accuracy_3").endswith("todsicher")
+    assert get("locations.waf.spec_effect_5").endswith("erschreckend!")
 
 
 # --------------------------------------------------------------------------- #

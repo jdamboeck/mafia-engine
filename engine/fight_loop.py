@@ -15,7 +15,14 @@ from collections.abc import Callable, Generator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from engine.interactions import CANCEL, OBSERVE_PROMPT, CombatScreen, Ctx, StartCombat
+from engine.interactions import (
+    BEGINS_MESSAGE,
+    CANCEL,
+    OBSERVE_PROMPT,
+    CombatScreen,
+    Ctx,
+    StartCombat,
+)
 
 if TYPE_CHECKING:
     # Type-only: keep this module's RUNTIME import graph free of engine.combat (it is
@@ -237,7 +244,7 @@ def _run_combat(
 
     # The activation loop is the SHARED one (:func:`_fight_steps`) so `_run_combat` and
     # `simulate` cannot drift — the same loop, whether a client is in it or not.
-    winner = yield from _fight_steps(fight, drivers, observe_ai=observe_ai)
+    winner = yield from _fight_steps(fight, drivers, observe_ai=observe_ai, names=start.names)
 
     # Buffer the rosters' persistent energy/down consequence BEFORE handing
     # the winner back, so it commits atomically with the invoking handler's own
@@ -327,6 +334,10 @@ def _drive_fight(
     screen it yields is handed to ``input_source`` and the answer sent back. The
     observation opt-in is read off ``input_source`` (a truthy ``observes_ai``
     attribute), so the headless callers (``simulate``, ``record_fight``) stay OFF.
+
+    Only the fight generator's own ``StopIteration`` means "finished". One raised by
+    ``input_source`` (a scripted answer list run dry) propagates to the caller
+    unchanged, so an unfinished fight never comes back as a result.
     """
     steps = _fight_steps(
         fight,
@@ -336,10 +347,17 @@ def _drive_fight(
     )
     try:
         screen = next(steps)
-        while True:
-            screen = steps.send(input_source(screen))
     except StopIteration as stop:
         return stop.value
+    while True:
+        # The input source is called OUTSIDE the completion catch: a scripted source
+        # run dry raises its own StopIteration, which must reach the caller rather than
+        # be misread as the fight generator finishing with no winner (#156).
+        response = input_source(screen)
+        try:
+            screen = steps.send(response)
+        except StopIteration as stop:
+            return stop.value
 
 
 def _fight_steps(
@@ -348,6 +366,7 @@ def _fight_steps(
     recorder: Any = None,
     *,
     observe_ai: bool = False,
+    names: Any = (),
 ) -> "Generator[CombatScreen, Any, int]":
     """Advance a fight to a winner, one activation at a time — the SHARED loop.
 
@@ -393,8 +412,16 @@ def _fight_steps(
     callable (``persistence``'s chained input, ``upkeep``/``game_end`` fallbacks, test
     scripts) lack the attribute and therefore stay OFF — the faithful default, since the
     original's CPU path narrates nothing between activations (``mf-prg.bas:30110``).
+
+    **The board's labels.** Every screen carries ``names`` (``:30015``, each side's
+    name under the board). The first carries :data:`BEGINS_MESSAGE` (``:30025``
+    ``print"{rvon}der kampf beginnt..."``, shown before the first activation). Each
+    screen carries the number of the last CPU fighter that acted (``:30400``
+    ``print"{rvon}spieler"f``, printed on every CPU activation, with no wait, and
+    erased by nothing).
     """
-    message: Any = None
+    message: Any = BEGINS_MESSAGE
+    cpu_fighter: int | None = None
     observes_ai = observe_ai
     while True:
         winner = fight.winner()
@@ -425,6 +452,8 @@ def _fight_steps(
                 prompt="action",
                 message=message,
                 player=getattr(driver, "player", None),
+                names=tuple(names),
+                cpu_fighter=cpu_fighter,
             )
             raw = yield screen
             message = None
@@ -432,6 +461,8 @@ def _fight_steps(
         else:
             # ai / policy / replay — DECIDE ONLY, off a read-only view. No yield, no
             # client. The action falls into the SAME apply-block below.
+            # :30400 ``print"{rvon}spieler"f`` -- the CPU fighter's label.
+            cpu_fighter = acting_fighter_index + 1
             action, argument = driver.decide(fight.view())
 
         # The decision itself may have drawn (the AI's 30415 coin flip). Record how many
@@ -481,6 +512,8 @@ def _fight_steps(
                     losses=fight.losses,
                     prompt=OBSERVE_PROMPT,
                     message=result or None,
+                    names=tuple(names),
+                    cpu_fighter=cpu_fighter,
                 )
             ]
 

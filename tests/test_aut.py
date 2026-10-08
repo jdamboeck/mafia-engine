@@ -79,10 +79,11 @@ def _rules() -> dict[str, str]:
         "shared_direction_memory": "faithful",
         "stale_bribe_price": "faithful",
         "flight_odds_by_seat": "faithful",
-        "chief_bribe_negative_months": "faithful",
+        "c64_input_negatives": "faithful",
         "chief_bribe_empty_answer": "faithful",
         "gang_war_score_to_the_attacker": "faithful",
         "prison_brawl_zeroes_the_attackers_boss": "faithful",
+        "c64_float_score": "faithful",
     }
 
 
@@ -489,3 +490,59 @@ def test_a_non_cancellable_picker_asks_again_on_an_empty_answer():
     assert result.payload.returned == 0
     prompts = _asked(source, _PICK)
     assert len(prompts) == 2 and not prompts[0].cancellable
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit (#160)                                       #
+# --------------------------------------------------------------------------- #
+_EXITS = [
+    # id, handler, state fields, answers, rng draws, key waits, ends in the wait
+    # :14008 ...gosub1100 (the showroom), :14025 ify=0then...return
+    ("14025-nothing", "aut.buy", {}, (0,), (), 1, False),
+    # :14008's wait, :14035 ...gosub1125:goto14006, :14008's wait again, then 0
+    ("14035-too-poor", "aut.buy", {"ka": 10}, (1, 0), (), 3, False),
+    # :14008's wait, :14047 ...ifx$="n"goto14006, :14008's wait again, then 0
+    ("14047-declined", "aut.buy", {"vehicle": 1}, (1, False, 0), (), 2, False),
+    # :14008's wait, :14052 print"{down}und papiere.":goto1100
+    ("14052-sold", "aut.buy", {}, (1,), (), 2, True),
+    # :14100 ...print"es sind zuviele leute hier!":goto1100
+    ("14100-crowded", "aut.steal", {}, (), (1,), 1, True),
+    # :14101 ...gosub1130:ify=0thenreturn
+    ("14101-pick-0", "aut.steal", {}, (0,), (0,), 0, False),
+    # :14118 tm(sp)=5:goto1100
+    ("14118-stolen", "aut.steal", {}, (1,), (0, 120), 1, True),
+    # :14120 gosub1100, the fight's :30520 wait, ifs=2goto26020 -> :26080's goto1100
+    ("14125-caught", "aut.steal", {}, (1, ("surrender", None), _SURRENDER), (0, 0, 0), 3, True),
+    # :14120's wait, the fight's, :14131 ...print"{down}lassen!":goto1100
+    (
+        "14131-owner-killed",
+        "aut.steal",
+        {"roster": (_WINNER,)},
+        (1, ("shoot", STEP_RIGHT)),
+        (0, 0, 1, 10, 0),
+        3,
+        True,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws", "waits", "ends"),
+    [case[1:] for case in _EXITS],
+    ids=[case[0] for case in _EXITS],
+)
+def test_each_exit_waits_for_a_key_where_the_source_does(key, fields, answers, draws, waits, ends):
+    _, source = _run(key, _state(**fields), answers=answers, draws=draws)
+    assert source.key_waits() == waits
+    assert source.ends_in_key_wait() == ends
+
+
+def test_the_showroom_waits_before_the_models():
+    """:14006-14008 ``...(0=ende) druecken!":gosub1100:print"{clr}";`` -- the intro
+    waits for a key, then the models (:14011-14015) are drawn."""
+    from engine.interactions import ShowMessage
+    from engine.turns import KEY_WAIT_SCREEN
+
+    _, source = _run("aut.buy", _state(), answers=(0,))
+    keys = [i.key for i in source.seen if isinstance(i, (ShowMessage, Acknowledge))]
+    assert keys[:3] == ["locations.aut.showroom", KEY_WAIT_SCREEN, "locations.aut.model"]

@@ -56,6 +56,7 @@ from engine.turns import JOB_SHIFT_HANDLER_KEY as ENGINE_JOB_SHIFT_KEY
 
 from ..setup import (
     load_encounter,
+    KEY_WAIT,
     run_encounter,
     score_and_rank,
 )
@@ -128,18 +129,25 @@ def job_shift(ctx):
 
     won = True  # quiet day / successful cheat default to "no fight, shift succeeds"
 
+    # :25000 ``print"{clr}{down}{rvon}{blk} "sp$(sp)":{$a0}job als ":print`` -- the
+    # screen's header, under the runner's job-shift screen clear.
+    yield ShowMessage("job.shift_header", {"name": active.name})
+
     if job_type in (JOB_BOUNCER, JOB_DOORMAN):
         # :25015-25045 -- shared bouncer/doorman flow. Source-confirmed quirk: the
         # ON-GOTO at :25010 sends BOTH job types to the SAME line 25015, which prints
         # the "rausschmeisser" (bouncer) header/narration even for an employed
         # DOORMAN -- there is no separate doorman-specific text block in the source,
         # so reusing the bouncer strings for both is faithful, not a shortcut.
+        yield ShowMessage("job.shift_bouncer_title")  # :25015
         yield ShowMessage("job.shift_bouncer_wait")
         if ctx.rng.range(2) == 0:
             # :25025 -- 50% quiet day.
             yield ShowMessage("job.shift_bouncer_quiet")
+            yield KEY_WAIT  # :25025 ...:gosub1100:goto25550
         else:
             yield ShowMessage("job.shift_bouncer_trouble")
+            yield KEY_WAIT  # :25030 ...:gosub1100, before the fight
             # :25035 -- the 1-of-3 variant SELECTION stays in Python; the definitions
             # live in the declared encounter. :25045 ``gosub5000:goto25500``: the fight,
             # then the outcome.
@@ -148,11 +156,13 @@ def job_shift(ctx):
 
     elif job_type == JOB_CROUPIER:
         # :25100-25140 -- pick a trick, catch check, bonus or fight.
+        yield ShowMessage("job.shift_croupier_title")  # :25100
         yield ShowMessage("job.shift_croupier_intro")
         trick = yield PromptInt("job.shift_croupier_pick", min=1, max=3)
         if ctx.rng.range(6 - trick) == 0:  # :25120 `int(rnd(1)*(6-x))=0`
             # :25130 -- caught; a fight starts.
             yield ShowMessage("job.shift_croupier_caught")
+            yield KEY_WAIT  # :25131 ...:gosub1100, before the fight
             winner = yield from _fight(ctx, _CROUPIER_ENCOUNTER)
             won = winner == 1
         else:
@@ -163,10 +173,13 @@ def job_shift(ctx):
             bonus = ctx.rng.hit(300, 300 + 100 * trick - 1)
             ctx.apply(MoneyChange(bonus))
             yield ShowMessage("job.shift_croupier_bonus", {"amount": bonus})
+            yield KEY_WAIT  # :25126 ...:gosub1100:goto25550
 
     elif job_type == JOB_KILLER:
         # :25200-25210 -- always fight the victim.
+        yield ShowMessage("job.shift_killer_title")  # :25200
         yield ShowMessage("job.shift_killer_intro")
+        yield KEY_WAIT  # :25206 ...:gosub1100, before the fight
         winner = yield from _fight(ctx, _KILLER_ENCOUNTER)
         won = winner == 1
 
@@ -177,6 +190,7 @@ def job_shift(ctx):
         ctx.apply(score_and_rank(-2, params))
         ctx.apply(JobClear())
         yield ShowMessage("job.shift_failed")
+        yield KEY_WAIT  # :25510 ...:jo(sp)=0:goto1100
         return []
 
     # :25550 -- successful shift: decrement months_left. JobSet (not a bespoke
@@ -193,7 +207,7 @@ def job_shift(ctx):
                 months_left=months_left,
             )
         )
-        return []
+        return []  # :25550 ...ifjd(sp)<>0thenreturn -- no key wait of its own
 
     # :25555-25560 -- contract finished: pay the full wage, award completion score.
     params = ctx.state.config.formula_params
@@ -201,4 +215,5 @@ def job_shift(ctx):
     ctx.apply(score_and_rank(_completion_score(job_type), params))
     ctx.apply(JobClear())
     yield ShowMessage("job.shift_completed", {"pay": current_job.pending_pay})
+    yield KEY_WAIT  # :25560 ...:jo(sp)=0:goto1100
     return []

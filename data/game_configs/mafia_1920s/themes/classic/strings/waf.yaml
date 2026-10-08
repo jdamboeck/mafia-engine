@@ -5,6 +5,9 @@
 # + mf-prg.bas:13005-13175, 13500-13525). {name}/{price}/{amount} are template params.
 locations:
   waf:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "WAFFENLADEN"
     # Entry + shell menu (dialogue block, at the WAFFENLADEN door).
     entry_prompt: "'TAG, MISTER. EIN PAAR GUTE HANDBOELLER  GEFAELLIG? SIND IM HINTERZIMMER...'"
     menu:
@@ -13,42 +16,47 @@ locations:
       leave: "'DANKE, DANKE! KEIN BEDARF. BYE!'"
 
     # --- buy (13010-13091) ---
-    weapon_prompt: "ihre wahl:"           # 13020
+    weapon_list: "ok, wir haben folgendes:\n"  # :13010 `ok, wir haben folgendes:`
+    weapon_row: "{number:mid$} - {name}{price}$"  # :13015 `printmid$(str$(i),2)" - "wa$(i);wp(i)"$"`
+    weapon_prompt: "ihre wahl:"  # :13020 `ihre wahl:`
     grenades_in: "...brandheiss! eine ladung army-handgranaten ist gerade eingetroffen!"  # :13090-13091
-    gangster_prompt: "fuer welchen gangster:"  # 13035
-    too_dumb: "zu wenig intelligenz!"     # 13050
-    too_weak: "zu wenig kraft!"           # 13055
-    not_brutal: "nicht brutal genug!"     # 13060
-    trade_in_offer: "der haendler bietet dir{amount}$ fuer deine alte waffe."  # 13070-13071
-    trade_in_confirm: "ok (j/n)?"         # 1110
-    bought: "du hast nun die neue waffe!" # 13080
+    gangster_prompt: "fuer welchen gangster:"  # :13035 `fuer welchen gangster:`
+    too_dumb: "zu wenig intelligenz!"  # :13050 `zu wenig intelligenz!`
+    too_weak: "zu wenig kraft!"  # :13055 `zu wenig kraft!`
+    not_brutal: "nicht brutal genug!"  # :13060 `nicht brutal genug!`
+    trade_in_offer: "der haendler bietet dir{amount}$ fuer deine alte waffe."  # :13070-13071 `der haendler bietet dir`
+    trade_in_confirm: "ok (j/n)?"         # :1110 `ok (j/n)?`
+    bought: "du hast nun die neue waffe!"  # :13080 `du hast nun die neue waffe!`
 
     # --- weapon spec sheet (13500-13525) ---
-    # The accuracy/effect labels are BUCKETED lookups: the handler emits the 1-based
-    # bucket index (accuracy_bucket = int(ts/2) in 1..3; effect_bucket = int(tg/4)+1 in
-    # 1..5) and the theme resolves it to a label from the arrays below. ts$/tg$ DATA
-    # from mf-prg.bas:50500-50505, read at :125.
-    spec_sheet: "waffe: {name}  preis:{price}$  treffgenauigkeit: {accuracy_bucket:mid$}  wirkung: {effect_bucket:mid$}"
-    accuracy_labels:   # ts$(1..3), read at :125 from data at :50500
-      1: "mies"
-      2: "ganz gut"
-      3: "todsicher"
-    effect_labels:     # tg$(1..5), read at :125 from data at :50500-50505
-      1: "laecherlich"
-      2: "maessig"
-      3: "schlimm!"
-      4: "brutal"
-      5: "erschreckend!"
+    # One template per source line. :13500 prints the name over the picture box,
+    # :13510 the price at tab(8) three rows down ({home}{down}{down}{down}); the box
+    # and the sprite are presentation the client does not draw, so the box's top row
+    # stays blank. Each label line is printtab(8)"{down}...": tab(8), then down a row.
+    spec_sheet: "waffe: {name}\n\n{tab(8)}preis:{price}$"   # :13500, :13510
+    # :13515 treffgenauigkeit: ts$(int(ts(x)/2)) — the handler composes the index.
+    # ts$(1..3) are read at :125 from :50500; ts$(0) is never assigned, so it is "".
+    spec_accuracy_0: "\n{tab(8)}treffgenauigkeit: "
+    spec_accuracy_1: "\n{tab(8)}treffgenauigkeit: mies"
+    spec_accuracy_2: "\n{tab(8)}treffgenauigkeit: ganz gut"
+    spec_accuracy_3: "\n{tab(8)}treffgenauigkeit: todsicher"
+    # :13520 wirkung: tg$(int(tg(x)/4)+1) — tg$(1..5) read at :125 from :50500-50505.
+    spec_effect_1: "\n{tab(8)}wirkung: laecherlich"
+    spec_effect_2: "\n{tab(8)}wirkung: maessig"
+    spec_effect_3: "\n{tab(8)}wirkung: schlimm!"
+    spec_effect_4: "\n{tab(8)}wirkung: brutal"
+    spec_effect_5: "\n{tab(8)}wirkung: erschreckend!"
 
     # --- train (13100-13175) ---
-    no_gangster: "leider hast du nicht einen gangster!"  # 13100
-    train_prompt: "wen soll ich trainieren:"             # 13101
-    venue_prompt: "(s)chiesstand oder (t)rainingscamp ?" # 13105
+    no_gangster: "leider hast du nicht einen gangster!"  # :13100 `leider hast du nicht einen gangster!`
+    train_prompt: "wen soll ich trainieren:"  # :13101 `wen soll ich trainieren:`
+    venue_prompt: "(s)chiesstand oder (t)rainingscamp ?"  # :13105 `(s)chiesstand oder (t)rainingscamp ?`
+    # The venue choice: :13106 `getx$:ifx$<>"s"andx$<>"t"goto13106` reads its key.
     venue_range: "(s)chiesstand"
     venue_camp: "(t)rainingscamp"
-    range_cost: "das kostet dich{price}$. "             # 13110
-    range_enter: "'dein gangster uebt an meinem schiess-stand...'"  # 13120-13121
-    confirm: "ok (j/n)?"                                 # 1110
-    camp_cost: "das kostet dich{price}$. "              # 13150
-    camp_enter: "{name} ist im trainingscamp..."         # 13165
-    camp_done: "...da ist er wieder!"                    # 13175
+    range_cost: "das kostet dich{price}$. "  # :13110 `das kostet dich`
+    range_enter: "'dein gangster uebt an meinem schiess-stand...'"  # :13120-13121 `'dein gangster uebt an meinem schiess-`
+    confirm: "ok (j/n)?"                                 # :1110 `ok (j/n)?`
+    camp_cost: "das kostet dich{price}$. "  # :13150 `das kostet dich`
+    camp_enter: "{name} ist im trainingscamp..."  # :13165 `" ist im trainingscamp..."`
+    camp_done: "...da ist er wieder!"  # :13175 `...da ist er wieder!`

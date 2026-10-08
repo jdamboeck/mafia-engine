@@ -10,6 +10,9 @@
 # screen is the shop's (locations.sgl.police_waiting): :20004 jumps into :17008.
 locations:
   ban:
+    # :3025 the title from the location's disk file, printed in reverse video
+    # above the description (verbatim from location-dialogue.yaml).
+    title: "BANK/POSTAMT"
     entry_prompt: "'GUTEN TAG, MEIN HERR! WAS IST IHR      BEGEHR?'"
     menu:
       holdup: "'QUATSCH NICH' UND LANG DEN ZASTER      'RUEBER, ABER SCHNELL!'"
@@ -17,33 +20,33 @@ locations:
       leave: "WIEDER GEHEN"
 
     # --- the prologue (20003) ---
-    rank_too_low: "werde erst '{rank}'!"                                   # 20003
+    rank_too_low: "werde erst '{rank}'!"                                   # :20003 `werde erst '"ra$(3)"'!`
 
     # --- the hold-up (20009-20012) ---
-    alone: "du brauchst einen begleiter!"                                  # 20009
-    guards: "leider hast du die drei wachmaenner am\neingang uebersehen..."  # 20011-20012
+    alone: "du brauchst einen begleiter!"                                  # :20009 `du brauchst einen begleiter!`
+    guards: "leider hast du die drei wachmaenner am\neingang uebersehen..."  # :20011-20012 `leider hast du die drei wachmaenner am`
 
     # --- the heist payout (20055-20060), shared with bhf's mail train (:19040);
     # {$a0} is a shifted space, shown blank ---
     loot: "du hast es geschafft! deine beute\nbetraegt{p}$!"
 
     # --- the night safe-crack (20100-20142) ---
-    safe_untrained: "du musst noch trainieren!"                             # 20101
-    safe_who: "wer soll den kasten knacken:"                                # 20104
-    safe_stethoscope: "'hhm. mal sehen. ich versuch's mit dem\nstethoskop...' (drehen der coderaeder\nmit f1, f3 und f5!)"  # 20105-20107
-    # The code dials (20110 trs1's "1 2 3", 20120 each turned digit, at columns 16, 19
-    # and 22) and the key that turns each (20115: F1, F3, F5). The source prints no
-    # prompt; the press's sound is the only other feedback: 20130 sysso,8 (a click) or
-    # 20125 sysso,7 (a slip or a wrong digit, which sound the same). The sounds have no
+    safe_untrained: "du musst noch trainieren!"                             # :20101 `du musst noch trainieren!`
+    safe_who: "wer soll den kasten knacken:"                                # :20104 `wer soll den kasten knacken:`
+    safe_stethoscope: "'hhm. mal sehen. ich versuch's mit dem\nstethoskop...' (drehen der coderaeder\nmit f1, f3 und f5!)"  # :20105-20107 `'hhm. mal sehen. ich versuch's mit dem`
+    # The code dials (:20110 trs1's "1 2 3", :20120 each turned digit, at columns 16,
+    # 19 and 22) and the key that turns each (:20115: F1, F3, F5). The source prints no
+    # prompt; the press's sound is the only other feedback: :20130 `sysso,8` (a click)
+    # or :20125 `sysso,7` (a slip or a wrong digit, which sound the same). The sounds have no
     # text in the source; a text client shows them as words.
     safe_dials: "{d1:mid$}  {d2:mid$}  {d3:mid$}"
     safe_turn: "f1, f3, f5:"
     safe_f1: "f1"
     safe_f3: "f3"
     safe_f5: "f5"
-    safe_click: "{d1:mid$}  {d2:mid$}  {d3:mid$}   *klick*"
-    safe_slip: "{d1:mid$}  {d2:mid$}  {d3:mid$}"
-    safe_failed: "'teufel...! da ist was schiefgegangen!\nes kommt jemand!'"  # 20141-20142
+    safe_click: "{d1:mid$}  {d2:mid$}  {d3:mid$}   *klick*"  # :20120 `chr$(48+rd(x))`
+    safe_slip: "{d1:mid$}  {d2:mid$}  {d3:mid$}"  # :20120 `chr$(48+rd(x))`
+    safe_failed: "'teufel...! da ist was schiefgegangen!\nes kommt jemand!'"  # :20141-20142 `'teufel...! da ist was schiefgegangen!`
     # :20150 sysbl,"trs2":poke198,0:wait198,1 -- the opened safe after the last *klick*,
     # then a key, then the loot (:20050). STAND-IN: trs2 is a picture with no text (the
     # open vault, its shelves of banknotes and coins; research-data/graphics/screens/
