@@ -25,7 +25,7 @@ on a win (``ka += p`` where ``p`` was reassigned to the gross). So the NET delta
 from __future__ import annotations
 
 from engine.effects import MoneyChange
-from engine.interactions import PromptChoice, PromptInt, ShowMessage
+from engine.interactions import READ_LINE, PromptChoice, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..setup import KEY_WAIT
@@ -64,6 +64,8 @@ def sph(ctx):
     payout_offset = params["casino_payout_offset"]
 
     # 16010-16016 — game menu; cancelling aborts the whole action (driver discard).
+    # :16015 ``input"{down}was soll's sein:";x:ifx=0thenreturn`` reads a line (Enter),
+    # and 0 returns: a client relays it as cancel.
     # The C64 INPUT at :16015 takes a fraction, and 2.5 passes :16016's 1-3 check and
     # plays with x=2.5; the menu offers the three games only (a departure, noted in
     # content/house_rules.yaml).
@@ -75,6 +77,8 @@ def sph(ctx):
             "locations.sph.roulette",
         ],
         cancellable=True,
+        read=READ_LINE,
+        prompt="locations.sph.game_prompt",
     )
     x = choice + 1  # game index: poker=1, black jack=2, roulette=3
 

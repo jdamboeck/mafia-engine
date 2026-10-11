@@ -35,6 +35,8 @@ sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 
 from engine.interactions import (  # noqa: E402
     CANCEL,
+    READ_KEY,
+    READ_LINE,
     Confirm,
     PromptChoice,
     PromptInt,
@@ -54,6 +56,7 @@ from clients.terminal import (  # noqa: E402
     play,
     render_message,
 )
+from clients.terminal.keys import ENTER, decode_key, read_key  # noqa: E402
 from clients.terminal.palette import ColorSupport, Colors, load_palette  # noqa: E402
 from tests.helpers import NEW_GAME_ACKS, SOLO, deadline, make_walk_script  # noqa: E402
 
@@ -163,7 +166,8 @@ def test_prompt_int_invalid_then_valid_is_reprompted_by_driver():
 # PromptChoice / Confirm relay.                                                 #
 # --------------------------------------------------------------------------- #
 def test_prompt_choice_returns_index():
-    inp, out = _client(["1"])
+    # option 1 (0-based) is the menu's number 2
+    inp, out = _client(["2"])
     seen = []
 
     def handler(ctx):
@@ -178,17 +182,17 @@ def test_prompt_choice_returns_index():
 def test_prompt_choice_resolves_option_keys_and_shows_plain_values_as_given():
     # sph's game menu passes theme KEYS as options; a recruit menu passes plain names.
     # A key must render as its theme text, never raw; a non-key renders unchanged.
-    inp, out = _client(["0"])
+    # The labels are printed as given: the client adds no number of its own.
+    inp, out = _client(["1"])
 
     def handler(ctx):
         yield PromptChoice("locations.sph.game_menu", options=["locations.sph.poker", "alcapone"])
         return []
 
     run(handler, inp, state=None, rng=None)
-    text = out.getvalue()
-    assert "0) 1 - poker" in text
-    assert "1) alcapone" in text
-    assert "locations.sph.poker" not in text
+    lines = out.getvalue().splitlines()
+    assert lines[1:3] == ["1 - poker", "alcapone"]
+    assert "locations.sph.poker" not in out.getvalue()
 
 
 def test_confirm_returns_bool():
@@ -218,7 +222,8 @@ def test_confirm_returns_false_for_n():
 
 
 def test_prompt_choice_returns_zero_index():
-    inp, out = _client(["0"])
+    # the menu's number 1 is option 0
+    inp, out = _client(["1"])
     seen = []
 
     def handler(ctx):
@@ -231,7 +236,7 @@ def test_prompt_choice_returns_zero_index():
 
 
 def test_prompt_choice_returns_higher_index():
-    inp, out = _client(["3"])
+    inp, out = _client(["4"])
     seen = []
 
     def handler(ctx):
@@ -1402,3 +1407,187 @@ def test_the_client_holds_no_setup_rule_or_roll_formula():
         r"\.hit\(",
     ):
         assert re.search(pattern, session) is None, f"session.py holds {pattern!r}"
+
+
+# --------------------------------------------------------------------------- #
+# Menus numbered from 1, read as their source line reads (R1, R2; KTD-1/2).    #
+# --------------------------------------------------------------------------- #
+def _choose(menu: PromptChoice, stdin_text: str) -> tuple[list[int], str]:
+    """Run ``menu`` through the driver over exact stdin text (one key per line on a
+    pipe); return the indices the handler received and what was printed."""
+    inp, out = _eof_client(stdin_text)
+    seen: list[int] = []
+
+    def handler(ctx):
+        seen.append((yield menu))
+        return []
+
+    with deadline(5.0, "the menu read past the end of input (spin)", exc_type=AssertionError):
+        run(handler, inp, state=None, rng=None)
+    return seen, out.getvalue()
+
+
+def test_a_line_menu_asks_again_for_a_number_that_names_no_option():
+    """0 and a number past the options name nothing at a non-cancellable menu: the
+    driver asks again (the menu is printed again), then 3 picks option 2."""
+    menu = PromptChoice("locations.sph.game_menu", options=["a", "b", "c"])
+    seen, text = _choose(menu, "0\n4\nx\n3\n")
+    assert seen == [2]
+    assert text.count("waehle, mein freund:") == 4
+
+
+def test_a_cancellable_line_menu_relays_zero_as_cancel():
+    """``:16015 ifx=0thenreturn``: at the cancellable casino menu 0 chooses nothing."""
+    inp, _out = _client(["0"])
+    menu = PromptChoice("locations.sph.game_menu", options=["a", "b", "c"], cancellable=True)
+    assert inp(menu) is CANCEL
+
+
+def test_a_key_menu_takes_the_first_key_of_a_piped_line_and_ignores_other_keys():
+    """One key per line on a pipe; a key that names no option is ignored and the
+    menu waits for the next without printing again (``:17555 getx$:ifx$<"1"orx$>"3"
+    goto17555``). ``12`` is the key 1."""
+    menu = PromptChoice("locations.sgl.after_menu", options=["a", "b", "c"], read=READ_KEY)
+    seen, text = _choose(menu, "0\n4\nq\n\n12\n")
+    assert seen == [0]
+    assert text.count("was machst du:") == 1
+    assert "> " not in text, "a one-key menu shows no line prompt"
+
+
+def test_a_key_menu_with_answer_keys_takes_only_those_keys():
+    """The weapon shop's venue (``:13106 getx$:ifx$<>"s"andx$<>"t"goto13106``): the
+    numbers are no answer, ``t`` is the second option."""
+    menu = PromptChoice(
+        "locations.waf.venue_prompt",
+        options=["locations.waf.venue_range", "locations.waf.venue_camp"],
+        read=READ_KEY,
+        answer_keys=("s", "t"),
+    )
+    seen, _text = _choose(menu, "1\n2\nT\n")
+    assert seen == [1]
+
+
+@pytest.mark.parametrize(
+    ("line", "dial"),
+    [("f1", 0), ("F3", 1), ("f5", 2), ("\x1bOR", 1), ("\x1b[15~", 2), ("\x1b[[A", 0)],
+)
+def test_the_safe_dials_answer_to_f1_f3_f5_on_a_pipe(line, dial):
+    """``:20115 getx$:x=asc(x$+chr$(0)):ifx<133orx>135goto20115``: F1, F3 or F5. A
+    piped line naming the key (``f1``), or holding its escape sequence, picks it; the
+    ``f`` of a line ``f2`` and the digit keys pick nothing."""
+    menu = PromptChoice(
+        "locations.ban.safe_turn",
+        options=["d1", "d2", "d3"],
+        read=READ_KEY,
+        answer_keys=("f1", "f3", "f5"),
+    )
+    seen, _text = _choose(menu, f"1\nf2\nf\n{line}\n")
+    assert seen == [dial]
+
+
+@pytest.mark.parametrize("read", [READ_KEY, READ_LINE])
+def test_eof_at_a_menu_ends_input_instead_of_waiting_again(read):
+    """End of input at a menu ends the session (EndOfInput), under a deadline: a
+    reader that took EOF for an ignored key would wait forever."""
+    menu = PromptChoice("police.menu", options=["a", "b", "c"], read=read)
+    with pytest.raises(EndOfInput):
+        _choose(menu, "9\n")
+
+
+def test_a_one_key_number_prompt_relays_the_key_and_reads_enter_as_blank():
+    """A ``PromptInt`` read with one key relays the key (the driver validates it);
+    Enter is the empty answer, which the prompt's ``blank`` stands for."""
+    seen = []
+
+    def handler(ctx):
+        seen.append((yield PromptInt("locations.slw.months_prompt", min=1, max=3, read=READ_KEY)))
+        seen.append(
+            (yield PromptInt("locations.slw.months_prompt", min=1, max=3, blank=0, read=READ_KEY))
+        )
+        return []
+
+    inp_blank, _ = _eof_client("7\n2\n\n")
+    run(handler, inp_blank, state=None, rng=None)
+    assert seen == [2, 0]  # 7 is out of range and asked again; Enter is the blank 0
+
+
+# --------------------------------------------------------------------------- #
+# The one-key reader: escape decoding (pure) and the terminal path (a pty).    #
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("raw", "key"),
+    [
+        ("\x1bOP", "f1"),
+        ("\x1bOR", "f3"),
+        ("\x1b[11~", "f1"),
+        ("\x1b[13~", "f3"),
+        ("\x1b[15~", "f5"),
+        ("\x1b[[A", "f1"),
+        ("\x1b[[C", "f3"),
+        ("\x1b[[E", "f5"),
+        ("\r", ENTER),
+        ("\n", ENTER),
+        ("S", "s"),
+        ("1", "1"),
+        ("\x1b[A", "\x1b[A"),  # an arrow key answers nothing
+        ("\x1b", "\x1b"),  # a lone ESC
+    ],
+)
+def test_decode_key_names_the_function_keys_and_enter(raw, key):
+    assert decode_key(raw) == key
+
+
+def _read_key_on_a_pty(sent: bytes):
+    """Call :func:`read_key` on the slave side of a pseudo-terminal, sending ``sent``
+    from the master once the reader has put the terminal in raw mode; return what it
+    read, or the exception it raised."""
+    import os
+    import pty
+    import termios
+    import threading
+    import time
+
+    master, slave = pty.openpty()
+    stream = open(slave, encoding="utf-8", closefd=False)  # noqa: SIM115
+    result: list[object] = []
+
+    def reader():
+        try:
+            result.append(read_key(stream))
+        except BaseException as exc:  # noqa: BLE001 - handed back to the test
+            result.append(exc)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        until = time.monotonic() + 5.0
+        while termios.tcgetattr(slave)[3] & termios.ICANON:  # wait for raw mode
+            assert time.monotonic() < until, "read_key never put the terminal in raw mode"
+            time.sleep(0.005)
+        os.write(master, sent)
+        thread.join(5.0)
+        assert not thread.is_alive(), f"read_key({sent!r}) did not return"
+        restored = termios.tcgetattr(slave)[3] & termios.ICANON
+        assert restored, "read_key left the terminal in raw mode"
+    finally:
+        os.close(master)  # a reader still waiting sees the hang-up and returns
+        thread.join(5.0)
+        if not thread.is_alive():  # closing under a blocked reader would wait for it
+            stream.close()
+        os.close(slave)
+    return result[0]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+@pytest.mark.parametrize(
+    ("sent", "key"),
+    [(b"1", "1"), (b"\x1bOP", "f1"), (b"\x1b[13~", "f3"), (b"\x1b[[E", "f5"), (b"\r", ENTER)],
+)
+def test_read_key_on_a_terminal_takes_one_key_without_enter(sent, key):
+    """On a terminal the key needs no Enter, and an F-key's sequence is one key."""
+    assert _read_key_on_a_pty(sent) == key
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_read_key_on_a_terminal_keeps_ctrl_c_an_interrupt():
+    assert isinstance(_read_key_on_a_pty(b"\x03"), KeyboardInterrupt)

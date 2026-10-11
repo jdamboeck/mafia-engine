@@ -50,6 +50,7 @@ from engine.combat import STEP_RIGHT, CombatResult
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
 from engine.interactions import (
+    READ_KEY,
     Acknowledge,
     CombatScreen,
     Confirm,
@@ -308,6 +309,8 @@ def test_the_money_is_credited_before_the_choice_and_kept_after_a_lost_fight():
         "locations.sgl.after_kill",
     ]
     assert not menu.cancellable
+    # :17555 ``getx$:ifx$<"1"orx$>"3"goto17555``: one key, numbered from 1.
+    assert (menu.read, menu.answer_keys) == (READ_KEY, None)
 
 
 # --------------------------------------------------------------------------- #

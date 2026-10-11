@@ -64,7 +64,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.effects import MoneyChange
-from engine.interactions import Acknowledge, LoadSubState, PromptChoice, ShowMessage
+from engine.interactions import READ_KEY, Acknowledge, LoadSubState, PromptChoice, ShowMessage
 from engine.locations import register
 from engine.substates import register_substate
 
@@ -109,6 +109,8 @@ FAILED = "failed"
 
 #: The three dial keys (``:20115``: F1, F3, F5 are PETSCII 133-135; :20116 ``x=x-133``).
 _DIAL_KEYS = ("locations.ban.safe_f1", "locations.ban.safe_f3", "locations.ban.safe_f5")
+#: The keys that turn the dials, in dial order: the function keys F1, F3 and F5.
+_DIAL_ANSWER_KEYS = ("f1", "f3", "f5")
 
 
 def _prologue(ctx):
@@ -270,7 +272,14 @@ def safe_crack(ctx, params):
     ctx.apply(SafeSkillSet(max(safe_skill(active) - 1, 0)))
     yield ShowMessage("locations.ban.safe_dials", _dial_params(dials))
     while True:
-        x = yield PromptChoice("locations.ban.safe_turn", options=list(_DIAL_KEYS))  # :20115
+        # :20115 ``getx$:x=asc(x$+chr$(0)):ifx<133orx>135goto20115``: one key, F1, F3
+        # or F5 (PETSCII 133-135); :20116 ``x=x-133`` turns it into the dial 0-2.
+        x = yield PromptChoice(
+            "locations.ban.safe_turn",
+            options=list(_DIAL_KEYS),
+            read=READ_KEY,
+            answer_keys=_DIAL_ANSWER_KEYS,
+        )
         dials[x] = (dials[x] + 1) % digits  # :20116
         # :20125 (the roll first: it is drawn on every press)
         slip = ctx.rng.range(max(intelligenz, 1)) < rules["ban_safe_slip_divisor"]

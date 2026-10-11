@@ -49,7 +49,14 @@ entry in ``engine.movement`` records it before the menu runs).
 from __future__ import annotations
 
 from engine.effects import AssignWeapon, MoneyChange, ScoreChange, StatChangeCapped
-from engine.interactions import Confirm, LoadSubState, PromptChoice, PromptInt, ShowMessage
+from engine.interactions import (
+    READ_KEY,
+    Confirm,
+    LoadSubState,
+    PromptChoice,
+    PromptInt,
+    ShowMessage,
+)
 from engine.locations import register
 from engine.substates import register_substate
 
@@ -275,9 +282,12 @@ def waf_train(ctx):
     # 13103-13107 — venue: rank >= 5 offers (s)chiesstand vs (t)rainingscamp; below, range only.
     is_camp = False
     if active.rank >= 5:
+        # :13106 ``getx$:ifx$<>"s"andx$<>"t"goto13106``: one key, s or t.
         venue = yield PromptChoice(
             "locations.waf.venue_prompt",
             options=["locations.waf.venue_range", "locations.waf.venue_camp"],
+            read=READ_KEY,
+            answer_keys=("s", "t"),
         )
         is_camp = venue == 1
 

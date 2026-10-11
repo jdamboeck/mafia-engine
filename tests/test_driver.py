@@ -28,6 +28,7 @@ from engine.interactions import (
     PromptChoice,
     PromptInt,
     PromptText,
+    READ_KEY,
     RollFrame,
     ShowMessage,
     run,
@@ -173,6 +174,43 @@ def test_promptchoice_reprompts_on_out_of_range_index():
     run(handler, src)
     assert got["idx"] == 1
     assert len(src.seen) == 3
+
+
+def test_a_one_key_menu_with_answer_keys_still_takes_the_0_based_index():
+    """The read mode and answer keys tell the client how to read; the driver's answer
+    stays the 0-based index, validated as for any menu (KTD-1)."""
+    got = {}
+
+    def handler(ctx):
+        got["idx"] = yield PromptChoice(
+            "menu", options=["a", "b"], read=READ_KEY, answer_keys=("s", "t")
+        )
+        return []
+
+    src = scripted("t", 2, 1)  # a key name and an out-of-range index are asked again
+    run(handler, src)
+    assert got["idx"] == 1
+    assert len(src.seen) == 3
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"read": "getx"},
+        {"answer_keys": ("s",)},  # one key for two options
+        {"answer_keys": ("s", "s")},
+        {"answer_keys": ("S", "t")},
+    ],
+)
+def test_a_menu_refuses_an_unknown_read_mode_or_bad_answer_keys(kwargs):
+    with pytest.raises(ValueError):
+        PromptChoice("menu", options=["a", "b"], **kwargs)
+
+
+def test_a_number_prompt_refuses_an_unknown_read_mode():
+    assert PromptInt("n", min=0, max=9, read=READ_KEY).read == READ_KEY
+    with pytest.raises(ValueError):
+        PromptInt("n", min=0, max=9, read="getx")
 
 
 # --------------------------------------------------------------------------- #

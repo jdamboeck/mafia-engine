@@ -63,7 +63,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
-from engine.interactions import Confirm, PromptChoice, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Confirm, PromptChoice, PromptInt, ShowMessage
 
 from ..effects import Jail, JobClear, TipClear
 from ..house_rules import intent
@@ -197,8 +197,8 @@ def caught(ctx, arrest: Arrest):
         return (yield from _pay(ctx, run, price))
 
     # :26025 ``getx$:ifx$<"1"orx$>"3"goto26025``: any other key is ignored (the
-    # driver asks again).
-    choice = yield PromptChoice("police.menu", options=list(_MENU))
+    # driver asks again). One key, no Enter (``getx$``).
+    choice = yield PromptChoice("police.menu", options=list(_MENU), read=READ_KEY)
     if choice == _BRIBE:
         # :26035-26036 the price, then ok (j/n)?
         yield ShowMessage("police.bribe_demand", {"price": bribe})

@@ -251,8 +251,8 @@ class TestSphGambleThroughClient:
         walk = walk_keys_to_cell(state, city, sph_cell)
         # Entering a location with ASCII art shows a splash that eats one extra
         # "ENTER druecken" line (_run_location) BEFORE the menu is shown.
-        # Inside sph: "1" play -> game menu choice "0" (poker) -> wager "100" -> back to map.
-        return walk + ["", "1", "0", "100"]
+        # Inside sph: "1" play -> game menu choice "1" (poker) -> wager "100" -> back to map.
+        return walk + ["", "1", "1", "100"]
 
     def test_gamble_completes_and_pays_out(self, monkeypatch):
         """Playing sph's gamble through the client must not crash and must show a payout.
@@ -293,6 +293,58 @@ class TestSphGambleThroughClient:
         assert cleared != -1, "the map never came back"
         # The wait took the blank line; the map read "x" (one note), not both (two).
         assert output.count("(use W/A/S/D, M, P or Q)", cleared) == 1
+
+
+class TestCasinoMenuReadsAsItsSource:
+    """AE1: the casino's game menu as ``:16010-16016`` prints and reads it.
+
+    ``:16010 print"waehle, mein freund:":print"{down}1 - poker":print"2 - black jack"``
+    numbers the games from 1; ``:16015 input"{down}was soll's sein:";x:ifx=0thenreturn``
+    reads a line (Enter) and returns on 0; ``:16016 ifx<1orx>3`` asks again.
+    """
+
+    def _keys(self, *answers: str) -> list[str]:
+        city_raw = load_city_raw()
+        walk = walk_keys_to_cell(
+            new_state(42), load_city(city_raw), find_door_cell(city_raw, "sph")
+        )
+        # the art splash's Enter, then sph's "play" option (1), then the answers
+        return [*walk, "", "1", *answers]
+
+    def test_ae1_one_plays_poker(self, monkeypatch):
+        """``1`` is poker: seed 42's poker hand wins 50$ on 100$ (5500$ -> 5550$), as
+        :class:`TestSphGambleThroughClient` pins; black jack at the same draw loses."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("1", "100"))
+        low = output.lower()
+        assert "dein einsatz" in low, "the 1 did not reach the wager prompt"
+        assert "gewonnen" in low and "cash 5550$" in low, "1 did not play poker"
+
+    def test_ae1_the_menu_prints_its_labels_and_the_input_prompt(self, monkeypatch):
+        """The labels carry the source's numbers; the client adds no prefix of its own,
+        and ``:16015``'s prompt follows the options."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("1", "100"))
+        lines = [line.strip() for line in output.replace(CLEAR, "\n").splitlines()]
+        menu = lines.index("waehle, mein freund:")
+        assert lines[menu + 1 : menu + 4] == ["1 - poker", "2 - black jack", "3 - roulette"]
+        assert lines[menu + 4].startswith("was soll's sein:")
+
+    def test_ae1_zero_returns_without_a_game(self, monkeypatch):
+        """``:16015 ifx=0thenreturn``: 0 chooses nothing -- the menu is not asked again
+        and no wager prompt follows, so the next ``1`` is not a game."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("0", "1"))
+        low = output.lower()
+        assert low.count("was soll's sein:") == 1, "0 did not leave the game menu"
+        assert "dein einsatz" not in low, "0 played a game instead of returning"
+
+    def test_ae1_the_answer_is_a_whole_line(self, monkeypatch):
+        """``input`` reads the whole line: ``12`` is no game (``:16016`` asks again), not
+        a ``1`` with a stray key after it."""
+        output = _run_play_with_deadline(
+            monkeypatch, seed=42, stdin_keys=self._keys("12", "1", "100")
+        )
+        low = output.lower()
+        assert low.count("was soll's sein:") == 2, "12 was not asked again"
+        assert "gewonnen" in low and "cash 5550$" in low
 
 
 # --------------------------------------------------------------------------- #
@@ -861,8 +913,8 @@ class TestEofMidHandlerExitsCleanly:
 
     def test_eof_during_sph_wager_prompt_exits_without_committing(self, monkeypatch):
         """Walk in, ack the art splash, pick "play" (location option 1), pick poker
-        (game 0) -- then stdin RUNS OUT at the non-cancellable wager prompt."""
-        keys = self._sph_keys("", "1", "0")
+        (game 1) -- then stdin RUNS OUT at the non-cancellable wager prompt."""
+        keys = self._sph_keys("", "1", "1")
         output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=keys)
         low = output.lower()
         # The run genuinely reached the wager prompt (not the map, not the game menu).
@@ -2040,7 +2092,7 @@ class TestRoundStandingsAndEnding:
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
         # splash ack, "play", poker -- then EOF at the wager prompt (EndOfInput path).
-        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "0"])
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "1"])
         assert "dein einsatz" in output.lower(), "never reached the wager prompt"
         assert "bye." in output
         state, rng = ret
@@ -2135,7 +2187,7 @@ class TestSaveAndLoad:
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
         # each hand's result waits for a key (:16035/:16040 ``goto1100``)
-        return walk, walk + ["", "1", "0", "100", "", walk[-1], "", "1", "0", "100", ""]
+        return walk, walk + ["", "1", "1", "100", "", walk[-1], "", "1", "1", "100", ""]
 
     def test_loaded_game_continues_exactly_like_uninterrupted_play(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
@@ -2143,7 +2195,7 @@ class TestSaveAndLoad:
         walk, k1 = self._k1()
         # K2: enter sph again (po is unchanged by an entry, so the last walk key
         # re-enters) and gamble again -- RNG draws AFTER the save point -- then quit.
-        k2 = [walk[-1], "", "1", "0", "200", "", "q"]
+        k2 = [walk[-1], "", "1", "1", "200", "", "q"]
         save = tmp_path / "a.jsonl"
 
         out_a, (state_a, rng_a) = _run_session(

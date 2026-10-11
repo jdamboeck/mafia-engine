@@ -334,7 +334,8 @@ class EarlyWinPlayer(ScreenPlayer):
             if screen.key == "police.lawyer_offer":
                 return "n"
         if isinstance(screen, PromptChoice) and screen.key == "police.menu":
-            return str(screen.options.index("police.menu_bribe"))
+            # :26022-26023 the menu is numbered from 1.
+            return str(screen.options.index("police.menu_bribe") + 1)
         if isinstance(screen, PromptInt) and screen.key == "police.lawyer_prompt":
             return "0"
         return super().decide(screen, state)
@@ -428,7 +429,7 @@ class JailPlayer(ScreenPlayer):
             goal = self.away if po == self.home else self.home
             return _MAP_KEYS[goal - po]
         if isinstance(screen, PromptChoice) and screen.key == "police.menu":
-            return str(screen.options.index("police.menu_surrender"))
+            return str(screen.options.index("police.menu_surrender") + 1)
         if isinstance(screen, Confirm) and screen.key == "police.lawyer_offer":
             return "n"
         return super().decide(screen, state)
@@ -462,7 +463,7 @@ def test_a_roadblock_capture_jails_for_the_sentence_then_a_normal_turn(monkeypat
     output = out.getvalue()
     caught_at = output.index(_TEXT.resolve("roadblock.wanted_poster"))
     assert _TEXT.resolve("police.sentenced", {"months": 3}) in output[caught_at:]
-    assert player.prompts == [("police.menu", "2"), ("police.lawyer_offer", "n")]
+    assert player.prompts == [("police.menu", "3"), ("police.lawyer_offer", "n")]
     # Exactly the sentence: three jail screens, months 3, 2, 1, each after its turn's
     # upkeep (and the round's standings), then a normal turn.
     jail_texts = [_TEXT.resolve("turn.jail", {"months": m}) for m in (3, 2, 1)]

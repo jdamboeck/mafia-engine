@@ -53,6 +53,8 @@ __all__ = [
     "ShowMessage",
     "PromptInt",
     "PromptChoice",
+    "READ_LINE",
+    "READ_KEY",
     "Confirm",
     "PromptText",
     "RollFrame",
@@ -97,6 +99,19 @@ class ShowMessage:
     player: int | None = None
 
 
+#: How a client reads a prompt's answer (``PromptInt.read`` / ``PromptChoice.read``):
+#: a line, ended with Enter -- the default.
+READ_LINE = "line"
+#: How a client reads a prompt's answer: one key, no Enter.
+READ_KEY = "key"
+_READ_MODES = (READ_LINE, READ_KEY)
+
+
+def _check_read(read: str) -> None:
+    if read not in _READ_MODES:
+        raise ValueError(f"read must be one of {_READ_MODES}, not {read!r}")
+
+
 @dataclass(frozen=True)
 class PromptInt:
     """Ask for an int in ``[min, max]`` inclusive.
@@ -119,6 +134,13 @@ class PromptInt:
     #: prompt's client reads an empty answer as cancel, so pair it with
     #: ``cancellable=False``.
     blank: int | None = None
+    #: How the client reads the answer: :data:`READ_LINE` (a line with Enter) or
+    #: :data:`READ_KEY` (one key). Presentation only: the driver validates the
+    #: answer the same way under either.
+    read: str = READ_LINE
+
+    def __post_init__(self) -> None:
+        _check_read(self.read)
 
 
 @dataclass(frozen=True)
@@ -127,6 +149,11 @@ class PromptChoice:
 
     The driver validates the index is within ``range(len(options))`` and
     re-prompts otherwise. Cancellable as for :class:`PromptInt`.
+
+    The protocol stays 0-based whatever the screen shows: a client numbers the
+    options for its player and maps the key it reads back to the index (a terminal
+    prints option ``i`` as number ``i + 1``), or, when ``answer_keys`` is given, maps
+    the key ``answer_keys[i]`` to ``i``.
     """
 
     key: str
@@ -135,6 +162,28 @@ class PromptChoice:
     #: Who answers this interaction (a player index); ``None``: the active player.
     #: :func:`step` fills a ``None`` in with the active player when it yields.
     player: int | None = None
+    #: How the client reads the answer: :data:`READ_LINE` (a line with Enter) or
+    #: :data:`READ_KEY` (one key).
+    read: str = READ_LINE
+    #: The key that answers each option, in option order (lower case; a key may be
+    #: more than one character, e.g. a function key's name), or ``None``: the options
+    #: are answered by their numbers from 1.
+    answer_keys: tuple[str, ...] | None = None
+    #: A theme key printed after the options, where the menu asks for its answer;
+    #: ``None``: nothing follows the options.
+    prompt: str | None = None
+
+    def __post_init__(self) -> None:
+        _check_read(self.read)
+        keys = self.answer_keys
+        if keys is not None and (
+            len(keys) != len(self.options)
+            or len(set(keys)) != len(keys)
+            or any(not k or k != k.lower() for k in keys)
+        ):
+            raise ValueError(
+                f"answer_keys must name one distinct lower-case key per option: {keys!r}"
+            )
 
 
 @dataclass(frozen=True)

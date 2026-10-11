@@ -19,6 +19,8 @@ locations:
     poker: "1 - poker"
     blackjack: "2 - black jack"
     roulette: "3 - roulette"
+    # The game menu's prompt, after the options.
+    game_prompt: "was soll's sein:"  # :16015 `input"{down}was soll's sein:";x`
     # Wager + resolve (16020, 16026, 16035, 16040).
     cash: "du hast{cash}$. dein einsatz:"
     wager_prompt: "dein einsatz"

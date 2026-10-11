@@ -18,7 +18,7 @@ from pathlib import Path
 
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
-from engine.interactions import PromptChoice, PromptInt
+from engine.interactions import READ_LINE, Ctx, PromptChoice, PromptInt
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
@@ -50,6 +50,15 @@ def test_menu_cancel_returns_no_effect():
     assert result.status == "cancelled"
     assert result.effects == []
     assert result.state.players[0].ka == 5000
+
+
+def test_the_game_menu_reads_a_line_and_asks_was_solls_sein():
+    """:16015 ``input"{down}was soll's sein:";x:ifx=0thenreturn``: a line (Enter),
+    cancellable (0 returns), with the prompt after the options."""
+    menu = next(HANDLERS["sph"](Ctx(state=_state(ka=5000), rng=_StubRng())))
+    assert isinstance(menu, PromptChoice)
+    assert (menu.read, menu.answer_keys, menu.cancellable) == (READ_LINE, None, True)
+    assert menu.prompt == "locations.sph.game_prompt"
 
 
 def test_wager_zero_aborts_no_money_change():

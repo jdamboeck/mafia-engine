@@ -51,6 +51,7 @@ from engine.combat import CombatResult
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
 from engine.interactions import (
+    READ_KEY,
     CANCEL,
     Acknowledge,
     CombatScreen,
@@ -431,6 +432,10 @@ def test_the_safe_crack_gate_reads_the_boss_and_the_minigame_the_cracker(monkeyp
     result, source, rng = _run("safe", st, answers=(2, *presses), draws=draws)
     assert rng.calls[3:23] == [("range", 7)] * 20
     assert len(_dial_prompts(source)) == 20
+    # :20115 ``getx$:x=asc(x$+chr$(0)):ifx<133orx>135goto20115``: one key, F1/F3/F5.
+    assert {(p.read, p.answer_keys) for p in _dial_prompts(source)} == {
+        (READ_KEY, ("f1", "f3", "f5"))
+    }
     assert [k for k, _ in _safe_messages(source)] == ["dials", *["slip"] * 20]
     assert "locations.ban.safe_failed" in source.message_keys()
     assert result.effects == [SafeSkillSet(0), _score(2)]  # :26015, the police fought off

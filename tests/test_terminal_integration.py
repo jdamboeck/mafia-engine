@@ -179,9 +179,9 @@ class TestSmokeAsciiArt:
 
     def test_entering_a_location_shows_its_art_and_waits_for_a_key(self, monkeypatch):
         """Walking into sph shows its art splash, which eats one key before the menu:
-        the menu's "1" (play) and the game's "0" (poker) reach the wager prompt only
-        when a splash ack comes first (without it the splash eats the "1", and the menu
-        ignores the "0", :3040)."""
+        the menu's "1" (play) and the game's "1" (poker) reach the wager prompt only
+        when a splash ack comes first (without it the splash eats the menu's "1", the
+        game's "1" picks play, and the game menu meets the end of input)."""
         from engine.movement import load_city
         from tests.test_client_loop import (
             find_door_cell,
@@ -199,8 +199,8 @@ class TestSmokeAsciiArt:
         assert art is not None
         art_line = next(line for line in art if line.strip())
 
-        acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "0"])
-        unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["1", "0"])
+        acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "1"])
+        unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["1", "1"])
 
         assert art_line in acked and "ENTER druecken..." in acked
         assert acked.index(art_line) < acked.index("ENTER druecken...")

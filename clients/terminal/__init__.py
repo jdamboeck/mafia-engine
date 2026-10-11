@@ -29,6 +29,7 @@ from typing import Any, TextIO
 from engine.interactions import (
     CANCEL,
     OBSERVE_PROMPT,
+    READ_KEY,
     CombatScreen,
     Confirm,
     PromptChoice,
@@ -37,6 +38,7 @@ from engine.interactions import (
 )
 from engine.strings import MissingKeyError, Resolver
 
+from clients.terminal.keys import ENTER, read_key
 from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG, Colors
 
 #: The game config this client plays: the default ``mafia_1920s`` config.
@@ -69,6 +71,8 @@ CURSOR_SHOW = "\033[?25h"
 
 #: Inputs that mean "cancel" at a cancellable prompt (blank line or an explicit token).
 _CANCEL_TOKENS = {"", "q", "quit", "cancel"}
+#: The answer relayed for a menu key that names no option: the driver asks again.
+_NO_OPTION = -1
 #: Inputs that read as truthy for a Confirm prompt.
 _YES_TOKENS = {"y", "yes", "j", "ja", "1", "true"}
 
@@ -251,10 +255,11 @@ def render_message(resolver: Resolver, message: ShowMessage, out: TextIO) -> Non
 
 
 class TerminalInput:
-    """An ``input_source`` callable: render a prompt, read one line, relay the response.
+    """An ``input_source`` callable: render a prompt, read its answer, relay the response.
 
     The driver calls this once per interaction (again on re-prompt). It resolves the
-    prompt's key to text via the shared resolver, reads a single line of input, and
+    prompt's key to text via the shared resolver, reads a line of input (or one key,
+    for a prompt read with ``READ_KEY``: :func:`clients.terminal.keys.read_key`), and
     returns the typed response — an ``int``-bearing string for :class:`PromptInt`/
     :class:`PromptChoice` (the driver coerces it), a ``bool`` for :class:`Confirm`, or the
     :data:`CANCEL` sentinel at a cancellable prompt. A non-numeric entry is relayed
@@ -320,6 +325,11 @@ class TerminalInput:
             self._render_combat_screen(interaction, banner=banner)
             return self._read_combat_action()
 
+        if isinstance(interaction, PromptChoice):
+            return self._answer_choice(interaction)
+        if isinstance(interaction, PromptInt) and interaction.read == READ_KEY:
+            return self._answer_int_key(interaction)
+
         self._stdout.write(self._prompt_text(interaction))
         raw = self._read_line()
 
@@ -331,6 +341,57 @@ class TerminalInput:
             return CANCEL
         # Relay the raw line as-is; the driver coerces/validates and re-prompts if needed.
         return raw.strip()
+
+    def _answer_choice(self, menu: PromptChoice) -> Any:
+        """Show a menu and relay the 0-based index of the option its answer names.
+
+        The options are printed as their labels give them (the labels carry the
+        menu's own numbers, e.g. ``1 - poker``). Option ``i`` is answered by
+        ``menu.answer_keys[i]`` or, without answer keys, by the number ``i + 1``.
+
+        Read with one key (``READ_KEY``), a key that names no option is ignored and
+        the menu waits for the next (a ``getx$`` loop, ``:17555``); Enter cancels a
+        cancellable menu. Read as a line, a cancellable menu takes ``0`` (``:16015
+        ifx=0thenreturn``) or a cancel token as cancel, and a line that names no
+        option is relayed as :data:`_NO_OPTION`, which the driver asks again.
+        End of input raises :class:`EndOfInput` either way.
+        """
+        self._stdout.write(self._prompt_text(menu))
+        keys = (
+            list(menu.answer_keys)
+            if menu.answer_keys is not None
+            else [str(number) for number in range(1, len(menu.options) + 1)]
+        )
+        if menu.read == READ_KEY:
+            while True:
+                self._stdout.flush()
+                key = read_key(self._stdin, keys)
+                if key is None:
+                    raise EndOfInput
+                if key == ENTER and menu.cancellable:
+                    return CANCEL
+                if key in keys:
+                    return keys.index(key)
+        raw = self._read_line().strip().lower()
+        if menu.cancellable and (raw in _CANCEL_TOKENS or raw == "0"):
+            return CANCEL
+        return keys.index(raw) if raw in keys else _NO_OPTION
+
+    def _answer_int_key(self, prompt: PromptInt) -> Any:
+        """Read a number prompt's answer as one key (``READ_KEY``) and relay it.
+
+        Enter is an empty answer: cancel at a cancellable prompt, else relayed as
+        ``""`` (the prompt's ``blank`` value, or asked again). Any other key is relayed
+        as it is; the driver validates it. End of input raises :class:`EndOfInput`.
+        """
+        self._stdout.write(self._resolver.resolve(prompt.key) + "\n")
+        self._stdout.flush()
+        key = read_key(self._stdin)
+        if key is None:
+            raise EndOfInput
+        if key == ENTER:
+            return CANCEL if prompt.cancellable else ""
+        return key
 
     def _render_combat_screen(
         self,
@@ -418,10 +479,14 @@ class TerminalInput:
     def _prompt_text(self, interaction: Any) -> str:
         if isinstance(interaction, PromptChoice):
             lines = [self._resolver.resolve(interaction.key)]
-            for i, opt in enumerate(interaction.options):
-                # An option is either a theme KEY (sph's game menu, waf's venue menu) or a
-                # plain value (a gangster's name). Resolve keys; show plain values as given.
-                lines.append(f"  {i}) {self._option_label(opt)}")
+            # An option is either a theme KEY (sph's game menu, waf's venue menu) or a
+            # plain value. Resolve keys; show plain values as given. No number of the
+            # client's own: the labels carry the menu's numbers.
+            lines.extend(self._option_label(opt) for opt in interaction.options)
+            if interaction.prompt is not None:
+                lines.append(self._resolver.resolve(interaction.prompt))
+            if interaction.read == READ_KEY:
+                return "\n".join(lines) + "\n"
             return "\n".join(lines) + "\n> "
         if isinstance(interaction, (PromptInt, Confirm)):
             return self._resolver.resolve(interaction.key) + "\n> "
