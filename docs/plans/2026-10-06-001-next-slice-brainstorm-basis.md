@@ -11,6 +11,12 @@ status: input-for-brainstorm
 
 # Next Slice — Brainstorm Basis
 
+> **Audited 2026-10-11 against main.** Its open items now live in two places: the
+> player-visible fidelity gaps in `docs/plans/2026-10-12-001-fix-remaining-fidelity-gaps-plan.md`,
+> and everything else on the board as #174 (engine robustness), #175 (test credibility),
+> #176 (the e2e demo), #177 (refactors and housekeeping) and #178 (roadmap). The
+> `--score-weight` near-bound item below was fixed in 1fccbed.
+
 > **This is a brainstorm INPUT, not a plan.** It is the newest file in `docs/plans/` so
 > that the Open Issues Fidelity plan (`2026-10-05-001-fix-open-issues-fidelity-plan.md`,
 > U1–U11, closed #146, #147, #155, #156, #159, #160 and #162–#172) reads as done. Nothing
