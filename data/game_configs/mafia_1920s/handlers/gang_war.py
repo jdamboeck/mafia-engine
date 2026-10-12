@@ -226,7 +226,8 @@ def _prison_brawl(ctx, defender: int):
         # :27146 -> :27150 ...:goto1100: after a lost brawl nothing more is printed,
         # and the key wait comes under the fight's outcome screen (whose own :30520
         # wait run_encounter has shown). A won brawl's wait is its screen's above.
-        yield KEY_WAIT
+        # Both waits are the jailed player's, the fight's only human side (KTD-6).
+        yield replace(KEY_WAIT, player=defender)
     return None
 
 
