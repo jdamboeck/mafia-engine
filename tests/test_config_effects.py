@@ -91,6 +91,8 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
         fx.VehicleSet(vehicle=5),
         fx.SafeSkillSet(tries=5),
         fx.WinFlagSet(flag="x5"),
+        fx.WeaponBuyScore(),
+        fx.WeaponBuyScore(downgrade=True),
     ]
     assert {type(e).__name__ for e in log} == set(_config_effect_classes()), (
         "the round-trip log must hold one of every config effect"

@@ -513,3 +513,164 @@ def test_the_effect_ranks_by_the_setting(gf: float, faithful: int, intent: int):
     stored = c64_divide(round(gf * 100), 100)  # the score as :1013 leaves it on the C64
     assert _award(stored, 0, 1.0, "faithful")[1] == faithful
     assert _award(gf, 0, 1.0, "intent")[1] == intent
+
+
+# --------------------------------------------------------------------------- #
+# The weapon shop's score: :13065/:13072 and :13073 (#185)                     #
+# --------------------------------------------------------------------------- #
+#: ``shop_cases.bas`` pokes 5-byte operands and writes the 5 bytes of the result: ``r=a-b``
+#: (``S<n>``, FSUB, the operands drawn at random and mostly kept where rounding the exact
+#: difference lands elsewhere), ``mf-prg.bas:13065``/``:13072``'s
+#: ``gf(sp)=gf(sp)-x8*1*(gf(sp)<100)`` as ``g=g-x*1*(g<100)`` (``U<n>``) and ``:13073``'s
+#: ``gf(sp)=gf(sp)+x8*2*(gf(sp)>0)`` as ``g=g+x*2*(g>0)`` (``D<n>``), on scores either
+#: side of each guard. Then series (``T<i>-<n>``): from a ``DATA`` start score and weight,
+#: one shop step per letter (``u`` the first two lines, ``d`` the third), each written.
+#: VICE 3.10 (``x64sc``) wrote ``shop_capture.txt``.
+SHOP_PROGRAM = FIXTURE / "shop_cases.bas"
+SHOP_CAPTURE = FIXTURE / "shop_capture.txt"
+
+
+def _shop_cases():
+    """The program's operands: ``a-b`` pairs, ``U`` and ``D`` (g, x) pairs, the series."""
+    numbers: list[int] = []
+    series: list[tuple[str, str, str]] = []
+    for line in SHOP_PROGRAM.read_text("ascii").splitlines():
+        if " data " not in line:
+            continue
+        fields = line.split(" data ", 1)[1].split(",")
+        if fields[-1].isalpha():
+            start, weight, letters = fields
+            series.append((start, weight, letters))
+        else:
+            numbers += [int(n) for n in fields]
+    rest = iter(numbers[4:])
+
+    def pairs(count: int) -> list[tuple[bytes, bytes]]:
+        return [
+            (bytes(next(rest) for _ in range(5)), bytes(next(rest) for _ in range(5)))
+            for _ in range(count)
+        ]
+
+    groups = (pairs(numbers[0]), pairs(numbers[1]), pairs(numbers[2]))
+    assert next(rest, None) is None, "unread DATA"
+    assert len(series) == numbers[3]
+    return (*groups, series)
+
+
+SHOP_SUBS, SHOP_UPS, SHOP_DOWNS, SHOP_SERIES = _shop_cases()
+
+
+def _shop_capture() -> dict[str, bytes]:
+    lines = SHOP_CAPTURE.read_text("ascii").splitlines()
+    assert lines[-1] == "END", "the capture is cut short"
+    return {label: bytes.fromhex(raw) for label, raw in (ln.split(":") for ln in lines[:-1])}
+
+
+SHOP = _shop_capture()
+
+
+def _shop_step(gf: float, weight: float, downgrade: bool, setting: str) -> float:
+    """One shop score line through the config's real effect: the new score."""
+    from data.game_configs.mafia_1920s.effects import WeaponBuyScore
+    from engine.effects import apply
+
+    return (
+        apply(_score_state(gf, weight, setting), WeaponBuyScore(downgrade=downgrade)).players[0].gf
+    )
+
+
+def test_the_shop_capture_is_complete():
+    assert (len(SHOP_SUBS), len(SHOP_UPS), len(SHOP_DOWNS), len(SHOP_SERIES)) == (55, 42, 42, 11)
+    assert len(SHOP) == 55 + 42 + 42 + sum(len(letters) for _, _, letters in SHOP_SERIES)
+
+
+@pytest.mark.parametrize("n", range(1, 56))
+def test_fsub_is_fadd_of_the_negated_operand(n: int):
+    """``r=a-b`` on the C64 is FADD of ``a`` and ``-b`` (``$B850`` flips the sign)."""
+    a, b = SHOP_SUBS[n - 1]
+    assert _same(c64_bytes(c64_add(_held(a), -_held(b))), SHOP[f"S{n}"])
+
+
+def test_the_fsub_capture_tells_the_window_from_plain_rounding():
+    """The capture is no rubber stamp: rounding the exact difference misses rows of it."""
+    from fractions import Fraction
+
+    missed = [
+        n
+        for n, (a, b) in enumerate(SHOP_SUBS, 1)
+        if c64_bytes(float(Fraction(_held(a)) - Fraction(_held(b)))) != SHOP[f"S{n}"]
+    ]
+    assert len(missed) >= 30
+
+
+@pytest.mark.parametrize("n", range(1, 43))
+def test_an_upgrade_step_matches_the_c64(n: int):
+    """``:13065``/``:13072`` ``gf(sp)=gf(sp)-x8*1*(gf(sp)<100)``, on either side of 100."""
+    g, x = SHOP_UPS[n - 1]
+    got = _shop_step(_held(g), _held(x), False, "faithful")
+    assert _same(c64_bytes(got), SHOP[f"U{n}"])
+
+
+@pytest.mark.parametrize("n", range(1, 43))
+def test_a_downgrade_step_matches_the_c64(n: int):
+    """``:13073`` ``gf(sp)=gf(sp)+x8*2*(gf(sp)>0)``, on either side of 0."""
+    g, x = SHOP_DOWNS[n - 1]
+    got = _shop_step(_held(g), _held(x), True, "faithful")
+    assert _same(c64_bytes(got), SHOP[f"D{n}"])
+
+
+def test_the_single_steps_cover_both_sides_of_each_guard():
+    """Rows where the guard holds and where it does not, so neither branch is untested."""
+    ups = [_held(g) < 100 for g, _ in SHOP_UPS]
+    downs = [_held(g) > 0 for g, _ in SHOP_DOWNS]
+    assert 5 <= sum(ups) <= len(ups) - 5
+    assert 5 <= sum(downs) <= len(downs) - 5
+    # Unclamped, as the source is: a step passes 100 and 0 and stays there.
+    assert any(_decode(SHOP[f"U{n}"]) > 100 for n in range(1, 43))
+    assert any(_decode(SHOP[f"D{n}"]) < 0 for n in range(1, 43))
+
+
+@pytest.mark.parametrize("i", range(1, 12))
+def test_faithful_shop_series_match_the_c64(i: int):
+    """AE5: the faithful effect lands on every captured step of the series, byte for byte."""
+    start, weight, letters = SHOP_SERIES[i - 1]
+    gf, x8 = c64_val(start), c64_val(weight)
+    for n, letter in enumerate(letters, start=1):
+        gf = _shop_step(gf, x8, letter == "d", "faithful")
+        assert c64_float(gf) == gf, f"T{i}-{n}: the stored score is no 5-byte value"
+        assert _same(c64_bytes(gf), SHOP[f"T{i}-{n}"]), f"T{i}-{n}"
+
+
+@pytest.mark.parametrize("i", range(1, 12))
+def test_intent_shop_series_are_the_exact_decimal_sums(i: int):
+    """AE5: under intent each step is the exact decimal sum, guarded and unclamped."""
+    from decimal import Decimal
+
+    start, weight, letters = SHOP_SERIES[i - 1]
+    expected, step = Decimal(start), Decimal(weight)
+    gf = float(start)
+    for letter in letters:
+        if letter == "u" and expected < 100:
+            expected += step
+        elif letter == "d" and expected > 0:
+            expected -= 2 * step
+        gf = _shop_step(gf, float(weight), letter == "d", "intent")
+        assert gf == float(expected)
+
+
+def test_the_shop_settings_part_where_the_capture_says():
+    """Doubles miss the C64 along the series, and the exact decimal parts from it."""
+    missed_by_doubles = 0
+    parted = 0
+    for i, (start, weight, letters) in enumerate(SHOP_SERIES, 1):
+        double, intent_gf = float(start), float(start)
+        for n, letter in enumerate(letters, 1):
+            if letter == "u":
+                double = double + float(weight) if double < 100 else double
+            else:
+                double = double - 2 * float(weight) if double > 0 else double
+            intent_gf = _shop_step(intent_gf, float(weight), letter == "d", "intent")
+            missed_by_doubles += c64_bytes(double) != SHOP[f"T{i}-{n}"]
+            parted += not _same(c64_bytes(intent_gf), SHOP[f"T{i}-{n}"])
+    assert missed_by_doubles >= 50
+    assert parted >= 50

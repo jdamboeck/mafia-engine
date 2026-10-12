@@ -80,6 +80,7 @@ __all__ = [
     "TipClear",
     "TipSet",
     "VehicleSet",
+    "WeaponBuyScore",
     "WinFlagSet",
 ]
 
@@ -131,6 +132,47 @@ class ScoreAndRank:
             rank = c64_int_divide(gf, c64_val(repr(float(self.rank_divisor)))) + 1
         state = update_player(state, player=idx, gf=gf)
         return set_player_value(state, "nr", rank, player=idx)
+
+
+@register_effect(consequence="weapon_buy_score")
+@dataclass(frozen=True)
+class WeaponBuyScore:
+    """The weapon shop's score line, guard included -- ``:13065``/``:13072``, ``:13073``.
+
+    ``downgrade=False`` ports ``:13065`` (a first weapon) and ``:13072`` (an upgrade),
+    ``gf(sp)=gf(sp)-x8*1*(gf(sp)<100)``: with the C64's true of -1 the score rises by
+    ``x8`` while it is below 100. ``downgrade=True`` ports ``:13073``,
+    ``gf(sp)=gf(sp)+x8*2*(gf(sp)>0)``: it falls by ``2*x8`` while it is above 0. A false
+    guard makes the product 0 and leaves the score. Neither line goes through
+    ``gosub 1160``, so nothing clamps: a step from 99.5 passes 100, one from 0.5 passes
+    0, and the score stays there until :class:`ScoreAndRank` clamps it. ``x8`` is
+    ``formula_params["score_mult"]``.
+
+    The sum follows the :data:`C64_FLOAT_SCORE` house rule, as :class:`ScoreAndRank`'s
+    does. Faithful: the C64's. ``x8*1`` and ``x8*2`` and the sign of the guard are exact
+    in FMULT, and the subtraction is FADD of the negated operand (FSUB, ``$B850``, flips
+    the accumulator's sign), so the line is ``gf + x8*1`` or ``gf + x8*(-2)`` in
+    :func:`~engine.c64_numbers.c64_add_product`; ``tests/fixtures/c64_float/shop_cases.bas``
+    holds it to VICE. Intent: the exact decimal sum of the score and weight as written.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    downgrade: bool = False
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        idx = target_index(state, self.player)
+        gf = state.players[idx].gf
+        x8 = state.config.formula_params["score_mult"]
+        # :13073 `x8*2*(gf(sp)>0)` / :13065, :13072 `-x8*1*(gf(sp)<100)`: true is -1.
+        if not (gf > 0 if self.downgrade else gf < 100):
+            return state
+        steps = -2 if self.downgrade else 1
+        if intent(state, C64_FLOAT_SCORE):
+            total = float(_decimal(gf) + steps * _decimal(x8))
+        else:
+            total = c64_add_product(gf, x8, steps)
+        return update_player(state, player=idx, gf=total)
 
 
 def _decimal(value: float) -> Decimal:

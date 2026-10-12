@@ -48,7 +48,7 @@ entry in ``engine.movement`` records it before the menu runs).
 
 from __future__ import annotations
 
-from engine.effects import AssignWeapon, MoneyChange, ScoreChange, StatChangeCapped
+from engine.effects import AssignWeapon, MoneyChange, StatChangeCapped
 from engine.interactions import (
     READ_KEY,
     Confirm,
@@ -59,6 +59,7 @@ from engine.interactions import (
 from engine.locations import register
 from engine.substates import register_substate
 
+from ..effects import WeaponBuyScore
 from ..house_rules import number_prompt
 from ..setup import KEY_WAIT, load_weapons, pick_gangster, score_and_rank
 
@@ -212,20 +213,18 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             continue
 
         old = g.weapon  # gw(sp,y) — the gangster's CURRENT weapon (0 = unarmed)
-        # x8 == the score weight (formula_params["score_mult"]); the buy-score modifies gf DIRECTLY
-        # by ±x8 (13065/13072/13073) and does NOT go through gosub 1160, so it neither
-        # recomputes rank nor clamps: an unclamped ScoreChange, not ScoreAndRank. Only the
-        # gf<100 / gf>0 guards bound it, so gf=99,x8=2 upgrading reaches 101 and stays
-        # there until the next gosub 1160 (ScoreAndRank) clamps it.
-        x8 = ctx.state.config.formula_params["score_mult"]
+        # The buy-score modifies gf DIRECTLY by ±x8 (13065/13072/13073) and does NOT go
+        # through gosub 1160, so it neither recomputes rank nor clamps: WeaponBuyScore,
+        # not ScoreAndRank. Only the gf<100 / gf>0 guards (in the effect) bound it, so
+        # gf=99,x8=2 upgrading reaches 101 and stays there until the next gosub 1160
+        # (ScoreAndRank) clamps it. It sums under the c64_float_score house rule.
 
         if old == 0:
             # 13065 — no old weapon: q=0. `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` with the C64
             # true=-1 evaluation is score UP by x8 while gf<100: arming a
             # previously unarmed gangster raises the gang's notoriety.
             q = 0
-            if active.gf < 100:
-                ctx.apply(ScoreChange(x8, floor=None, cap=None))
+            ctx.apply(WeaponBuyScore(downgrade=False))
         else:
             # 13070-13071 — trade-in offer on the OLD weapon's price, yes/no confirm.
             # :13070 `q=int(wp(gw(sp,y))/1.5)`
@@ -238,12 +237,7 @@ def _pick_gangster_and_arm(ctx, active, weapons, x, params):
             # `x > old` is an UPGRADE:
             #   :13072 upgrade    `gf(sp)=gf(sp)-x8*1*(gf(sp)<100)` -> UP by x8 (while gf<100)
             #   :13073 downgrade  `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)` -> DOWN by 2*x8 (while gf>0)
-            if x > old:
-                if active.gf < 100:
-                    ctx.apply(ScoreChange(x8, floor=None, cap=None))
-            else:
-                if active.gf > 0:
-                    ctx.apply(ScoreChange(-2 * x8, floor=None, cap=None))
+            ctx.apply(WeaponBuyScore(downgrade=x <= old))
 
         # 13075 — settle: cash += q - new_price; assign the weapon to the gangster.
         # :13075 `ka(sp)=ka(sp)+q-wp(x)`
