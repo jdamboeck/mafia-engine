@@ -66,7 +66,13 @@ commit + branch conventions, and how to pick up the next unit. Then:
    (ported C64 FADD/FMULT, parser and rank divide, VICE-captured), spec labels and
    `:4620`'s rows, the location screen's title and one-key 1-based pick, explicit
    per-exit `:1100` key waits with no client wait, the narrow player-facing ledger rule
-   and four ported screens; closed #146, #147, #155, #156, #159, #160 and #162–#172).
+   and four ported screens; closed #146, #147, #155, #156, #159, #160 and #162–#172),
+   and the Remaining Fidelity Gaps plan (`2026-10-12-001-…`, U1–U9 — choice menus
+   numbered from 1 and number menus read as one key, as their source lines read; text
+   fixes; the seizure minus, reverse video and the human fighter's label; the brawl's
+   key waits to the jailed player; spaced-sign and motel/casino negatives under
+   `c64_input_negatives`; the weapon shop's score in C64 float; the CLI's player cap and
+   the menu quit's bye; screen and pacing departures recorded; closed #179–#187).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the feature branch the active plan names in its `branch:`

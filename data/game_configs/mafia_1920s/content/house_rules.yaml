@@ -20,7 +20,8 @@
 # faithfully, so there is nothing to switch); each is a note at the code that departs.
 # A negative answer the C64 takes at a number prompt is not a departure but the
 # c64_input_negatives entry below, which names its prompts; the notes here hold the
-# fractions, empty answers and keys the port reads differently:
+# fractions, empty answers and keys the port reads differently, and the screens, waits
+# and pauses it shows differently:
 #   - kdh's debtor fight pins its backdrop to "ks": mf-prg.bas:15312 sets no kf$ and
 #     would inherit the last fight's (handlers/kdh.py).
 #   - the hit test draws both miss factors of mf-prg.bas:30247 even when the first
@@ -57,6 +58,22 @@
 #     mf-prg.bas:16015 takes a fraction, and 2.5 passes :16016's 1-3 check and plays
 #     with x=2.5; the stake at :16020 takes one too. The port offers the three games as
 #     a menu and asks a fractional stake again (handlers/sph.py).
+#   - every turn ends on a turn-over screen (cash, position, movement, rank, jail)
+#     and a key. The source goes on to the next player with no screen: at the turn's
+#     end (mf-prg.bas:1050 `goto1010`), at "naechster spieler" (mf-prg.bas:1031
+#     `ifx=4goto1010`), after a job shift (mf-prg.bas:1012
+#     `ifjo(sp)thengosub25000:goto1010`) and after a month in jail (mf-prg.bas:1013
+#     `ifgs(sp)thengosub1500:goto1010`) (engine/turns.py, clients/terminal/session.py).
+#   - a fight's "der kampf beginnt..." banner (mf-prg.bas:30025) has no pause: the
+#     source waits a counted loop and then blanks the banner's row before the first
+#     move (mf-prg.bas:30030 `fort=1to2000:next:gosub1450`); the port shows it on the
+#     first board and drops it with the first move (engine/fight_loop.py).
+#   - setup's score weight is asked again for text that is not a clean number, such
+#     as "2a": the C64 reads the number it starts with (mf-prg.bas:175
+#     `x8=val(x$)`, so "2a" is 2) and takes it (setup.parse_score_weight).
+#   - a location with a picture shows it as text art and waits for Enter before its
+#     menu: the source loads the picture (mf-prg.bas:3007 `syslh,lk$(la)+"-pic"`) and
+#     goes on to the menu with no key (clients/terminal/session.py).
 house_rules:
   - id: intelligence_or_30
     citation: ":311"
