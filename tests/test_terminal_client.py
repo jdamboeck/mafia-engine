@@ -1677,3 +1677,140 @@ def test_read_key_on_a_terminal_takes_one_key_without_enter(sent, key):
 @pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
 def test_read_key_on_a_terminal_keeps_ctrl_c_an_interrupt():
     assert isinstance(_read_key_on_a_pty(b"\x03"), KeyboardInterrupt)
+
+
+def _read_keys_on_a_pty(sent: bytes, read, count: int):
+    """Call ``read(stream)`` ``count`` times on the slave side of a pseudo-terminal,
+    sending all of ``sent`` in one write once the first read has put the terminal in
+    raw mode, so later keys arrive before their read starts (typed ahead); return the
+    keys read. A read that never returns fails the test instead of hanging it."""
+    import os
+    import pty
+    import termios
+    import threading
+    import time
+
+    master, slave = pty.openpty()
+    stream = open(slave, encoding="utf-8", closefd=False)  # noqa: SIM115
+    keys: list[object] = []
+
+    def reader():
+        try:
+            for _ in range(count):
+                keys.append(read(stream))
+        except BaseException as exc:  # noqa: BLE001 - handed back to the test
+            keys.append(exc)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        until = time.monotonic() + 5.0
+        while termios.tcgetattr(slave)[3] & termios.ICANON:  # wait for raw mode
+            assert time.monotonic() < until, "the read never put the terminal in raw mode"
+            time.sleep(0.005)
+        os.write(master, sent)
+        thread.join(5.0)
+        assert not thread.is_alive(), f"{count} reads of {sent!r} did not all return: {keys}"
+    finally:
+        os.close(master)
+        thread.join(5.0)
+        if not thread.is_alive():
+            stream.close()
+        os.close(slave)
+    return keys
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_keys_typed_ahead_wait_for_the_next_one_key_read():
+    """The C64's keyboard buffer keeps keys typed ahead for the next ``getx$``; so does
+    the reader: a key that arrived while the one before it was read is not thrown away
+    when the next read puts the terminal in raw mode again."""
+    assert _read_keys_on_a_pty(b"x1", read_key, 2) == ["x", "1"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_the_sessions_key_reader_takes_a_function_key_whole(monkeypatch):
+    """The map and location menus read keys through the session's reader; on a
+    terminal it reads them as the one-key prompts do, so an F1 there is one key and
+    leaves no "OP" behind to answer the next read."""
+    from clients.terminal import session
+
+    def session_read(stream):
+        monkeypatch.setattr(sys, "stdin", stream)
+        return session._read_key()
+
+    assert _read_keys_on_a_pty(b"\x1bOP2", session_read, 2) == ["f1", "2"]
+
+
+def test_enter_at_a_one_key_prompt_without_a_blank_is_ignored_without_a_reprint():
+    """``:25115 getx$:ifx$<"1"orx$>"3"goto25115``: RETURN is no trick, so the croupier
+    waits for one without printing the tricks again; a digit no ``int`` reads ("²") is
+    no trick either."""
+    seen = []
+
+    def handler(ctx):
+        seen.append((yield PromptInt("job.shift_croupier_tricks", min=1, max=3, read=READ_KEY)))
+        return []
+
+    inp, out = _eof_client("\n²\n2\n")
+    run(handler, inp, state=None, rng=None)
+    assert seen == [2]
+    assert out.getvalue().count("1 trickspiegel") == 1
+
+
+@pytest.mark.parametrize("text", ["{a: 1}\n", "[1]\n", "- ok\n- 2\n"])
+def test_a_reverse_list_that_is_no_list_of_keys_is_refused(tmp_path, text):
+    """``renderer/reverse.yaml`` names theme keys; anything else is refused by name
+    rather than drawn wrongly."""
+    from clients.terminal.reverse import read_reverse_keys
+
+    (tmp_path / "renderer").mkdir()
+    (tmp_path / "renderer" / "reverse.yaml").write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="expected a list of theme keys"):
+        read_reverse_keys(tmp_path)
+
+
+def test_an_empty_or_missing_reverse_list_reverses_nothing(tmp_path):
+    from clients.terminal.reverse import read_reverse_keys
+
+    assert read_reverse_keys(tmp_path) == frozenset()
+    (tmp_path / "renderer").mkdir()
+    (tmp_path / "renderer" / "reverse.yaml").write_text("", encoding="utf-8")
+    assert read_reverse_keys(tmp_path) == frozenset()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_a_terminal_hanging_up_under_a_one_key_read_ends_input():
+    """A terminal that hangs up while a key is awaited (a dropped connection) is the
+    end of input (``None``), not a traceback: the read and the restore of the
+    terminal's mode both fail with EIO then."""
+    import os
+    import pty
+    import termios
+    import threading
+    import time
+
+    master, slave = pty.openpty()
+    stream = open(slave, encoding="utf-8", closefd=False)  # noqa: SIM115
+    result: list[object] = []
+
+    def reader():
+        try:
+            result.append(read_key(stream))
+        except BaseException as exc:  # noqa: BLE001 - handed back to the test
+            result.append(exc)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        until = time.monotonic() + 5.0
+        while termios.tcgetattr(slave)[3] & termios.ICANON:  # wait for raw mode
+            assert time.monotonic() < until, "read_key never put the terminal in raw mode"
+            time.sleep(0.005)
+        os.close(master)
+        thread.join(5.0)
+        assert not thread.is_alive(), "read_key did not return after the hang-up"
+        assert result == [None]
+    finally:
+        stream.close()
+        os.close(slave)

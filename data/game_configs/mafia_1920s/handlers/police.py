@@ -66,7 +66,7 @@ from engine.effects import MoneyChange, SetMovementPoints, Teleport
 from engine.interactions import READ_KEY, Confirm, PromptChoice, ShowMessage
 
 from ..effects import Jail, JobClear, TipClear
-from ..house_rules import intent, number_prompt
+from ..house_rules import ANY_NUMBER, intent, number_prompt
 from ..setup import KEY_WAIT, load_encounter, load_vehicles, run_encounter, score_and_rank
 from ..state import wanted
 
@@ -101,10 +101,6 @@ SENTENCED = "sentenced"
 #: The capture menu (``:26022-26023``), in the source's key order 1..3.
 _MENU = ("police.menu_bribe", "police.menu_flee", "police.menu_surrender")
 _BRIBE, _FLEE, _SURRENDER = range(3)
-
-#: The lawyer prompt's first ask takes any whole number: the handler asks again for
-#: one the source refuses (``:26061``), so the empty answer's 0 is not range-checked.
-_ANY = 2**31
 
 
 @dataclass(frozen=True)
@@ -307,7 +303,9 @@ def _lawyer_fee(run: _Run):
     question took, and its value is 0); an ask after a refusal reads it as the refused
     fee again, so the driver asks again.
     """
-    fee = yield number_prompt(run.state, "police.lawyer_prompt", min=-_ANY, max=_ANY, blank=0)
+    fee = yield number_prompt(
+        run.state, "police.lawyer_prompt", min=-ANY_NUMBER, max=ANY_NUMBER, blank=0
+    )
     # :26060 ``ifx=0goto26075`` / :26061 ``ifx>ka(sp)orx<0then``
     while fee != 0 and (fee > run.cash or fee < 0):
         fee = yield number_prompt(run.state, "police.lawyer_prompt", min=0, max=max(run.cash, 0))

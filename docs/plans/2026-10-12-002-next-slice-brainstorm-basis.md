@@ -73,6 +73,21 @@ The whole game plays in the terminal client for 1–4 hot-seat players. Since th
   thank-you `:21252`) is assumed to read -3 like `INPUT`; not captured in VICE. Blanks between
   digits (`1 2` read as 12) are not ported. (U6)
 
+**Found by the branch's code review (left open)**
+- Between one-key reads the terminal is back in cooked mode with echo on, so a key typed
+  ahead is echoed onto the drawn screen before the next read takes it.
+- A key whose character takes several UTF-8 bytes is read a byte at a time on a terminal
+  and becomes replacement characters; it answers no prompt either way.
+- A lone ESC followed within 50 ms by a typed-ahead key is read as one unknown sequence,
+  and that key is lost.
+- The gang war's own number (`:27017 ...orus=spgoto27015`) is asked again by the handler,
+  which reprints `mit wem willst du dich anlegen:`; the source waits at `getx$` silently.
+- Freeing a prisoner (`:21120`/`:21125 g=val(x$):ifg=0thenreturn`): on the C64 a letter key
+  is `val` 0 and leaves; the one-key client ignores letters. The departure is recorded for
+  the car dealer and the gang war, not here.
+- A future network or agent client must map keys to option indexes itself
+  (`answer_keys[i]`, or the number `i + 1`, to `i`), as the terminal client does.
+
 ## Recorded departures (in `content/house_rules.yaml`'s header and the handler docstrings)
 
 - The turn-over screen after every turn, the `:30030` banner pause, setup's re-ask of a weight

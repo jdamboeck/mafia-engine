@@ -59,7 +59,7 @@ from engine.locations import register
 
 from ..effects import BribeMonthsChange, Jail
 from ..gangster import Gangster
-from ..house_rules import C64_INPUT_NEGATIVES, intent, number_prompt
+from ..house_rules import ANY_NUMBER, C64_INPUT_NEGATIVES, intent, negative_floor, number_prompt
 from ..setup import KEY_WAIT, score_and_rank
 from ..state import wanted
 from .police import Arrest, sentence
@@ -74,9 +74,6 @@ __all__ = [
 
 #: House rule: an empty month answer repeats the map step (faithful) or buys nothing.
 CHIEF_BRIBE_EMPTY_ANSWER = "chief_bribe_empty_answer"
-
-#: A prompt bound that lets any whole number through to the handler's own checks.
-_ANY = 2**31
 
 
 @register("pol.surrender")
@@ -102,8 +99,8 @@ def pol_bribe(ctx):
     prompt = number_prompt(
         ctx.state,
         "locations.pol.chief_prompt",
-        min=0 if no_negatives else -_ANY,
-        max=_ANY,
+        min=negative_floor(ctx.state),
+        max=ANY_NUMBER,
         blank=blank,
     )
     months = yield prompt
@@ -219,15 +216,19 @@ def _thank_you(ctx, freed: int, rescuer: str):
         thanks = yield number_prompt(
             ctx.state,
             "locations.pol.thank_you_prompt",
-            min=-_ANY,
-            max=_ANY,
+            min=-ANY_NUMBER,
+            max=ANY_NUMBER,
             blank=blank,
             player=freed,
         )
         # :21253 ``ify>ka(x)ory<0thenprint"{up}{up}";:goto21252``: the prompt again, no screen.
         while thanks < 0:
             thanks = yield number_prompt(
-                ctx.state, "locations.pol.thank_you_prompt", min=-_ANY, max=_ANY, player=freed
+                ctx.state,
+                "locations.pol.thank_you_prompt",
+                min=-ANY_NUMBER,
+                max=ANY_NUMBER,
+                player=freed,
             )
         if thanks <= cash:  # :21252 ``ify>ka(x)goto21250``
             return thanks

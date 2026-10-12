@@ -67,7 +67,7 @@ from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from ..gangster import Gangster
-from ..house_rules import C64_INPUT_NEGATIVES, intent, number_prompt
+from ..house_rules import ANY_NUMBER, C64_INPUT_NEGATIVES, intent, number_prompt
 from ..state import contraband, hired_ids, tenant
 
 from ..setup import KEY_WAIT, load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
@@ -90,16 +90,6 @@ _MAX_OFFERS = 3
 
 #: Pub tile that never has recruits available (mf-prg.bas:12107's `orln=3`).
 _NO_RECRUIT_TILE = 3
-
-#: The count prompts' floor under faithful ``c64_input_negatives``: the C64 INPUT at
-#: :12027/:12060 stores any whole negative exactly (-99999999 in
-#: tests/fixtures/c64_input/vice_capture.txt; its float holds whole numbers exactly up
-#: to 2**32), and no line of the trade refuses one, so the floor only keeps the prompt
-#: finite. -(2**31), the floor of the chief's months (``handlers/pol.py``) and the
-#: counterfeiter's stake (``handlers/ble.py``), lies far below any count a trade has a
-#: use for (the cash a sale would cost or a purchase bring is the only limit, and the
-#: source sets none).
-_ANY_NEGATIVE = -(2**31)
 
 #: Alcohol tiles: these ``ln`` sell (mf-prg.bas:12010 ``ifln=4orln=5goto12020``; 5 is
 #: the station pub, see module docstring). Every other tile falls into the 50%
@@ -277,7 +267,7 @@ def _count_prompt(state, key: str, most: int) -> PromptInt:
     """
     if intent(state, C64_INPUT_NEGATIVES):
         return number_prompt(state, key, min=0, max=max(most, 0))
-    return number_prompt(state, key, min=_ANY_NEGATIVE, max=most)
+    return number_prompt(state, key, min=-ANY_NUMBER, max=most)
 
 
 # --------------------------------------------------------------------------- #

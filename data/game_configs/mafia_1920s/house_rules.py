@@ -31,9 +31,11 @@ __all__ = [
     "CATALOGUE_FILE",
     "CHANGE_KEY",
     "HouseRule",
+    "ANY_NUMBER",
     "check_stored_map",
     "intent",
     "load_house_rules",
+    "negative_floor",
     "number_prompt",
     "switchable",
 ]
@@ -195,6 +197,18 @@ def intent(state: GameState, rule_id: str) -> bool:
 #: ``handlers/pol.py``, ``handlers/slw.py`` and ``handlers/sph.py`` read it for their
 #: negative counts.
 C64_INPUT_NEGATIVES = "c64_input_negatives"
+
+#: A number prompt's bound that lets any whole number through: the C64's float holds
+#: whole numbers exactly up to 2**32 (``-99999999`` in
+#: ``tests/fixtures/c64_input/vice_capture.txt``), so a bound of 2**31 only keeps the
+#: prompt finite, far past any count or stake the game has a use for.
+ANY_NUMBER = 2**31
+
+
+def negative_floor(state: GameState) -> int:
+    """The lowest answer a number prompt that takes negatives lets through: any
+    negative under faithful ``c64_input_negatives``, none under intent."""
+    return 0 if intent(state, C64_INPUT_NEGATIVES) else -ANY_NUMBER
 
 
 def number_prompt(state: GameState, key: str, *, min: int, max: int, **options: Any) -> PromptInt:

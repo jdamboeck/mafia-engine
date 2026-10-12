@@ -44,6 +44,10 @@ from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG, Colors
 #: The game config this client plays: the default ``mafia_1920s`` config.
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
 
+#: The keys a one-key number prompt reads (``str.isdigit`` also takes "²", which
+#: ``int`` refuses).
+_DIGITS = "0123456789"
+
 __all__ = [
     "CONFIG_DIR",
     "play",
@@ -394,10 +398,10 @@ class TerminalInput:
     def _answer_int_key(self, prompt: PromptInt) -> Any:
         """Read a number prompt's answer as one key (``READ_KEY``) and relay it.
 
-        Enter is an empty answer: cancel at a cancellable prompt, else relayed as
-        ``""`` (the prompt's ``blank`` value, or asked again). A digit key inside the
-        prompt's range is relayed; any other key is ignored and the next one read, with
-        no reprint, as a ``getx$`` loop waits. End of input raises :class:`EndOfInput`.
+        Enter is an empty answer: cancel at a cancellable prompt, the prompt's ``blank``
+        value where it has one, and otherwise ignored. A digit key inside the prompt's
+        range is relayed; any other key is ignored and the next one read, with no
+        reprint, as a ``getx$`` loop waits. End of input raises :class:`EndOfInput`.
         """
         # A prompt with no text of its own (a bare ``getx$``) prints nothing.
         text = self._resolver.resolve(prompt.key, prompt.params)
@@ -409,8 +413,12 @@ class TerminalInput:
             if key is None:
                 raise EndOfInput
             if key == ENTER:
-                return CANCEL if prompt.cancellable else ""
-            if key.isdigit() and prompt.min <= int(key) <= prompt.max:
+                if prompt.cancellable:
+                    return CANCEL
+                if prompt.blank is not None:
+                    return ""
+                continue
+            if len(key) == 1 and key in _DIGITS and prompt.min <= int(key) <= prompt.max:
                 return key
 
     def _render_combat_screen(

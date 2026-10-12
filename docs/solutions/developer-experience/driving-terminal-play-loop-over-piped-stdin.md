@@ -1,7 +1,7 @@
 ---
 title: "Driving the terminal play() loop in tests: the pre-map acks eat stdin lines"
 date: 2026-07-17
-updated: 2026-10-04
+updated: 2026-10-12
 category: developer-experience
 module: clients/terminal
 problem_type: developer_experience
@@ -122,11 +122,16 @@ would do there (send the process a real `SIGWINCH` before answering, for a
 terminal resize). The input stream comes from outside the program, so the
 client needs no seam for it.
 
-**4. EOF is a quit on both stdin paths.** `_read_key()` returns `"q"` on
-piped-stdin EOF (`clients/terminal/session.py::_read_key`), and a real-TTY read
-returns `""`. A shared quit predicate must accept both (`key in ("q", "")`) so an
-exhausted script terminates the loop instead of spinning — assert this with a
-script that stops *before* the screen's key so stdin runs out there.
+**4. EOF ends the session at every key read.** Two readers share stdin, and on a
+terminal both read raw bytes from the descriptor (`clients/terminal/keys.py::read_key`;
+the session's `_read_key` delegates to it), so neither leaves a typed-ahead key or an
+F-key's escape tail in `sys.stdin`'s buffer for the other. At end of input `read_key`
+returns `None`, which a one-key prompt turns into `EndOfInput`; the session's map and
+location menus see it as `"q"` (`clients/terminal/session.py::_read_key`), on a pipe
+and on a hung-up terminal alike. Piped, both read one key per line: a blank line is
+Enter (`"\r"` from `read_key`), and `read_key` matches a whole line against a menu's
+multi-character answer keys (`f1`). Assert EOF with a script that stops *before* the
+screen's key, under a deadline, so a reader that spun on EOF fails instead of hanging.
 
 ## Why This Matters
 

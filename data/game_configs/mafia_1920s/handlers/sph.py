@@ -28,7 +28,7 @@ from engine.effects import MoneyChange
 from engine.interactions import READ_LINE, PromptChoice, ShowMessage
 from engine.locations import register
 
-from ..house_rules import C64_INPUT_NEGATIVES, intent, number_prompt
+from ..house_rules import negative_floor, number_prompt
 from ..setup import KEY_WAIT
 
 __all__ = ["sph"]
@@ -36,9 +36,6 @@ __all__ = ["sph"]
 #: Sane upper bound on the wager PromptInt (the original reads a free int; a cap keeps
 #: the prompt well-formed without altering behavior for real inputs — mirrors slw).
 _MAX_WAGER = 10_000_000
-#: The stake prompt's floor under faithful ``c64_input_negatives``: the C64 INPUT at
-#: ``:16020`` takes a negative stake, which the same line turns away quietly.
-_ANY_NEGATIVE = -(2**31)
 
 
 @register("sph")
@@ -93,7 +90,7 @@ def sph(ctx):
     # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only. A
     # negative stake reaches the abort under faithful ``c64_input_negatives``; under
     # intent it is asked again, and 0 still leaves.
-    floor = 0 if intent(ctx.state, C64_INPUT_NEGATIVES) else _ANY_NEGATIVE
+    floor = negative_floor(ctx.state)
     stake = yield number_prompt(
         ctx.state,
         "locations.sph.wager_prompt",

@@ -39,7 +39,7 @@ from ..effects import RentAccrue, SetTenancy
 from engine.interactions import ShowMessage
 from engine.locations import register
 
-from ..house_rules import C64_INPUT_NEGATIVES, intent, number_prompt
+from ..house_rules import negative_floor, number_prompt
 from ..setup import KEY_WAIT, fnm
 from ..state import tenant
 
@@ -48,9 +48,6 @@ __all__ = ["slw_rent", "slw_pay_rent"]
 #: Sane upper bound on months for the PromptInt (the original reads a free int;
 #: a cap keeps the prompt well-formed without altering behavior for real inputs).
 _MAX_MONTHS = 999
-#: The months prompt's floor under faithful ``c64_input_negatives``: the C64 INPUT at
-#: ``:10025`` takes a negative count, which ``:10030`` turns away quietly.
-_ANY_NEGATIVE = -(2**31)
 
 
 @register("slw.rent")
@@ -114,7 +111,7 @@ def _rent_block(ctx):
 
     # :10025 — quote the rent, then ask how many months.
     yield ShowMessage("locations.slw.rent_quote", {"price": p})
-    floor = 0 if intent(ctx.state, C64_INPUT_NEGATIVES) else _ANY_NEGATIVE
+    floor = negative_floor(ctx.state)
     x = yield number_prompt(ctx.state, "locations.slw.months_prompt", min=floor, max=_MAX_MONTHS)
 
     # :10030 — "ifx=0orx<0thennm=1:return": zero/negative months = quiet abort, no

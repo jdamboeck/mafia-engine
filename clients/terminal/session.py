@@ -101,6 +101,7 @@ from clients.terminal import (
     install_sigwinch_handler,
     show_cursor,
 )
+from clients.terminal.keys import read_key
 from clients.terminal.ascii_art import location_art, title_screen
 from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, Colors, Palette, load_palette
 from clients.terminal.reverse import is_reverse, read_reverse_keys
@@ -262,16 +263,14 @@ def _read_key() -> str:
         if not line:  # EOF -> treat as quit
             return "q"
         return line.strip()[:1].lower()
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    if ch == "\x03":
-        raise KeyboardInterrupt
-    if ch == "":  # a hung-up terminal reads nothing: EOF, a quit as on the piped path
+    del termios, tty, old
+    # On a terminal every key is read by keys.read_key, from the descriptor, so no
+    # byte waits in sys.stdin's buffer where the other reader cannot see it (an F1's
+    # "OP" tail, a key typed ahead); Ctrl-C raises KeyboardInterrupt there.
+    key = read_key(sys.stdin)
+    if key is None:  # a hung-up terminal reads nothing: EOF, a quit as on the piped path
         return "q"
-    return ch.lower()
+    return key
 
 
 # Layout config loaded once at import time.

@@ -80,7 +80,9 @@ def read_key(stdin: TextIO, answer_keys: Iterable[str] = ()) -> str | None:
     except Exception:
         return _read_piped_key(stdin, answer_keys)
     try:
-        tty.setraw(fd)
+        # TCSANOW: keys typed ahead stay queued for this read, as the C64's keyboard
+        # buffer keeps them (the default, TCSAFLUSH, would discard them).
+        tty.setraw(fd, termios.TCSANOW)
         data = os.read(fd, 1)
         if data == b"\x1b":
             # The rest of an escape sequence follows at once; a lone ESC does not.
@@ -89,8 +91,14 @@ def read_key(stdin: TextIO, answer_keys: Iterable[str] = ()) -> str | None:
                 if not more:
                     break
                 data += more
+    # A hang-up ends the input: Linux reads b"", other systems fail the read (EIO).
+    except OSError:
+        data = b""
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except termios.error:  # a hung-up terminal has no mode left to restore
+            pass
     if not data:
         return None
     raw = data.decode("utf-8", errors="replace")
