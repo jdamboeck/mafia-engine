@@ -21,8 +21,9 @@ locations:
     showroom: "der verkaeufer zeigt dir eine auswahl\nder modelle. zum kauf die entsprechende\nnummerntaste (0=ende) druecken!"  # :14006-14008 `der verkaeufer zeigt dir eine auswahl`
     # :14014 `chr$(49+i)" "tm$(i+1)`, then tab(11);3000+1000*i"$"
     model: "{number:mid$} {name}\n{price}$"
-    # :14020's `getx$` prints nothing: the prompt under the list repeats :14008's line.
-    model_prompt: "nummerntaste (0=ende) druecken!"
+    # :14020 `getx$:ifx$=""goto14020` prints nothing (:14008 printed the line before the
+    # models): the key is read with no text of its own, empty by design.
+    model_prompt: ""
     trade_in_offer: "man bietet dir{amount}$ fuer deine alte\nschaukel."  # :14046-14047 `man bietet dir`
     confirm: "ok (j/n)?"                                                   # :1110 `ok (j/n)?`
     sold: "der verkaeufer reicht dir schluessel\nund papiere."  # :14051-14052 `der verkaeufer reicht dir schluessel`

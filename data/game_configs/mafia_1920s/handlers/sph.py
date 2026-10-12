@@ -82,11 +82,13 @@ def sph(ctx):
     )
     x = choice + 1  # game index: poker=1, black jack=2, roulette=3
 
-    # 16020 — show cash, ask for a wager; wager <= 0 is a quiet abort (``return``, no
-    # key wait; nor does choosing nothing at :16015 wait).
+    # 16020 — the cash and the question are one line, the stake read under it; wager
+    # <= 0 is a quiet abort (``return``, no key wait; nor does choosing nothing at
+    # :16015 wait).
     # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only.
-    yield ShowMessage("locations.sph.cash", {"cash": active.ka})
-    stake = yield PromptInt("locations.sph.wager_prompt", min=0, max=_MAX_WAGER)
+    stake = yield PromptInt(
+        "locations.sph.wager_prompt", min=0, max=_MAX_WAGER, params={"cash": active.ka}
+    )
     if stake <= 0:
         return []
 

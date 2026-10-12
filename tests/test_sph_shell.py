@@ -51,7 +51,6 @@ def test_sph_strings_resolve_for_every_key_the_handler_emits():
         "locations.sph.poker",
         "locations.sph.blackjack",
         "locations.sph.roulette",
-        "locations.sph.cash",
         "locations.sph.wager_prompt",
         "locations.sph.at_the_table",
         "locations.sph.won",
@@ -59,7 +58,7 @@ def test_sph_strings_resolve_for_every_key_the_handler_emits():
     ]:
         assert _get(data, key), f"missing string for {key}"
     # Template params present.
-    assert "{cash}" in _get(data, "locations.sph.cash")
+    assert "{cash}" in _get(data, "locations.sph.wager_prompt")
     assert "{amount}" in _get(data, "locations.sph.won")
 
 

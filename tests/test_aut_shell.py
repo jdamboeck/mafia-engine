@@ -65,7 +65,7 @@ def test_every_key_the_handlers_emit_resolves_with_its_params():
             {"number": 4, "name": "auburn mod.120", "price": 6000},
             "4 auburn mod.120\n 6000 $",
         ),
-        "locations.aut.model_prompt": ({}, "nummerntaste (0=ende) druecken!"),
+        "locations.aut.model_prompt": ({}, ""),
         "system.not_enough_money": ({}, "du hast zu wenig kies!"),
         "locations.aut.trade_in_offer": (
             {"amount": 2000},

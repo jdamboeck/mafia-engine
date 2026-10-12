@@ -385,7 +385,10 @@ class TerminalInput:
         prompt's range is relayed; any other key is ignored and the next one read, with
         no reprint, as a ``getx$`` loop waits. End of input raises :class:`EndOfInput`.
         """
-        self._stdout.write(self._resolver.resolve(prompt.key) + "\n")
+        # A prompt with no text of its own (a bare ``getx$``) prints nothing.
+        text = self._resolver.resolve(prompt.key, prompt.params)
+        if text:
+            self._stdout.write(text + "\n")
         self._stdout.flush()
         while True:
             key = read_key(self._stdin)
@@ -491,7 +494,9 @@ class TerminalInput:
             if interaction.read == READ_KEY:
                 return "\n".join(lines) + "\n"
             return "\n".join(lines) + "\n> "
-        if isinstance(interaction, (PromptInt, Confirm)):
+        if isinstance(interaction, PromptInt):
+            return self._resolver.resolve(interaction.key, interaction.params) + "\n> "
+        if isinstance(interaction, Confirm):
             return self._resolver.resolve(interaction.key) + "\n> "
         return "> "
 

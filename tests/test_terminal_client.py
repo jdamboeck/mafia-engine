@@ -290,14 +290,14 @@ def _eof_client(stdin_text: str):
 def test_eof_at_non_cancellable_prompt_int_raises_end_of_input():
     inp, _out = _eof_client("")  # readline() returns "" -> real EOF
     with pytest.raises(EndOfInput):
-        inp(PromptInt("locations.sph.wager_prompt", min=1, max=100))
+        inp(PromptInt("locations.sph.wager_prompt", min=1, max=100, params={"cash": 500}))
 
 
 def test_eof_at_cancellable_prompt_raises_rather_than_cancelling():
     """EOF is not a blank line even where a blank line would cancel: it ends input."""
     inp, _out = _eof_client("")
     with pytest.raises(EndOfInput):
-        inp(PromptChoice("locations.sph.wager_prompt", options=["a", "b"], cancellable=True))
+        inp(PromptChoice("locations.sph.game_menu", options=["a", "b"], cancellable=True))
 
 
 def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
@@ -307,7 +307,7 @@ def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
     inp, _out = _eof_client("\n")  # one blank line, then EOF
 
     def handler(ctx):
-        yield PromptInt("locations.sph.wager_prompt", min=1, max=100)
+        yield PromptInt("locations.sph.wager_prompt", min=1, max=100, params={"cash": 500})
         return ["an effect that must never be committed"]
 
     with deadline(  # a regression fails, not hangs

@@ -328,6 +328,14 @@ class TestCasinoMenuReadsAsItsSource:
         assert lines[menu + 1 : menu + 4] == ["1 - poker", "2 - black jack", "3 - roulette"]
         assert lines[menu + 4].startswith("was soll's sein:")
 
+    def test_the_stake_line_is_shown_once(self, monkeypatch):
+        """``:16020 print"{down}du hast"ka(sp)"$. dein einsatz:":inputp``: the cash and
+        "dein einsatz" are one line, printed once, and the stake is read under it."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("1", "100"))
+        low = output.lower()
+        assert low.count("dein einsatz") == 1, "the stake was asked twice"
+        assert "du hast 5500 $. dein einsatz:" in low
+
     def test_ae1_zero_returns_without_a_game(self, monkeypatch):
         """``:16015 ifx=0thenreturn``: 0 chooses nothing -- the menu is not asked again
         and no wager prompt follows, so the next ``1`` is not a game."""
@@ -2804,6 +2812,12 @@ class TestOneKeyNumberMenus:
         output = self._showroom(monkeypatch, "21", "q")
         assert output.count("2 chevy roadster") == 1, "the models were shown again"
         assert "cash 1500$" in output.lower(), "the chevy (4000 $) was not bought from 5500 $"
+
+    def test_the_showroom_prints_its_key_line_once(self, monkeypatch):
+        """``:14008 print"{down}nummerntaste (0=ende) druecken!":gosub1100`` prints the
+        line before the models; ``:14020 getx$:ifx$=""goto14020`` prints nothing."""
+        output = self._showroom(monkeypatch, "21", "q")
+        assert output.count("nummerntaste (0=ende) druecken!") == 1
 
     def test_return_leaves_the_showroom(self, monkeypatch):
         """``:14025 y=val(x$):ify=0thenpokev+21,0:return``: RETURN is val 0 and leaves."""

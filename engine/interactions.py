@@ -138,6 +138,9 @@ class PromptInt:
     #: :data:`READ_KEY` (one key). Presentation only: the driver validates the
     #: answer the same way under either.
     read: str = READ_LINE
+    #: Template params the client fills into the prompt's text (a prompt line that
+    #: shows a value, e.g. the cash before the question).
+    params: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _check_read(self.read)

@@ -165,6 +165,19 @@ def test_buy_stock_under_capacity_is_not_capped():
     assert game.contraband(result.state.players[0]).alcohol_barrels == 60
 
 
+def test_a_full_tank_still_offers_the_rolled_barrels():
+    """``:12022 printx"faesser fuer"p"$ pro fass.'"`` prints the roll before ``:12025
+    q=tk(tm(sp))-ta(sp):ifq<xthenx=q`` caps it: the offer shows all 200 rolled barrels,
+    and only the count prompt (``:12027`` ``(0-"mid$(str$(x),2)")``) takes the cap, 0."""
+    st = _state(ln=4, ka=100000, vehicle=0, barrels=50)  # on foot, tank=50: full
+    src = _scripted(0)
+    run_pure(HANDLERS["pub.drink"], src, state=st, rng=_StubRng(200, 7))
+    offer = src.messages()[0]
+    assert (offer.key, offer.params) == ("locations.pub.drink_offer", {"stock": 200, "price": 7})
+    ask = next(i for i in src.seen if isinstance(i, PromptInt))
+    assert ask.max == 0
+
+
 def test_sell_price_rolled_in_documented_range():
     st = _state(ln=2, ka=100000, barrels=10)
     rng = _StubRng(1, 29)  # forced sell path, max sell price 29

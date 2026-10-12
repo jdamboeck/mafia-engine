@@ -179,8 +179,10 @@ def pub_drink(ctx):
 
     1. ``:12010`` — ``ln`` 4 or 5 serves; every other tile falls to (2).
        BUY path (tiles 4 and 5): ``:12020-12035``.
-       a. Roll stock ``x`` (100-299 barrels) and price ``p`` (5-9$/barrel).
-       b. Cap the offer by the vehicle's free capacity: ``x = min(x, tank - barrels)``.
+       a. Roll stock ``x`` (100-299 barrels) and price ``p`` (5-9$/barrel), and show
+          the offer with the roll (``:12022``).
+       b. Cap the count by the vehicle's free capacity: ``x = min(x, tank - barrels)``
+          (``:12025``), after the offer is shown.
        c. Prompt a quantity up to ``x`` (``:12028``); 0 is a quiet abort (``:12029``).
           Faithful ``c64_input_negatives`` takes a negative quantity, as the C64
           INPUT does; intent asks it again (see ``_count_prompt``).
@@ -208,7 +210,11 @@ def pub_drink(ctx):
             params["pub_alcohol_buy_price_min"], params["pub_alcohol_buy_price_max"]
         )
 
-        # :12025 — cap the offer by the vehicle's free barrel capacity,
+        # :12021-12022 ``printx"faesser fuer"p"$ pro fass.'"`` -- the offer shows the
+        # roll, before :12025 caps it.
+        yield ShowMessage("locations.pub.drink_offer", {"stock": stock, "price": price})
+
+        # :12025 — cap the count by the vehicle's free barrel capacity,
         # `q=tk(tm(sp))-ta(sp)`.
         vehicles = _vehicles()
         capacity = vehicles[active.vehicle]["tank"]
@@ -216,7 +222,6 @@ def pub_drink(ctx):
         if free < stock:
             stock = free
 
-        yield ShowMessage("locations.pub.drink_offer", {"stock": stock, "price": price})
         # :12027 ``inputy``, :12028 ``ify>xthen...goto12027`` (asked again).
         y = yield _count_prompt(ctx.state, "locations.pub.drink_quantity_prompt", stock)
         if y == 0:  # :12029 ``ify=0thenreturn``
@@ -338,8 +343,8 @@ def pub_tip(ctx):
         yield KEY_WAIT  # :12231 / :12236 / :12242 / :12252 ...:goto1100
         return []
 
-    # :12245-12249 — tip 4's extra 5000$ stake sub-flow.
-    yield ShowMessage("locations.pub.arms_deal_offer")
+    # :12247-12249 — tip 4's extra 5000$ stake sub-flow, asked under the tip's own
+    # text (:12245-12246 print it once).
     if not (yield Confirm("locations.pub.arms_deal_confirm")):
         ctx.apply(TipClear())
         return []  # :12247 ...thentp(sp)=0:return -- no key wait

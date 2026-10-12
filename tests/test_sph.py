@@ -186,3 +186,13 @@ def test_a_wager_of_zero_returns_without_a_key_wait():
     # :16020 ...inputp:ifp=0orp<0 thenreturn
     src, _ = _sph_exit((0, 0), _StubRng())
     assert src.key_waits() == 0
+
+
+def test_the_stake_prompt_is_the_whole_16020_line_with_the_cash():
+    """``:16020 print"{down}du hast"ka(sp)"$. dein einsatz:":inputp``: one line with the
+    cash, then the INPUT; the prompt carries that line, and no message repeats it."""
+    gen = HANDLERS["sph"](Ctx(state=_state(ka=5000), rng=_StubRng()))
+    assert isinstance(next(gen), PromptChoice)
+    stake = gen.send(0)
+    assert isinstance(stake, PromptInt), f"a {type(stake).__name__} came before the stake"
+    assert (stake.key, stake.params) == ("locations.sph.wager_prompt", {"cash": 5000})

@@ -13,9 +13,9 @@ job:
 
   # --- bouncer/doorman shared flow (25015-25045) ---
   shift_bouncer_title: "rausschmeisser"  # :25015 `{rvon} rausschmeisser `
-  shift_bouncer_wait: "'du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen...'"  # :25020-25021 `du wartest auf ein zeichen deines chefs,`
-  shift_bouncer_quiet: "'heute gab es nichts!'"  # :25025 `heute gab es nichts!`
-  shift_bouncer_trouble: "'ein bursche faengt an, zu randalieren! tu etwas!'"  # :25030 `ein bursche faengt an, zu randalieren!`
+  shift_bouncer_wait: "du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen..."  # :25020-25021 `du wartest auf ein zeichen deines chefs,`
+  shift_bouncer_quiet: "heute gab es nichts!"  # :25025 `heute gab es nichts!`
+  shift_bouncer_trouble: "ein bursche faengt an, zu randalieren! tu etwas!"  # :25030 `ein bursche faengt an, zu randalieren!`
 
   # --- croupier flow (25100-25140) ---
   shift_croupier_title: "croupier"  # :25100 `{rvon} croupier `
@@ -23,13 +23,13 @@ job:
   # The trick pick's text: :25115 `getx$:ifx$<"1"orx$>"3"goto25115` reads one key under
   # the tricks, with no prompt of its own.
   shift_croupier_tricks: "1 trickspiegel\n2 gezinkte karten\n3 bremse am roulette"  # :25110-25111 `print"{down}2 gezinkte karten"`
-  shift_croupier_caught: "'ein kunde hat deine tricks durchschaut und zieht ein messer!'"  # :25130-25131 `ein kunde hat deine tricks durchschaut`
-  shift_croupier_bonus: "'du machst gewinne und erhaeltst einen bonus von{amount}$.'"  # :25125-25126 `du machst gewinne und erhaeltst`
+  shift_croupier_caught: "ein kunde hat deine tricks durchschaut und zieht ein messer!"  # :25130-25131 `ein kunde hat deine tricks durchschaut`
+  shift_croupier_bonus: "du machst gewinne und erhaeltst einen bonus von{amount}$."  # :25125-25126 `du machst gewinne und erhaeltst`
 
   # --- killer flow (25200-25210) ---
   shift_killer_title: "killer"  # :25200 `{rvon} killer `
-  shift_killer_intro: "'du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse...'"  # :25205-25206 `du hast den typ auf dem foto gefunden`
+  shift_killer_intro: "du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse..."  # :25205-25206 `du hast den typ auf dem foto gefunden`
 
   # --- common outcome resolution (25500-25560) ---
-  shift_failed: "'du hast deinen auftrag nicht erledigt!'"  # :25505-25506 `du hast deinen auftrag nicht`
-  shift_completed: "'du hast deinen job erledigt und erhaeltst deinen lohn. es sind{pay}$!'"  # :25555-25556 `du hast deinen job erledigt und er-`
+  shift_failed: "du hast deinen auftrag nicht erledigt!"  # :25505-25506 `du hast deinen auftrag nicht`
+  shift_completed: "du hast deinen job erledigt und erhaeltst deinen lohn. es sind{pay}$!"  # :25555-25556 `du hast deinen job erledigt und er-`

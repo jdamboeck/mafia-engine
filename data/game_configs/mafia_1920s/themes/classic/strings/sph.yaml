@@ -22,8 +22,7 @@ locations:
     # The game menu's prompt, after the options.
     game_prompt: "was soll's sein:"  # :16015 `input"{down}was soll's sein:";x`
     # Wager + resolve (16020, 16026, 16035, 16040).
-    cash: "du hast{cash}$. dein einsatz:"
-    wager_prompt: "dein einsatz"
+    wager_prompt: "du hast{cash}$. dein einsatz:"  # :16020 `"$. dein einsatz:":inputp`
     at_the_table: "du begibst dich an den spieltisch..."
     won: "du hast{amount}$ gewonnen!"
     lost: "leider verloren!"
