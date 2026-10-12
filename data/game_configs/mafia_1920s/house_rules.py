@@ -21,10 +21,12 @@ from typing import Any
 
 import yaml
 
+from engine.interactions import PromptInt
 from engine.state import HOUSE_RULE_SETTINGS, INTENT, GameState
 from engine.types import ConfigValidationError
 
 __all__ = [
+    "C64_INPUT_NEGATIVES",
     "CATALOGUE",
     "CATALOGUE_FILE",
     "CHANGE_KEY",
@@ -32,6 +34,7 @@ __all__ = [
     "check_stored_map",
     "intent",
     "load_house_rules",
+    "number_prompt",
     "switchable",
 ]
 
@@ -184,3 +187,25 @@ def intent(state: GameState, rule_id: str) -> bool:
     if rule_id not in _SWITCH_IDS:
         raise KeyError(f"no switchable house rule {rule_id!r} in the catalogue")
     return state.config.house_rules.get(rule_id) == INTENT
+
+
+#: House rule: a number the C64 ``INPUT`` reads at a number prompt -- a negative count,
+#: a sign set apart from its digits -- goes through (faithful) or is asked again.
+#: :func:`number_prompt` reads it at every number prompt; ``handlers/pub.py``,
+#: ``handlers/pol.py``, ``handlers/slw.py`` and ``handlers/sph.py`` read it for their
+#: negative counts.
+C64_INPUT_NEGATIVES = "c64_input_negatives"
+
+
+def number_prompt(state: GameState, key: str, *, min: int, max: int, **options: Any) -> PromptInt:
+    """A number prompt read as a line, as a C64 ``INPUT`` reads it.
+
+    Faithful ``c64_input_negatives``: the ``INPUT`` skips blanks between a sign and its
+    digits, so ``- 3`` reads as -3 (the VICE capture
+    ``tests/fixtures/c64_input/vice_capture.txt``) and then meets the prompt's range
+    like ``-3``. Intent: such an answer is asked again. ``options`` are the
+    :class:`PromptInt`'s others. A one-key (``getx$``) prompt cannot receive a sign
+    and is built directly.
+    """
+    spaced = not intent(state, C64_INPUT_NEGATIVES)
+    return PromptInt(key, min=min, max=max, spaced_sign=spaced, **options)

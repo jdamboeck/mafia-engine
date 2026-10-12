@@ -67,11 +67,10 @@ from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from ..gangster import Gangster
-from ..house_rules import intent
+from ..house_rules import C64_INPUT_NEGATIVES, intent, number_prompt
 from ..state import contraband, hired_ids, tenant
 
 from ..setup import KEY_WAIT, load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
-from .pol import C64_INPUT_NEGATIVES
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -277,8 +276,8 @@ def _count_prompt(state, key: str, most: int) -> PromptInt:
     below 0 is asked again, and the bound stays at least 0 so 0 always returns.
     """
     if intent(state, C64_INPUT_NEGATIVES):
-        return PromptInt(key, min=0, max=max(most, 0))
-    return PromptInt(key, min=_ANY_NEGATIVE, max=most)
+        return number_prompt(state, key, min=0, max=max(most, 0))
+    return number_prompt(state, key, min=_ANY_NEGATIVE, max=most)
 
 
 # --------------------------------------------------------------------------- #

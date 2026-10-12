@@ -353,6 +353,50 @@ def test_coerce_int_rejects_underscores_and_non_ascii_digits():
     assert len(src.seen) == 3
 
 
+def test_a_sign_set_apart_from_its_digits_is_asked_again_by_default():
+    got = {}
+
+    def handler(ctx):
+        got["v"] = yield PromptInt("pick", min=-9, max=9)
+        return []
+
+    src = scripted("- 3", "+ 3", "-3")  # rejected, rejected, accepted
+    run(handler, src)
+    assert got["v"] == -3
+    assert len(src.seen) == 3
+
+
+def test_a_prompt_with_spaced_sign_reads_a_sign_set_apart_from_its_digits():
+    """``spaced_sign``: blanks between the sign and the digits are skipped, as the C64
+    ``INPUT`` reads ``- 3`` as -3 (tests/fixtures/c64_input/vice_capture.txt)."""
+    got = []
+
+    def handler(ctx):
+        for _ in range(3):
+            got.append((yield PromptInt("pick", min=-9, max=9, spaced_sign=True)))
+        return []
+
+    src = scripted("- 3", " +  4 ", "-3")
+    run(handler, src)
+    assert got == [-3, 4, -3]
+    assert len(src.seen) == 3
+
+
+def test_a_spaced_sign_still_meets_the_range():
+    """``- 3`` at a prompt refusing negatives is asked again as ``-3`` is; a bare sign
+    is no number."""
+    got = {}
+
+    def handler(ctx):
+        got["v"] = yield PromptInt("pick", min=0, max=9, spaced_sign=True)
+        return []
+
+    src = scripted("- 3", "-", "- ", "3")
+    run(handler, src)
+    assert got["v"] == 3
+    assert len(src.seen) == 4
+
+
 def test_cancel_at_non_cancellable_prompt_is_treated_as_invalid_and_reprompts():
     # CANCEL sent to a non-cancellable prompt must NOT throw; it is invalid input
     # and the driver re-prompts.

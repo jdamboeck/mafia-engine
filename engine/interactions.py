@@ -141,6 +141,10 @@ class PromptInt:
     #: Template params the client fills into the prompt's text (a prompt line that
     #: shows a value, e.g. the cash before the question).
     params: dict = field(default_factory=dict)
+    #: Whether a sign set apart from its digits by blanks reads as the signed number
+    #: (``"- 3"`` as -3); ``False``: such an answer is asked again. The range check
+    #: applies either way.
+    spaced_sign: bool = False
 
     def __post_init__(self) -> None:
         _check_read(self.read)
@@ -951,7 +955,7 @@ def _resolve(interaction: Any) -> Generator[Any, Any, Any]:
                 continue  # invalid at a non-cancellable prompt → re-prompt
             if interaction.blank is not None and isinstance(raw, str) and not raw.strip():
                 return interaction.blank  # an empty answer stands for ``blank``
-            value = _coerce_int(raw)
+            value = _coerce_int(raw, spaced_sign=interaction.spaced_sign)
             if value is None:
                 continue  # non-numeric → re-prompt
             if interaction.min <= value <= interaction.max:
@@ -1052,12 +1056,13 @@ def _run_substate(load: "LoadSubState", ctx: "Ctx") -> Generator[Any, Any, Any]:
             return stop.value
 
 
-def _coerce_int(raw: Any) -> int | None:
+def _coerce_int(raw: Any, *, spaced_sign: bool = False) -> int | None:
     """Return ``raw`` as an int if it is an integer value, else ``None``.
 
     Accepts genuine ``int`` (but not ``bool``, which is an ``int`` subclass) and
     plain ASCII decimal strings like ``"4"`` / ``"-5"`` / ``"+7"`` (optionally
-    surrounded by whitespace). Everything else — floats, non-numeric strings,
+    surrounded by whitespace); with ``spaced_sign``, blanks between the sign and the
+    digits too (``"- 3"`` is -3). Everything else — floats, non-numeric strings,
     and ``int``-literal niceties a raw player prompt should not honor (``"1_000"``
     underscore separators, non-ASCII digits like ``"３"``) — is rejected so the
     driver re-prompts.
@@ -1068,8 +1073,11 @@ def _coerce_int(raw: Any) -> int | None:
         return raw
     if isinstance(raw, str):
         s = raw.strip()
-        body = s[1:] if s[:1] in "+-" else s
+        sign = s[:1] if s[:1] in ("+", "-") else ""
+        body = s[len(sign) :]
+        if spaced_sign:
+            body = body.lstrip(" ")
         if not body.isascii() or not body.isdigit():
             return None
-        return int(s)
+        return int(sign + body)
     return None

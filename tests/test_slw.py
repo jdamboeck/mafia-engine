@@ -25,6 +25,7 @@ import yaml
 
 from engine.config_loader import load_game_config
 from engine.effects import MoneyChange
+from engine.interactions import PromptInt
 from data.game_configs.mafia_1920s.effects import RentAccrue, SetTenancy
 from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, GameState, Player
@@ -47,7 +48,7 @@ _FNM_PARAMS = yaml.safe_load((_CONFIG_DIR / "config.yaml").read_text(encoding="u
 ]["fnm"]
 
 
-def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
+def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None, negatives=None):
     """A GameState with the fnm params wired in and the active player at tile ``ln``.
 
     ``ln`` is delivered to the handler via the active player's ``last_location``
@@ -62,7 +63,10 @@ def _state(*, ka=5000, ln=2, active=0, players=1, tenancy=None):
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
-        config=Config(formula_params={"fnm": _FNM_PARAMS}),
+        config=Config(
+            formula_params={"fnm": _FNM_PARAMS},
+            house_rules={} if negatives is None else {"c64_input_negatives": negatives},
+        ),
         values=game.tenancy_values(tenancy or {}),
     )
 
@@ -121,6 +125,34 @@ def test_zero_months_cancels_with_no_effects():
     assert result.state.players[0].ka == 5000  # unchanged
     assert game.tenant(result.state, 2) is None  # no tenancy set
     assert game.rented_months(result.state.players[0]) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Handler: negative months (:10030, house rule c64_input_negatives)            #
+# --------------------------------------------------------------------------- #
+_MONTHS = "locations.slw.months_prompt"
+
+
+def test_negative_months_return_quietly_when_faithful():
+    """:10025 ``input"{down}wieviele monate willst du mieten";x`` takes -2, and :10030
+    ``ifx=0orx<0 thennm=1:return`` leaves: nothing rented, no prompt again."""
+    st = _state(ka=5000, ln=2, negatives="faithful")
+    src = _scripted(-2, 3)
+    result = run_pure(HANDLERS["slw.rent"], src, state=st, rng=None)
+
+    assert result.status == "completed"
+    assert result.effects == []
+    assert [i.key for i in src.seen if isinstance(i, PromptInt)] == [_MONTHS]
+    assert game.tenant(result.state, 2) is None
+
+
+def test_negative_months_are_asked_again_under_intent():
+    st = _state(ka=5000, ln=2, negatives="intent")
+    src = _scripted(-2, 3)
+    result = run_pure(HANDLERS["slw.rent"], src, state=st, rng=None)
+
+    assert [i.key for i in src.seen if isinstance(i, PromptInt)] == [_MONTHS, _MONTHS]
+    assert result.effects == [MoneyChange(-150), SetTenancy(2), RentAccrue(3)]
 
 
 # --------------------------------------------------------------------------- #

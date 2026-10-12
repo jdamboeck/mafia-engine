@@ -25,9 +25,10 @@ on a win (``ka += p`` where ``p`` was reassigned to the gross). So the NET delta
 from __future__ import annotations
 
 from engine.effects import MoneyChange
-from engine.interactions import READ_LINE, PromptChoice, PromptInt, ShowMessage
+from engine.interactions import READ_LINE, PromptChoice, ShowMessage
 from engine.locations import register
 
+from ..house_rules import C64_INPUT_NEGATIVES, intent, number_prompt
 from ..setup import KEY_WAIT
 
 __all__ = ["sph"]
@@ -35,6 +36,9 @@ __all__ = ["sph"]
 #: Sane upper bound on the wager PromptInt (the original reads a free int; a cap keeps
 #: the prompt well-formed without altering behavior for real inputs — mirrors slw).
 _MAX_WAGER = 10_000_000
+#: The stake prompt's floor under faithful ``c64_input_negatives``: the C64 INPUT at
+#: ``:16020`` takes a negative stake, which the same line turns away quietly.
+_ANY_NEGATIVE = -(2**31)
 
 
 @register("sph")
@@ -47,7 +51,8 @@ def sph(ctx):
        (original ``x=0``) aborts the whole action via the driver's atomic discard. The
        0-based choice maps to the game index ``x = choice + 1`` (poker=1..roulette=3).
     2. ``16020`` — show cash, ask for a wager. ``wager <= 0`` is a quiet abort (return
-       with no effect). The ``PromptInt`` min is 0 so 0 reaches the handler as the abort.
+       with no effect). The prompt's floor is 0 under intent ``c64_input_negatives``
+       (a negative is asked again) and below every negative under faithful.
     3. ``16025`` — affordability: ``wager > ka`` emits ``not_enough_money`` and aborts.
     4. ``16026-16040`` — resolve with ONE rng draw: win iff ``rng.range(1+x) == 0``. On a
        win the gross payout is ``int(stake*(offset+x))`` (offset 0.5 from config), and the
@@ -85,9 +90,16 @@ def sph(ctx):
     # 16020 — the cash and the question are one line, the stake read under it; wager
     # <= 0 is a quiet abort (``return``, no key wait; nor does choosing nothing at
     # :16015 wait).
-    # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only.
-    stake = yield PromptInt(
-        "locations.sph.wager_prompt", min=0, max=_MAX_WAGER, params={"cash": active.ka}
+    # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only. A
+    # negative stake reaches the abort under faithful ``c64_input_negatives``; under
+    # intent it is asked again, and 0 still leaves.
+    floor = 0 if intent(ctx.state, C64_INPUT_NEGATIVES) else _ANY_NEGATIVE
+    stake = yield number_prompt(
+        ctx.state,
+        "locations.sph.wager_prompt",
+        min=floor,
+        max=_MAX_WAGER,
+        params={"cash": active.ka},
     )
     if stake <= 0:
         return []

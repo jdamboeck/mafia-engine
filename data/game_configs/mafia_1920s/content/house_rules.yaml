@@ -210,7 +210,7 @@ house_rules:
     citation: ":12027"
     quote: 'wieviele willst du (0-"mid$(str$(x),2)")";:inputy'
     faithful: >-
-      The C64 INPUT reads a negative number, and three number prompts take one. The
+      The C64 INPUT reads a negative number, and five number prompts take one. The
       pub's buy count: a negative y passes :12028 ``ify>xthen`` and :12029
       ``ify=0thenreturn``; its price is below 0, so :12030 ``ifka(sp)<y*pgoto1125``
       refuses it only to cash below that price, and :12035
@@ -224,10 +224,18 @@ house_rules:
       ``ka(sp)=ka(sp)-p:pl(sp)=pl(sp)+x+1`` pays the player 1000 $ a month and lowers
       the bribe months, below 0 from x=-2 on. A negative count never ages (:4050
       ``pl(sp)=pl(sp)+(pl(sp)>0)``), and any count other than 0 arms the arrest's
-      auto-pay (:26021 ``ifpl(sp)and``).
+      auto-pay (:26021 ``ifpl(sp)and``). The motel's months (:10025
+      ``input"{down}wieviele monate willst du mieten";x``): a negative x returns
+      quietly, with no key wait (:10030 ``ifx=0orx<0 thennm=1:return``). The casino's
+      stake: a negative p returns quietly, with no wager and no key wait (:16020
+      ``inputp:ifp=0orp<0 thenreturn``). And the INPUT
+      skips blanks between a sign and its digits, so "- 3" reads as -3 (checked in
+      VICE) at every number prompt read as a line; a prompt that refuses -3 refuses it
+      too.
     intent: >-
-      Counts are bought and sold, never negative: a number below 0 at any of the three
-      prompts is asked again.
+      Counts are bought and sold, never negative: a number below 0 at any of the five
+      prompts is asked again, and so is a sign set apart from its digits at any number
+      prompt.
     switch: true
 
   - id: chief_bribe_empty_answer

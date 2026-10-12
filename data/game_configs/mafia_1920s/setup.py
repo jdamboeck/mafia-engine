@@ -37,7 +37,7 @@ from engine.combat_setup import SIDE2_ANCHOR, build_player_side, placement_posit
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
 from engine.fight_loop import AiDriver, HumanDriver
-from engine.interactions import Acknowledge, PromptInt, ShowMessage, StartCombat
+from engine.interactions import Acknowledge, ShowMessage, StartCombat
 from engine.rng import Rng
 from engine.scenario import Scenario
 from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, INTENT, Clock, Config, GameState, Player
@@ -48,7 +48,7 @@ try:
     from .effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
     from .gangster import GANGSTER_ATTR_NAMES, Gangster
     from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from .house_rules import load_house_rules, switchable
+    from .house_rules import load_house_rules, number_prompt, switchable
     from .state import SCHEMA
     from .state import gang_name as _gang_name
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
@@ -56,7 +56,7 @@ except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
     from gangster import GANGSTER_ATTR_NAMES, Gangster
     from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from house_rules import load_house_rules, switchable
+    from house_rules import load_house_rules, number_prompt, switchable
     from state import SCHEMA
     from state import gang_name as _gang_name
 from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
@@ -674,7 +674,9 @@ def pick_gangster(ctx, *, cancellable: bool):
         yield ShowMessage(
             "turn.picker.gangster", {"index": number, **gangster_line(member, weapons)}
         )
-    y = yield PromptInt("turn.picker.prompt", min=0, max=len(roster), cancellable=cancellable)
+    y = yield number_prompt(
+        ctx.state, "turn.picker.prompt", min=0, max=len(roster), cancellable=cancellable
+    )
     if y == 0:  # :1150
         return None
     return y - 1  # :1155

@@ -62,9 +62,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.effects import MoneyChange
+from ..house_rules import number_prompt
 from ..effects import DebtChange, DebtClear, ShopChange
 from ..state import business, debt
-from engine.interactions import Confirm, PromptInt, ShowMessage
+from engine.interactions import Confirm, ShowMessage
 from engine.locations import register
 
 from ..setup import (
@@ -110,7 +111,8 @@ def kdh_borrow(ctx):
         yield KEY_WAIT  # :15010 ...:goto1100
         return []
 
-    x = yield PromptInt(
+    x = yield number_prompt(
+        ctx.state,
         "locations.kdh.borrow_prompt",
         min=params["kdh_borrow_min"],
         max=params["kdh_borrow_max"],
@@ -153,7 +155,7 @@ def kdh_repay(ctx):
     # (a guardless entry with no debt: the source still asks and the answer is
     # forced to 0, a quiet abort. This handler is never routed to at 0 debt by any
     # caller, but the bound stays well-formed regardless).
-    x = yield PromptInt("locations.kdh.repay_prompt", min=0, max=max(debt_amount, 0))
+    x = yield number_prompt(ctx.state, "locations.kdh.repay_prompt", min=0, max=max(debt_amount, 0))
     if x == 0:
         return []
 
@@ -319,7 +321,9 @@ def _capital_screen(ctx, *, cash: int, capital: int, params: dict):
     """
     cap_max = params["kdh_capital_max"]
     yield ShowMessage("locations.kdh.capital_status", {"capital": capital, "max": cap_max})
-    x = yield PromptInt("locations.kdh.capital_prompt", min=-capital, max=cap_max - capital)
+    x = yield number_prompt(
+        ctx.state, "locations.kdh.capital_prompt", min=-capital, max=cap_max - capital
+    )
     if x == 0:
         return  # :15208 ifx=0thenreturn -- no key wait
 

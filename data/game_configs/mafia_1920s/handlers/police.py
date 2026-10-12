@@ -63,10 +63,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
-from engine.interactions import READ_KEY, Confirm, PromptChoice, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Confirm, PromptChoice, ShowMessage
 
 from ..effects import Jail, JobClear, TipClear
-from ..house_rules import intent
+from ..house_rules import intent, number_prompt
 from ..setup import KEY_WAIT, load_encounter, load_vehicles, run_encounter, score_and_rank
 from ..state import wanted
 
@@ -127,6 +127,7 @@ class _Run:
     """One capture's running values: the cash as it stands, and the parameters."""
 
     def __init__(self, ctx, arrest: Arrest) -> None:
+        self.state = ctx.state
         self.player = ctx.state.players[ctx.state.clock.active_player]
         self.cash = self.player.ka if arrest.cash is None else arrest.cash
         self.params = ctx.state.config.formula_params
@@ -306,8 +307,8 @@ def _lawyer_fee(run: _Run):
     question took, and its value is 0); an ask after a refusal reads it as the refused
     fee again, so the driver asks again.
     """
-    fee = yield PromptInt("police.lawyer_prompt", min=-_ANY, max=_ANY, blank=0)
+    fee = yield number_prompt(run.state, "police.lawyer_prompt", min=-_ANY, max=_ANY, blank=0)
     # :26060 ``ifx=0goto26075`` / :26061 ``ifx>ka(sp)orx<0then``
     while fee != 0 and (fee > run.cash or fee < 0):
-        fee = yield PromptInt("police.lawyer_prompt", min=0, max=max(run.cash, 0))
+        fee = yield number_prompt(run.state, "police.lawyer_prompt", min=0, max=max(run.cash, 0))
     return fee

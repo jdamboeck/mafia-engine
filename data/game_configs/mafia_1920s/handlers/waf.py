@@ -54,12 +54,12 @@ from engine.interactions import (
     Confirm,
     LoadSubState,
     PromptChoice,
-    PromptInt,
     ShowMessage,
 )
 from engine.locations import register
 from engine.substates import register_substate
 
+from ..house_rules import number_prompt
 from ..setup import KEY_WAIT, load_weapons, pick_gangster, score_and_rank
 
 __all__ = ["waf_buy", "waf_train", "weapon_spec"]
@@ -158,7 +158,8 @@ def waf_buy(ctx):
                 {"number": i, "name": weapons[i]["name"], "price": weapons[i]["price"]},
             )
         # 13020 — pick one of the listed weapons. 0 cancels the whole buy.
-        x = yield PromptInt(
+        x = yield number_prompt(
+            ctx.state,
             "locations.waf.weapon_prompt",
             min=lo,
             max=hi,

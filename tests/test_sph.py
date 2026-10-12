@@ -32,12 +32,17 @@ load_game_config(_CONFIG_DIR)
 _FORMULA_PARAMS = {"casino_payout_offset": 0.5}
 
 
-def _state(*, ka=5000, active=0, players=1):
+def _state(*, ka=5000, active=0, players=1, negatives=None):
+    """``negatives`` sets the ``c64_input_negatives`` house rule; ``None`` leaves the
+    map without it, which reads faithful."""
     plist = tuple(Player(ka=ka, roster=(Gangster(),)) for _ in range(players))
     return GameState(
         players=plist,
         clock=Clock(active_player=active, player_count=players),
-        config=Config(formula_params=_FORMULA_PARAMS),
+        config=Config(
+            formula_params=_FORMULA_PARAMS,
+            house_rules={} if negatives is None else {"c64_input_negatives": negatives},
+        ),
     )
 
 
@@ -185,6 +190,30 @@ def test_choosing_nothing_returns_without_a_key_wait():
 def test_a_wager_of_zero_returns_without_a_key_wait():
     # :16020 ...inputp:ifp=0orp<0 thenreturn
     src, _ = _sph_exit((0, 0), _StubRng())
+    assert src.key_waits() == 0
+
+
+def _stakes(src) -> list[str]:
+    return [i.key for i in src.seen if isinstance(i, PromptInt)]
+
+
+def test_a_negative_stake_returns_quietly_when_faithful():
+    """:16020 ``inputp:ifp=0orp<0 thenreturn``: the C64 INPUT takes -50, and the
+    line returns: no wager, no key wait, the stake not asked again."""
+    src = _scripted(0, -50, 100)
+    result = run_pure(HANDLERS["sph"], src, state=_state(negatives="faithful"), rng=_StubRng(0))
+    assert result.status == "completed"
+    assert result.effects == []
+    assert _stakes(src) == ["locations.sph.wager_prompt"]
+    assert src.key_waits() == 0
+
+
+def test_a_negative_stake_is_asked_again_under_intent():
+    """Intent: -50 is asked again; the 0 after it still leaves (:16020 ``ifp=0``)."""
+    src = _scripted(0, -50, 0)
+    result = run_pure(HANDLERS["sph"], src, state=_state(negatives="intent"), rng=_StubRng())
+    assert result.effects == []
+    assert _stakes(src) == ["locations.sph.wager_prompt"] * 2
     assert src.key_waits() == 0
 
 
