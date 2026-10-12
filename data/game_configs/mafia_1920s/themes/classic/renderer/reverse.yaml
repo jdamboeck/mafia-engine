@@ -1,0 +1,10 @@
+# The theme keys the terminal draws in reverse video: the texts the source prints
+# after {rvon}. A `*` stands for any text. A theme without this file draws them plain.
+- locations.*.title             # :3025 print"{clr}{down}{rvon} "x$": "
+- job.shift_bouncer_title       # :25015 print"{rvon} rausschmeisser "
+- job.shift_croupier_title      # :25100 print"{rvon} croupier "
+- job.shift_killer_title        # :25200 print"{rvon} killer "
+- combat.begins                 # :30025 print"{rvon}der kampf beginnt..."
+- combat.player_label_side1     # :30115 print"{rvon}spieler   {left}{left}{left}"f
+- combat.player_label_side2     # :30115, side 2 at column 20
+- combat.cpu_label              # :30400 print"{rvon}spieler"f

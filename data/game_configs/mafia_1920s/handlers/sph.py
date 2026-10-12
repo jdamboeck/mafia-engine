@@ -25,9 +25,10 @@ on a win (``ka += p`` where ``p`` was reassigned to the gross). So the NET delta
 from __future__ import annotations
 
 from engine.effects import MoneyChange
-from engine.interactions import PromptChoice, PromptInt, ShowMessage
+from engine.interactions import READ_LINE, PromptChoice, ShowMessage
 from engine.locations import register
 
+from ..house_rules import negative_floor, number_prompt
 from ..setup import KEY_WAIT
 
 __all__ = ["sph"]
@@ -47,7 +48,8 @@ def sph(ctx):
        (original ``x=0``) aborts the whole action via the driver's atomic discard. The
        0-based choice maps to the game index ``x = choice + 1`` (poker=1..roulette=3).
     2. ``16020`` — show cash, ask for a wager. ``wager <= 0`` is a quiet abort (return
-       with no effect). The ``PromptInt`` min is 0 so 0 reaches the handler as the abort.
+       with no effect). The prompt's floor is 0 under intent ``c64_input_negatives``
+       (a negative is asked again) and below every negative under faithful.
     3. ``16025`` — affordability: ``wager > ka`` emits ``not_enough_money`` and aborts.
     4. ``16026-16040`` — resolve with ONE rng draw: win iff ``rng.range(1+x) == 0``. On a
        win the gross payout is ``int(stake*(offset+x))`` (offset 0.5 from config), and the
@@ -64,6 +66,8 @@ def sph(ctx):
     payout_offset = params["casino_payout_offset"]
 
     # 16010-16016 — game menu; cancelling aborts the whole action (driver discard).
+    # :16015 ``input"{down}was soll's sein:";x:ifx=0thenreturn`` reads a line (Enter),
+    # and 0 returns: a client relays it as cancel.
     # The C64 INPUT at :16015 takes a fraction, and 2.5 passes :16016's 1-3 check and
     # plays with x=2.5; the menu offers the three games only (a departure, noted in
     # content/house_rules.yaml).
@@ -75,14 +79,25 @@ def sph(ctx):
             "locations.sph.roulette",
         ],
         cancellable=True,
+        read=READ_LINE,
+        prompt="locations.sph.game_prompt",
     )
     x = choice + 1  # game index: poker=1, black jack=2, roulette=3
 
-    # 16020 — show cash, ask for a wager; wager <= 0 is a quiet abort (``return``, no
-    # key wait; nor does choosing nothing at :16015 wait).
-    # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only.
-    yield ShowMessage("locations.sph.cash", {"cash": active.ka})
-    stake = yield PromptInt("locations.sph.wager_prompt", min=0, max=_MAX_WAGER)
+    # 16020 — the cash and the question are one line, the stake read under it; wager
+    # <= 0 is a quiet abort (``return``, no key wait; nor does choosing nothing at
+    # :16015 wait).
+    # The C64 INPUT takes a fractional stake; the prompt reads whole numbers only. A
+    # negative stake reaches the abort under faithful ``c64_input_negatives``; under
+    # intent it is asked again, and 0 still leaves.
+    floor = negative_floor(ctx.state)
+    stake = yield number_prompt(
+        ctx.state,
+        "locations.sph.wager_prompt",
+        min=floor,
+        max=_MAX_WAGER,
+        params={"cash": active.ka},
+    )
     if stake <= 0:
         return []
 

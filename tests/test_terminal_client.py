@@ -35,6 +35,8 @@ sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 
 from engine.interactions import (  # noqa: E402
     CANCEL,
+    READ_KEY,
+    READ_LINE,
     Confirm,
     PromptChoice,
     PromptInt,
@@ -54,6 +56,7 @@ from clients.terminal import (  # noqa: E402
     play,
     render_message,
 )
+from clients.terminal.keys import ENTER, decode_key, read_key  # noqa: E402
 from clients.terminal.palette import ColorSupport, Colors, load_palette  # noqa: E402
 from tests.helpers import NEW_GAME_ACKS, SOLO, deadline, make_walk_script  # noqa: E402
 
@@ -163,7 +166,8 @@ def test_prompt_int_invalid_then_valid_is_reprompted_by_driver():
 # PromptChoice / Confirm relay.                                                 #
 # --------------------------------------------------------------------------- #
 def test_prompt_choice_returns_index():
-    inp, out = _client(["1"])
+    # option 1 (0-based) is the menu's number 2
+    inp, out = _client(["2"])
     seen = []
 
     def handler(ctx):
@@ -178,17 +182,17 @@ def test_prompt_choice_returns_index():
 def test_prompt_choice_resolves_option_keys_and_shows_plain_values_as_given():
     # sph's game menu passes theme KEYS as options; a recruit menu passes plain names.
     # A key must render as its theme text, never raw; a non-key renders unchanged.
-    inp, out = _client(["0"])
+    # The labels are printed as given: the client adds no number of its own.
+    inp, out = _client(["1"])
 
     def handler(ctx):
         yield PromptChoice("locations.sph.game_menu", options=["locations.sph.poker", "alcapone"])
         return []
 
     run(handler, inp, state=None, rng=None)
-    text = out.getvalue()
-    assert "0) 1 - poker" in text
-    assert "1) alcapone" in text
-    assert "locations.sph.poker" not in text
+    lines = out.getvalue().splitlines()
+    assert lines[1:3] == ["1 - poker", "alcapone"]
+    assert "locations.sph.poker" not in out.getvalue()
 
 
 def test_confirm_returns_bool():
@@ -218,7 +222,8 @@ def test_confirm_returns_false_for_n():
 
 
 def test_prompt_choice_returns_zero_index():
-    inp, out = _client(["0"])
+    # the menu's number 1 is option 0
+    inp, out = _client(["1"])
     seen = []
 
     def handler(ctx):
@@ -231,7 +236,7 @@ def test_prompt_choice_returns_zero_index():
 
 
 def test_prompt_choice_returns_higher_index():
-    inp, out = _client(["3"])
+    inp, out = _client(["4"])
     seen = []
 
     def handler(ctx):
@@ -285,14 +290,14 @@ def _eof_client(stdin_text: str):
 def test_eof_at_non_cancellable_prompt_int_raises_end_of_input():
     inp, _out = _eof_client("")  # readline() returns "" -> real EOF
     with pytest.raises(EndOfInput):
-        inp(PromptInt("locations.sph.wager_prompt", min=1, max=100))
+        inp(PromptInt("locations.sph.wager_prompt", min=1, max=100, params={"cash": 500}))
 
 
 def test_eof_at_cancellable_prompt_raises_rather_than_cancelling():
     """EOF is not a blank line even where a blank line would cancel: it ends input."""
     inp, _out = _eof_client("")
     with pytest.raises(EndOfInput):
-        inp(PromptChoice("locations.sph.wager_prompt", options=["a", "b"], cancellable=True))
+        inp(PromptChoice("locations.sph.game_menu", options=["a", "b"], cancellable=True))
 
 
 def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
@@ -302,7 +307,7 @@ def test_blank_line_then_eof_at_non_cancellable_prompt_escapes_the_driver():
     inp, _out = _eof_client("\n")  # one blank line, then EOF
 
     def handler(ctx):
-        yield PromptInt("locations.sph.wager_prompt", min=1, max=100)
+        yield PromptInt("locations.sph.wager_prompt", min=1, max=100, params={"cash": 500})
         return ["an effect that must never be committed"]
 
     with deadline(  # a regression fails, not hangs
@@ -516,6 +521,32 @@ class TestSetupFlags:
         captured = capsys.readouterr()
         assert captured.out == "", "the game started (the title screen was drawn)"
         assert "1 to 13 characters" in captured.err
+
+    def test_more_player_flags_than_the_player_count_allows_are_refused(self, monkeypatch, capsys):
+        # :205-206 ``sz=val(x$)`` / ``ifsz<1orsz>4goto205``: the count is 1 to 4
+        # (input_ranges.player_count). A fifth --player is refused, not run.
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        argv = [arg for name in "abcde" for arg in ("--player", f"{name}:{name}")]
+        with pytest.raises(SystemExit) as exc:
+            main(argv)
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
+        assert "Traceback" not in captured.err
+        assert (
+            "--player" in captured.err and "at most 4" in captured.err and "got 5" in captured.err
+        )
+
+    def test_as_many_player_flags_as_the_player_count_allows_start_the_game(
+        self, monkeypatch, capsys
+    ):
+        # The bound is inclusive: four --player flags start the game (the title is
+        # drawn; EOF at the title ends it).
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        argv = [arg for name in "abcd" for arg in ("--player", f"{name}:{name}")]
+        main(argv)
+        captured = capsys.readouterr()
+        assert captured.out != "" and "at most" not in captured.err
 
     @pytest.mark.parametrize(
         "argv",
@@ -866,9 +897,69 @@ class TestWatchAi:
         boards = [
             _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
         ]
-        label = " " * 20 + "spieler 1 "
-        assert label not in boards[0]
-        assert all(label in board for board in boards[1:])
+        label = "spieler 1 "
+        assert all(row[20:] != label for row in boards[0])
+        for board in boards[1:]:
+            assert any(row.startswith("spieler") and row[20:] == label for row in board), board
+
+    def test_the_human_s_label_shows_its_fighter_at_column_0(self, monkeypatch):
+        """:30115 ``x=-20*(s=2):poke211,x:poke214,18:syscs:print"{rvon}spieler
+        {left}{left}{left}"f``: on each of the human's activations, ``spieler`` and the
+        active fighter's number with PRINT's spaces, at column 0 for side 1 (column 20
+        for side 2), on the CPU label's row 18."""
+        text = self._shift_fight_output(monkeypatch, [])
+        boards = [
+            _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
+        ]
+        assert len(boards) >= 2, "the fight never reached a second activation"
+        # The bouncer fights alone: side 1's only fighter acts on every human board.
+        assert "spieler 1 " in boards[0], boards[0]
+        for board in boards[1:]:
+            assert "spieler 1           spieler 1 " in board, board
+
+    @staticmethod
+    def _reversed(row: str) -> list[str]:
+        """The texts of ``row`` drawn in reverse video, ANSI codes stripped."""
+        return [_plain(span) for span in re.findall(r"\033\[7m(.*?)\033\[0m", row)]
+
+    def _rvon_rows(self, text: str) -> dict[str, str]:
+        """The raw rows of the shift fight's output that the source prints in ``{rvon}``:
+        the pub's title (:3025), the job's name (:25015), the fight banner (:30025) and
+        the label row (:30115's human label, :30400's CPU label)."""
+        rows = text.split("\n")
+        title = _resolver().resolve("locations.pub.title")
+        legend = _resolver().resolve("combat.key_legend")
+        boards = [b.split("\n") for b in text.split(legend)[:-1]]
+        assert len(boards) >= 2, "the fight never reached a second activation"
+        return {
+            "title": next(r for r in rows if _plain(r) == f" {title}: "),
+            "job": next(r for r in rows if _plain(r).strip() == "rausschmeisser"),
+            "banner": next(r for r in boards[0] if "der kampf beginnt..." in _plain(r)),
+            "labels": next(r for r in boards[1] if _plain(r).startswith("spieler")),
+        }
+
+    def test_the_source_s_rvon_texts_are_drawn_in_reverse_video(self, monkeypatch):
+        """The classic theme's ``renderer/reverse.yaml`` lists the keys its source prints
+        in ``{rvon}``: :3025 ``print"{clr}{down}{rvon} "x$": "``, :25015
+        ``print"{rvon} rausschmeisser "``, :30025 ``print"{rvon}der kampf beginnt..."``,
+        :30115's and :30400's ``{rvon}spieler``. A label after ``{tab(20)}`` starts its
+        bar at column 20: the padding before it is not reversed."""
+        rows = self._rvon_rows(self._shift_fight_output(monkeypatch, []))
+        title = _resolver().resolve("locations.pub.title")
+        assert self._reversed(rows["title"]) == [f" {title}: "]
+        assert self._reversed(rows["job"]) == [" rausschmeisser "]
+        assert self._reversed(rows["banner"]) == ["der kampf beginnt..."]
+        assert _plain(rows["labels"]) == "spieler 1           spieler 1 "
+        assert self._reversed(rows["labels"]) == ["spieler 1 ", "spieler 1 "]
+
+    def test_a_theme_without_the_reverse_list_draws_them_plain(self, monkeypatch):
+        """``tests/fixtures/themes/test`` has no ``renderer/reverse.yaml``."""
+        theme = Path(__file__).resolve().parent / "fixtures" / "themes" / "test"
+        assert not (theme / "renderer" / "reverse.yaml").exists()
+        rows = self._rvon_rows(self._shift_fight_output(monkeypatch, ["--theme", str(theme)]))
+        assert {name: self._reversed(row) for name, row in rows.items()} == {
+            name: [] for name in rows
+        }
 
 
 # --------------------------------------------------------------------------- #
@@ -1402,3 +1493,324 @@ def test_the_client_holds_no_setup_rule_or_roll_formula():
         r"\.hit\(",
     ):
         assert re.search(pattern, session) is None, f"session.py holds {pattern!r}"
+
+
+# --------------------------------------------------------------------------- #
+# Menus numbered from 1, read as their source line reads (R1, R2; KTD-1/2).    #
+# --------------------------------------------------------------------------- #
+def _choose(menu: PromptChoice, stdin_text: str) -> tuple[list[int], str]:
+    """Run ``menu`` through the driver over exact stdin text (one key per line on a
+    pipe); return the indices the handler received and what was printed."""
+    inp, out = _eof_client(stdin_text)
+    seen: list[int] = []
+
+    def handler(ctx):
+        seen.append((yield menu))
+        return []
+
+    with deadline(5.0, "the menu read past the end of input (spin)", exc_type=AssertionError):
+        run(handler, inp, state=None, rng=None)
+    return seen, out.getvalue()
+
+
+def test_a_line_menu_asks_again_for_a_number_that_names_no_option():
+    """0 and a number past the options name nothing at a non-cancellable menu: the
+    driver asks again (the menu is printed again), then 3 picks option 2."""
+    menu = PromptChoice("locations.sph.game_menu", options=["a", "b", "c"])
+    seen, text = _choose(menu, "0\n4\nx\n3\n")
+    assert seen == [2]
+    assert text.count("waehle, mein freund:") == 4
+
+
+def test_a_cancellable_line_menu_relays_zero_as_cancel():
+    """``:16015 ifx=0thenreturn``: at the cancellable casino menu 0 chooses nothing."""
+    inp, _out = _client(["0"])
+    menu = PromptChoice("locations.sph.game_menu", options=["a", "b", "c"], cancellable=True)
+    assert inp(menu) is CANCEL
+
+
+def test_a_key_menu_takes_the_first_key_of_a_piped_line_and_ignores_other_keys():
+    """One key per line on a pipe; a key that names no option is ignored and the
+    menu waits for the next without printing again (``:17555 getx$:ifx$<"1"orx$>"3"
+    goto17555``). ``12`` is the key 1."""
+    menu = PromptChoice("locations.sgl.after_menu", options=["a", "b", "c"], read=READ_KEY)
+    seen, text = _choose(menu, "0\n4\nq\n\n12\n")
+    assert seen == [0]
+    assert text.count("was machst du:") == 1
+    assert "> " not in text, "a one-key menu shows no line prompt"
+
+
+def test_a_key_menu_with_answer_keys_takes_only_those_keys():
+    """The weapon shop's venue (``:13106 getx$:ifx$<>"s"andx$<>"t"goto13106``): the
+    numbers are no answer, ``t`` is the second option."""
+    menu = PromptChoice(
+        "locations.waf.venue_prompt",
+        options=["locations.waf.venue_range", "locations.waf.venue_camp"],
+        read=READ_KEY,
+        answer_keys=("s", "t"),
+    )
+    seen, _text = _choose(menu, "1\n2\nT\n")
+    assert seen == [1]
+
+
+@pytest.mark.parametrize(
+    ("line", "dial"),
+    [("f1", 0), ("F3", 1), ("f5", 2), ("\x1bOR", 1), ("\x1b[15~", 2), ("\x1b[[A", 0)],
+)
+def test_the_safe_dials_answer_to_f1_f3_f5_on_a_pipe(line, dial):
+    """``:20115 getx$:x=asc(x$+chr$(0)):ifx<133orx>135goto20115``: F1, F3 or F5. A
+    piped line naming the key (``f1``), or holding its escape sequence, picks it; the
+    ``f`` of a line ``f2`` and the digit keys pick nothing."""
+    menu = PromptChoice(
+        "locations.ban.safe_turn",
+        options=["d1", "d2", "d3"],
+        read=READ_KEY,
+        answer_keys=("f1", "f3", "f5"),
+    )
+    seen, _text = _choose(menu, f"1\nf2\nf\n{line}\n")
+    assert seen == [dial]
+
+
+@pytest.mark.parametrize("read", [READ_KEY, READ_LINE])
+def test_eof_at_a_menu_ends_input_instead_of_waiting_again(read):
+    """End of input at a menu ends the session (EndOfInput), under a deadline: a
+    reader that took EOF for an ignored key would wait forever."""
+    menu = PromptChoice("police.menu", options=["a", "b", "c"], read=read)
+    with pytest.raises(EndOfInput):
+        _choose(menu, "9\n")
+
+
+def test_a_one_key_number_prompt_relays_the_key_and_reads_enter_as_blank():
+    """A ``PromptInt`` read with one key relays the key (the driver validates it);
+    Enter is the empty answer, which the prompt's ``blank`` stands for."""
+    seen = []
+
+    def handler(ctx):
+        seen.append((yield PromptInt("locations.slw.months_prompt", min=1, max=3, read=READ_KEY)))
+        seen.append(
+            (yield PromptInt("locations.slw.months_prompt", min=1, max=3, blank=0, read=READ_KEY))
+        )
+        return []
+
+    inp_blank, _ = _eof_client("7\n2\n\n")
+    run(handler, inp_blank, state=None, rng=None)
+    assert seen == [2, 0]  # 7 is out of range and asked again; Enter is the blank 0
+
+
+# --------------------------------------------------------------------------- #
+# The one-key reader: escape decoding (pure) and the terminal path (a pty).    #
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("raw", "key"),
+    [
+        ("\x1bOP", "f1"),
+        ("\x1bOR", "f3"),
+        ("\x1b[11~", "f1"),
+        ("\x1b[13~", "f3"),
+        ("\x1b[15~", "f5"),
+        ("\x1b[[A", "f1"),
+        ("\x1b[[C", "f3"),
+        ("\x1b[[E", "f5"),
+        ("\r", ENTER),
+        ("\n", ENTER),
+        ("S", "s"),
+        ("1", "1"),
+        ("\x1b[A", "\x1b[A"),  # an arrow key answers nothing
+        ("\x1b", "\x1b"),  # a lone ESC
+    ],
+)
+def test_decode_key_names_the_function_keys_and_enter(raw, key):
+    assert decode_key(raw) == key
+
+
+def _read_key_on_a_pty(sent: bytes):
+    """Call :func:`read_key` on the slave side of a pseudo-terminal, sending ``sent``
+    from the master once the reader has put the terminal in raw mode; return what it
+    read, or the exception it raised."""
+    import os
+    import pty
+    import termios
+    import threading
+    import time
+
+    master, slave = pty.openpty()
+    stream = open(slave, encoding="utf-8", closefd=False)  # noqa: SIM115
+    result: list[object] = []
+
+    def reader():
+        try:
+            result.append(read_key(stream))
+        except BaseException as exc:  # noqa: BLE001 - handed back to the test
+            result.append(exc)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        until = time.monotonic() + 5.0
+        while termios.tcgetattr(slave)[3] & termios.ICANON:  # wait for raw mode
+            assert time.monotonic() < until, "read_key never put the terminal in raw mode"
+            time.sleep(0.005)
+        os.write(master, sent)
+        thread.join(5.0)
+        assert not thread.is_alive(), f"read_key({sent!r}) did not return"
+        restored = termios.tcgetattr(slave)[3] & termios.ICANON
+        assert restored, "read_key left the terminal in raw mode"
+    finally:
+        os.close(master)  # a reader still waiting sees the hang-up and returns
+        thread.join(5.0)
+        if not thread.is_alive():  # closing under a blocked reader would wait for it
+            stream.close()
+        os.close(slave)
+    return result[0]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+@pytest.mark.parametrize(
+    ("sent", "key"),
+    [(b"1", "1"), (b"\x1bOP", "f1"), (b"\x1b[13~", "f3"), (b"\x1b[[E", "f5"), (b"\r", ENTER)],
+)
+def test_read_key_on_a_terminal_takes_one_key_without_enter(sent, key):
+    """On a terminal the key needs no Enter, and an F-key's sequence is one key."""
+    assert _read_key_on_a_pty(sent) == key
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_read_key_on_a_terminal_keeps_ctrl_c_an_interrupt():
+    assert isinstance(_read_key_on_a_pty(b"\x03"), KeyboardInterrupt)
+
+
+def _read_keys_on_a_pty(sent: bytes, read, count: int):
+    """Call ``read(stream)`` ``count`` times on the slave side of a pseudo-terminal,
+    sending all of ``sent`` in one write once the first read has put the terminal in
+    raw mode, so later keys arrive before their read starts (typed ahead); return the
+    keys read. A read that never returns fails the test instead of hanging it."""
+    import os
+    import pty
+    import termios
+    import threading
+    import time
+
+    master, slave = pty.openpty()
+    stream = open(slave, encoding="utf-8", closefd=False)  # noqa: SIM115
+    keys: list[object] = []
+
+    def reader():
+        try:
+            for _ in range(count):
+                keys.append(read(stream))
+        except BaseException as exc:  # noqa: BLE001 - handed back to the test
+            keys.append(exc)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        until = time.monotonic() + 5.0
+        while termios.tcgetattr(slave)[3] & termios.ICANON:  # wait for raw mode
+            assert time.monotonic() < until, "the read never put the terminal in raw mode"
+            time.sleep(0.005)
+        os.write(master, sent)
+        thread.join(5.0)
+        assert not thread.is_alive(), f"{count} reads of {sent!r} did not all return: {keys}"
+    finally:
+        os.close(master)
+        thread.join(5.0)
+        if not thread.is_alive():
+            stream.close()
+        os.close(slave)
+    return keys
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_keys_typed_ahead_wait_for_the_next_one_key_read():
+    """The C64's keyboard buffer keeps keys typed ahead for the next ``getx$``; so does
+    the reader: a key that arrived while the one before it was read is not thrown away
+    when the next read puts the terminal in raw mode again."""
+    assert _read_keys_on_a_pty(b"x1", read_key, 2) == ["x", "1"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_the_sessions_key_reader_takes_a_function_key_whole(monkeypatch):
+    """The map and location menus read keys through the session's reader; on a
+    terminal it reads them as the one-key prompts do, so an F1 there is one key and
+    leaves no "OP" behind to answer the next read."""
+    from clients.terminal import session
+
+    def session_read(stream):
+        monkeypatch.setattr(sys, "stdin", stream)
+        return session._read_key()
+
+    assert _read_keys_on_a_pty(b"\x1bOP2", session_read, 2) == ["f1", "2"]
+
+
+def test_enter_at_a_one_key_prompt_without_a_blank_is_ignored_without_a_reprint():
+    """``:25115 getx$:ifx$<"1"orx$>"3"goto25115``: RETURN is no trick, so the croupier
+    waits for one without printing the tricks again; a digit no ``int`` reads ("²") is
+    no trick either."""
+    seen = []
+
+    def handler(ctx):
+        seen.append((yield PromptInt("job.shift_croupier_tricks", min=1, max=3, read=READ_KEY)))
+        return []
+
+    inp, out = _eof_client("\n²\n2\n")
+    run(handler, inp, state=None, rng=None)
+    assert seen == [2]
+    assert out.getvalue().count("1 trickspiegel") == 1
+
+
+@pytest.mark.parametrize("text", ["{a: 1}\n", "[1]\n", "- ok\n- 2\n"])
+def test_a_reverse_list_that_is_no_list_of_keys_is_refused(tmp_path, text):
+    """``renderer/reverse.yaml`` names theme keys; anything else is refused by name
+    rather than drawn wrongly."""
+    from clients.terminal.reverse import read_reverse_keys
+
+    (tmp_path / "renderer").mkdir()
+    (tmp_path / "renderer" / "reverse.yaml").write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="expected a list of theme keys"):
+        read_reverse_keys(tmp_path)
+
+
+def test_an_empty_or_missing_reverse_list_reverses_nothing(tmp_path):
+    from clients.terminal.reverse import read_reverse_keys
+
+    assert read_reverse_keys(tmp_path) == frozenset()
+    (tmp_path / "renderer").mkdir()
+    (tmp_path / "renderer" / "reverse.yaml").write_text("", encoding="utf-8")
+    assert read_reverse_keys(tmp_path) == frozenset()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="needs a POSIX pseudo-terminal")
+def test_a_terminal_hanging_up_under_a_one_key_read_ends_input():
+    """A terminal that hangs up while a key is awaited (a dropped connection) is the
+    end of input (``None``), not a traceback: the read and the restore of the
+    terminal's mode both fail with EIO then."""
+    import os
+    import pty
+    import termios
+    import threading
+    import time
+
+    master, slave = pty.openpty()
+    stream = open(slave, encoding="utf-8", closefd=False)  # noqa: SIM115
+    result: list[object] = []
+
+    def reader():
+        try:
+            result.append(read_key(stream))
+        except BaseException as exc:  # noqa: BLE001 - handed back to the test
+            result.append(exc)
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    try:
+        until = time.monotonic() + 5.0
+        while termios.tcgetattr(slave)[3] & termios.ICANON:  # wait for raw mode
+            assert time.monotonic() < until, "read_key never put the terminal in raw mode"
+            time.sleep(0.005)
+        os.close(master)
+        thread.join(5.0)
+        assert not thread.is_alive(), "read_key did not return after the hang-up"
+        assert result == [None]
+    finally:
+        stream.close()
+        os.close(slave)

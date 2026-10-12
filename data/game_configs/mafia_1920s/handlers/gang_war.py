@@ -98,7 +98,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from engine.effects import EnergyChange, MoneyChange, MsChange
-from engine.interactions import Acknowledge, Confirm, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Acknowledge, Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import BarrelChange, Jail, MarkSet, VehicleSet
@@ -226,7 +226,8 @@ def _prison_brawl(ctx, defender: int):
         # :27146 -> :27150 ...:goto1100: after a lost brawl nothing more is printed,
         # and the key wait comes under the fight's outcome screen (whose own :30520
         # wait run_encounter has shown). A won brawl's wait is its screen's above.
-        yield KEY_WAIT
+        # Both waits are the jailed player's, the fight's only human side (KTD-6).
+        yield replace(KEY_WAIT, player=defender)
     return None
 
 
@@ -260,9 +261,16 @@ def gang_war(ctx):
                 "gang_size": len(player.roster),
             },
         )
-    # :27015-27017 getx$ / us=val(x$):ifus=0thenreturn / ifus<1orus>szorus=spgoto27015
+    # :27015-27017 getx$ / us=val(x$):ifus=0thenreturn / ifus<1orus>szorus=spgoto27015:
+    # one key; RETURN is val 0 and leaves.
     while True:
-        us = yield PromptInt("gang_war.opponent_prompt", min=0, max=clock.player_count, blank=0)
+        us = yield PromptInt(
+            "gang_war.opponent_prompt",
+            min=0,
+            max=clock.player_count,
+            blank=0,
+            read=READ_KEY,
+        )
         if us == 0:
             return None
         if us - 1 != attacker:

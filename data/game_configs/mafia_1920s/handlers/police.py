@@ -63,10 +63,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
-from engine.interactions import Confirm, PromptChoice, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Confirm, PromptChoice, ShowMessage
 
 from ..effects import Jail, JobClear, TipClear
-from ..house_rules import intent
+from ..house_rules import ANY_NUMBER, intent, number_prompt
 from ..setup import KEY_WAIT, load_encounter, load_vehicles, run_encounter, score_and_rank
 from ..state import wanted
 
@@ -102,10 +102,6 @@ SENTENCED = "sentenced"
 _MENU = ("police.menu_bribe", "police.menu_flee", "police.menu_surrender")
 _BRIBE, _FLEE, _SURRENDER = range(3)
 
-#: The lawyer prompt's first ask takes any whole number: the handler asks again for
-#: one the source refuses (``:26061``), so the empty answer's 0 is not range-checked.
-_ANY = 2**31
-
 
 @dataclass(frozen=True)
 class Arrest:
@@ -127,6 +123,7 @@ class _Run:
     """One capture's running values: the cash as it stands, and the parameters."""
 
     def __init__(self, ctx, arrest: Arrest) -> None:
+        self.state = ctx.state
         self.player = ctx.state.players[ctx.state.clock.active_player]
         self.cash = self.player.ka if arrest.cash is None else arrest.cash
         self.params = ctx.state.config.formula_params
@@ -197,8 +194,8 @@ def caught(ctx, arrest: Arrest):
         return (yield from _pay(ctx, run, price))
 
     # :26025 ``getx$:ifx$<"1"orx$>"3"goto26025``: any other key is ignored (the
-    # driver asks again).
-    choice = yield PromptChoice("police.menu", options=list(_MENU))
+    # driver asks again). One key, no Enter (``getx$``).
+    choice = yield PromptChoice("police.menu", options=list(_MENU), read=READ_KEY)
     if choice == _BRIBE:
         # :26035-26036 the price, then ok (j/n)?
         yield ShowMessage("police.bribe_demand", {"price": bribe})
@@ -306,8 +303,10 @@ def _lawyer_fee(run: _Run):
     question took, and its value is 0); an ask after a refusal reads it as the refused
     fee again, so the driver asks again.
     """
-    fee = yield PromptInt("police.lawyer_prompt", min=-_ANY, max=_ANY, blank=0)
+    fee = yield number_prompt(
+        run.state, "police.lawyer_prompt", min=-ANY_NUMBER, max=ANY_NUMBER, blank=0
+    )
     # :26060 ``ifx=0goto26075`` / :26061 ``ifx>ka(sp)orx<0then``
     while fee != 0 and (fee > run.cash or fee < 0):
-        fee = yield PromptInt("police.lawyer_prompt", min=0, max=max(run.cash, 0))
+        fee = yield number_prompt(run.state, "police.lawyer_prompt", min=0, max=max(run.cash, 0))
     return fee

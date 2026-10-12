@@ -165,6 +165,19 @@ def test_buy_stock_under_capacity_is_not_capped():
     assert game.contraband(result.state.players[0]).alcohol_barrels == 60
 
 
+def test_a_full_tank_still_offers_the_rolled_barrels():
+    """``:12022 printx"faesser fuer"p"$ pro fass.'"`` prints the roll before ``:12025
+    q=tk(tm(sp))-ta(sp):ifq<xthenx=q`` caps it: the offer shows all 200 rolled barrels,
+    and only the count prompt (``:12027`` ``(0-"mid$(str$(x),2)")``) takes the cap, 0."""
+    st = _state(ln=4, ka=100000, vehicle=0, barrels=50)  # on foot, tank=50: full
+    src = _scripted(0)
+    run_pure(HANDLERS["pub.drink"], src, state=st, rng=_StubRng(200, 7))
+    offer = src.messages()[0]
+    assert (offer.key, offer.params) == ("locations.pub.drink_offer", {"stock": 200, "price": 7})
+    ask = next(i for i in src.seen if isinstance(i, PromptInt))
+    assert ask.max == 0
+
+
 def test_sell_price_rolled_in_documented_range():
     st = _state(ln=2, ka=100000, barrels=10)
     rng = _StubRng(1, 29)  # forced sell path, max sell price 29
@@ -285,6 +298,20 @@ def test_a_negative_buy_sells_barrels_to_the_pub_and_still_scores_when_faithful(
     assert len(_prompts(source)) == 1
 
 
+def test_a_spaced_sign_at_the_buy_trades_as_the_negative_count_when_faithful():
+    """The C64 ``INPUT`` at :12027 reads ``- 3`` as -3 (the VICE capture's
+    ``[- 3]:-3``): the buy then sells 3 barrels, as for ``-3``."""
+    st = _state(ln=4, ka=1000, vehicle=1, barrels=0, negatives="faithful")
+    source = _scripted("- 3")
+    result = run_pure(HANDLERS["pub.drink"], source, state=st, rng=_StubRng(60, 5))
+    assert result.effects == [
+        BarrelChange(-3),
+        MoneyChange(15),
+        ScoreAndRank(amount=2, rank_divisor=11.1),
+    ]
+    assert len(_prompts(source)) == 1
+
+
 def test_a_negative_sell_buys_barrels_from_the_pub_when_faithful():
     """:12061 ``ify>ta(sp)`` and :12065 ``ify=0`` pass -5; :12075
     ``ka(sp)=ka(sp)+y*x:ta(sp)=ta(sp)-y`` takes 5x cash and adds 5 barrels."""
@@ -358,17 +385,18 @@ def test_after_a_refused_negative_the_next_count_trades_under_intent(
     assert result.effects[:2] == effects
 
 
-def test_the_switch_reaches_only_the_pubs_two_prompts_and_the_chiefs():
-    """AE3: the motel's months (:10030 ``ifx=0orx<0thennm=1:return``) and the loan
-    shark's amounts (:15021 ``ifx<0orx>5000``, :15055 ``ifx<0orx>kr(sp)``) refuse a
-    negative in the BASIC already, so they ask the same under both settings."""
+def test_the_switch_leaves_the_loan_sharks_refusals_of_a_negative_alone():
+    """The loan shark's amounts (:15021 ``ifx<0orx>5000``, :15055 ``ifx<0orx>kr(sp)``)
+    refuse a negative in the BASIC already, so they ask the same under both settings.
+    (The motel's months, which :10030 ``ifx=0orx<0 thennm=1:return`` turns away
+    quietly, follow the switch: tests/test_slw.py.)"""
     from data.game_configs.mafia_1920s.state import Debt, SCHEMA, values_of
     from engine.config_loader import load_config
 
     params = load_config(_CONFIG_DIR / "config.yaml")["formula_params"]
     seen: dict[str, list[tuple]] = {}
     for setting in ("faithful", "intent"):
-        for key, debt in (("slw.rent", 0), ("kdh.borrow", 0), ("kdh.repay", 900)):
+        for key, debt in (("kdh.borrow", 0), ("kdh.repay", 900)):
             player = Player(
                 name="p0",
                 ka=5000,

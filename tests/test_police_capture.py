@@ -38,6 +38,7 @@ from engine.combat import STEP_RIGHT
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, SetMovementPoints, Teleport
 from engine.interactions import (
+    READ_KEY,
     Acknowledge,
     Confirm,
     Ctx,
@@ -212,7 +213,9 @@ def test_a_stale_p_of_zero_with_no_cash_walks_free_four_times_in_five():
 
 def test_without_chief_bribe_months_the_menu_shows_even_when_the_roll_hits():
     result, source = _run(caught, Arrest(p=0), answers=(_SURRENDER,), draws=(1,))
-    assert len(_asked(source, PromptChoice)) == 1
+    (menu,) = _asked(source, PromptChoice)
+    # :26025 ``getx$:ifx$<"1"orx$>"3"goto26025``: one key, numbered from 1.
+    assert (menu.read, menu.answer_keys) == (READ_KEY, None)
     assert result.payload.returned == SENTENCED
 
 

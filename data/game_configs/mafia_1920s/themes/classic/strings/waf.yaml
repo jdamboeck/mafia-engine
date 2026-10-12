@@ -19,7 +19,9 @@ locations:
     weapon_list: "ok, wir haben folgendes:\n"  # :13010 `ok, wir haben folgendes:`
     weapon_row: "{number:mid$} - {name}{price}$"  # :13015 `printmid$(str$(i),2)" - "wa$(i);wp(i)"$"`
     weapon_prompt: "ihre wahl:"  # :13020 `ihre wahl:`
-    grenades_in: "...brandheiss! eine ladung army-handgranaten ist gerade eingetroffen!"  # :13090-13091
+    # :13090-13091 break the word as they print it; :13091's `b=8:print:return` leaves a
+    # blank row under the news.
+    grenades_in: "...brandheiss! eine ladung army-hand-\n\ngranaten ist gerade eingetroffen!\n"  # :13090 `brandheiss! eine ladung army-hand-`
     gangster_prompt: "fuer welchen gangster:"  # :13035 `fuer welchen gangster:`
     too_dumb: "zu wenig intelligenz!"  # :13050 `zu wenig intelligenz!`
     too_weak: "zu wenig kraft!"  # :13055 `zu wenig kraft!`

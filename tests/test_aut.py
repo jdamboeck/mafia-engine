@@ -47,6 +47,7 @@ from engine.combat import STEP_RIGHT
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, MsChange, SetMovementPoints, Teleport
 from engine.interactions import (
+    READ_KEY,
     Acknowledge,
     CANCEL,
     Confirm,
@@ -193,6 +194,9 @@ def test_zero_or_return_leaves_the_showroom_quietly():
         result, source = _run("aut.buy", _state(), answers=(answer,))
         assert result.effects == []
         assert source.message_keys()[-1] == "locations.aut.model"
+        # :14020 ``getx$``: one key; RETURN (val 0) is the blank 0.
+        (prompt,) = _asked(source, _MODEL)
+        assert (prompt.read, prompt.blank) == (READ_KEY, 0)
 
 
 @pytest.mark.parametrize(("ln", "models"), [(1, 3), (2, 4), (3, 3), (4, 3)])

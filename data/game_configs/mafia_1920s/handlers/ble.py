@@ -45,17 +45,14 @@ Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
 from __future__ import annotations
 
 from engine.effects import MoneyChange
-from engine.interactions import Confirm, PromptInt, ShowMessage
+from engine.interactions import Confirm, ShowMessage
 from engine.locations import register
 
 from ..effects import MarkSet
+from ..house_rules import ANY_NUMBER, number_prompt
 from ..setup import KEY_WAIT, score_and_rank
 
 __all__ = ["ble_counterfeit", "ble_passport"]
-
-#: The stake prompt's floor: any negative whole number reaches ``:22105``'s
-#: ``ifq<=0thenreturn`` rather than being asked again.
-_ANY_NEGATIVE = -(2**31)
 
 
 @register("ble.passport")
@@ -97,7 +94,12 @@ def ble_counterfeit(ctx):
     yield ShowMessage("locations.ble.counterfeit_reluctant")  # :22100
     # :22105-22106 — see the module docstring for the prompt's bounds.
     ceiling = max(min(params["ble_counterfeit_max"], active.ka), 0)
-    q = yield PromptInt("locations.ble.counterfeit_prompt", min=_ANY_NEGATIVE, max=ceiling)
+    q = yield number_prompt(
+        ctx.state,
+        "locations.ble.counterfeit_prompt",
+        min=-ANY_NUMBER,
+        max=ceiling,  # :22105 ifq<=0thenreturn
+    )
     if q <= 0:  # :22105 ``ifq<=0thenreturn``
         return []
 

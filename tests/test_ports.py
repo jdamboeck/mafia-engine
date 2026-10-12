@@ -1746,18 +1746,24 @@ Q_13075 = q(13075, "ka(sp)=ka(sp)+q-wp(x)")
 
 
 def _basic_buy(v: Values) -> Any:
-    b: dict[str, Any] = {"sp": 1, "y": 1, "x": v["x"], "x8": v["x8"], "q": 0}
-    b.update({"gw(1,1)": v["old"], "gf(1)": v["gf"], "ka(1)": 10**6})
+    # The faithful c64_float_score, as at :1160: gf(sp) and x8 are 5-byte floats, x8 the
+    # parser's value of the typed weight, and the line's result is stored as one. The
+    # evaluator's doubles add the two exactly here, and the store rounds that exact sum,
+    # which over this grid is where FADD's 40-bit window lands too (FSUB and these lines
+    # are held to VICE in tests/test_c64_float.py).
+    x8 = c64_val(repr(v["x8"]))
+    b: dict[str, Any] = {"sp": 1, "y": 1, "x": v["x"], "x8": x8, "q": 0}
+    b.update({"gw(1,1)": v["old"], "gf(1)": c64_float(v["gf"]), "ka(1)": 10**6})
     b.update({f"wp({i})": w["price"] for i, w in enumerate(_WEAPONS)})
     if Q_13065_NEW.holds(b):
         b["q"] = 0
-        b["gf(1)"] = Q_13065_GF.assign(b)
+        b["gf(1)"] = c64_float(Q_13065_GF.assign(b))
     else:
         b["q"] = Q_13070.assign(b)
         if Q_13072_UP.holds(b):
-            b["gf(1)"] = Q_13072_GF.assign(b)
+            b["gf(1)"] = c64_float(Q_13072_GF.assign(b))
         else:
-            b["gf(1)"] = Q_13073_GF.assign(b)
+            b["gf(1)"] = c64_float(Q_13073_GF.assign(b))
     return (Q_13075.assign(b), b["gf(1)"])
 
 
@@ -1775,7 +1781,8 @@ def _engine_buy(v: Values) -> Any:
             return True
         raise AssertionError(f"unexpected prompt {interaction!r}")
 
-    run = _drive(HANDLERS["waf.buy"], _state(player, score_mult=v["x8"]), draws, answer)
+    state = _state(player, score_mult=c64_val(repr(v["x8"])))  # as setup parses it
+    run = _drive(HANDLERS["waf.buy"], state, draws, answer)
     p = run.state.players[0]
     assert p.roster[0].weapon == v["x"]
     return (p.ka, p.gf)

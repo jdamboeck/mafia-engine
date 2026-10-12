@@ -54,12 +54,12 @@ Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
 from __future__ import annotations
 
 from engine.effects import MoneyChange, RosterAppend, Teleport
-from engine.interactions import Confirm, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import BribeMonthsChange, Jail
 from ..gangster import Gangster
-from ..house_rules import intent
+from ..house_rules import ANY_NUMBER, C64_INPUT_NEGATIVES, intent, negative_floor, number_prompt
 from ..setup import KEY_WAIT, score_and_rank
 from ..state import wanted
 from .police import Arrest, sentence
@@ -72,15 +72,8 @@ __all__ = [
     "pol_surrender",
 ]
 
-#: House rule: a negative count at a C64 number prompt goes through (faithful) or is
-#: asked again; here, the month count, which then pays out. ``handlers/pub.py`` reads
-#: it for the pub's buy and sell counts.
-C64_INPUT_NEGATIVES = "c64_input_negatives"
 #: House rule: an empty month answer repeats the map step (faithful) or buys nothing.
 CHIEF_BRIBE_EMPTY_ANSWER = "chief_bribe_empty_answer"
-
-#: A prompt bound that lets any whole number through to the handler's own checks.
-_ANY = 2**31
 
 
 @register("pol.surrender")
@@ -103,10 +96,11 @@ def pol_bribe(ctx):
         blank = 0
     else:
         blank = params["pol_door_cell"] - active.po  # :2015-2018, the step into the door
-    prompt = PromptInt(
+    prompt = number_prompt(
+        ctx.state,
         "locations.pol.chief_prompt",
-        min=0 if no_negatives else -_ANY,
-        max=_ANY,
+        min=negative_floor(ctx.state),
+        max=ANY_NUMBER,
         blank=blank,
     )
     months = yield prompt
@@ -162,8 +156,11 @@ def pol_free(ctx):
             name = ctx.state.players[inmate].name
             yield ShowMessage("locations.pol.free_entry", {"index": number, "name": name})
     # :21120-21125 ``getx$:ifx$=""orval(x$)>xgoto21120`` / ``ifg=0thenreturn``: a key
-    # above x is read again; "0", or RETURN (not a digit), leaves with no pause.
-    pick = yield PromptInt("locations.pol.free_prompt", min=0, max=len(inmates), blank=0)
+    # above x is read again; "0", or RETURN (not a digit), leaves with no pause. One
+    # key, as ``getx$`` reads it.
+    pick = yield PromptInt(
+        "locations.pol.free_prompt", min=0, max=len(inmates), blank=0, read=READ_KEY
+    )
     if pick == 0:
         return []
     inmate = inmates[pick - 1]
@@ -216,13 +213,22 @@ def _thank_you(ctx, freed: int, rescuer: str):
     blank: int | None = 0  # the first ask: ``x$`` is the confirm's "j", ``val`` is 0
     while True:
         yield screen  # :21250-21252
-        thanks = yield PromptInt(
-            "locations.pol.thank_you_prompt", min=-_ANY, max=_ANY, blank=blank, player=freed
+        thanks = yield number_prompt(
+            ctx.state,
+            "locations.pol.thank_you_prompt",
+            min=-ANY_NUMBER,
+            max=ANY_NUMBER,
+            blank=blank,
+            player=freed,
         )
         # :21253 ``ify>ka(x)ory<0thenprint"{up}{up}";:goto21252``: the prompt again, no screen.
         while thanks < 0:
-            thanks = yield PromptInt(
-                "locations.pol.thank_you_prompt", min=-_ANY, max=_ANY, player=freed
+            thanks = yield number_prompt(
+                ctx.state,
+                "locations.pol.thank_you_prompt",
+                min=-ANY_NUMBER,
+                max=ANY_NUMBER,
+                player=freed,
             )
         if thanks <= cash:  # :21252 ``ify>ka(x)goto21250``
             return thanks

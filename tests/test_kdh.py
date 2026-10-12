@@ -297,6 +297,17 @@ def test_sell_settles_unconditionally_no_afford_check():
     assert result.state.players[0].ka == 4500
 
 
+@pytest.mark.parametrize("negative", ["-3", "- 3"])
+def test_borrow_refuses_a_negative_amount_spaced_sign_or_not(negative):
+    """:15021 ``ifx<0orx>5000thenprint"{clr}":goto15015``: below 0 is asked again,
+    and a sign set apart from its digits is the same -3 (faithful by default)."""
+    st = _state([_player()])
+    source = _scripted(negative, "0")
+    result = run_pure(HANDLERS["kdh.borrow"], source, state=st, rng=_StubRng())
+    assert result.effects == []
+    assert len(source.seen) == 2
+
+
 # --------------------------------------------------------------------------- #
 # kdh.capital — mf-prg.bas:15200-15220                                         #
 # --------------------------------------------------------------------------- #

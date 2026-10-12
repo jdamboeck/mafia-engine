@@ -20,7 +20,8 @@
 # faithfully, so there is nothing to switch); each is a note at the code that departs.
 # A negative answer the C64 takes at a number prompt is not a departure but the
 # c64_input_negatives entry below, which names its prompts; the notes here hold the
-# fractions, empty answers and keys the port reads differently:
+# fractions, empty answers and keys the port reads differently, and the screens, waits
+# and pauses it shows differently:
 #   - kdh's debtor fight pins its backdrop to "ks": mf-prg.bas:15312 sets no kf$ and
 #     would inherit the last fight's (handlers/kdh.py).
 #   - the hit test draws both miss factors of mf-prg.bas:30247 even when the first
@@ -57,6 +58,22 @@
 #     mf-prg.bas:16015 takes a fraction, and 2.5 passes :16016's 1-3 check and plays
 #     with x=2.5; the stake at :16020 takes one too. The port offers the three games as
 #     a menu and asks a fractional stake again (handlers/sph.py).
+#   - every turn ends on a turn-over screen (cash, position, movement, rank, jail)
+#     and a key. The source goes on to the next player with no screen: at the turn's
+#     end (mf-prg.bas:1050 `goto1010`), at "naechster spieler" (mf-prg.bas:1031
+#     `ifx=4goto1010`), after a job shift (mf-prg.bas:1012
+#     `ifjo(sp)thengosub25000:goto1010`) and after a month in jail (mf-prg.bas:1013
+#     `ifgs(sp)thengosub1500:goto1010`) (engine/turns.py, clients/terminal/session.py).
+#   - a fight's "der kampf beginnt..." banner (mf-prg.bas:30025) has no pause: the
+#     source waits a counted loop and then blanks the banner's row before the first
+#     move (mf-prg.bas:30030 `fort=1to2000:next:gosub1450`); the port shows it on the
+#     first board and drops it with the first move (engine/fight_loop.py).
+#   - setup's score weight is asked again for text that is not a clean number, such
+#     as "2a": the C64 reads the number it starts with (mf-prg.bas:175
+#     `x8=val(x$)`, so "2a" is 2) and takes it (setup.parse_score_weight).
+#   - a location with a picture shows it as text art and waits for Enter before its
+#     menu: the source loads the picture (mf-prg.bas:3007 `syslh,lk$(la)+"-pic"`) and
+#     goes on to the menu with no key (clients/terminal/session.py).
 house_rules:
   - id: intelligence_or_30
     citation: ":311"
@@ -210,7 +227,7 @@ house_rules:
     citation: ":12027"
     quote: 'wieviele willst du (0-"mid$(str$(x),2)")";:inputy'
     faithful: >-
-      The C64 INPUT reads a negative number, and three number prompts take one. The
+      The C64 INPUT reads a negative number, and five number prompts take one. The
       pub's buy count: a negative y passes :12028 ``ify>xthen`` and :12029
       ``ify=0thenreturn``; its price is below 0, so :12030 ``ifka(sp)<y*pgoto1125``
       refuses it only to cash below that price, and :12035
@@ -224,10 +241,18 @@ house_rules:
       ``ka(sp)=ka(sp)-p:pl(sp)=pl(sp)+x+1`` pays the player 1000 $ a month and lowers
       the bribe months, below 0 from x=-2 on. A negative count never ages (:4050
       ``pl(sp)=pl(sp)+(pl(sp)>0)``), and any count other than 0 arms the arrest's
-      auto-pay (:26021 ``ifpl(sp)and``).
+      auto-pay (:26021 ``ifpl(sp)and``). The motel's months (:10025
+      ``input"{down}wieviele monate willst du mieten";x``): a negative x returns
+      quietly, with no key wait (:10030 ``ifx=0orx<0 thennm=1:return``). The casino's
+      stake: a negative p returns quietly, with no wager and no key wait (:16020
+      ``inputp:ifp=0orp<0 thenreturn``). And the INPUT
+      skips blanks between a sign and its digits, so "- 3" reads as -3 (checked in
+      VICE) at every number prompt read as a line; a prompt that refuses -3 refuses it
+      too.
     intent: >-
-      Counts are bought and sold, never negative: a number below 0 at any of the three
-      prompts is asked again.
+      Counts are bought and sold, never negative: a number below 0 at any of the five
+      prompts is asked again, and so is a sign set apart from its digits at any number
+      prompt.
     switch: true
 
   - id: chief_bribe_empty_answer
@@ -414,10 +439,12 @@ house_rules:
       exponent byte and a 32-bit mantissa), as :1160 ``gf(sp)=gf(sp)+(x*x8)`` does
       every time, so with a weight that is no exact binary fraction (0.1, say) the
       score drifts from the exact decimal sum of its awards. The typed weight is the
-      C64 parser's value, and the turn's cut to whole cents (:1013) and the rank
-      (:1165) read the score in the same arithmetic.
+      C64 parser's value, and the turn's cut to whole cents (:1013), the rank (:1165)
+      and the weapon shop's score steps (:13065, :13072, :13073) read and change the
+      score in the same arithmetic.
     intent: >-
       The score adds in exact decimal arithmetic: its awards times the weight sum as
       written, the typed weight is the decimal typed, and the turn's cut to whole cents
-      (:1013) and the rank (:1165) read that decimal.
+      (:1013), the rank (:1165) and the weapon shop's score steps (:13065, :13072,
+      :13073) read and change that decimal.
     switch: true

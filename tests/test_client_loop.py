@@ -251,8 +251,8 @@ class TestSphGambleThroughClient:
         walk = walk_keys_to_cell(state, city, sph_cell)
         # Entering a location with ASCII art shows a splash that eats one extra
         # "ENTER druecken" line (_run_location) BEFORE the menu is shown.
-        # Inside sph: "1" play -> game menu choice "0" (poker) -> wager "100" -> back to map.
-        return walk + ["", "1", "0", "100"]
+        # Inside sph: "1" play -> game menu choice "1" (poker) -> wager "100" -> back to map.
+        return walk + ["", "1", "1", "100"]
 
     def test_gamble_completes_and_pays_out(self, monkeypatch):
         """Playing sph's gamble through the client must not crash and must show a payout.
@@ -293,6 +293,66 @@ class TestSphGambleThroughClient:
         assert cleared != -1, "the map never came back"
         # The wait took the blank line; the map read "x" (one note), not both (two).
         assert output.count("(use W/A/S/D, M, P or Q)", cleared) == 1
+
+
+class TestCasinoMenuReadsAsItsSource:
+    """AE1: the casino's game menu as ``:16010-16016`` prints and reads it.
+
+    ``:16010 print"waehle, mein freund:":print"{down}1 - poker":print"2 - black jack"``
+    numbers the games from 1; ``:16015 input"{down}was soll's sein:";x:ifx=0thenreturn``
+    reads a line (Enter) and returns on 0; ``:16016 ifx<1orx>3`` asks again.
+    """
+
+    def _keys(self, *answers: str) -> list[str]:
+        city_raw = load_city_raw()
+        walk = walk_keys_to_cell(
+            new_state(42), load_city(city_raw), find_door_cell(city_raw, "sph")
+        )
+        # the art splash's Enter, then sph's "play" option (1), then the answers
+        return [*walk, "", "1", *answers]
+
+    def test_ae1_one_plays_poker(self, monkeypatch):
+        """``1`` is poker: seed 42's poker hand wins 50$ on 100$ (5500$ -> 5550$), as
+        :class:`TestSphGambleThroughClient` pins; black jack at the same draw loses."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("1", "100"))
+        low = output.lower()
+        assert "dein einsatz" in low, "the 1 did not reach the wager prompt"
+        assert "gewonnen" in low and "cash 5550$" in low, "1 did not play poker"
+
+    def test_ae1_the_menu_prints_its_labels_and_the_input_prompt(self, monkeypatch):
+        """The labels carry the source's numbers; the client adds no prefix of its own,
+        and ``:16015``'s prompt follows the options."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("1", "100"))
+        lines = [line.strip() for line in output.replace(CLEAR, "\n").splitlines()]
+        menu = lines.index("waehle, mein freund:")
+        assert lines[menu + 1 : menu + 4] == ["1 - poker", "2 - black jack", "3 - roulette"]
+        assert lines[menu + 4].startswith("was soll's sein:")
+
+    def test_the_stake_line_is_shown_once(self, monkeypatch):
+        """``:16020 print"{down}du hast"ka(sp)"$. dein einsatz:":inputp``: the cash and
+        "dein einsatz" are one line, printed once, and the stake is read under it."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("1", "100"))
+        low = output.lower()
+        assert low.count("dein einsatz") == 1, "the stake was asked twice"
+        assert "du hast 5500 $. dein einsatz:" in low
+
+    def test_ae1_zero_returns_without_a_game(self, monkeypatch):
+        """``:16015 ifx=0thenreturn``: 0 chooses nothing -- the menu is not asked again
+        and no wager prompt follows, so the next ``1`` is not a game."""
+        output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("0", "1"))
+        low = output.lower()
+        assert low.count("was soll's sein:") == 1, "0 did not leave the game menu"
+        assert "dein einsatz" not in low, "0 played a game instead of returning"
+
+    def test_ae1_the_answer_is_a_whole_line(self, monkeypatch):
+        """``input`` reads the whole line: ``12`` is no game (``:16016`` asks again), not
+        a ``1`` with a stray key after it."""
+        output = _run_play_with_deadline(
+            monkeypatch, seed=42, stdin_keys=self._keys("12", "1", "100")
+        )
+        low = output.lower()
+        assert low.count("was soll's sein:") == 2, "12 was not asked again"
+        assert "gewonnen" in low and "cash 5550$" in low
 
 
 # --------------------------------------------------------------------------- #
@@ -793,7 +853,9 @@ class TestJobShiftThroughClient:
         result1 = run_handler(HANDLERS["job.shift"], inp1, state=state, rng=Rng(1))
         assert game.job(result1.state.players[0]) == Job(type=2, pending_pay=1200, months_left=1)
         assert result1.state.players[0].ka == 1372
-        assert "welchen trick" in out1.getvalue()
+        # :25110-25111 the tricks are shown (the port's old "welchen trick" prompt is gone)
+        assert "3 bremse am roulette" in out1.getvalue()
+        assert "welchen trick" not in out1.getvalue()
 
         # Shift 2: trick 1, seed=1 again -> success again, months_left hits 0 ->
         # full wage (1200$) pays out once, job cleared (:25126's and :25560's key waits).
@@ -861,8 +923,8 @@ class TestEofMidHandlerExitsCleanly:
 
     def test_eof_during_sph_wager_prompt_exits_without_committing(self, monkeypatch):
         """Walk in, ack the art splash, pick "play" (location option 1), pick poker
-        (game 0) -- then stdin RUNS OUT at the non-cancellable wager prompt."""
-        keys = self._sph_keys("", "1", "0")
+        (game 1) -- then stdin RUNS OUT at the non-cancellable wager prompt."""
+        keys = self._sph_keys("", "1", "1")
         output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=keys)
         low = output.lower()
         # The run genuinely reached the wager prompt (not the map, not the game menu).
@@ -2040,7 +2102,7 @@ class TestRoundStandingsAndEnding:
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
         # splash ack, "play", poker -- then EOF at the wager prompt (EndOfInput path).
-        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "0"])
+        output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "1"])
         assert "dein einsatz" in output.lower(), "never reached the wager prompt"
         assert "bye." in output
         state, rng = ret
@@ -2135,7 +2197,7 @@ class TestSaveAndLoad:
         city = load_city(city_raw)
         walk = walk_keys_to_cell(new_state(42), city, find_door_cell(city_raw, "sph"))
         # each hand's result waits for a key (:16035/:16040 ``goto1100``)
-        return walk, walk + ["", "1", "0", "100", "", walk[-1], "", "1", "0", "100", ""]
+        return walk, walk + ["", "1", "1", "100", "", walk[-1], "", "1", "1", "100", ""]
 
     def test_loaded_game_continues_exactly_like_uninterrupted_play(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
@@ -2143,7 +2205,7 @@ class TestSaveAndLoad:
         walk, k1 = self._k1()
         # K2: enter sph again (po is unchanged by an entry, so the last walk key
         # re-enters) and gamble again -- RNG draws AFTER the save point -- then quit.
-        k2 = [walk[-1], "", "1", "0", "200", "", "q"]
+        k2 = [walk[-1], "", "1", "1", "200", "", "q"]
         save = tmp_path / "a.jsonl"
 
         out_a, (state_a, rng_a) = _run_session(
@@ -2462,7 +2524,7 @@ class TestTurnPhases:
             monkeypatch, tmp_path, state, "next_player", ["x", "1", "q"], seed=1
         )
 
-        assert "welchen trick" in output, "the job shift did not run"
+        assert "3 bremse am roulette" in output, "the job shift did not run"
         assert "move: W/A/S/D" not in output, "the employed player reached the map"
         assert game.job(state.players[1]).months_left == 1, "the shift did not complete"
         assert state.players[1].gf == 25.199999
@@ -2655,3 +2717,166 @@ class TestWhoseTurnLine:
         # The upkeep banner comes after the upkeep's prompt, so nothing before it names a
         # player.
         assert "ist an der reihe" not in output[:prompt_at], "a whose-turn line was printed"
+
+
+# --------------------------------------------------------------------------- #
+# Number menus read with one key (getx$): croupier, car dealer, freeing a      #
+# prisoner, the gang war's opponent (R2, R3).                                   #
+# --------------------------------------------------------------------------- #
+def _approach_key(cell: int) -> tuple[int, str]:
+    """A street cell next to ``cell`` and the map key that steps from it onto ``cell``."""
+    city = load_city(load_city_raw())
+    from engine.movement import STREET_CODE
+
+    for key, delta in MOVE_KEYS.items():
+        start = cell - delta
+        if 0 <= start < 1000 and city.code(start) == STREET_CODE:
+            return start, key
+    raise AssertionError(f"no street next to {cell}")
+
+
+class TestOneKeyNumberMenus:
+    """A number menu its source reads with ``getx$`` takes one key: on a pipe, one
+    key per line, so a line ``21`` is the key ``2`` (a line read would take 21 and
+    ask again). RETURN still leaves where the source leaves."""
+
+    @staticmethod
+    def _croupier(monkeypatch, tmp_path, lines):
+        from data.game_configs.mafia_1920s.state import Job
+
+        state = TestTurnPhases._second_player(Job(type=2, pending_pay=1200, months_left=2))
+        return _resume_at(monkeypatch, tmp_path, state, "next_player", ["x", *lines], seed=1)
+
+    def test_the_croupier_shows_the_three_tricks_and_no_prompt_of_its_own(
+        self, monkeypatch, tmp_path
+    ):
+        """``:25105-25111`` print the intro and the tricks; ``:25115 getx$`` reads the
+        key with nothing printed after the tricks."""
+        output, _ = self._croupier(monkeypatch, tmp_path, ["1", "", "q"])
+        lines = [line.strip() for line in output.splitlines()]
+        intro = lines.index("du musst als")
+        assert lines[intro : intro + 6] == [
+            "du musst als",
+            "croupier natuerlich falschspielen.",
+            "welche tricks willst du anwenden:",
+            "1 trickspiegel",
+            "2 gezinkte karten",
+            "3 bremse am roulette",
+        ]
+        assert "du machst gewinne" in lines[intro + 6], "something came between tricks and key"
+        assert "welchen trick" not in output
+
+    def test_the_croupier_picks_gezinkte_karten_on_one_key(self, monkeypatch, tmp_path):
+        """``21`` is the key 2 (gezinkte karten): seed 1 is not caught, and the bonus
+        ``:25125 p=int(rnd(1)*100*x)+300`` is drawn from 0..199 for trick 2, so it
+        differs from trick 1's (372 $ at seed 1, as the lifecycle test pins): 445 $ is
+        past trick 1's 300..399."""
+        output, (state, _rng) = self._croupier(monkeypatch, tmp_path, ["21", "", "q"])
+        assert output.count("1 trickspiegel") == 1, "the tricks were asked again"
+        assert "bonus von 445 $" in output, "not the bonus trick 2 draws at seed 1"
+        assert state.players[1].ka == 7000 + 445
+        assert game.job(state.players[1]).months_left == 1
+
+    def test_a_key_outside_the_tricks_is_ignored_without_printing_them_again(
+        self, monkeypatch, tmp_path
+    ):
+        """``:25115 getx$:ifx$<"1"orx$>"3"goto25115``: a ``4`` (or a letter) is not read
+        as an answer; the loop waits for the next key with nothing printed, and ``2``
+        then picks gezinkte karten (seed 1's trick-2 bonus, 445 $)."""
+        output, (state, _rng) = self._croupier(monkeypatch, tmp_path, ["4", "x", "2", "", "q"])
+        assert output.count("1 trickspiegel") == 1, "the tricks were printed again"
+        lines = [line.strip() for line in output.splitlines()]
+        tricks_end = lines.index("3 bremse am roulette")
+        assert "bonus von 445 $" in lines[tricks_end + 1], "something came between tricks and key"
+        assert state.players[1].ka == 7000 + 445
+
+    def test_end_of_input_while_waiting_for_a_trick_ends_the_session(self, monkeypatch, tmp_path):
+        """End of input in the ignored-key loop ends the session (``_resume_at`` runs
+        under a deadline, so a loop that took EOF for an ignored key fails)."""
+        output, (state, _rng) = self._croupier(monkeypatch, tmp_path, ["4"])
+        assert output.count("1 trickspiegel") == 1
+        assert "bye." in output
+        assert "du machst gewinne" not in output and "durchschaut" not in output
+        assert game.job(state.players[1]).months_left == 2, "the shift was played"
+
+    @staticmethod
+    def _showroom(monkeypatch, *keys):
+        city_raw = load_city_raw()
+        city = load_city(city_raw)
+        walk = walk_keys_across_turns(new_state(42), city, find_door_cell(city_raw, "aut"))
+        # the art splash, "wagen kaufen" (1), :14008's key wait, then the model key
+        return _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "", *keys])
+
+    def test_the_car_dealer_takes_the_model_on_one_key(self, monkeypatch):
+        """``:14020 getx$``: ``21`` is the key 2, the chevy roadster for 4000 $."""
+        output = self._showroom(monkeypatch, "21", "q")
+        assert output.count("2 chevy roadster") == 1, "the models were shown again"
+        assert "cash 1500$" in output.lower(), "the chevy (4000 $) was not bought from 5500 $"
+
+    def test_the_showroom_prints_its_key_line_once(self, monkeypatch):
+        """``:14008 print"{down}nummerntaste (0=ende) druecken!":gosub1100`` prints the
+        line before the models; ``:14020 getx$:ifx$=""goto14020`` prints nothing."""
+        output = self._showroom(monkeypatch, "21", "q")
+        assert output.count("nummerntaste (0=ende) druecken!") == 1
+
+    def test_return_leaves_the_showroom(self, monkeypatch):
+        """``:14025 y=val(x$):ify=0thenpokev+21,0:return``: RETURN is val 0 and leaves."""
+        output = self._showroom(monkeypatch, "", "q")
+        after = output.split("3 buick century")[1]
+        assert after.count("nummerntaste (0=ende) druecken!") <= 1, "RETURN was asked again"
+        assert "move: W/A/S/D" in after, "RETURN did not leave for the map"
+        assert "cash 5500$" in after.lower(), "RETURN bought a car"
+
+    @staticmethod
+    def _at_pol_with_moran_jailed():
+        """Two players; alcapone next to pol's door with the key that steps in, moran
+        jailed for 2 months."""
+        from dataclasses import replace
+
+        start, key = _approach_key(find_door_cell(load_city_raw(), "pol"))
+        state = new_state(42, [("alcapone", "the outfit"), ("moran", "north side")])
+        moran = state.players[1]
+        jail = game.values_of(game.Wanted(jail_months=2))
+        jailed = replace(moran, values={**moran.values, **jail})
+        state = replace(state, players=(replace(state.players[0], po=start, ms=20), jailed))
+        return state, key
+
+    def test_freeing_a_prisoner_takes_the_inmate_on_one_key(self, monkeypatch, tmp_path):
+        """``:21120 getx$:ifx$=""orval(x$)>xgoto21120``: ``12`` is the key 1, moran."""
+        state, key = self._at_pol_with_moran_jailed()
+        # step in, the art splash, "free" (3), then the inmate's key; EOF at :21131
+        output, _ = _resume_at(monkeypatch, tmp_path, state, "walking", [key, "", "3", "12"])
+        assert output.count("1 moran") == 1, "the inmates were listed again"
+        assert "um die waerter zu" in output, "the key did not pick moran"
+
+    def test_return_leaves_the_inmate_list(self, monkeypatch, tmp_path):
+        """``:21125 g=val(x$):ifg=0thenreturn``: RETURN (val 0) leaves, no price."""
+        state, key = self._at_pol_with_moran_jailed()
+        # step in, the art splash, "free" (3), RETURN, then "leave" (4) at the menu
+        output, _ = _resume_at(monkeypatch, tmp_path, state, "walking", [key, "", "3", "", "4"])
+        assert "um die waerter zu" not in output, "RETURN picked an inmate"
+        assert output.count("wen willst du befreien:") == 1, "RETURN was asked again"
+        after = output.split("wen willst du befreien:")[1]
+        assert "move: W/A/S/D" in after, "the menu's leave did not follow RETURN"
+
+    @staticmethod
+    def _gang_war(monkeypatch, tmp_path, lines):
+        from dataclasses import replace
+
+        state = new_state(42, [("alcapone", "the outfit"), ("moran", "north side")])
+        state = replace(state, clock=replace(state.clock, year=1925, month=4))
+        return _resume_at(monkeypatch, tmp_path, state, "menu", ["3", *lines])
+
+    def test_the_gang_war_takes_the_opponent_on_one_key(self, monkeypatch, tmp_path):
+        """``:27015 getx$``: ``21`` is the key 2, moran, and the duel starts."""
+        output, _ = self._gang_war(monkeypatch, tmp_path, ["21"])
+        assert output.count("mit wem willst du dich anlegen:") == 1, "the opponent was asked again"
+        assert "deine aktion:" in output, "no duel board was drawn"
+
+    def test_return_leaves_the_gang_war(self, monkeypatch, tmp_path):
+        """``:27016 us=val(x$):ifus=0thenreturn``: RETURN leaves; the menu comes back."""
+        output, _ = self._gang_war(monkeypatch, tmp_path, ["", "q"])
+        assert output.count("mit wem willst du dich anlegen:") == 1, "RETURN was asked again"
+        after = output.split("mit wem willst du dich anlegen:")[1]
+        assert "deine aktion:" not in after, "RETURN started a duel"
+        assert "3 - bandenkrieg" in after, "the turn menu did not come back"

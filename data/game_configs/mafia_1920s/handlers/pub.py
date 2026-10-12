@@ -67,11 +67,10 @@ from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
 from engine.locations import register
 from ..gangster import Gangster
-from ..house_rules import intent
+from ..house_rules import ANY_NUMBER, C64_INPUT_NEGATIVES, intent, number_prompt
 from ..state import contraband, hired_ids, tenant
 
 from ..setup import KEY_WAIT, load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
-from .pol import C64_INPUT_NEGATIVES
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
@@ -91,16 +90,6 @@ _MAX_OFFERS = 3
 
 #: Pub tile that never has recruits available (mf-prg.bas:12107's `orln=3`).
 _NO_RECRUIT_TILE = 3
-
-#: The count prompts' floor under faithful ``c64_input_negatives``: the C64 INPUT at
-#: :12027/:12060 stores any whole negative exactly (-99999999 in
-#: tests/fixtures/c64_input/vice_capture.txt; its float holds whole numbers exactly up
-#: to 2**32), and no line of the trade refuses one, so the floor only keeps the prompt
-#: finite. -(2**31), the floor of the chief's months (``handlers/pol.py``) and the
-#: counterfeiter's stake (``handlers/ble.py``), lies far below any count a trade has a
-#: use for (the cash a sale would cost or a purchase bring is the only limit, and the
-#: source sets none).
-_ANY_NEGATIVE = -(2**31)
 
 #: Alcohol tiles: these ``ln`` sell (mf-prg.bas:12010 ``ifln=4orln=5goto12020``; 5 is
 #: the station pub, see module docstring). Every other tile falls into the 50%
@@ -179,8 +168,10 @@ def pub_drink(ctx):
 
     1. ``:12010`` — ``ln`` 4 or 5 serves; every other tile falls to (2).
        BUY path (tiles 4 and 5): ``:12020-12035``.
-       a. Roll stock ``x`` (100-299 barrels) and price ``p`` (5-9$/barrel).
-       b. Cap the offer by the vehicle's free capacity: ``x = min(x, tank - barrels)``.
+       a. Roll stock ``x`` (100-299 barrels) and price ``p`` (5-9$/barrel), and show
+          the offer with the roll (``:12022``).
+       b. Cap the count by the vehicle's free capacity: ``x = min(x, tank - barrels)``
+          (``:12025``), after the offer is shown.
        c. Prompt a quantity up to ``x`` (``:12028``); 0 is a quiet abort (``:12029``).
           Faithful ``c64_input_negatives`` takes a negative quantity, as the C64
           INPUT does; intent asks it again (see ``_count_prompt``).
@@ -208,7 +199,11 @@ def pub_drink(ctx):
             params["pub_alcohol_buy_price_min"], params["pub_alcohol_buy_price_max"]
         )
 
-        # :12025 — cap the offer by the vehicle's free barrel capacity,
+        # :12021-12022 ``printx"faesser fuer"p"$ pro fass.'"`` -- the offer shows the
+        # roll, before :12025 caps it.
+        yield ShowMessage("locations.pub.drink_offer", {"stock": stock, "price": price})
+
+        # :12025 — cap the count by the vehicle's free barrel capacity,
         # `q=tk(tm(sp))-ta(sp)`.
         vehicles = _vehicles()
         capacity = vehicles[active.vehicle]["tank"]
@@ -216,7 +211,6 @@ def pub_drink(ctx):
         if free < stock:
             stock = free
 
-        yield ShowMessage("locations.pub.drink_offer", {"stock": stock, "price": price})
         # :12027 ``inputy``, :12028 ``ify>xthen...goto12027`` (asked again).
         y = yield _count_prompt(ctx.state, "locations.pub.drink_quantity_prompt", stock)
         if y == 0:  # :12029 ``ify=0thenreturn``
@@ -272,8 +266,8 @@ def _count_prompt(state, key: str, most: int) -> PromptInt:
     below 0 is asked again, and the bound stays at least 0 so 0 always returns.
     """
     if intent(state, C64_INPUT_NEGATIVES):
-        return PromptInt(key, min=0, max=max(most, 0))
-    return PromptInt(key, min=_ANY_NEGATIVE, max=most)
+        return number_prompt(state, key, min=0, max=max(most, 0))
+    return number_prompt(state, key, min=-ANY_NUMBER, max=most)
 
 
 # --------------------------------------------------------------------------- #
@@ -338,8 +332,8 @@ def pub_tip(ctx):
         yield KEY_WAIT  # :12231 / :12236 / :12242 / :12252 ...:goto1100
         return []
 
-    # :12245-12249 — tip 4's extra 5000$ stake sub-flow.
-    yield ShowMessage("locations.pub.arms_deal_offer")
+    # :12247-12249 — tip 4's extra 5000$ stake sub-flow, asked under the tip's own
+    # text (:12245-12246 print it once).
     if not (yield Confirm("locations.pub.arms_deal_confirm")):
         ctx.apply(TipClear())
         return []  # :12247 ...thentp(sp)=0:return -- no key wait

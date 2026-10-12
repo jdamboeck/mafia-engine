@@ -13,6 +13,7 @@ from engine.config_loader import load_game_config
 from engine.effects import MoneyChange, StatChangeCapped
 from data.game_configs.mafia_1920s.effects import ScoreAndRank
 from engine.interactions import (
+    READ_KEY,
     Ack,
     Acknowledge,
     Confirm,
@@ -140,6 +141,8 @@ def test_venue_gate_rank_5_offers_choice():
     )
     prompt_choices = [i for i in seen if isinstance(i, PromptChoice)]
     assert [i.key for i in prompt_choices] == ["locations.waf.venue_prompt"]
+    # :13106 ``getx$:ifx$<>"s"andx$<>"t"goto13106``: one key, s or t.
+    assert [(i.read, i.answer_keys) for i in prompt_choices] == [(READ_KEY, ("s", "t"))]
 
 
 # --------------------------------------------------------------------------- #

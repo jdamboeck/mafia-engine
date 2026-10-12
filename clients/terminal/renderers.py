@@ -17,6 +17,7 @@ from typing import Any, TextIO
 
 import yaml
 
+from engine.interactions import OBSERVE_PROMPT
 from engine.strings import Resolver
 
 from clients.terminal.palette import (
@@ -28,6 +29,7 @@ from clients.terminal.palette import (
     Colors,
 )
 from clients.terminal import CLEAR, client_text
+from clients.terminal.reverse import bar_start, is_reverse, reverse_text
 
 # ---------------------------------------------------------------------------
 # Layout config (terminal-specific, loaded once at import time)
@@ -106,13 +108,20 @@ def render_colored(text: str, color_name: str, out: TextIO, colors: Colors) -> N
     out.write(f"{colors.fg(color_name)}{text}{RESET_FG}\n")
 
 
-def render_location_title(title: str, out: TextIO, colors: Colors) -> None:
+def render_location_title(
+    title: str, out: TextIO, colors: Colors, *, reverse: bool = False
+) -> None:
     """A location screen's title: ``:3025`` ``print"{clr}{down}{rvon} "x$": "``.
 
-    A blank line, then the title in reverse video between the source's framing (a
-    space before it, a colon and a space after it). The caller clears the screen.
+    A blank line, then the title between the source's framing (a space before it, a
+    colon and a space after it), in reverse video when the theme lists the title's key
+    (``reverse``). The caller clears the screen.
     """
-    out.write(f"\n{REVERSE}{colors.fg('light_grey')} {title}: {RESET_ALL}\n")
+    framed = f" {title}: "
+    if reverse:
+        out.write(f"\n{reverse_text(framed, color=colors.fg('light_grey'))}\n")
+    else:
+        out.write(f"\n{colors.fg('light_grey')}{framed}{RESET_FG}\n")
 
 
 def render_menu_option(number: int, label: str, out: TextIO, colors: Colors) -> None:
@@ -356,8 +365,15 @@ def _theme_has(resolver: Any, key: str) -> bool:
     return False
 
 
-def render_combat_message(payload: dict, resolver: Any, out: TextIO, colors: Colors) -> None:
-    """Render the screen's ``message`` field, if any.
+def render_combat_message(
+    payload: dict,
+    resolver: Any,
+    out: TextIO,
+    colors: Colors,
+    reverse: frozenset[str] = frozenset(),
+) -> None:
+    """Render the screen's ``message`` field, if any, in reverse video when the theme
+    lists its key (``reverse``: ``:30025``'s ``{rvon}der kampf beginnt...``).
 
     ``message`` is either a bare key string (``"illegal_move"``/``"unknown_action"``)
     set by the driver loop, or the ``CombatFight.shoot`` result dict (``hit``/
@@ -368,41 +384,91 @@ def render_combat_message(payload: dict, resolver: Any, out: TextIO, colors: Col
     message = payload.get("message")
     if message is None:
         return
+    params: dict = {}
     if isinstance(message, str):
-        text = resolver.resolve(f"combat.{message}")
+        key = f"combat.{message}"
     elif isinstance(message, dict):
         if not message.get("hit"):
-            text = resolver.resolve("combat.miss")
+            key = "combat.miss"
         elif message.get("downed"):
             target_side = message.get("target_side")
             if target_side == 1:
-                text = resolver.resolve(
-                    "combat.hit_player_down",
-                    {"index": (message.get("target_index") or 0) + 1},
-                )
+                key = "combat.hit_player_down"
+                params = {"index": (message.get("target_index") or 0) + 1}
             else:
-                text = resolver.resolve("combat.hit_enemy_down")
+                key = "combat.hit_enemy_down"
         else:
             # :30350 ``print"{rvon}treffer! energie -"mid$(str$(y),2)"!"``: the damage.
-            text = resolver.resolve("combat.hit", {"damage": message.get("damage", 0)})
+            key = "combat.hit"
+            params = {"damage": message.get("damage", 0)}
     else:
         return
-    out.write(f"{colors.fg('yellow')}{text}{RESET_FG}\n")
+    text = resolver.resolve(key, params)
+    yellow = colors.fg("yellow")
+    if is_reverse(key, reverse):
+        out.write(reverse_text(text, bar_start(resolver, key), yellow) + "\n")
+    else:
+        out.write(f"{yellow}{text}{RESET_FG}\n")
 
 
-def render_combat_labels(payload: dict, resolver: Any, out: TextIO, colors: Colors) -> None:
+def render_combat_labels(
+    payload: dict,
+    resolver: Any,
+    out: TextIO,
+    colors: Colors,
+    reverse: frozenset[str] = frozenset(),
+) -> None:
     """The board's labels under the grid: each side's name (``mf-prg.bas:30015``,
-    ``combat.side_names``), then the last CPU fighter's label (``:30400``,
-    ``combat.cpu_label``) once a CPU fighter has acted. A payload with no names (a
-    fight that names no side) prints no name row."""
+    ``combat.side_names``), then one row of fighter labels. A payload with no names (a
+    fight that names no side) prints no name row.
+
+    The label row is the source's row 18: the last CPU fighter's label (``:30400``,
+    ``combat.cpu_label``) once a CPU fighter has acted, and, on a human's activation
+    (any frame but an observe frame), the active fighter's own label (``:30115``,
+    ``combat.player_label_side1``/``_side2``: column 0 for side 1, 20 for side 2),
+    drawn over it as the source prints it later. A label whose key the theme lists in
+    ``reverse`` is a reverse-video bar from its ``{tab(N)}`` column on.
+    """
     names = payload.get("names") or []
     if len(names) == 2:
         text = resolver.resolve("combat.side_names", {"name1": names[0], "name2": names[1]})
         out.write(f"{colors.fg('light_grey')}{text}{RESET_FG}\n")
+    labels: list[tuple[str, int]] = []
     fighter = payload.get("cpu_fighter")
     if fighter is not None:
-        text = resolver.resolve("combat.cpu_label", {"fighter": fighter})
-        out.write(f"{colors.fg('light_grey')}{text}{RESET_FG}\n")
+        labels.append(("combat.cpu_label", fighter))
+    side = payload.get("active_side")
+    if payload.get("prompt") != OBSERVE_PROMPT and side in (1, 2):
+        labels.append((f"combat.player_label_side{side}", payload.get("active_fighter", 1)))
+    if labels:
+        out.write(_label_row(labels, resolver, colors, reverse) + "\n")
+
+
+def _label_row(
+    labels: list[tuple[str, int]], resolver: Any, colors: Colors, reverse: frozenset[str]
+) -> str:
+    """One row of fighter labels, each written from its ``{tab(N)}`` column on over the
+    ones before it, each in reverse video when the theme lists its key."""
+    cells: list[tuple[str, bool]] = []
+    for key, number in labels:
+        text = resolver.resolve(key, {"fighter": number})
+        start = bar_start(resolver, key)
+        rvon = is_reverse(key, reverse)
+        cells.extend([(" ", False)] * (len(text) - len(cells)))
+        for column in range(start, len(text)):
+            cells[column] = (text[column], rvon)
+    grey = colors.fg("light_grey")
+    row = ""
+    column = 0
+    while column < len(cells):
+        rvon = cells[column][1]
+        end = column
+        while end < len(cells) and cells[end][1] == rvon:
+            end += 1
+        run = "".join(char for char, _ in cells[column:end])
+        row += reverse_text(run, color=grey) if rvon else f"{grey}{run}{RESET_FG}"
+        column = end
+    return row
 
 
 def render_combat_losses(payload: dict, resolver: Any, out: TextIO) -> None:

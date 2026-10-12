@@ -304,29 +304,31 @@ def test_the_capture_holds_the_samples():
     assert sorted(_SEIZURE) == [-50, 5, 250, 3000]
 
 
-@pytest.mark.parametrize("amount", [5, 250, 3000])
+@pytest.mark.parametrize("amount", [5, 250, 3000, -50])
 def test_the_seizure_message_has_the_c64_s_rows(amount):
     """:4620 ``print"{down}{left}"p"$ gepfaendet!"``: the ``{left}`` at column 0 steps
-    back to column 39 of the blank row, which takes ``p``'s sign space, so the amount
-    opens its own row at column 0 (``250 $ gepfaendet!``) under a blank one. The
-    message is the capture's rows 1-5 (row 0 is ``{clr}{down}``'s blank row)."""
+    back to column 39 of the blank row, which takes ``p``'s sign position, so the amount
+    opens its own row at column 0 (``250 $ gepfaendet!``) under the blank one. The
+    message is the capture's rows 1-5 (row 0 is ``{clr}{down}``'s blank row), each row
+    filled out to the screen's 40 columns as the capture holds it."""
     late = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve(
         "upkeep.rent_late", {"amount": amount}
     )
-    assert late.split("\n") == [row.rstrip() for row in _SEIZURE[amount][1:6]]
+    rows = late.split("\n")
+    assert all(len(row) <= 40 for row in rows), rows
+    assert [row.ljust(40) for row in rows] == _SEIZURE[amount][1:6]
 
 
-def test_a_negative_seizure_drops_only_the_minus_at_column_39():
+def test_a_negative_seizure_shows_its_minus_at_column_39():
     """A fine capped at negative cash (``ifp>ka(sp)thenp=ka(sp)``) prints its minus in
-    the sign position, column 39 of the blank row; the port's rows have no column 39,
-    so it renders that row blank and the amount row as the C64 shows it."""
+    the sign position, column 39 of the blank row, and the digits open the next row."""
     screen = _SEIZURE[-50]
     assert screen[4] == " " * 39 + "-"
     late = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve(
         "upkeep.rent_late", {"amount": -50}
     )
     rows = late.split("\n")
-    assert rows[3] == ""
+    assert rows[3] == screen[4] == " " * 39 + "-"
     assert rows[4] == screen[5].rstrip() == "50 $ gepfaendet!"
 
 

@@ -343,13 +343,15 @@ def test_leaving_the_station_pub_lands_on_the_map_for_10_points_with_the_pub_as_
 def test_a_pub_action_from_the_station_ends_the_visit():
     """A pub option returns to :2055 (the ``gosub3000`` the door opened): back on the
     map after the one action, with the door's 5 points only. Tile 5 sells alcohol
-    (:12010): 10 barrels at 7 $."""
+    (:12010): the offer shows the 150 rolled (:12022), the count is capped to the
+    50 a player on foot carries (:12025); 10 barrels at 7 $."""
     runner, into = _walking()
     gen, pub = _into_the_station_pub(runner, into)
     offer = gen.send(pub.options.index("drink"))
-    assert (offer.key, offer.params) == ("locations.pub.drink_offer", {"stock": 50, "price": 7})
+    assert (offer.key, offer.params) == ("locations.pub.drink_offer", {"stock": 150, "price": 7})
     ask = gen.send(None)
     assert isinstance(ask, PromptInt) and ask.key == "locations.pub.drink_quantity_prompt"
+    assert ask.max == 50
     done = gen.send(10)
     assert isinstance(done, OptionDone) and done.location == "pub"
     assert isinstance(gen.send(None), MapMove)

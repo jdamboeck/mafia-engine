@@ -179,9 +179,9 @@ class TestSmokeAsciiArt:
 
     def test_entering_a_location_shows_its_art_and_waits_for_a_key(self, monkeypatch):
         """Walking into sph shows its art splash, which eats one key before the menu:
-        the menu's "1" (play) and the game's "0" (poker) reach the wager prompt only
-        when a splash ack comes first (without it the splash eats the "1", and the menu
-        ignores the "0", :3040)."""
+        the menu's "1" (play) and the game's "1" (poker) reach the wager prompt only
+        when a splash ack comes first (without it the splash eats the menu's "1", the
+        game's "1" picks play, and the game menu meets the end of input)."""
         from engine.movement import load_city
         from tests.test_client_loop import (
             find_door_cell,
@@ -199,8 +199,8 @@ class TestSmokeAsciiArt:
         assert art is not None
         art_line = next(line for line in art if line.strip())
 
-        acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "0"])
-        unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["1", "0"])
+        acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "1"])
+        unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["1", "1"])
 
         assert art_line in acked and "ENTER druecken..." in acked
         assert acked.index(art_line) < acked.index("ENTER druecken...")
@@ -338,6 +338,31 @@ class TestQuitVocabulary:
         assert "(use W/A/S/D, M, P or Q)" in output, f"{key!r} was not refused as a bad key"
         assert output.count("bye.") == 1
         assert state.players[0].po == cell, f"the session ended at {key!r}"
+
+    @pytest.mark.parametrize("quit_keys", [["q"], []], ids=["q", "eof"])
+    def test_a_quit_at_the_location_menu_says_bye_once(self, monkeypatch, quit_keys):
+        # A quit at a location's menu (:3040's key read; q, or the end of input)
+        # ends the session with the same line as a quit on the map.
+        from engine.movement import load_city
+        from tests.test_client_loop import (
+            find_door_cell,
+            load_city_raw,
+            new_state,
+            run_play_returning,
+            walk_keys_to_cell,
+        )
+
+        city_raw = load_city_raw()
+        walk = walk_keys_to_cell(
+            new_state(42), load_city(city_raw), find_door_cell(city_raw, "sph")
+        )
+        # "" passes sph's picture splash; the menu then reads the quit (or EOF).
+        output, _ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + [""] + quit_keys)
+        assert "MAU-MAU" in output, "the walk never reached sph's location menu"
+        # Nothing between the menu and the quit: no option was picked.
+        assert "waehle, mein freund" not in output
+        assert output.endswith("bye.\n" + CURSOR_SHOW)
+        assert output.count("bye.") == 1
 
 
 class TestTurnOverQuit:

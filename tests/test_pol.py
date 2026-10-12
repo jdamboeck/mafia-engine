@@ -40,6 +40,7 @@ from data.game_configs.mafia_1920s.state import SCHEMA, Wanted, values_of
 from engine.config_loader import load_config, load_game_config
 from engine.effects import MoneyChange, RosterAppend, SetMovementPoints, Teleport, commit
 from engine.interactions import (
+    READ_KEY,
     Acknowledge,
     LocationMenu,
     MapMove,
@@ -353,6 +354,8 @@ def test_only_jailed_players_are_listed():
     assert entries == [{"index": 1, "name": "torrio"}, {"index": 2, "name": "capone2"}]
     pick = _prompts(source)[0]
     assert (pick.min, pick.max) == (0, 2)
+    # :21120 ``getx$``: one key; RETURN (val 0) is the blank 0, which leaves (:21125).
+    assert (pick.read, pick.blank) == (READ_KEY, 0)
 
 
 def test_the_phantom_inmate_joins_the_gang_and_adds_no_score():

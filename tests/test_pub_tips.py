@@ -169,6 +169,21 @@ def test_tip4_broke_for_the_stake_clears_the_tip():
     assert result.state.players[0].ka == 500  # tip price charged, stake NOT taken
 
 
+def test_tip4_shows_its_text_once_before_its_confirm():
+    """``:12245-12246`` print the arms-deal text once, then ``:12247 gosub1110`` asks:
+    after the tip's price confirm, one message and then the stake's confirm."""
+    from engine.interactions import Confirm, ShowMessage
+
+    src = _scripted(True, False)
+    run_pure(HANDLERS["pub.tip"], src, state=_state(rank=4, ka=100000), rng=_StubRng(0, 0, 3))
+    confirms = [i for i, x in enumerate(src.seen) if isinstance(x, Confirm)]
+    between = src.seen[confirms[0] + 1 : confirms[1]]
+    assert [x.key for x in between if isinstance(x, ShowMessage)] == [
+        "locations.pub.tip_waffenschmuggel"
+    ]
+    assert all(isinstance(x, ShowMessage) for x in between)
+
+
 def test_tip4_accept_deducts_stake_and_keeps_the_tip_set():
     st = _state(rank=4, ka=100000)
     rng = _StubRng(0, 0, 3)  # price=1000; tip id -> 4

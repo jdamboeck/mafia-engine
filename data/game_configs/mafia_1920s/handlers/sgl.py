@@ -66,7 +66,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from engine.effects import MoneyChange
-from engine.interactions import PromptChoice, ShowMessage
+from engine.interactions import READ_KEY, PromptChoice, ShowMessage
 from engine.locations import register
 
 from ..setup import (
@@ -266,7 +266,8 @@ def _extort(ctx, w: int, *, roster=None):
     # :17550 ``ka(sp)=ka(sp)+p`` — credited before the choice, kept whatever follows.
     ctx.apply(MoneyChange(p))
     # :17550-17560 ``getx$:ifx$<"1"orx$>"3"goto17555``: only 1..3 is read.
-    choice = yield PromptChoice("locations.sgl.after_menu", options=list(_AFTER))
+    # One key, no Enter (``getx$``).
+    choice = yield PromptChoice("locations.sgl.after_menu", options=list(_AFTER), read=READ_KEY)
     if choice == _DEMOLISH:
         yield from _demolish(ctx, ln, roster)
     elif choice == _KILL:

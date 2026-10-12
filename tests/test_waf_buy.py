@@ -9,12 +9,13 @@ plan's Test fixtures note).
 
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
 
 from engine.config_loader import load_game_config
-from engine.effects import AssignWeapon, MoneyChange, ScoreChange
+from engine.effects import AssignWeapon, MoneyChange
 from engine.interactions import (
     Acknowledge,
     CANCEL,
@@ -25,6 +26,7 @@ from engine.interactions import (
 )
 from engine.locations import HANDLERS
 from engine.state import Clock, Config, GameState, Player
+from data.game_configs.mafia_1920s.effects import WeaponBuyScore
 from data.game_configs.mafia_1920s.gangster import Gangster
 from engine.turns import KEY_WAIT_SCREEN
 from tests.helpers import StubRng as _StubRng, run_pure, scripted
@@ -500,7 +502,8 @@ def test_score_first_weapon_up_by_x8():
     st = _state(ln=2, ka=1000, gf=50.0, score_mult=1.0)
     answers = {PromptInt: iter([1]), PICK: iter([1])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(1.0, floor=None, cap=None) in result.effects
+    assert WeaponBuyScore(downgrade=False) in result.effects
+    assert result.state.players[0].gf == 51.0
 
 
 def test_score_upgrade_new_index_higher_than_old_is_up():
@@ -510,7 +513,8 @@ def test_score_upgrade_new_index_higher_than_old_is_up():
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([5]), PICK: iter([1]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(1.0, floor=None, cap=None) in result.effects
+    assert WeaponBuyScore(downgrade=False) in result.effects
+    assert result.state.players[0].gf == 51.0
 
 
 def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
@@ -520,15 +524,60 @@ def test_score_downgrade_new_index_not_higher_is_down_by_2x8():
     st = _state(ln=2, ka=10000, gf=50.0, score_mult=1.0, roster=roster)
     answers = {PromptInt: iter([1]), PICK: iter([1]), Confirm: iter([True])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert ScoreChange(-2.0, floor=None, cap=None) in result.effects
+    assert WeaponBuyScore(downgrade=True) in result.effects
+    assert result.state.players[0].gf == 48.0
 
 
 def test_score_gate_false_no_change():
-    # gf=100 -> (gf<100) false for first-weapon -> NO score change.
+    # gf=100 -> (gf<100) false for first-weapon: `x8*1*0` is 0 and the score stays.
+    # The line runs either way, as :13065 does; its guard is in the effect.
     st = _state(ln=2, ka=1000, gf=100.0, score_mult=1.0)
     answers = {PromptInt: iter([1]), PICK: iter([1])}
     result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
-    assert not any(isinstance(e, ScoreChange) for e in result.effects)
+    assert WeaponBuyScore(downgrade=False) in result.effects
+    assert result.state.players[0].gf == 100.0
+
+
+def test_a_downgrade_at_a_score_of_0_leaves_it():
+    # :13073 `gf(sp)=gf(sp)+x8*2*(gf(sp)>0)`: (gf>0) false at 0, so nothing is taken.
+    roster = (Gangster(name="g", weapon=5, intelligenz=99, kraft=99, brutalitaet=99),)
+    st = _state(ln=2, ka=10000, gf=0.0, score_mult=2.0, roster=roster)
+    answers = {PromptInt: iter([1]), PICK: iter([1]), Confirm: iter([True])}
+    result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
+    assert result.state.players[0].gf == 0.0
+
+
+@pytest.mark.parametrize(
+    ("gf", "weapon", "buy", "after"),
+    [(99.5, 0, 1, 101.5), (0.5, 5, 1, -3.5)],
+    ids=["past 100", "below 0"],
+)
+def test_the_shop_score_is_unclamped(gf, weapon, buy, after):
+    # The guards bound only the step's start: 99.5 < 100 adds x8=2 to 101.5, and
+    # 0.5 > 0 takes 2*x8=4 to -3.5; neither line clamps (no gosub 1160).
+    roster = (Gangster(name="g", weapon=weapon, intelligenz=99, kraft=99, brutalitaet=99),)
+    st = _state(ln=2, ka=10000, gf=gf, score_mult=2.0, roster=roster)
+    answers = {PromptInt: iter([buy]), PICK: iter([1]), Confirm: iter([True])}
+    result = _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers)
+    assert result.state.players[0].gf == after
+
+
+def test_the_shop_score_follows_the_c64_float_score_rule():
+    # Faithful: x8=.1 on 0.2 adds in the C64's 5-byte float (`c64_add`); intent: 0.3.
+    from engine.c64_numbers import c64_add
+
+    def bought(setting):
+        st = _state(ln=2, ka=1000, gf=0.2, score_mult=0.1)
+        st = dataclasses.replace(
+            st, config=dataclasses.replace(st.config, house_rules={"c64_float_score": setting})
+        )
+        answers = {PromptInt: iter([1]), PICK: iter([1])}
+        return _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers).state.players[0].gf
+
+    assert bought("intent") == 0.3
+    faithful = bought("faithful")
+    assert faithful == c64_add(0.2, 0.1)
+    assert faithful not in (0.3, 0.2 + 0.1)  # neither the decimal nor the double sum
 
 
 # --------------------------------------------------------------------------- #
@@ -580,7 +629,7 @@ def test_a_gangster_pick_of_0_goes_back_to_the_weapon_list():
     )
     assert result.status == "completed"
     assert result.effects == [
-        ScoreChange(1.0, floor=None, cap=None),
+        WeaponBuyScore(downgrade=False),
         MoneyChange(-50),
         AssignWeapon(weapon=1, gangster=0),
     ]

@@ -148,8 +148,8 @@ def test_score_change_normal_delta_lands_exactly():
 
 
 def test_score_change_unclamped_leaves_0_to_100():
-    """No bound is the weapon-buy score (``:13065``/``:13072``/``:13073``),
-    which changes gf with no bound: only ``gosub 1160-1161`` clamps."""
+    """No bound is for a port of a line that changes gf directly, outside
+    ``gosub 1160-1161``, the only place that clamps."""
     state = make_state()  # gf starts at 50
     assert apply(state, ScoreChange(60.0, floor=None, cap=None)).players[0].gf == 110.0
     assert apply(state, ScoreChange(-53.5, floor=None, cap=None)).players[0].gf == -3.5

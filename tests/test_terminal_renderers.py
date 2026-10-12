@@ -10,14 +10,17 @@ from engine.strings import Resolver
 
 from clients.terminal import CONFIG_DIR
 from clients.terminal.palette import ColorSupport, Colors, load_palette
+from clients.terminal.reverse import read_reverse_keys
 from clients.terminal.renderers import (
     render_body,
     render_colored,
     render_combat_grid,
+    render_combat_labels,
     render_combat_losses,
     render_combat_message,
     render_fighter_panel,
     render_header,
+    render_location_title,
     render_map_frame,
     render_menu_option,
     render_screen_clear,
@@ -353,6 +356,82 @@ class TestRenderCombatMessage:
         buf = _out()
         render_combat_message(_payload(message=None), _FakeResolver(), buf, _COLORS)
         assert buf.getvalue() == ""
+
+
+_CLASSIC_REVERSE = read_reverse_keys(CONFIG_DIR / "themes" / "classic")
+_ANSI_CODE = re.compile(r"\033\[[0-9;?]*[A-Za-z]")
+
+
+def _reversed(text: str) -> list[str]:
+    """The texts drawn in reverse video in ``text``, ANSI codes stripped."""
+    return [_ANSI_CODE.sub("", span) for span in re.findall(r"\033\[7m(.*?)\033\[0m", text)]
+
+
+class TestReverseVideo:
+    """The classic theme's ``renderer/reverse.yaml`` names the keys its source prints
+    after ``{rvon}``; the renderers draw those, and only those, in reverse video."""
+
+    def test_every_listed_key_names_a_classic_template(self) -> None:
+        from fnmatch import fnmatchcase
+
+        def leaves(tree: dict, prefix: str = "") -> list[str]:
+            keys: list[str] = []
+            for name, value in tree.items():
+                key = f"{prefix}{name}"
+                keys.extend(leaves(value, key + ".") if isinstance(value, dict) else [key])
+            return keys
+
+        keys = leaves(_classic().tree)
+        assert _CLASSIC_REVERSE
+        for pattern in _CLASSIC_REVERSE:
+            assert any(fnmatchcase(key, pattern) for key in keys), pattern
+
+    def test_side_2_s_human_label_is_a_bar_from_column_20(self) -> None:
+        """:30115 ``x=-20*(s=2):poke211,x`` -- side 2's label at column 20 (a hot-seat
+        gang fight: no CPU label), its number the active fighter's."""
+        buf = _out()
+        payload = _payload(active_side=2, active_fighter=3, names=[])
+        render_combat_labels(payload, _classic(), buf, _COLORS, _CLASSIC_REVERSE)
+        row = buf.getvalue().rstrip("\n")
+        assert _ANSI_CODE.sub("", row) == " " * 20 + "spieler 3 "
+        assert _reversed(row) == ["spieler 3 "]
+        assert _ANSI_CODE.sub("", row[: row.index("\033[7m")]) == " " * 20
+
+    def test_an_observe_frame_shows_no_human_label(self) -> None:
+        """An observe frame's active fighter is the CPU's that just acted: only
+        :30400's label, at column 20."""
+        buf = _out()
+        payload = _payload(
+            prompt="observe", active_side=2, active_fighter=2, cpu_fighter=1, names=[]
+        )
+        render_combat_labels(payload, _classic(), buf, _COLORS, _CLASSIC_REVERSE)
+        row = buf.getvalue().rstrip("\n")
+        assert _ANSI_CODE.sub("", row) == " " * 20 + "spieler 1 "
+        assert _reversed(row) == ["spieler 1 "]
+
+    def test_without_the_list_the_labels_are_plain(self) -> None:
+        buf = _out()
+        render_combat_labels(_payload(cpu_fighter=2, names=[]), _classic(), buf, _COLORS)
+        row = buf.getvalue().rstrip("\n")
+        assert _ANSI_CODE.sub("", row) == "spieler 1           spieler 2 "
+        assert "\033[7m" not in row
+
+    def test_the_banner_is_reverse_only_when_listed(self) -> None:
+        listed, plain = _out(), _out()
+        render_combat_message(
+            _payload(message="begins"), _classic(), listed, _COLORS, _CLASSIC_REVERSE
+        )
+        render_combat_message(_payload(message="begins"), _classic(), plain, _COLORS)
+        assert _reversed(listed.getvalue()) == ["der kampf beginnt..."]
+        assert "\033[7m" not in plain.getvalue()
+
+    def test_the_location_title_is_reverse_only_when_listed(self) -> None:
+        listed, plain = _out(), _out()
+        render_location_title("PUB", listed, _COLORS, reverse=True)
+        render_location_title("PUB", plain, _COLORS)
+        assert _reversed(listed.getvalue()) == [" PUB: "]
+        assert "\033[7m" not in plain.getvalue()
+        assert _ANSI_CODE.sub("", plain.getvalue()) == "\n PUB: \n"
 
 
 class TestRenderCombatLosses:

@@ -36,9 +36,10 @@ from __future__ import annotations
 
 from engine.effects import MoneyChange
 from ..effects import RentAccrue, SetTenancy
-from engine.interactions import PromptInt, ShowMessage
+from engine.interactions import ShowMessage
 from engine.locations import register
 
+from ..house_rules import negative_floor, number_prompt
 from ..setup import KEY_WAIT, fnm
 from ..state import tenant
 
@@ -91,6 +92,8 @@ def _rent_block(ctx):
     2. Quote the rent (``rent_quote``) and ask for a month count (``:10025``).
     3. ``:10030`` — ``x=0orx<0`` (``x <= 0``) is a quiet abort: return immediately with NO
        effects (atomic by construction, since nothing was applied yet) and no key wait.
+       A negative count reaches it under faithful ``c64_input_negatives`` (the C64
+       INPUT takes one); under intent it is asked again, and 0 still leaves.
     4. ``:10035`` — affordability: if ``ka < x*p`` emit ``not_enough_money`` and
        return with no deduction (``goto1125``, which waits for a key at ``:1100``).
     5. ``:10040-10045`` — success: deduct ``x*p``, set tenancy ``uk(ln)=sp``, accrue
@@ -108,7 +111,8 @@ def _rent_block(ctx):
 
     # :10025 — quote the rent, then ask how many months.
     yield ShowMessage("locations.slw.rent_quote", {"price": p})
-    x = yield PromptInt("locations.slw.months_prompt", min=0, max=_MAX_MONTHS)
+    floor = negative_floor(ctx.state)
+    x = yield number_prompt(ctx.state, "locations.slw.months_prompt", min=floor, max=_MAX_MONTHS)
 
     # :10030 — "ifx=0orx<0thennm=1:return": zero/negative months = quiet abort, no
     # key wait.

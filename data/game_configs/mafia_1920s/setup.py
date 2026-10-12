@@ -37,7 +37,7 @@ from engine.combat_setup import SIDE2_ANCHOR, build_player_side, placement_posit
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
 from engine.fight_loop import AiDriver, HumanDriver
-from engine.interactions import Acknowledge, PromptInt, ShowMessage, StartCombat
+from engine.interactions import Acknowledge, ShowMessage, StartCombat
 from engine.rng import Rng
 from engine.scenario import Scenario
 from engine.state import FAITHFUL, HOUSE_RULE_SETTINGS, INTENT, Clock, Config, GameState, Player
@@ -48,7 +48,7 @@ try:
     from .effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
     from .gangster import GANGSTER_ATTR_NAMES, Gangster
     from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from .house_rules import load_house_rules, switchable
+    from .house_rules import load_house_rules, number_prompt, switchable
     from .state import SCHEMA
     from .state import gang_name as _gang_name
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
@@ -56,7 +56,7 @@ except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
     from gangster import GANGSTER_ATTR_NAMES, Gangster
     from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from house_rules import load_house_rules, switchable
+    from house_rules import load_house_rules, number_prompt, switchable
     from state import SCHEMA
     from state import gang_name as _gang_name
 from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
@@ -476,8 +476,9 @@ def run_encounter(
       writes its energy back to them), moves it (a
       :class:`~engine.fight_loop.HumanDriver` naming them, side 2 the CPU's as
       ``:30110 ifks(s)=0`` plays it) and the outcome screen names their gang,
-      ``bn$(ks(1))``. The prison brawl's jailed player (``:27130`` ``ks(1)=us``).
-      Without it side 1 is the active player's.
+      ``bn$(ks(1))`` and its closing key wait is addressed to them. The prison
+      brawl's jailed player (``:27130`` ``ks(1)=us``). Without it side 1 is the
+      active player's.
     """
     active = ctx.state.players[ctx.state.clock.active_player]
     spec = encounter.variants[variant]
@@ -521,6 +522,8 @@ def run_encounter(
         enemy_name=spec.name,
         player_losses=result.losses[0],
         enemy_losses=result.losses[1],
+        # The owner moves side 1 against the CPU: the outcome's wait is theirs.
+        player=owner,
     )
     return result
 
@@ -585,6 +588,9 @@ def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
         enemy_name=names[1],
         player_losses=result.losses[0],
         enemy_losses=result.losses[1],
+        # Both sides are human and :30520 names no addressee: the wait stays with the
+        # active player, the attacker (:27020 ks(2)=sp).
+        player=attacker,
     )
     return result
 
@@ -668,7 +674,9 @@ def pick_gangster(ctx, *, cancellable: bool):
         yield ShowMessage(
             "turn.picker.gangster", {"index": number, **gangster_line(member, weapons)}
         )
-    y = yield PromptInt("turn.picker.prompt", min=0, max=len(roster), cancellable=cancellable)
+    y = yield number_prompt(
+        ctx.state, "turn.picker.prompt", min=0, max=len(roster), cancellable=cancellable
+    )
     if y == 0:  # :1150
         return None
     return y - 1  # :1155
@@ -717,7 +725,13 @@ def score_and_rank(x: float, params: dict, *, player: int | None = None) -> Scor
 
 
 def narrate_combat_outcome(
-    *, winner: int, player_name: str, enemy_name: str, player_losses: int, enemy_losses: int
+    *,
+    winner: int,
+    player_name: str,
+    enemy_name: str,
+    player_losses: int,
+    enemy_losses: int,
+    player: int | None = None,
 ):
     """Yield the post-fight outcome screen shared by ``jobs.py``, ``kdh.py``, and
     ``upkeep.py`` (narrating the outcome is the invoking handler's job —
@@ -739,6 +753,12 @@ def narrate_combat_outcome(
     winner alone (``0 if side == winner else 1``) is only correct for a
     one-fighter-per-side fight and would miscount the multi-enemy debt-collectors
     fight (``gz(0)=5``, ``:4355``).
+
+    ``player`` addresses the closing key wait (``None``: the active player): the
+    player at the keyboard when the fight ends, e.g. the prison brawl's jailed
+    player, its only human side (``:27130`` ``ks(1)=us``). Only the wait is
+    addressed, not the four outcome lines: a client names an addressed
+    interaction's player before each one, and the outcome is one screen.
     """
     winner_name = player_name if winner == 1 else enemy_name
     yield ShowMessage("combat.winner_banner", {"name": winner_name})
@@ -747,7 +767,7 @@ def narrate_combat_outcome(
         yield ShowMessage("combat.losses_line", {"name": name, "count": count})
     # :30520 ``print:goto1100`` -- the outcome screen waits for a key before the fight
     # returns to its caller, for every caller (the combat subroutine's own wait).
-    yield KEY_WAIT
+    yield KEY_WAIT if player is None else replace(KEY_WAIT, player=player)
 
 
 # --- new-game setup --------------------------------------------------------

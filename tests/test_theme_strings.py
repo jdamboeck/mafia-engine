@@ -40,16 +40,45 @@ def _collect_strings(d: dict, prefix: str = "") -> dict[str, str]:
     return out
 
 
+#: The prompts whose source line prints nothing of its own: the key a client reads is
+#: a bare ``getx$``, so its text is empty by design (``<file stem>.<key>`` -> reason).
+#: Every entry must exist and be exactly empty; no other string may be.
+_SILENT_PROMPTS = {
+    "aut.locations.aut.model_prompt": (
+        ':14020 `getx$:ifx$=""goto14020` prints nothing; :14008 printed the line'
+    ),
+}
+
+
 def test_no_empty_string_values():
-    """Every string value in the theme must be non-empty."""
+    """Every string value in the theme must be non-empty, but a silent prompt's."""
     strings_dir = _THEME_DIR / "strings"
+    silent: dict[str, str] = {}
     for yaml_file in sorted(strings_dir.glob("*.yaml")):
         data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             continue
         flat = _collect_strings(data, yaml_file.stem)
         for key, val in flat.items():
+            if key in _SILENT_PROMPTS:
+                silent[key] = val
+                continue
             assert val.strip(), f"empty string at {key} in {yaml_file.name}"
+    assert silent == dict.fromkeys(_SILENT_PROMPTS, ""), "a silent prompt is missing or has text"
+
+
+def test_no_string_doubles_an_apostrophe():
+    """A double-quoted YAML string takes ``''`` as two apostrophes (only a single-quoted
+    one escapes it), and no source line prints two in a row."""
+    strings_dir = _THEME_DIR / "strings"
+    doubled = []
+    for yaml_file in sorted(strings_dir.glob("*.yaml")):
+        data = yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            continue
+        flat = _collect_strings(data, yaml_file.stem)
+        doubled.extend(key for key, val in flat.items() if "''" in val)
+    assert doubled == []
 
 
 def test_no_broken_param_references():

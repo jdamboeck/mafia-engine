@@ -267,7 +267,7 @@ def test_a_negative_prints_its_minus_without_a_doubled_space():
     sign position, so no space opens before it and only PRINT's one follows it."""
     r = _styled("c64", "du hast{p}$ schulden")
     assert r.resolve("t", {"p": -500}) == "du hast-500 $ schulden"
-    classic = _resolver().resolve("locations.sph.cash", {"cash": -500})
+    classic = _resolver().resolve("locations.sph.wager_prompt", {"cash": -500})
     assert classic == "du hast-500 $. dein einsatz:"
     assert "  " not in classic
 
@@ -275,7 +275,7 @@ def test_a_negative_prints_its_minus_without_a_doubled_space():
 def test_a_positive_number_gets_the_sign_space():
     """``print"du hast"p"$"`` with p=500 shows ``du hast 500 $``: a space for the sign."""
     assert _styled("c64", "du hast{p}$").resolve("t", {"p": 500}) == "du hast 500 $"
-    classic = _resolver().resolve("locations.sph.cash", {"cash": 500})
+    classic = _resolver().resolve("locations.sph.wager_prompt", {"cash": 500})
     assert classic == "du hast 500 $. dein einsatz:"
 
 
@@ -320,3 +320,155 @@ def test_the_classic_standings_row_tabs_as_4510_does():
     )
     assert row == "alcapone        5500 $    -.9 "
     assert row.index("5500") - 1 == 15 and row.index("-.9") == 26
+
+
+# --------------------------------------------------------------------------- #
+# Text fixes (U3): each string shows what its source line prints -- no quote   #
+# marks the line lacks, one apostrophe where it has one, its line breaks.       #
+# A string joined from several PRINTs keeps the port's one-space join.          #
+# --------------------------------------------------------------------------- #
+_SOURCE_TEXTS = [
+    # :16020 print"{down}du hast"ka(sp)"$. dein einsatz:":inputp
+    ("locations.sph.wager_prompt", {"cash": 500}, "du hast 500 $. dein einsatz:"),
+    # :12021 print"'ich habe" / :12022 printx"faesser fuer"p"$ pro fass.'"
+    (
+        "locations.pub.drink_offer",
+        {"stock": 150, "price": 7},
+        "'ich habe\n 150 faesser fuer 7 $ pro fass.'",
+    ),
+    # :13090 print"...brandheiss! eine ladung army-hand-"
+    # :13091 print"{down}granaten ist gerade eingetroffen!":b=8:print:return
+    (
+        "locations.waf.grenades_in",
+        {},
+        "...brandheiss! eine ladung army-hand-\n\ngranaten ist gerade eingetroffen!\n",
+    ),
+    # The pub's SEQ file (src/pub): 'EH@ AMIGO@ WILLST DU 'NE MILCH? ...
+    (
+        "locations.pub.entry_prompt",
+        {},
+        "'EH, AMIGO, WILLST DU 'NE MILCH? ODER   SUCHST DU WAS ANDERES?'",
+    ),
+    (
+        "locations.pub.menu.tip",
+        {},
+        "'HAST DU VIELLEICHT 'N GUTEN TIP FUER   'NEN UEBERFALL ODER SOWAS?'",
+    ),
+    # --- pub recruit, :12101-12170 ---
+    (
+        "locations.pub.rank_too_low",
+        {"rank": "ganove"},
+        "als ganove kannst du noch keine eigenen leute haben!",
+    ),
+    ("locations.pub.recruit_no_housing", {}, "du brauchst eine unterkunft fuer die gangster!"),
+    ("locations.pub.recruit_gang_full", {}, "maximal 10 gangster!"),
+    ("locations.pub.recruit_nobody_available", {}, "es ist niemand da."),
+    ("locations.pub.recruit_intro_male", {}, "ein gangster kommt, um mit dir zu sprechen..."),
+    (
+        "locations.pub.recruit_intro_female",
+        {},
+        "eine dame scheint sich fuer deine gang zu interessieren...",
+    ),
+    (
+        "locations.pub.recruit_offer",
+        {"pronoun": "er", "name": "luigi", "description": "ein killer", "price": 1500},
+        "er wird luigi genannt. ein killer. er verlangt 1500 $ vorschuss, wenn er sich dir"
+        " anschliessen soll.",
+    ),
+    ("locations.pub.recruit_hired", {"gang_size": 3}, "nun hast du 3 gangster!"),
+    # --- pub job, :12301-12335 ---
+    ("locations.pub.job_rank_too_high", {"rank": "boss"}, "als 'boss' findest du was besseres!"),
+    ("locations.pub.job_nobody_available", {}, "niemand hat einen job fuer dich."),
+    (
+        "locations.pub.job_offer_bouncer",
+        {},
+        "der inhaber der bahnhofskneipe will dich fuer 3 monate als rausschmeisser anstellen.",
+    ),
+    (
+        "locations.pub.job_offer_croupier",
+        {},
+        "du kannst 2 monate als croupier in georges spielhoelle arbeiten.",
+    ),
+    (
+        "locations.pub.job_offer_doorman",
+        {},
+        "das 'le roi'-hotel sucht einen tuersteher fuer 2 monate.",
+    ),
+    (
+        "locations.pub.job_offer_killer",
+        {},
+        "du erhaelst das foto eines mannes, der im 'red house' abgestiegen ist. du sollst ihn"
+        " umlegen!",
+    ),
+    ("locations.pub.job_pay_confirm", {"pay": 2500}, "du bekommst dafuer 2500 $."),
+    ("locations.pub.job_accepted", {}, "du hast den job!"),
+    # --- job shifts, :25020-25556 ---
+    (
+        "job.shift_bouncer_wait",
+        {},
+        "du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen...",
+    ),
+    ("job.shift_bouncer_quiet", {}, "heute gab es nichts!"),
+    ("job.shift_bouncer_trouble", {}, "ein bursche faengt an, zu randalieren! tu etwas!"),
+    (
+        "job.shift_croupier_caught",
+        {},
+        "ein kunde hat deine tricks durchschaut und zieht ein messer!",
+    ),
+    (
+        "job.shift_croupier_bonus",
+        {"amount": 450},
+        "du machst gewinne und erhaeltst einen bonus von 450 $.",
+    ),
+    (
+        "job.shift_killer_intro",
+        {},
+        "du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse...",
+    ),
+    ("job.shift_failed", {}, "du hast deinen auftrag nicht erledigt!"),
+    (
+        "job.shift_completed",
+        {"pay": 2500},
+        "du hast deinen job erledigt und erhaeltst deinen lohn. es sind 2500 $!",
+    ),
+    # --- loan shark, :15010-15321 ---
+    ("locations.kdh.pay_old_debts_first", {}, "zahle erstmal deine alten schulden ab!"),
+    (
+        "locations.kdh.borrow_grace_notice",
+        {},
+        "du hast 6 monate zeit, die schulden zurueck zu zahlen!",
+    ),
+    ("locations.kdh.repay_partial", {"remaining": 300}, "ok, du hast jetzt noch 300 $ schulden!"),
+    ("locations.kdh.repay_full", {}, "du hast die schulden zurueckgezahlt!"),
+    ("locations.kdh.already_own_a_shop", {}, "du hast schon ein kreditgeschaeft!"),
+    ("locations.kdh.pay_own_debts_first", {}, "zahle erstmal deine eigenen schulden!"),
+    ("locations.kdh.shop_belongs_to", {"name": "moran"}, "der laden gehoert moran!"),
+    ("locations.kdh.buy_offer", {"price": 5500}, "der jetzige besitzer verlangt 5500 $."),
+    ("locations.kdh.bought", {}, "der laden gehoert nun dir!"),
+    (
+        "locations.kdh.sell_offer",
+        {"price": 4500},
+        "ein kaeufer bietet dir 4500 $ fuer den laden. willst du verkaufen (j/n) ?",
+    ),
+    ("locations.kdh.not_your_shop", {}, "dieser laden gehoert dir nicht!"),
+    (
+        "locations.kdh.capital_status",
+        {"capital": 2000, "max": 5000},
+        "du hast 2000 $ im kreditgeschaeft (maximal 5000 $).",
+    ),
+    ("locations.kdh.debts_paid_on_time", {}, "alle schuldner haben puenktlich gezahlt!"),
+    (
+        "locations.kdh.ambush_intro",
+        {},
+        "einer deiner klienten hat noch geld. er lauert dir mit einem gewehr auf, als du"
+        " kassieren willst!",
+    ),
+    ("locations.kdh.ambush_loot", {"amount": 800}, "er hatte noch 800 $ dabei!"),
+]
+
+
+@pytest.mark.parametrize(
+    ("key", "params", "expected"), _SOURCE_TEXTS, ids=[k for k, _, _ in _SOURCE_TEXTS]
+)
+def test_the_string_shows_what_its_source_line_prints(key, params, expected):
+    assert _resolver().resolve(key, params) == expected

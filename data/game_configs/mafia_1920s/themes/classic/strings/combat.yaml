@@ -18,6 +18,13 @@ combat:
   # number at column 20 (PRINT's sign space and trailing space around it).
   cpu_label: "{tab(20)}spieler{fighter}"  # :30400 `print"{rvon}spieler"f`
 
+  # :30115 x=-20*(s=2):poke211,x:poke214,18:syscs:print"{rvon}spieler   {left}{left}{left}"f
+  # -- on each of the human's activations, the active fighter's number on the CPU
+  # label's row: column 0 for side 1, column 20 for side 2. (The three spaces and
+  # {left}s blank an older, longer number; the port draws the row afresh.)
+  player_label_side1: "spieler{fighter}"  # :30115 `print"{rvon}spieler   {left}{left}{left}"f`
+  player_label_side2: "{tab(20)}spieler{fighter}"  # :30115 `x=-20*(s=2):poke211,x`
+
   # 30125/30139: unrecognized key falls back to the GET wait -- re-prompt, no text
   # printed by the original at that exact point; the client still needs SOME line.
   unknown_action: "?"

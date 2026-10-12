@@ -29,6 +29,7 @@ from typing import Any, TextIO
 from engine.interactions import (
     CANCEL,
     OBSERVE_PROMPT,
+    READ_KEY,
     CombatScreen,
     Confirm,
     PromptChoice,
@@ -37,10 +38,15 @@ from engine.interactions import (
 )
 from engine.strings import MissingKeyError, Resolver
 
+from clients.terminal.keys import ENTER, read_key
 from clients.terminal.palette import DIM, RESET, RESET_FG, RESET_BG, Colors
 
 #: The game config this client plays: the default ``mafia_1920s`` config.
 CONFIG_DIR = Path(__file__).resolve().parents[2] / "data" / "game_configs" / "mafia_1920s"
+
+#: The keys a one-key number prompt reads (``str.isdigit`` also takes "²", which
+#: ``int`` refuses).
+_DIGITS = "0123456789"
 
 __all__ = [
     "CONFIG_DIR",
@@ -69,6 +75,8 @@ CURSOR_SHOW = "\033[?25h"
 
 #: Inputs that mean "cancel" at a cancellable prompt (blank line or an explicit token).
 _CANCEL_TOKENS = {"", "q", "quit", "cancel"}
+#: The answer relayed for a menu key that names no option: the driver asks again.
+_NO_OPTION = -1
 #: Inputs that read as truthy for a Confirm prompt.
 _YES_TOKENS = {"y", "yes", "j", "ja", "1", "true"}
 
@@ -245,16 +253,28 @@ class EndOfInput(Exception):
     """
 
 
-def render_message(resolver: Resolver, message: ShowMessage, out: TextIO) -> None:
-    """Resolve and print one ``ShowMessage`` (key + params -> text)."""
-    out.write(resolver.resolve(message.key, message.params) + "\n")
+def render_message(
+    resolver: Resolver,
+    message: ShowMessage,
+    out: TextIO,
+    reverse: frozenset[str] = frozenset(),
+) -> None:
+    """Resolve and print one ``ShowMessage`` (key + params -> text), in reverse video
+    when the theme lists its key (``reverse``: a job's name, ``:25015``)."""
+    from clients.terminal.reverse import bar_start, is_reverse, reverse_text
+
+    text = resolver.resolve(message.key, message.params)
+    if is_reverse(message.key, reverse):
+        text = reverse_text(text, bar_start(resolver, message.key))
+    out.write(text + "\n")
 
 
 class TerminalInput:
-    """An ``input_source`` callable: render a prompt, read one line, relay the response.
+    """An ``input_source`` callable: render a prompt, read its answer, relay the response.
 
     The driver calls this once per interaction (again on re-prompt). It resolves the
-    prompt's key to text via the shared resolver, reads a single line of input, and
+    prompt's key to text via the shared resolver, reads a line of input (or one key,
+    for a prompt read with ``READ_KEY``: :func:`clients.terminal.keys.read_key`), and
     returns the typed response — an ``int``-bearing string for :class:`PromptInt`/
     :class:`PromptChoice` (the driver coerces it), a ``bool`` for :class:`Confirm`, or the
     :data:`CANCEL` sentinel at a cancellable prompt. A non-numeric entry is relayed
@@ -272,8 +292,11 @@ class TerminalInput:
         stdout: TextIO | None = None,
         weapon_names: list[str] | None = None,
         observe_ai: bool = False,
+        reverse: frozenset[str] = frozenset(),
     ) -> None:
         self._resolver = resolver
+        #: The theme keys drawn in reverse video (its ``renderer/reverse.yaml``).
+        self._reverse = reverse
         self._colors = colors
         #: ``--watch-ai`` opt-in: :func:`engine.fight_loop._drive_fight` reads this
         #: attribute and, only when it is true, hands us a display-only ``prompt="observe"``
@@ -294,7 +317,7 @@ class TerminalInput:
         board, under the screen clear (the session's whose-turn line)."""
         if isinstance(interaction, ShowMessage):
             # Driver auto-acks ShowMessage; if we are ever consulted, just render it.
-            render_message(self._resolver, interaction, self._stdout)
+            render_message(self._resolver, interaction, self._stdout, self._reverse)
             return None
 
         if isinstance(interaction, CombatScreen) and interaction.prompt == OBSERVE_PROMPT:
@@ -320,6 +343,11 @@ class TerminalInput:
             self._render_combat_screen(interaction, banner=banner)
             return self._read_combat_action()
 
+        if isinstance(interaction, PromptChoice):
+            return self._answer_choice(interaction)
+        if isinstance(interaction, PromptInt) and interaction.read == READ_KEY:
+            return self._answer_int_key(interaction)
+
         self._stdout.write(self._prompt_text(interaction))
         raw = self._read_line()
 
@@ -331,6 +359,67 @@ class TerminalInput:
             return CANCEL
         # Relay the raw line as-is; the driver coerces/validates and re-prompts if needed.
         return raw.strip()
+
+    def _answer_choice(self, menu: PromptChoice) -> Any:
+        """Show a menu and relay the 0-based index of the option its answer names.
+
+        The options are printed as their labels give them (the labels carry the
+        menu's own numbers, e.g. ``1 - poker``). Option ``i`` is answered by
+        ``menu.answer_keys[i]`` or, without answer keys, by the number ``i + 1``.
+
+        Read with one key (``READ_KEY``), a key that names no option is ignored and
+        the menu waits for the next (a ``getx$`` loop, ``:17555``); Enter cancels a
+        cancellable menu. Read as a line, a cancellable menu takes ``0`` (``:16015
+        ifx=0thenreturn``) or a cancel token as cancel, and a line that names no
+        option is relayed as :data:`_NO_OPTION`, which the driver asks again.
+        End of input raises :class:`EndOfInput` either way.
+        """
+        self._stdout.write(self._prompt_text(menu))
+        keys = (
+            list(menu.answer_keys)
+            if menu.answer_keys is not None
+            else [str(number) for number in range(1, len(menu.options) + 1)]
+        )
+        if menu.read == READ_KEY:
+            while True:
+                self._stdout.flush()
+                key = read_key(self._stdin, keys)
+                if key is None:
+                    raise EndOfInput
+                if key == ENTER and menu.cancellable:
+                    return CANCEL
+                if key in keys:
+                    return keys.index(key)
+        raw = self._read_line().strip().lower()
+        if menu.cancellable and (raw in _CANCEL_TOKENS or raw == "0"):
+            return CANCEL
+        return keys.index(raw) if raw in keys else _NO_OPTION
+
+    def _answer_int_key(self, prompt: PromptInt) -> Any:
+        """Read a number prompt's answer as one key (``READ_KEY``) and relay it.
+
+        Enter is an empty answer: cancel at a cancellable prompt, the prompt's ``blank``
+        value where it has one, and otherwise ignored. A digit key inside the prompt's
+        range is relayed; any other key is ignored and the next one read, with no
+        reprint, as a ``getx$`` loop waits. End of input raises :class:`EndOfInput`.
+        """
+        # A prompt with no text of its own (a bare ``getx$``) prints nothing.
+        text = self._resolver.resolve(prompt.key, prompt.params)
+        if text:
+            self._stdout.write(text + "\n")
+        self._stdout.flush()
+        while True:
+            key = read_key(self._stdin)
+            if key is None:
+                raise EndOfInput
+            if key == ENTER:
+                if prompt.cancellable:
+                    return CANCEL
+                if prompt.blank is not None:
+                    return ""
+                continue
+            if len(key) == 1 and key in _DIGITS and prompt.min <= int(key) <= prompt.max:
+                return key
 
     def _render_combat_screen(
         self,
@@ -362,8 +451,8 @@ class TerminalInput:
         if banner is not None:
             self._stdout.write(banner + "\n")
         render_combat_grid(payload, self._stdout, self._colors)
-        render_combat_message(payload, self._resolver, self._stdout, self._colors)
-        render_combat_labels(payload, self._resolver, self._stdout, self._colors)
+        render_combat_message(payload, self._resolver, self._stdout, self._colors, self._reverse)
+        render_combat_labels(payload, self._resolver, self._stdout, self._colors, self._reverse)
         render_fighter_panel(
             payload, self._resolver, self._weapon_names, self._stdout, self._colors
         )
@@ -418,12 +507,18 @@ class TerminalInput:
     def _prompt_text(self, interaction: Any) -> str:
         if isinstance(interaction, PromptChoice):
             lines = [self._resolver.resolve(interaction.key)]
-            for i, opt in enumerate(interaction.options):
-                # An option is either a theme KEY (sph's game menu, waf's venue menu) or a
-                # plain value (a gangster's name). Resolve keys; show plain values as given.
-                lines.append(f"  {i}) {self._option_label(opt)}")
+            # An option is either a theme KEY (sph's game menu, waf's venue menu) or a
+            # plain value. Resolve keys; show plain values as given. No number of the
+            # client's own: the labels carry the menu's numbers.
+            lines.extend(self._option_label(opt) for opt in interaction.options)
+            if interaction.prompt is not None:
+                lines.append(self._resolver.resolve(interaction.prompt))
+            if interaction.read == READ_KEY:
+                return "\n".join(lines) + "\n"
             return "\n".join(lines) + "\n> "
-        if isinstance(interaction, (PromptInt, Confirm)):
+        if isinstance(interaction, PromptInt):
+            return self._resolver.resolve(interaction.key, interaction.params) + "\n> "
+        if isinstance(interaction, Confirm):
             return self._resolver.resolve(interaction.key) + "\n> "
         return "> "
 

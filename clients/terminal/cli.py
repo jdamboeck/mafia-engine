@@ -27,6 +27,7 @@ from engine.config_loader import load_config, load_game_config
 from engine.strings import Resolver
 
 from clients.terminal.palette import Palette, load_palette, read_palette_overrides
+from clients.terminal.reverse import read_reverse_keys
 from clients.terminal.session import (
     _CONFIG_DIR,
     _DEFAULT_SAVE,
@@ -105,6 +106,7 @@ def main(argv: list[str] | None = None) -> None:
     # theme is a known failure: one line, not a traceback.
     try:
         resolver, palette = _load_theme(args.theme, resolver)
+        reverse = read_reverse_keys(_theme_dir(args.theme))
     except (OSError, yaml.YAMLError, ValueError) as exc:
         _die(text("theme_error", theme=args.theme, error=exc))
     if args.load is not None:
@@ -157,6 +159,11 @@ def main(argv: list[str] | None = None) -> None:
         )
     players = None
     if args.players:
+        # The setup asks again for a count outside input_ranges.player_count (:206
+        # ``ifsz<1orsz>4goto205``); here a flag too many is refused before the game starts.
+        most = ranges["player_count"]["max"]
+        if len(args.players) > most:
+            parser.error(text("too_many_players", max=most, count=len(args.players)))
         players = []
         for spec in args.players:
             name, _, gang = spec.partition(":")
@@ -190,6 +197,7 @@ def main(argv: list[str] | None = None) -> None:
             watch_ai=args.watch_ai,
             resolver=resolver,
             palette=palette,
+            reverse=reverse,
         )
     except LoadError as exc:
         _die(str(exc))
@@ -267,14 +275,22 @@ def _load_theme(value: str, classic: Resolver) -> tuple[Resolver, Palette]:
     ``yaml.YAMLError`` or ``ValueError`` when the theme cannot be loaded.
     """
     classic_palette = load_palette(_CONFIG_DIR, _DEFAULT_THEME)
-    if _is_theme_path(value):
-        theme_dir = Path(value).expanduser()
-    elif value == _DEFAULT_THEME:
+    if value == _DEFAULT_THEME and not _is_theme_path(value):
         return classic, classic_palette
-    else:
-        theme_dir = _CONFIG_DIR / "themes" / value
+    theme_dir = _theme_dir(value)
     strings = classic.with_override(Resolver.from_directory(theme_dir).tree)
     return strings, {**classic_palette, **read_palette_overrides(theme_dir)}
+
+
+def _theme_dir(value: str) -> Path:
+    """The directory ``--theme VALUE`` names (see :func:`_load_theme`).
+
+    Its ``renderer/reverse.yaml`` is read on its own, not merged over classic's: the
+    list is the theme's, and a theme without one draws every text plain.
+    """
+    if _is_theme_path(value):
+        return Path(value).expanduser()
+    return _CONFIG_DIR / "themes" / value
 
 
 def _is_theme_path(value: str) -> bool:

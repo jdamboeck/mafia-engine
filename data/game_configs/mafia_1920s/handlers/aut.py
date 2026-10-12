@@ -43,7 +43,7 @@ import math
 from pathlib import Path
 
 from engine.effects import MoneyChange, MsChange
-from engine.interactions import Confirm, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import VehicleSet
@@ -86,8 +86,8 @@ def aut_buy(ctx):
             )
         # :14020-14030 ``getx$`` / ``y=val(x$):ify=0thenpokev+21,0:return`` /
         # ``if(y-1)>xgoto14020``: a digit above the models is read again; 0 leaves,
-        # and so does RETURN (``val`` of it is 0).
-        y = yield PromptInt("locations.aut.model_prompt", min=0, max=models, blank=0)
+        # and so does RETURN (``val`` of it is 0). One key, as ``getx$`` reads it.
+        y = yield PromptInt("locations.aut.model_prompt", min=0, max=models, blank=0, read=READ_KEY)
         if y == 0:
             return []  # :14025 ...ify=0thenpokev+21,0:return -- no key wait
 

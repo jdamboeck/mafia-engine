@@ -40,10 +40,12 @@ from data.game_configs.mafia_1920s.handlers.turn import JAIL_SCREEN
 from engine.combat import CombatResult
 from engine.config_loader import load_game_config
 from engine.interactions import (
+    READ_KEY,
     Acknowledge,
     CombatScreen,
     Confirm,
     PromptInt,
+    ShowMessage,
     StartCombat,
     TurnMenu,
 )
@@ -192,6 +194,8 @@ def test_the_gate_opens_on_the_round_shown_as_1925_5(year, month):
     assert outcome == "open"
     assert _screens(seen) == []
     assert isinstance(seen[-1], PromptInt) and seen[-1].key == "gang_war.opponent_prompt"
+    # :27015 ``getx$``: one key; RETURN (val 0) is the blank 0, which leaves (:27016).
+    assert (seen[-1].read, seen[-1].blank) == (READ_KEY, 0)
 
 
 def test_the_refusal_texts_are_the_sources():
@@ -455,6 +459,11 @@ def test_the_defenders_board_is_announced_and_the_line_survives_the_render(monke
     assert len(boards) == 2, "not one board per activation"
     assert "spieler moran\nist an der reihe..." in boards[0], "moran's board was not announced"
     assert "ist an der reihe" not in boards[1], "alcapone, the active player, was announced"
+    # KTD-6: the outcome screen's wait (:30520) stays alcapone's, unannounced.
+    (outcome,) = [s for s in output.split(CLEAR) if "sieger: " in s]
+    outcome = outcome[outcome.index("sieger: ") :]
+    assert "verluste der spieler" in outcome
+    assert "ist an der reihe" not in outcome, "the duel's outcome wait was announced"
     # moran won: his plunder screen clears too, and is announced under its clear.
     (plunder,) = [s for s in output.split(CLEAR) if "du findest beim pluendern" in s]
     assert plunder.index("spieler moran\nist an der reihe...") < plunder.index("moran, du")
@@ -591,6 +600,12 @@ def test_the_jailed_players_board_is_announced(monkeypatch, tmp_path):
     boards = [s for s in output.split(CLEAR) if _is_board(s)]
     assert len(boards) == 1, "not one board for moran's one activation"
     assert "spieler moran\nist an der reihe..." in boards[0], "moran's board was not announced"
+    # KTD-6: the outcome screen's wait (:30520) and the lost brawl's (:27150) are
+    # moran's, each announced once, under the outcome lines.
+    (outcome,) = [s for s in output.split(CLEAR) if "sieger: mr.bonebreaker" in s]
+    outcome = outcome[outcome.index("sieger: mr.bonebreaker") :]
+    assert outcome.count("spieler moran\nist an der reihe...") == 2
+    assert outcome.index("spieler moran") > outcome.index("mr.bonebreaker: 0")
     assert after.players[_ATTACKER].ka == 6000 - 3000
 
 
@@ -652,3 +667,53 @@ def test_each_gang_war_exit_waits_for_a_key_where_the_source_does(monkeypatch):
     _brawls(monkeypatch, CombatResult(winner=2, losses=(0, 0)))
     _, source = _duel(_jailed(), answers=("2", True), draws=())  # :27146-27150
     assert _last_wait(source) == KEY_WAIT_SCREEN and source.key_waits() == 1
+
+
+# --------------------------------------------------------------------------- #
+# Whom the key waits address (KTD-6)                                           #
+# --------------------------------------------------------------------------- #
+def _real_run(state, plays):
+    """Run the handler through ``run_pure`` with the real fight: ``plays`` answers
+    each board by the player it names; the opponent is moran, a j/n is yes. Returns
+    every interaction delivered."""
+    seen: list = []
+
+    def answer(interaction):
+        seen.append(interaction)
+        if isinstance(interaction, CombatScreen):
+            return plays[interaction.player]
+        if isinstance(interaction, PromptInt):
+            return "2"
+        return True if isinstance(interaction, Confirm) else None
+
+    run_pure(HANDLERS["turn.gang_war"], answer, state=state, rng=StubRng(0))
+    return seen
+
+
+def _key_waits(seen) -> list:
+    from engine.turns import KEY_WAIT_SCREEN
+
+    return [i.player for i in seen if isinstance(i, Acknowledge) and i.key == KEY_WAIT_SCREEN]
+
+
+def test_the_lost_brawls_two_key_waits_are_the_jailed_players():
+    """AE4: the brawl's only human side is the jailed player (``:27130 ks(1)=us``,
+    side 2 the CPU's, ``:30110 ifks(s)=0``). Moran gives up: the outcome screen's
+    wait (``:30520 print:goto1100``) and the lost brawl's own (``:27150
+    ...:goto1100``) are both addressed to him; the outcome lines are not."""
+    seen = _real_run(_jailed(), {_DEFENDER: ("surrender", None)})
+
+    assert _key_waits(seen) == [_DEFENDER, _DEFENDER]
+    outcome = [i for i in seen if isinstance(i, ShowMessage) and i.key.startswith("combat.")]
+    assert len(outcome) == 4
+    # The driver fills an unaddressed interaction in with the active player.
+    assert {i.player for i in outcome} == {_ATTACKER}, "an outcome line was addressed"
+
+
+def test_the_duels_one_key_wait_is_the_active_players():
+    """Both duel sides are human and the source names no addressee: the outcome
+    wait (``:30520``) stays with the active, attacking player (``:27020 ks(2)=sp``)."""
+    state = _state(p0={"roster": (_G,)}, p1={"roster": (_G,)})
+    seen = _real_run(state, {_DEFENDER: ("pass", None), _ATTACKER: ("surrender", None)})
+
+    assert _key_waits(seen) == [_ATTACKER]

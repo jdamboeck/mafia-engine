@@ -28,6 +28,7 @@ from engine.interactions import (
     PromptChoice,
     PromptInt,
     PromptText,
+    READ_KEY,
     RollFrame,
     ShowMessage,
     run,
@@ -175,6 +176,43 @@ def test_promptchoice_reprompts_on_out_of_range_index():
     assert len(src.seen) == 3
 
 
+def test_a_one_key_menu_with_answer_keys_still_takes_the_0_based_index():
+    """The read mode and answer keys tell the client how to read; the driver's answer
+    stays the 0-based index, validated as for any menu (KTD-1)."""
+    got = {}
+
+    def handler(ctx):
+        got["idx"] = yield PromptChoice(
+            "menu", options=["a", "b"], read=READ_KEY, answer_keys=("s", "t")
+        )
+        return []
+
+    src = scripted("t", 2, 1)  # a key name and an out-of-range index are asked again
+    run(handler, src)
+    assert got["idx"] == 1
+    assert len(src.seen) == 3
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"read": "getx"},
+        {"answer_keys": ("s",)},  # one key for two options
+        {"answer_keys": ("s", "s")},
+        {"answer_keys": ("S", "t")},
+    ],
+)
+def test_a_menu_refuses_an_unknown_read_mode_or_bad_answer_keys(kwargs):
+    with pytest.raises(ValueError):
+        PromptChoice("menu", options=["a", "b"], **kwargs)
+
+
+def test_a_number_prompt_refuses_an_unknown_read_mode():
+    assert PromptInt("n", min=0, max=9, read=READ_KEY).read == READ_KEY
+    with pytest.raises(ValueError):
+        PromptInt("n", min=0, max=9, read="getx")
+
+
 # --------------------------------------------------------------------------- #
 # Scenario 5 — StartCombat runs a fight (U5); LoadSubState runs sub-states     #
 # (the LoadSubState nested-runner contract lives in tests/test_substate.py;    #
@@ -313,6 +351,50 @@ def test_coerce_int_rejects_underscores_and_non_ascii_digits():
     run(handler, src)
     assert got["v"] == 1000
     assert len(src.seen) == 3
+
+
+def test_a_sign_set_apart_from_its_digits_is_asked_again_by_default():
+    got = {}
+
+    def handler(ctx):
+        got["v"] = yield PromptInt("pick", min=-9, max=9)
+        return []
+
+    src = scripted("- 3", "+ 3", "-3")  # rejected, rejected, accepted
+    run(handler, src)
+    assert got["v"] == -3
+    assert len(src.seen) == 3
+
+
+def test_a_prompt_with_spaced_sign_reads_a_sign_set_apart_from_its_digits():
+    """``spaced_sign``: blanks between the sign and the digits are skipped, as the C64
+    ``INPUT`` reads ``- 3`` as -3 (tests/fixtures/c64_input/vice_capture.txt)."""
+    got = []
+
+    def handler(ctx):
+        for _ in range(3):
+            got.append((yield PromptInt("pick", min=-9, max=9, spaced_sign=True)))
+        return []
+
+    src = scripted("- 3", " +  4 ", "-3")
+    run(handler, src)
+    assert got == [-3, 4, -3]
+    assert len(src.seen) == 3
+
+
+def test_a_spaced_sign_still_meets_the_range():
+    """``- 3`` at a prompt refusing negatives is asked again as ``-3`` is; a bare sign
+    is no number."""
+    got = {}
+
+    def handler(ctx):
+        got["v"] = yield PromptInt("pick", min=0, max=9, spaced_sign=True)
+        return []
+
+    src = scripted("- 3", "-", "- ", "3")
+    run(handler, src)
+    assert got["v"] == 3
+    assert len(src.seen) == 4
 
 
 def test_cancel_at_non_cancellable_prompt_is_treated_as_invalid_and_reprompts():

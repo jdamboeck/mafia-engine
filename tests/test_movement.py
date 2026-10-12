@@ -380,11 +380,11 @@ def test_pub_strings_load_verbatim():
         return node
 
     assert get("locations.pub.entry_prompt") == (
-        "'EH, AMIGO, WILLST DU ''NE MILCH? ODER   SUCHST DU WAS ANDERES?'"
+        "'EH, AMIGO, WILLST DU 'NE MILCH? ODER   SUCHST DU WAS ANDERES?'"
     )
     # Rank-too-low recruit refusal (mf-prg.bas:12101-12102), verbatim.
     assert get("locations.pub.rank_too_low") == (
-        "'als {rank} kannst du noch keine eigenen leute haben!'"
+        "als {rank} kannst du noch keine eigenen leute haben!"
     )
     # Recruit menu option (mf-prg.bas:12100 option 2), verbatim from research —
     # note the 4-space run before GANG and the trailing '...'. NOT paraphrased.
