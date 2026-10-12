@@ -339,6 +339,31 @@ class TestQuitVocabulary:
         assert output.count("bye.") == 1
         assert state.players[0].po == cell, f"the session ended at {key!r}"
 
+    @pytest.mark.parametrize("quit_keys", [["q"], []], ids=["q", "eof"])
+    def test_a_quit_at_the_location_menu_says_bye_once(self, monkeypatch, quit_keys):
+        # A quit at a location's menu (:3040's key read; q, or the end of input)
+        # ends the session with the same line as a quit on the map.
+        from engine.movement import load_city
+        from tests.test_client_loop import (
+            find_door_cell,
+            load_city_raw,
+            new_state,
+            run_play_returning,
+            walk_keys_to_cell,
+        )
+
+        city_raw = load_city_raw()
+        walk = walk_keys_to_cell(
+            new_state(42), load_city(city_raw), find_door_cell(city_raw, "sph")
+        )
+        # "" passes sph's picture splash; the menu then reads the quit (or EOF).
+        output, _ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + [""] + quit_keys)
+        assert "MAU-MAU" in output, "the walk never reached sph's location menu"
+        # Nothing between the menu and the quit: no option was picked.
+        assert "waehle, mein freund" not in output
+        assert output.endswith("bye.\n" + CURSOR_SHOW)
+        assert output.count("bye.") == 1
+
 
 class TestTurnOverQuit:
     """At the turn-over prompt, q/EOF exits cleanly; any other key advances the turn.

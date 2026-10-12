@@ -425,8 +425,8 @@ def _render_location_menu(
     takes; every other key (``0``, a number past the count, a letter, a blank line on
     piped input) is ignored and the screen waits again. Only the shell's own leave
     option leaves the location; ``q`` (which :func:`_read_key` also returns at EOF)
-    returns ``_QUIT`` and the session ends. With no options there is nothing to pick:
-    ``None``.
+    says ``client.bye`` (as the map's quit does) and returns ``_QUIT``: the session
+    ends. With no options there is nothing to pick: ``None``.
     """
     if stdin is None:
         stdin = sys.stdin
@@ -477,6 +477,8 @@ def _render_location_menu(
         # :3040 getx$:w=val(x$):ifw<1orw>awgoto3040 -- one key, 1 to the option count.
         key = _read_key()
         if key == "q":
+            # The session ends here as on the map's quit: with the same line.
+            out.write(resolver.resolve("client.bye") + "\n")
             return _QUIT
         if key and key in keys:
             # :3050 ``print"{clr}"``: the pick clears the screen for the option's handler.

@@ -522,6 +522,32 @@ class TestSetupFlags:
         assert captured.out == "", "the game started (the title screen was drawn)"
         assert "1 to 13 characters" in captured.err
 
+    def test_more_player_flags_than_the_player_count_allows_are_refused(self, monkeypatch, capsys):
+        # :205-206 ``sz=val(x$)`` / ``ifsz<1orsz>4goto205``: the count is 1 to 4
+        # (input_ranges.player_count). A fifth --player is refused, not run.
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        argv = [arg for name in "abcde" for arg in ("--player", f"{name}:{name}")]
+        with pytest.raises(SystemExit) as exc:
+            main(argv)
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
+        assert "Traceback" not in captured.err
+        assert (
+            "--player" in captured.err and "at most 4" in captured.err and "got 5" in captured.err
+        )
+
+    def test_as_many_player_flags_as_the_player_count_allows_start_the_game(
+        self, monkeypatch, capsys
+    ):
+        # The bound is inclusive: four --player flags start the game (the title is
+        # drawn; EOF at the title ends it).
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        argv = [arg for name in "abcd" for arg in ("--player", f"{name}:{name}")]
+        main(argv)
+        captured = capsys.readouterr()
+        assert captured.out != "" and "at most" not in captured.err
+
     @pytest.mark.parametrize(
         "argv",
         [

@@ -159,6 +159,11 @@ def main(argv: list[str] | None = None) -> None:
         )
     players = None
     if args.players:
+        # The setup asks again for a count outside input_ranges.player_count (:206
+        # ``ifsz<1orsz>4goto205``); here a flag too many is refused before the game starts.
+        most = ranges["player_count"]["max"]
+        if len(args.players) > most:
+            parser.error(text("too_many_players", max=most, count=len(args.players)))
         players = []
         for spec in args.players:
             name, _, gang = spec.partition(":")
