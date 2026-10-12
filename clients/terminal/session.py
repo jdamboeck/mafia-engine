@@ -103,6 +103,7 @@ from clients.terminal import (
 )
 from clients.terminal.ascii_art import location_art, title_screen
 from clients.terminal.palette import C64_COLOR_NAMES, RESET_FG, Colors, Palette, load_palette
+from clients.terminal.reverse import is_reverse, read_reverse_keys
 from clients.terminal.renderers import (
     render_body,
     render_header,
@@ -408,12 +409,17 @@ def render_map(city, city_raw: dict, state, out, resolver: Resolver, colors: Col
 
 
 def _render_location_menu(
-    menu: LocationMenu, resolver: Resolver, colors: Colors, out, stdin=None
+    menu: LocationMenu,
+    resolver: Resolver,
+    colors: Colors,
+    out,
+    stdin=None,
+    reverse: frozenset[str] = frozenset(),
 ) -> Any:
     """Show a location's screen (the runner's :class:`LocationMenu`); return the pick.
 
-    The screen is ``:3025-3030``'s: the location's title in reverse video, its
-    description, and its options numbered from 1. The pick is one key
+    The screen is ``:3025-3030``'s: the location's title (in reverse video when the
+    theme lists its key in ``reverse``), its description, and its options numbered from 1. The pick is one key
     (:func:`_read_key`), as ``:3040`` ``getx$:w=val(x$):ifw<1orw>awgoto3040`` reads it:
     a key from 1 to the option count picks, returned as the 0-based index the runner
     takes; every other key (``0``, a number past the count, a letter, a blank line on
@@ -453,7 +459,8 @@ def _render_location_menu(
         title = resolver.resolve(f"locations.{location_key}.title")
     except Exception:
         title = location_key
-    render_location_title(title, out, colors)
+    title_key = f"locations.{location_key}.title"
+    render_location_title(title, out, colors, reverse=is_reverse(title_key, reverse))
     out.write("\n\n")
     render_body(entry_text, out, colors)
     # :3030 print:fori=1toaw:input#1,x$:print"{down}"mid$(str$(i),2)" "x$
@@ -600,8 +607,9 @@ class TerminalSession:
 
     ``sys.stdin``/``sys.stdout`` are read when the session is built (the session's
     :class:`TerminalInput` keeps that ``stdin``), so a caller replacing them must do so
-    first. ``resolver`` is the theme every screen is worded in and ``palette`` the
-    colours it is drawn in (default: the config's ``classic`` theme for both). The
+    first. ``resolver`` is the theme every screen is worded in, ``palette`` the
+    colours it is drawn in and ``reverse`` the keys it draws in reverse video
+    (default: the config's ``classic`` theme for all three). The
     terminal's colour support is read from the environment once, here, into
     :attr:`colors`: a session never switches colour mode half-way.
     """
@@ -618,6 +626,7 @@ class TerminalSession:
         watch_ai: bool,
         resolver: Resolver | None = None,
         palette: Palette | None = None,
+        reverse: frozenset[str] | None = None,
     ) -> None:
         self.out = sys.stdout
         self.state = None
@@ -632,6 +641,12 @@ class TerminalSession:
         )
         self.colors = Colors.detect(
             palette if palette is not None else load_palette(_CONFIG_DIR, _DEFAULT_THEME)
+        )
+        #: The theme keys drawn in reverse video (default: the classic theme's list).
+        self.reverse = (
+            reverse
+            if reverse is not None
+            else read_reverse_keys(_CONFIG_DIR / "themes" / _DEFAULT_THEME)
         )
         self.cfg = load_game_config(_CONFIG_DIR)
 
@@ -655,6 +670,7 @@ class TerminalSession:
             stdout=self.out,
             weapon_names=self.weapon_names,
             observe_ai=watch_ai,
+            reverse=self.reverse,
         )
         if load is not None:
             # raises LoadError; main() reports it
@@ -868,7 +884,9 @@ class TerminalSession:
         if isinstance(interaction, MapMove):
             return self.map_prompt(interaction)
         if isinstance(interaction, LocationMenu):
-            return _render_location_menu(interaction, self.resolver, self.colors, self.out)
+            return _render_location_menu(
+                interaction, self.resolver, self.colors, self.out, reverse=self.reverse
+            )
         if isinstance(interaction, OptionDone):
             # Between actions, a status bar off the action's committed state; a
             # cancelled action committed nothing and shows nothing.
@@ -1119,6 +1137,7 @@ def play(
     watch_ai: bool = False,
     resolver: Resolver | None = None,
     palette: Palette | None = None,
+    reverse: frozenset[str] | None = None,
 ) -> tuple:
     """Play the default config over real stdin/stdout; return the final ``(state, rng)``.
 
@@ -1136,7 +1155,9 @@ def play(
     ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
     ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
     drawn in (default: the ``classic`` theme's); the terminal's colour support is read
-    from ``$COLORTERM``/``$TERM`` once, when the session starts.
+    from ``$COLORTERM``/``$TERM`` once, when the session starts. ``reverse`` is the
+    theme keys drawn in reverse video (default: the ``classic`` theme's
+    ``renderer/reverse.yaml``; an empty set draws every text plain).
 
     Returns on EVERY exit -- quit, EOF, or the year-end ending. ``state`` is ``None``
     only if the session ends before setup finished.
@@ -1151,5 +1172,6 @@ def play(
         watch_ai=watch_ai,
         resolver=resolver,
         palette=palette,
+        reverse=reverse,
     )
     return session.run()

@@ -871,9 +871,69 @@ class TestWatchAi:
         boards = [
             _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
         ]
-        label = " " * 20 + "spieler 1 "
-        assert label not in boards[0]
-        assert all(label in board for board in boards[1:])
+        label = "spieler 1 "
+        assert all(row[20:] != label for row in boards[0])
+        for board in boards[1:]:
+            assert any(row.startswith("spieler") and row[20:] == label for row in board), board
+
+    def test_the_human_s_label_shows_its_fighter_at_column_0(self, monkeypatch):
+        """:30115 ``x=-20*(s=2):poke211,x:poke214,18:syscs:print"{rvon}spieler
+        {left}{left}{left}"f``: on each of the human's activations, ``spieler`` and the
+        active fighter's number with PRINT's spaces, at column 0 for side 1 (column 20
+        for side 2), on the CPU label's row 18."""
+        text = self._shift_fight_output(monkeypatch, [])
+        boards = [
+            _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
+        ]
+        assert len(boards) >= 2, "the fight never reached a second activation"
+        # The bouncer fights alone: side 1's only fighter acts on every human board.
+        assert "spieler 1 " in boards[0], boards[0]
+        for board in boards[1:]:
+            assert "spieler 1           spieler 1 " in board, board
+
+    @staticmethod
+    def _reversed(row: str) -> list[str]:
+        """The texts of ``row`` drawn in reverse video, ANSI codes stripped."""
+        return [_plain(span) for span in re.findall(r"\033\[7m(.*?)\033\[0m", row)]
+
+    def _rvon_rows(self, text: str) -> dict[str, str]:
+        """The raw rows of the shift fight's output that the source prints in ``{rvon}``:
+        the pub's title (:3025), the job's name (:25015), the fight banner (:30025) and
+        the label row (:30115's human label, :30400's CPU label)."""
+        rows = text.split("\n")
+        title = _resolver().resolve("locations.pub.title")
+        legend = _resolver().resolve("combat.key_legend")
+        boards = [b.split("\n") for b in text.split(legend)[:-1]]
+        assert len(boards) >= 2, "the fight never reached a second activation"
+        return {
+            "title": next(r for r in rows if _plain(r) == f" {title}: "),
+            "job": next(r for r in rows if _plain(r).strip() == "rausschmeisser"),
+            "banner": next(r for r in boards[0] if "der kampf beginnt..." in _plain(r)),
+            "labels": next(r for r in boards[1] if _plain(r).startswith("spieler")),
+        }
+
+    def test_the_source_s_rvon_texts_are_drawn_in_reverse_video(self, monkeypatch):
+        """The classic theme's ``renderer/reverse.yaml`` lists the keys its source prints
+        in ``{rvon}``: :3025 ``print"{clr}{down}{rvon} "x$": "``, :25015
+        ``print"{rvon} rausschmeisser "``, :30025 ``print"{rvon}der kampf beginnt..."``,
+        :30115's and :30400's ``{rvon}spieler``. A label after ``{tab(20)}`` starts its
+        bar at column 20: the padding before it is not reversed."""
+        rows = self._rvon_rows(self._shift_fight_output(monkeypatch, []))
+        title = _resolver().resolve("locations.pub.title")
+        assert self._reversed(rows["title"]) == [f" {title}: "]
+        assert self._reversed(rows["job"]) == [" rausschmeisser "]
+        assert self._reversed(rows["banner"]) == ["der kampf beginnt..."]
+        assert _plain(rows["labels"]) == "spieler 1           spieler 1 "
+        assert self._reversed(rows["labels"]) == ["spieler 1 ", "spieler 1 "]
+
+    def test_a_theme_without_the_reverse_list_draws_them_plain(self, monkeypatch):
+        """``tests/fixtures/themes/test`` has no ``renderer/reverse.yaml``."""
+        theme = Path(__file__).resolve().parent / "fixtures" / "themes" / "test"
+        assert not (theme / "renderer" / "reverse.yaml").exists()
+        rows = self._rvon_rows(self._shift_fight_output(monkeypatch, ["--theme", str(theme)]))
+        assert {name: self._reversed(row) for name, row in rows.items()} == {
+            name: [] for name in rows
+        }
 
 
 # --------------------------------------------------------------------------- #

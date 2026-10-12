@@ -249,9 +249,20 @@ class EndOfInput(Exception):
     """
 
 
-def render_message(resolver: Resolver, message: ShowMessage, out: TextIO) -> None:
-    """Resolve and print one ``ShowMessage`` (key + params -> text)."""
-    out.write(resolver.resolve(message.key, message.params) + "\n")
+def render_message(
+    resolver: Resolver,
+    message: ShowMessage,
+    out: TextIO,
+    reverse: frozenset[str] = frozenset(),
+) -> None:
+    """Resolve and print one ``ShowMessage`` (key + params -> text), in reverse video
+    when the theme lists its key (``reverse``: a job's name, ``:25015``)."""
+    from clients.terminal.reverse import bar_start, is_reverse, reverse_text
+
+    text = resolver.resolve(message.key, message.params)
+    if is_reverse(message.key, reverse):
+        text = reverse_text(text, bar_start(resolver, message.key))
+    out.write(text + "\n")
 
 
 class TerminalInput:
@@ -277,8 +288,11 @@ class TerminalInput:
         stdout: TextIO | None = None,
         weapon_names: list[str] | None = None,
         observe_ai: bool = False,
+        reverse: frozenset[str] = frozenset(),
     ) -> None:
         self._resolver = resolver
+        #: The theme keys drawn in reverse video (its ``renderer/reverse.yaml``).
+        self._reverse = reverse
         self._colors = colors
         #: ``--watch-ai`` opt-in: :func:`engine.fight_loop._drive_fight` reads this
         #: attribute and, only when it is true, hands us a display-only ``prompt="observe"``
@@ -299,7 +313,7 @@ class TerminalInput:
         board, under the screen clear (the session's whose-turn line)."""
         if isinstance(interaction, ShowMessage):
             # Driver auto-acks ShowMessage; if we are ever consulted, just render it.
-            render_message(self._resolver, interaction, self._stdout)
+            render_message(self._resolver, interaction, self._stdout, self._reverse)
             return None
 
         if isinstance(interaction, CombatScreen) and interaction.prompt == OBSERVE_PROMPT:
@@ -429,8 +443,8 @@ class TerminalInput:
         if banner is not None:
             self._stdout.write(banner + "\n")
         render_combat_grid(payload, self._stdout, self._colors)
-        render_combat_message(payload, self._resolver, self._stdout, self._colors)
-        render_combat_labels(payload, self._resolver, self._stdout, self._colors)
+        render_combat_message(payload, self._resolver, self._stdout, self._colors, self._reverse)
+        render_combat_labels(payload, self._resolver, self._stdout, self._colors, self._reverse)
         render_fighter_panel(
             payload, self._resolver, self._weapon_names, self._stdout, self._colors
         )

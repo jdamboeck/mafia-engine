@@ -512,13 +512,13 @@ def test_a_shift_fight_waits_before_it_starts_and_under_its_outcome():
     ("job_type", "draws", "answers", "title", "then"),
     [
         # :25015 print"{rvon} rausschmeisser ", then :25020's wait
-        (1, (0,), (), "rausschmeisser", "bouncer_wait"),
+        (1, (0,), (), " rausschmeisser ", "bouncer_wait"),
         # :25010 sends the doorman (3) to :25015 too
-        (3, (0,), (), "rausschmeisser", "bouncer_wait"),
+        (3, (0,), (), " rausschmeisser ", "bouncer_wait"),
         # :25100 print"{rvon} croupier ", then :25105's intro
-        (2, (1, 300), (1,), "croupier", "croupier_intro"),
+        (2, (1, 300), (1,), " croupier ", "croupier_intro"),
         # :25200 print"{rvon} killer ", then :25205's intro
-        (4, (), ("surrender",), "killer", "killer_intro"),
+        (4, (), ("surrender",), " killer ", "killer_intro"),
     ],
 )
 def test_the_shift_opens_on_the_player_s_name_and_the_job(job_type, draws, answers, title, then):
