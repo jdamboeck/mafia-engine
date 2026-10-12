@@ -50,7 +50,7 @@ from pathlib import Path
 from engine.effects import MoneyChange
 from ..effects import JobClear, JobSet
 from ..state import job
-from engine.interactions import PromptInt, ShowMessage
+from engine.interactions import READ_KEY, PromptInt, ShowMessage
 from engine.locations import register
 from engine.turns import JOB_SHIFT_HANDLER_KEY as ENGINE_JOB_SHIFT_KEY
 
@@ -157,8 +157,10 @@ def job_shift(ctx):
     elif job_type == JOB_CROUPIER:
         # :25100-25140 -- pick a trick, catch check, bonus or fight.
         yield ShowMessage("job.shift_croupier_title")  # :25100
-        yield ShowMessage("job.shift_croupier_intro")
-        trick = yield PromptInt("job.shift_croupier_pick", min=1, max=3)
+        yield ShowMessage("job.shift_croupier_intro")  # :25105-25107
+        # :25110-25111 the three tricks, then :25115 ``getx$:ifx$<"1"orx$>"3"goto25115``:
+        # one key, no prompt of its own -- the tricks are the pick's text.
+        trick = yield PromptInt("job.shift_croupier_tricks", min=1, max=3, read=READ_KEY)
         if ctx.rng.range(6 - trick) == 0:  # :25120 `int(rnd(1)*(6-x))=0`
             # :25130 -- caught; a fight starts.
             yield ShowMessage("job.shift_croupier_caught")

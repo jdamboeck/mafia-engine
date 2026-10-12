@@ -19,9 +19,10 @@ job:
 
   # --- croupier flow (25100-25140) ---
   shift_croupier_title: "croupier"  # :25100 `{rvon} croupier `
-  shift_croupier_intro: "'du musst als croupier natuerlich falschspielen. welche tricks willst du anwenden: 1 trickspiegel  2 gezinkte karten  3 bremse am roulette'"  # :25105-25111 `croupier natuerlich falschspielen.`
-  # :25115 `getx$:ifx$<"1"orx$>"3"goto25115` reads the trick; the source prints no prompt.
-  shift_croupier_pick: "welchen trick (1-3)"
+  shift_croupier_intro: "du musst als\ncroupier natuerlich falschspielen.\nwelche tricks willst du anwenden:"  # :25105-25107 `croupier natuerlich falschspielen.`
+  # The trick pick's text: :25115 `getx$:ifx$<"1"orx$>"3"goto25115` reads one key under
+  # the tricks, with no prompt of its own.
+  shift_croupier_tricks: "1 trickspiegel\n2 gezinkte karten\n3 bremse am roulette"  # :25110-25111 `print"{down}2 gezinkte karten"`
   shift_croupier_caught: "'ein kunde hat deine tricks durchschaut und zieht ein messer!'"  # :25130-25131 `ein kunde hat deine tricks durchschaut`
   shift_croupier_bonus: "'du machst gewinne und erhaeltst einen bonus von{amount}$.'"  # :25125-25126 `du machst gewinne und erhaeltst`
 

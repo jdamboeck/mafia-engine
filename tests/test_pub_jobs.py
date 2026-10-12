@@ -32,7 +32,9 @@ from engine.config_loader import load_game_config
 from engine.effects import EnergyChange, MoneyChange, MsChange
 from data.game_configs.mafia_1920s.effects import JobClear, JobSet, ScoreAndRank
 from engine.locations import HANDLERS
+from engine.interactions import READ_KEY, PromptInt
 from engine.rng import Rng
+from engine.strings import MissingKeyError, Resolver
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.state import Job
 from data.game_configs.mafia_1920s.gangster import Gangster
@@ -231,6 +233,39 @@ def test_croupier_success_pays_immediate_bonus_no_fight():
             JobSet(type=2, pending_pay=1200, months_left=1),
         ]
         assert rng.calls == [("range", catch_bound), ("hit", 300, 300 + 100 * trick - 1)]
+
+
+def test_the_croupier_shows_the_three_tricks_and_reads_one_key():
+    """``:25105-25111`` print the intro and the three tricks; ``:25115 getx$:ifx$<"1"
+    orx$>"3"goto25115`` reads one key with no prompt of its own. The tricks are the
+    pick's text, so nothing follows them before the key."""
+    st = _state(jobs=Job(type=2, pending_pay=1200, months_left=2))
+    src = _scripted(2)
+    run_pure(HANDLERS["job.shift"], src, state=st, rng=_StubRng(1, 300))
+    at = [getattr(i, "key", None) for i in src.seen].index("job.shift_croupier_title")
+    title, intro, pick = src.seen[at : at + 3]
+    assert (title.key, intro.key) == ("job.shift_croupier_title", "job.shift_croupier_intro")
+    assert isinstance(pick, PromptInt)
+    assert (pick.key, pick.min, pick.max, pick.read) == (
+        "job.shift_croupier_tricks",
+        1,
+        3,
+        READ_KEY,
+    )
+
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    assert resolver.resolve("job.shift_croupier_intro").splitlines() == [
+        "du musst als",  # :25105
+        "croupier natuerlich falschspielen.",  # :25106
+        "welche tricks willst du anwenden:",  # :25107
+    ]
+    assert resolver.resolve("job.shift_croupier_tricks").splitlines() == [
+        "1 trickspiegel",  # :25110
+        "2 gezinkte karten",  # :25110
+        "3 bremse am roulette",  # :25111
+    ]
+    with pytest.raises(MissingKeyError):
+        resolver.resolve("job.shift_croupier_pick")
 
 
 def test_croupier_caught_probability_1_in_6_minus_trick():

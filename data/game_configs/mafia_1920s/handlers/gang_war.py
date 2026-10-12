@@ -98,7 +98,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from engine.effects import EnergyChange, MoneyChange, MsChange
-from engine.interactions import Acknowledge, Confirm, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Acknowledge, Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import BarrelChange, Jail, MarkSet, VehicleSet
@@ -260,9 +260,16 @@ def gang_war(ctx):
                 "gang_size": len(player.roster),
             },
         )
-    # :27015-27017 getx$ / us=val(x$):ifus=0thenreturn / ifus<1orus>szorus=spgoto27015
+    # :27015-27017 getx$ / us=val(x$):ifus=0thenreturn / ifus<1orus>szorus=spgoto27015:
+    # one key; RETURN is val 0 and leaves.
     while True:
-        us = yield PromptInt("gang_war.opponent_prompt", min=0, max=clock.player_count, blank=0)
+        us = yield PromptInt(
+            "gang_war.opponent_prompt",
+            min=0,
+            max=clock.player_count,
+            blank=0,
+            read=READ_KEY,
+        )
         if us == 0:
             return None
         if us - 1 != attacker:

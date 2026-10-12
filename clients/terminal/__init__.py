@@ -381,17 +381,20 @@ class TerminalInput:
         """Read a number prompt's answer as one key (``READ_KEY``) and relay it.
 
         Enter is an empty answer: cancel at a cancellable prompt, else relayed as
-        ``""`` (the prompt's ``blank`` value, or asked again). Any other key is relayed
-        as it is; the driver validates it. End of input raises :class:`EndOfInput`.
+        ``""`` (the prompt's ``blank`` value, or asked again). A digit key inside the
+        prompt's range is relayed; any other key is ignored and the next one read, with
+        no reprint, as a ``getx$`` loop waits. End of input raises :class:`EndOfInput`.
         """
         self._stdout.write(self._resolver.resolve(prompt.key) + "\n")
         self._stdout.flush()
-        key = read_key(self._stdin)
-        if key is None:
-            raise EndOfInput
-        if key == ENTER:
-            return CANCEL if prompt.cancellable else ""
-        return key
+        while True:
+            key = read_key(self._stdin)
+            if key is None:
+                raise EndOfInput
+            if key == ENTER:
+                return CANCEL if prompt.cancellable else ""
+            if key.isdigit() and prompt.min <= int(key) <= prompt.max:
+                return key
 
     def _render_combat_screen(
         self,

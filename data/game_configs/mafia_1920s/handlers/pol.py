@@ -54,7 +54,7 @@ Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
 from __future__ import annotations
 
 from engine.effects import MoneyChange, RosterAppend, Teleport
-from engine.interactions import Confirm, PromptInt, ShowMessage
+from engine.interactions import READ_KEY, Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import BribeMonthsChange, Jail
@@ -162,8 +162,11 @@ def pol_free(ctx):
             name = ctx.state.players[inmate].name
             yield ShowMessage("locations.pol.free_entry", {"index": number, "name": name})
     # :21120-21125 ``getx$:ifx$=""orval(x$)>xgoto21120`` / ``ifg=0thenreturn``: a key
-    # above x is read again; "0", or RETURN (not a digit), leaves with no pause.
-    pick = yield PromptInt("locations.pol.free_prompt", min=0, max=len(inmates), blank=0)
+    # above x is read again; "0", or RETURN (not a digit), leaves with no pause. One
+    # key, as ``getx$`` reads it.
+    pick = yield PromptInt(
+        "locations.pol.free_prompt", min=0, max=len(inmates), blank=0, read=READ_KEY
+    )
     if pick == 0:
         return []
     inmate = inmates[pick - 1]

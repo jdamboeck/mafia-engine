@@ -40,6 +40,7 @@ from data.game_configs.mafia_1920s.handlers.turn import JAIL_SCREEN
 from engine.combat import CombatResult
 from engine.config_loader import load_game_config
 from engine.interactions import (
+    READ_KEY,
     Acknowledge,
     CombatScreen,
     Confirm,
@@ -192,6 +193,8 @@ def test_the_gate_opens_on_the_round_shown_as_1925_5(year, month):
     assert outcome == "open"
     assert _screens(seen) == []
     assert isinstance(seen[-1], PromptInt) and seen[-1].key == "gang_war.opponent_prompt"
+    # :27015 ``getx$``: one key; RETURN (val 0) is the blank 0, which leaves (:27016).
+    assert (seen[-1].read, seen[-1].blank) == (READ_KEY, 0)
 
 
 def test_the_refusal_texts_are_the_sources():
