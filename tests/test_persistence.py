@@ -7,11 +7,8 @@ per-turn ``GameState`` snapshot. Serialization is type-tagged so a frozen ``Effe
 dataclass round-trips exactly, and int-keyed ``dict`` state fields (``tenancy``,
 ``special_cells``) survive JSON (which stringifies keys).
 
-The hard case — a save taken while a handler is suspended at a prompt — is reconstructed
-by **replay**, not by freezing a generator (generators are not serializable and none lives
-in ``GameState``). ``SaveGame`` records the in-progress action's already-supplied responses
-at the input-source seam; ``LoadGame`` replays them into a fresh ``run_option`` so the
-handler re-suspends at the identical prompt.
+A save holds committed state only: an action suspended at a prompt is not saved and
+nothing resumes one (generators are not serializable and none lives in ``GameState``).
 """
 
 from __future__ import annotations
@@ -21,7 +18,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import yaml
 
 # --- config + engine imports (mirror tests/test_slice_integration.py) --------- #
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "data" / "game_configs" / "mafia_1920s"
@@ -30,55 +26,25 @@ sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 from engine.effects import MoneyChange, commit  # noqa: E402
 from data.game_configs.mafia_1920s.effects import SetTenancy  # noqa: E402
 from engine.config_loader import load_game_config  # noqa: E402
-from engine.interactions import run  # noqa: E402
-from engine.locations import load_location  # noqa: E402
-from engine.movement import DOWN, LEFT, load_city, try_move  # noqa: E402
 from engine.state import freeze  # noqa: E402
 from tests.helpers import with_config, with_player  # noqa: E402
 from engine.rng import Rng  # noqa: E402
 from engine import persistence  # noqa: E402  (module under test)
 import data.game_configs.mafia_1920s.state as game  # noqa: E402
 
-# Load the config BY PATH so its "slw.rent" handler registers into
-# engine.locations.HANDLERS (mirror of tests/test_slice_integration.py).
+# Load the config BY PATH for its new_game and registries (mirror of
+# tests/test_slice_integration.py).
 _CONFIG = load_game_config(_CONFIG_DIR)
 new_game = _CONFIG.module.new_game
 _REGISTRIES = _CONFIG.registries
 
-_CITY_YAML = _CONFIG_DIR / "content" / "map" / "city.yaml"
-_SLW_SHELL = _CONFIG_DIR / "content" / "locations" / "slw.yaml"
-
 SEED = 42
-
-
-class _Recorder:
-    """Records interactions and returns scripted answers (mirror of the slice test)."""
-
-    def __init__(self, *answers):
-        self.seen: list = []
-        self._answers = iter(answers)
-
-    def __call__(self, interaction):
-        self.seen.append(interaction)
-        return next(self._answers)
 
 
 def _fresh_state():
     return new_game(
         seed=SEED, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
     )
-
-
-def _load_city():
-    return load_city(yaml.safe_load(_CITY_YAML.read_text(encoding="utf-8")))
-
-
-def _load_slw():
-    return load_location(yaml.safe_load(_SLW_SHELL.read_text(encoding="utf-8")))
-
-
-def _opt(location, opt_id):
-    return next(o for o in location.options if o.id == opt_id)
 
 
 # --------------------------------------------------------------------------- #
@@ -181,52 +147,12 @@ def test_semantic_events_excluded_from_replay_log(tmp_path: Path):
 
 
 # --------------------------------------------------------------------------- #
-# Scenario 3 — mid-handler save/resume via replay reconstruction.               #
+# Scenario 3 — no mid-handler resume: a save holds committed state only.        #
 # --------------------------------------------------------------------------- #
-def test_mid_slw_rent_save_resume_matches_uninterrupted(tmp_path: Path):
-    """Save while slw.rent is suspended at the months PromptInt, load, then send the
-    response; the resumed handler commits the SAME effects as an uninterrupted run."""
-    city = _load_city()
-    slw = _load_slw()
-
-    # Walk into slw ln=2 (positive-rent tile) exactly as the slice test does.
-    state = with_player(_fresh_state(), 0, po=141)
-    state = try_move(state, city, DOWN).state
-    r_enter = try_move(state, city, LEFT)
-    state = r_enter.state
-    assert r_enter.payload.la == 1 and r_enter.payload.ln == 2
-
-    # --- uninterrupted reference run --------------------------------------- #
-    ref_handler = _opt(slw, "rent").handler
-    assert ref_handler is not None
-    ref = run(ref_handler, _Recorder(2), state=state, rng=None)
-    assert ref.status == "completed"
-
-    # --- interrupted run: SAVE at the prompt, LOAD, then answer 2 ---------- #
-    # A mid-action save records the action locus + responses supplied so far (none yet,
-    # the save is taken *at* the first prompt) so LoadGame can replay to re-suspend.
-    save_path = tmp_path / "game.jsonl"
-    persistence.save_game(
-        save_path,
-        state,
-        registries=_REGISTRIES,
-        effect_log=[],
-        rng_log=[],
-        seed=SEED,
-        pending_action={
-            "location_key": slw.key,
-            "option_id": "rent",
-            "ln": 2,
-            "responses_so_far": [],
-        },
-    )
-    loaded = persistence.load_game(save_path, _REGISTRIES)
-
-    resumed = persistence.resume_pending_action(loaded, slw, live_input=_Recorder(2), rng=None)
-    assert resumed.status == "completed"
-    # Same committed effects as the uninterrupted run, and identical resulting state.
-    assert resumed.effects == ref.effects
-    assert resumed.state == ref.state
+def test_persistence_no_longer_exports_resume_pending_action():
+    """The resume helper rested on a dry input completing the action; it is gone."""
+    assert not hasattr(persistence, "resume_pending_action")
+    assert "resume_pending_action" not in persistence.__all__
 
 
 # --------------------------------------------------------------------------- #

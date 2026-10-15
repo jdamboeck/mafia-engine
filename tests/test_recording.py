@@ -621,3 +621,46 @@ def test_a_scripted_input_that_runs_dry_mid_fight_raises_after_an_activation():
     assert returned is None
     assert dry.consumed == full.consumed - 1
     assert dry.observed >= 1, "at least one AI activation applied before the input ran dry"
+
+
+def test_a_scripted_input_that_runs_dry_mid_fight_raises_out_of_run_and_commits_nothing():
+    """#174 item 1, the run()-level twin of the test above: a handler buffers an effect,
+    then starts the fight; an answer list that runs out mid-fight raises out of ``run``
+    rather than completing the action with the pre-fight effect committed."""
+    from data.game_configs.mafia_1920s.gangster import Gangster
+    from engine.effects import MoneyChange
+    from engine.fight_loop import HumanDriver
+    from engine.interactions import InputExhausted, StartCombat, run
+    from engine.state import Clock, GameState, Player
+
+    def endless_shots():
+        while True:
+            yield ("shoot", +1)
+
+    def handler(ctx):
+        ctx.apply(MoneyChange(100))
+        result = yield StartCombat(
+            scenario=_kdh_ambush_scenario(), drivers={1: HumanDriver(), 2: AiDriver()}
+        )
+        return result.winner
+
+    st = GameState(
+        players=(Player(ka=5000, roster=(Gangster(),)),),
+        clock=Clock(active_player=0, player_count=1),
+    )
+
+    # Calibrate outcome-agnostically: with enough answers the action completes, commits.
+    full = _ScriptedClient(endless_shots())
+    completed = run(handler, full, state=st, rng=Rng(42))
+    assert completed.status == "completed"
+    assert completed.state.players[0].ka == 5100
+    assert full.consumed >= 2, "the fixture must ask the human more than once"
+
+    dry = _ScriptedClient([("shoot", +1)] * (full.consumed - 1))
+    returned = None
+    with pytest.raises(InputExhausted):
+        returned = run(handler, dry, state=st, rng=Rng(42))
+    assert returned is None
+    assert st.players[0].ka == 5000
+    assert dry.consumed == full.consumed - 1
+    assert dry.observed >= 1, "at least one AI activation applied before the input ran dry"

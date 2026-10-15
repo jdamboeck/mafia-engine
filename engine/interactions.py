@@ -78,6 +78,7 @@ __all__ = [
     "Ack",
     "CANCEL",
     "Cancelled",
+    "InputExhausted",
     # Driver
     "Ctx",
     "step",
@@ -627,6 +628,20 @@ class Cancelled(Exception):
     """
 
 
+class InputExhausted(RuntimeError):
+    """Raised out of :func:`run` when its input source runs dry before the action ends.
+
+    An input source signals "no more answers" by raising ``StopIteration`` (a scripted
+    answer list used up). The unfinished action commits nothing: :func:`run` closes
+    the action and raises this instead of returning a result. ``interaction`` is the
+    one that went unanswered.
+    """
+
+    def __init__(self, interaction: Any) -> None:
+        super().__init__(f"input source ran dry; nothing answered {interaction!r}")
+        self.interaction = interaction
+
+
 # --------------------------------------------------------------------------- #
 # Ctx — the handler's window into the engine                                  #
 # --------------------------------------------------------------------------- #
@@ -759,7 +774,7 @@ def step(
             status="cancelled",
             payload=HandlerResult(returned=None),
         )
-    except (StopIteration, _InputExhausted) as stop:
+    except StopIteration as stop:
         # Clean completion: commit the buffer atomically against a SINGLE deep copy of the
         # state and surface the buffered semantic events. Import commit lazily HERE so this
         # module never imports engine.effects at module load — engine.effects imports
@@ -846,6 +861,9 @@ def run(
     Raises:
         ValueError: if the handler yields ``LoadSubState`` with a ``kind`` that is not
             registered in :data:`engine.substates.SUBSTATES` (a config bug).
+        InputExhausted: if ``input_source`` raises ``StopIteration`` (it ran dry)
+            before the action ends, mid-fight or inside a sub-state included. The
+            unfinished action commits nothing and no result comes back.
 
     A yielded ``StartCombat`` runs the combat sub-protocol
     (:func:`engine.fight_loop._run_combat`) and resolves with the fight's
@@ -866,13 +884,14 @@ def run(
         while True:
             try:
                 response = input_source(interaction)
-            except StopIteration as exhausted:
+            except StopIteration:
                 # An input source that raises StopIteration (a scripted answer list
-                # run dry) ends the action as a clean completion with what it has
-                # buffered — the pull driver's contract before step() existed, kept so
-                # scripted callers behave as they always have.
-                interaction = steps.throw(_InputExhausted(exhausted.value))
-                continue
+                # run dry) leaves the action unfinished. Closing ``step`` raises
+                # GeneratorExit at its suspension point, which none of its branches
+                # catches, so its buffer is never committed; the dry source is an
+                # error, never a result.
+                steps.close()
+                raise InputExhausted(interaction) from None
             interaction = steps.send(response)
     except StopIteration as stop:
         return stop.value
@@ -887,10 +906,7 @@ def _active_player(state: Any) -> int | None:
 def _addressed(inner: Generator[Any, Any, Any], active: int | None) -> Generator[Any, Any, Any]:
     """Relay ``inner``'s interactions, filling each unnamed ``player`` with ``active``.
 
-    Answers are sent back to ``inner`` unchanged and its return value is returned. An
-    exception thrown in (a driver's :class:`_InputExhausted`) ends the relay where it
-    lands; none of the relayed generators catches one, so it reaches :func:`step`
-    exactly as through a plain ``yield from``.
+    Answers are sent back to ``inner`` unchanged and its return value is returned.
     """
     try:
         interaction = next(inner)
@@ -900,14 +916,6 @@ def _addressed(inner: Generator[Any, Any, Any], active: int | None) -> Generator
             interaction = inner.send((yield interaction))
     except StopIteration as stop:
         return stop.value
-
-
-class _InputExhausted(Exception):
-    """Thrown into :func:`step` by :func:`run` when its input source raised StopIteration."""
-
-    def __init__(self, value: Any) -> None:
-        super().__init__(value)
-        self.value = value
 
 
 #: Private sentinel :func:`_resolve` returns to tell :func:`step` "cancel this action".

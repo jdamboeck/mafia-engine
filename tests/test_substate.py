@@ -18,13 +18,15 @@ import pytest
 
 from engine.interactions import (
     CANCEL,
+    InputExhausted,
     LoadSubState,
     PromptInt,
     ShowMessage,
     StartCombat,
     run,
 )
-from engine.state import Fighter
+from engine.effects import MoneyChange
+from engine.state import Clock, Fighter, GameState, Player
 from engine.substates import SUBSTATES, register_substate
 from tests.helpers import scripted
 
@@ -241,3 +243,30 @@ def test_startcombat_inside_a_substate_is_asserted_out():
             run(parent, lambda interaction: CANCEL, state=None)
     finally:
         SUBSTATES.pop("u5_combat_in_substate", None)
+
+
+# --------------------------------------------------------------------------- #
+# An input source that runs dry inside a sub-state raises; nothing commits     #
+# --------------------------------------------------------------------------- #
+def test_input_that_runs_dry_inside_a_substate_raises_and_commits_nothing():
+    """The parent's and the child's buffered effects both stay uncommitted."""
+
+    @register_substate("asks_after_buffering")
+    def _asks(ctx, params):
+        ctx.apply(MoneyChange(50))
+        n = yield PromptInt("how_many", min=1, max=5)
+        return n
+
+    def parent(ctx):
+        ctx.apply(MoneyChange(100))
+        n = yield LoadSubState("asks_after_buffering", {})
+        ctx.apply(MoneyChange(n))
+        return []
+
+    st = GameState(players=(Player(ka=5000),), clock=Clock(active_player=0, player_count=1))
+    answers = iter(())
+    returned = None
+    with pytest.raises(InputExhausted):
+        returned = run(parent, lambda interaction: next(answers), state=st)
+    assert returned is None
+    assert st.players[0].ka == 5000

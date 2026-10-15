@@ -10,16 +10,15 @@ Store shape (append-only JSONL, one JSON object per line)
 - **line 0 — header**: ``{"kind":"header", "version", "config_id", "content_version", "seed",
   "snapshot", "pending_action"?}`` where ``config_id``/``content_version`` name the config
   (and its content version) the save was written under, ``snapshot`` is a serialized
-  per-turn ``GameState`` and ``pending_action`` (optional) is the mid-handler locus
-  ``{location_key, option_id, ln, responses_so_far}``.
+  per-turn ``GameState`` and ``pending_action`` (optional) is carried as given; no
+  caller passes one and nothing resumes a mid-handler save from it.
 - **line 1..n — effect / rng records**: ``{"kind":"effect"|"rng", "version", ...}`` in commit
   order. **Semantic events are never written** — they are audit/UI records, not replay input
   (binding replay-semantics note in docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md).
 
 Replay = restore the snapshot, then ``commit`` the ordered effects. RNG draws are carried in
-the log so a replay does not re-roll. A **mid-handler** save is restored by replaying the
-recorded input responses into a fresh ``run_option`` so the handler re-suspends at the same
-prompt — generators are not serializable and none lives in ``GameState``.
+the log so a replay does not re-roll. A save holds committed state only: generators are not
+serializable and none lives in ``GameState``, so an action in progress is not saved.
 
 Serialization is **type-tagged**: each effect is written as ``{"_type": "<tag>", ...}``
 (the tag it registered under, :func:`engine.effects.register_effect`) and reconstructed by
@@ -80,7 +79,6 @@ __all__ = [
     "load_game",
     "append_effect",
     "replay",
-    "resume_pending_action",
     "state_from_dict",
 ]
 
@@ -479,7 +477,7 @@ def load_game(path: str | Path, registries: Registries) -> SaveData:
 
 
 # --------------------------------------------------------------------------- #
-# Replay + resume                                                             #
+# Replay                                                                      #
 # --------------------------------------------------------------------------- #
 def replay(save: SaveData, registries: Registries) -> GameState:
     """Reproduce the final ``GameState`` = snapshot + ordered effect log.
@@ -497,37 +495,3 @@ def replay(save: SaveData, registries: Registries) -> GameState:
                 "which the loaded config does not register"
             )
     return commit(save.state, save.effect_log).state
-
-
-def resume_pending_action(save: SaveData, location, *, live_input, rng=None):
-    """Resume a mid-handler save by replaying recorded responses, then live input.
-
-    Rebuilds the suspended handler by re-running its option through the real driver:
-    a chained ``input_source`` first returns ``pending_action.responses_so_far`` (so the
-    generator deterministically re-suspends at the same prompt), then hands off to
-    ``live_input`` for the remaining interactions. Returns the driver's ``EngineResult``.
-    """
-    from engine.actions import run_option
-
-    pending = save.pending_action
-    if pending is None:
-        raise ValueError("save has no pending_action to resume")
-    if pending["location_key"] != location.key:
-        raise ValueError(f"pending action location {pending['location_key']!r} != {location.key!r}")
-
-    replayed = iter(pending["responses_so_far"])
-
-    def _chained_input(interaction):
-        try:
-            return next(replayed)
-        except StopIteration:
-            return live_input(interaction)
-
-    return run_option(
-        location,
-        pending["option_id"],
-        save.state,
-        ln=pending["ln"],
-        input_source=_chained_input,
-        rng=rng,
-    )
