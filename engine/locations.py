@@ -38,6 +38,7 @@ import yaml
 from engine.conditions import build_context, evaluate, validate
 
 __all__ = [
+    "MAX_POSITIONAL_OPTIONS",
     "HANDLERS",
     "register",
     "Option",
@@ -153,11 +154,18 @@ def _parse_option(raw: dict) -> Option:
     )
 
 
+#: The most options a menu picked by position may hold: the one-key pick reads one of
+#: the keys "1".."9", so a tenth option could never be chosen. A menu whose options
+#: name their keys (the turn menu) is not capped.
+MAX_POSITIONAL_OPTIONS = 9
+
+
 def load_location(raw: dict) -> Location:
     """Parse a location dict (from ``yaml.safe_load``) into a :class:`Location`.
 
     Validates each option: guard structure, handler resolution, and the
-    exactly-one-of handler/consequences rule. Any violation raises
+    exactly-one-of handler/consequences rule, and caps a shell none of whose options
+    carries a ``key`` at :data:`MAX_POSITIONAL_OPTIONS`. Any violation raises
     :class:`ValueError` at load time.
     """
     if "key" not in raw:
@@ -169,6 +177,11 @@ def load_location(raw: dict) -> Location:
     keys = [o.key for o in options if o.key is not None]
     if len(keys) != len(set(keys)):
         raise ValueError(f"shell {raw['key']!r} gives two options one key: {keys!r}")
+    if not keys and len(options) > MAX_POSITIONAL_OPTIONS:
+        raise ValueError(
+            f"shell {raw['key']!r} has {len(options)} options; a menu picked by one key "
+            f"holds at most {MAX_POSITIONAL_OPTIONS}"
+        )
     return Location(key=raw["key"], options=options)
 
 

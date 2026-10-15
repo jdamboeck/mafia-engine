@@ -39,8 +39,6 @@ EngineStatus = Literal[
     "blocked",
     "cancelled",
     "turn_over",
-    "needs_input",
-    "started_combat",
     "not_implemented",
     "error",
 ]

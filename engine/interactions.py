@@ -1013,7 +1013,8 @@ def _run_substate(load: "LoadSubState", ctx: "Ctx") -> Generator[Any, Any, Any]:
     and break cross-boundary atomicity.
 
     On the child's clean completion, returns its ``StopIteration.value`` (the value
-    :func:`step` then ``.send()``s into the parent). A ``Cancelled`` thrown at a
+    :func:`step` then ``.send()``s into the parent) -- also when the child returns
+    before its first yield. A ``Cancelled`` thrown at a
     cancellable child prompt is raised INTO the child (so its ``try/finally``
     unwinds) and then **propagates out of this function** to :func:`step`'s
     ``except Cancelled`` handler — one discard unwinds the whole nesting.
@@ -1030,7 +1031,10 @@ def _run_substate(load: "LoadSubState", ctx: "Ctx") -> Generator[Any, Any, Any]:
         raise ValueError(f"unknown sub-state kind {load.kind!r}; registered: {sorted(SUBSTATES)}")
 
     child = factory(ctx, load.params)
-    interaction = next(child)  # prime the child to its first yield
+    try:
+        interaction = next(child)  # prime the child to its first yield
+    except StopIteration as stop:  # a child that returns before it asks anything
+        return stop.value
     while True:
         # Combat is only ever yielded from TOP-LEVEL handlers. The driver asserts that
         # rather than supporting nesting, because a fight inside a sub-state would need

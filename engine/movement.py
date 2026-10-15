@@ -85,9 +85,13 @@ STREET_CODE = 156
 STEP_COST = 1
 ENTER_COST = 5
 
+#: The city map's row count: with :data:`GRID_WIDTH`, the only board the deltas and
+#: the cell bounds below fit, so :func:`load_city` refuses any other.
+_GRID_ROWS = 25
+
 #: Cell-index bounds on the 40×25 city map (mf-prg.bas:2030).
 _MIN_CELL = 0
-_MAX_CELL = 999
+_MAX_CELL = GRID_WIDTH * _GRID_ROWS - 1
 
 
 @dataclass
@@ -136,8 +140,25 @@ def load_city(raw: dict) -> City:
     ``doors`` (list of ``{cell, la, ln, location?, ...}``; ``location`` names the shell
     a door opens), and ``special_cells`` (list of ``{cell, la, ...}``). City data is CONFIG-owned; the engine takes it as plain
     data, never importing it.
+
+    Raises:
+        ValueError: if ``dims`` is not 40×25 (the move deltas and cell bounds are that
+            board's), or the grid does not match ``dims``.
     """
     grid = [list(row) for row in raw["grid"]]
+    dims = raw.get("dims") or {}
+    cols = dims.get("cols", GRID_WIDTH)
+    rows = dims.get("rows", _GRID_ROWS)
+    if (cols, rows) != (GRID_WIDTH, _GRID_ROWS):
+        raise ValueError(
+            f"city map is {cols} columns by {rows} rows; "
+            f"the engine supports only {GRID_WIDTH}×{_GRID_ROWS}"
+        )
+    if len(grid) != rows or any(len(row) != cols for row in grid):
+        raise ValueError(
+            f"city grid is not {cols}×{rows}: {len(grid)} rows of widths "
+            f"{sorted({len(row) for row in grid})}"
+        )
     color_grid = [list(row) for row in raw.get("color_grid") or []]
     # If no color_grid in config, default to all grey (12)
     if not color_grid or len(color_grid) != len(grid):
@@ -151,7 +172,6 @@ def load_city(raw: dict) -> City:
     special: dict[int, int] = {}
     for s in raw.get("special_cells", []) or []:
         special[s["cell"]] = s.get("la", 0)
-    cols = (raw.get("dims") or {}).get("cols", GRID_WIDTH)
     return City(
         grid=grid,
         color_grid=color_grid,

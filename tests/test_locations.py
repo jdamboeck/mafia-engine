@@ -126,3 +126,41 @@ def test_flat_consequences_option_has_no_handler():
     leave = next(o for o in loc.options if o.id == "leave")
     assert leave.handler is None
     assert leave.consequences == [{"type": "ms_change", "amount": -5}]
+
+
+# --------------------------------------------------------------------------- #
+# The one-key pick reaches 9 options: a positional menu caps there (KTD-10)   #
+# --------------------------------------------------------------------------- #
+def _shell(n: int, *, keyed: bool = False) -> dict:
+    """A shell of ``n`` handler options; ``keyed`` gives each its own ``key``."""
+    options = []
+    for i in range(n):
+        option = {"id": f"opt{i}", "handler": "test.dummy"}
+        if keyed:
+            option["key"] = f"k{i}"
+        options.append(option)
+    return {"key": "big", "options": options}
+
+
+def test_a_positional_shell_of_10_options_is_refused_at_load():
+    # A location menu is picked by one key, "1".."9": a tenth option is unreachable.
+    assert len(load_location(_shell(9)).options) == 9
+    with pytest.raises(ValueError, match=r"10 options"):
+        load_location(_shell(10))
+
+
+def test_a_keyed_menu_of_10_options_loads():
+    # A menu that names its keys (the turn menu) is not picked by position.
+    assert len(load_location(_shell(10, keyed=True)).options) == 10
+
+
+def test_every_mafia_shell_and_menu_loads():
+    from pathlib import Path
+
+    from engine.config_loader import load_game_config
+
+    config_dir = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
+    config = load_game_config(config_dir)
+    shell_files = {p.stem for p in (config_dir / "content" / "locations").glob("*.yaml")}
+    assert set(config.shells) == shell_files and len(shell_files) == 12
+    assert "turn" in config.menus

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from dataclasses import replace
@@ -88,6 +89,32 @@ def test_city_loads_known_cells():
     assert city.code(122) == 83  # slw door cell (NOT 156)
     assert city.door(122) == (1, 1)  # (la, ln) for slw
     assert city.door(162) is None  # not a door
+    assert (city.cols, len(city.grid)) == (40, 25)
+
+
+def _raw_city(cols: int, rows: int, *, grid_cols: int | None = None) -> dict:
+    """A bare ``city.yaml`` dict: ``dims`` of ``cols``×``rows``, a grid ``grid_cols`` wide."""
+    width = cols if grid_cols is None else grid_cols
+    return {"dims": {"cols": cols, "rows": rows}, "grid": [[0] * width for _ in range(rows)]}
+
+
+def test_a_city_not_40_columns_wide_is_refused_at_load():
+    # The move deltas (UP/DOWN = -/+40) and the 0..999 bounds are the 40×25 board's,
+    # so a 10-wide map would walk UP into the wrong row: refused, naming its width.
+    with pytest.raises(ValueError, match=r"10 columns"):
+        load_city(_raw_city(10, 25))
+
+
+def test_a_city_whose_grid_does_not_match_its_dims_is_refused_at_load():
+    with pytest.raises(ValueError, match=r"grid"):
+        load_city(_raw_city(40, 25, grid_cols=39))
+    with pytest.raises(ValueError, match=r"grid"):
+        load_city({"dims": {"cols": 40, "rows": 25}, "grid": [[0] * 40 for _ in range(24)]})
+
+
+def test_a_city_not_25_rows_high_is_refused_at_load():
+    with pytest.raises(ValueError, match=r"24 rows"):
+        load_city(_raw_city(40, 24))
 
 
 # --------------------------------------------------------------------------- #

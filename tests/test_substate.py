@@ -62,8 +62,30 @@ def test_substate_return_value_threads_into_parent():
     assert received["got"] == 7
 
 
+def test_substate_that_returns_before_its_first_yield_hands_its_value_to_the_parent():
+    # A child that finishes without asking anything is still a generator (the
+    # ``yield from ()`` makes it one); priming it ends it at once, and its return
+    # value is what the parent receives -- not an escaping StopIteration.
+    @register_substate("returns_at_once")
+    def _returns_at_once(ctx, params):
+        yield from ()
+        return 42
+
+    received = {}
+
+    def parent(ctx):
+        received["got"] = yield LoadSubState("returns_at_once", {})
+        yield ShowMessage("spec.after")
+        return []
+
+    result = run(parent, scripted(), state=None)
+
+    assert result.status == "completed"
+    assert received["got"] == 42
+
+
 # --------------------------------------------------------------------------- #
-# Scenario 2 — sub-state effects buffer into the parent's committed effects    #
+# Scenario 2— sub-state effects buffer into the parent's committed effects    #
 # --------------------------------------------------------------------------- #
 def test_substate_effects_merge_into_parent_action():
     @register_substate("buffers_effect")
