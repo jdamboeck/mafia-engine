@@ -4,19 +4,23 @@
 # the line before the next start. `ported`: code in engine/, data/, clients/ or tools/
 # cites a line of the block (the checker finds the citations; none are listed here).
 # `exception`: the port leaves the block out, for the category and reason given.
-# `player_facing`: the block prints, prompts (input/get) or waits for a key (wait198),
-# outside strings and rems; then a ported block also needs a citation where its text is
-# shown (a theme's strings/*.yaml or clients/) that spans at most 3 blocks (a theme
-# file's header range shows no one block), or `screen: deferred` with a
-# `screen_reason` naming the issue that will show it.
-# Checked by tests/test_coverage_ledger.py; the boundaries are committed so the
-# citation checks run without ../research/ (CI). Regenerate the boundaries only by
-# hand-merging: a status is a decision, not a derivation.
+# `player_facing`: a line of the block prints, prompts (input/get) or waits for a key
+# (wait198), outside strings and rems; then each such line of a ported block also needs
+# a citation where its text is shown (a theme's strings/*.yaml or clients/) that names
+# the line or covers it with a range of at most 3 blocks (a theme file's header range
+# shows no one line), or the block carries `screen: deferred` with a `screen_reason`
+# naming the issue that will show its uncited lines.
+# Checked by tests/test_coverage_ledger.py, a citation and traceability audit (it
+# proves each block and printed line is cited, not that the port does it right); the
+# boundaries are committed so the citation checks run without ../research/ (CI).
+# Regenerate the boundaries only by hand-merging: a status is a decision, not a
+# derivation.
 blocks:
   - {start: 1, end: 11, player_facing: false, status: exception, category: hardware,
      reason: "Boot: :1 disables RUN/STOP unless the char set is loaded, :10-11 loads the character set mf-zeichen from disk (the load re-runs the program). Disk and machine setup; the port has its own renderer."}
   - {start: 20, end: 30, player_facing: false, status: ported}
-  - {start: 100, end: 153, player_facing: true, status: ported}
+  - {start: 100, end: 153, player_facing: true, status: ported, screen: deferred,
+     screen_reason: "The title screen's three lines are not shown: :151 `m a f i a`, :152 `(c) 1986 by igelsoft`, :153 `chicago, 1925...`; the terminal client draws its own art and line instead (clients/terminal/ascii_art.py title_art). Follow-up: #204."}
   - {start: 154, end: 155, player_facing: true, status: ported}
   - {start: 170, end: 172, player_facing: true, status: ported}
   - {start: 175, end: 199, player_facing: true, status: ported}

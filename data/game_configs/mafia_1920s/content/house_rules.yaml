@@ -74,6 +74,9 @@
 #   - a location with a picture shows it as text art and waits for Enter before its
 #     menu: the source loads the picture (mf-prg.bas:3007 `syslh,lk$(la)+"-pic"`) and
 #     goes on to the menu with no key (clients/terminal/session.py).
+#   - the game's result waits for one key and the session ends: the source waits
+#     twice and restarts the program (mf-prg.bas:40166 `poke198,0:wait198,1:run`)
+#     (clients/terminal/session.py).
 house_rules:
   - id: intelligence_or_30
     citation: ":311"

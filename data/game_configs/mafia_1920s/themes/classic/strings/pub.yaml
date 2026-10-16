@@ -28,8 +28,10 @@ locations:
     drink_refused: "'was? alkohol? ist doch verboten!'"  # :12016 `alkohol? ist doch verboten!`
     drink_offer: "'ich habe\n{stock}faesser fuer{price}$ pro fass.'"  # :12021-12022 `faesser fuer`
     drink_quantity_prompt: "wieviele willst du"  # :12027 `wieviele willst du (0-`
+    # :12028 `ify>xthenprint"{up}{up}";:goto12027`: a count over the stock asks again.
     sell_offer: "'nein. vielleicht hast du aber was fuer mich? ich zahle{price}$ pro fass!'"  # :12055-12056 `vielleicht hast du aber was fuer`
     sell_quantity_prompt: "wieviel willst du abgeben"  # :12060 `wieviel willst du abgeben (0-`
+    # :12061 `ify>ta(sp)thenprint"{up}{up}";:goto12060`: a count over the barrels asks again.
     # {$a0} is the C64's shifted space; it prints as a space.
     sell_greed: "'besorg noch mehr (gier)!'"  # :12070 `'besorg noch mehr`
 

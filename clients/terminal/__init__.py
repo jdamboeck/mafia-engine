@@ -477,6 +477,8 @@ class TerminalInput:
         cannot distinguish them -- the distinction matters here (blank re-prompts,
         EOF surrenders).
         """
+        # :30125 ``getx$:ifx$=""goto30125``: the human's action key, read as a line here;
+        # a key that is no action asks again (:30139 ``goto30125``).
         raw = self._stdin.readline()
         if raw == "":
             return CANCEL

@@ -441,6 +441,10 @@ def _render_location_menu(
         entry_text = resolver.resolve("client.location.entry_fallback", {"location": location_key})
 
     # --- render location screen ---
+    # :3005-3006 ``print"{wht}grafik laden (j/n) ?"`` is never asked: only graphics
+    # mode lm=2 reaches it, and only the F1 toggle (:1032, not ported:
+    # content/menus/turn.yaml) sets that, so lm stays at :127's ``lm=1`` and :3001
+    # ``iflm=0orlm=1goto3007`` goes on to the picture.
     render_screen_clear(out)
     # Location ASCII art splash (if available): the location's picture
     # (:3007 `syslh,lk$(la)+"-pic"`), drawn for the terminal.
@@ -967,6 +971,7 @@ class TerminalSession:
         if screen.key == TURN_OVER_SCREEN:
             return None if self.turn_over() else _QUIT
         if screen.key == STANDINGS_SCREEN:
+            # :4515 ``print:goto1100``: the standings end in a blank row and the key wait.
             header = self.text("client.header.standings")
             if not _render_lines_screen(
                 header, screen.params["lines"], self.resolver, self.colors, self.out
@@ -976,6 +981,9 @@ class TerminalSession:
             return None
         if screen.key == YEAR_END_SCREEN:
             # :40100 — the year-end result; the game ends after it, whatever the key.
+            # :40165 ``poke198,0:wait198,1`` is this screen's key wait. :40166
+            # ``poke198,0:wait198,1:run`` waits again and restarts the program; the
+            # session ends instead (no second wait, no restart).
             header = self.text("client.header.game_over")
             _render_lines_screen(
                 header, screen.params["lines"], self.resolver, self.colors, self.out
@@ -1060,6 +1068,8 @@ class TerminalSession:
             render_map(self.city, self.city_raw, self.state, out, self.resolver, self.colors)
             out.write(f"{DIM}{self.note}{RESET}\n")
             out.flush()
+            # :2010 ``getx$:ifx$=""goto2010``: one key; a key that is no move asks for
+            # the next (:2029 ``goto2010``).
             key = _read_key()
             if check_resize():
                 self.note = self.text("client.map.resized")

@@ -25,6 +25,8 @@ locations:
     police_waiting: "vor dem laden erwartet dich die\npoliyei!"          # :17008-17009 `vor dem laden erwartet dich die` (sic)
 
     # --- the options (17015-17306) ---
+    # :17015 `print"{clr}":a=sp:b=1:gosub1350` clears the screen for the threat's outcome;
+    # the client cleared it at the menu pick (:3050).
     no_impression: "du schindest keinen eindruck..."                    # :17016 `du schindest keinen eindruck...`
     calls_police: "der kerl ruft die polizei!!!"                        # :17020 `der kerl ruft die polizei!!!`
     sob_refused: "'sorge doch selbst fuer deine alte!'"                 # :17105 `'sorge doch selbst fuer deine alte!'`

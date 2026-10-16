@@ -19,6 +19,7 @@ locations:
     weapon_list: "ok, wir haben folgendes:\n"  # :13010 `ok, wir haben folgendes:`
     weapon_row: "{number:mid$} - {name}{price}$"  # :13015 `printmid$(str$(i),2)" - "wa$(i);wp(i)"$"`
     weapon_prompt: "ihre wahl:"  # :13020 `ihre wahl:`
+    # :13021 `ifx<aorx>bthenprint"{up}{up}";:goto13020`: a number off the list asks again.
     # :13090-13091 break the word as they print it; :13091's `b=8:print:return` leaves a
     # blank row under the news.
     grenades_in: "...brandheiss! eine ladung army-hand-\n\ngranaten ist gerade eingetroffen!\n"  # :13090 `brandheiss! eine ladung army-hand-`
@@ -48,6 +49,8 @@ locations:
     spec_effect_3: "\n{tab(8)}wirkung: schlimm!"
     spec_effect_4: "\n{tab(8)}wirkung: brutal"
     spec_effect_5: "\n{tab(8)}wirkung: erschreckend!"
+    # :13525 `print"{down}{down} taste druecken!":poke198,0:wait198,1` ends the sheet
+    # with its own key wait, which the client prints (the handler's KEY_WAIT).
 
     # --- train (13100-13175) ---
     no_gangster: "leider hast du nicht einen gangster!"  # :13100 `leider hast du nicht einen gangster!`
