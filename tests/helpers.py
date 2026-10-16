@@ -52,8 +52,30 @@ from data.game_configs.mafia_1920s.effects import C64_FLOAT_SCORE, SCORE_WEIGHT_
 from data.game_configs.mafia_1920s.state import set_exact_score, tenancy_values, values_of
 from engine.combat import CombatFight
 from engine.effects import commit, effect_tag
-from engine.interactions import Acknowledge, ShowMessage, run
-from engine.turns import KEY_WAIT_SCREEN
+from engine.interactions import (
+    Acknowledge,
+    CombatScreen,
+    Confirm,
+    Heading,
+    LocationMenu,
+    PromptChoice,
+    PromptInt,
+    PromptText,
+    RollFrame,
+    ShowMessage,
+    TurnMenu,
+    run,
+)
+from engine.strings import Resolver
+from engine.turns import (
+    JOB_SHIFT_SCREEN,
+    KEY_WAIT_SCREEN,
+    LOCATION_CLOSED_SCREEN,
+    STANDINGS_SCREEN,
+    TURN_OVER_SCREEN,
+    UPKEEP_SCREEN,
+    YEAR_END_SCREEN,
+)
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
 
@@ -703,3 +725,131 @@ def run_fight(
     engine_result = run(handler, input_source, state=state, rng=rng)
     captured["engine_result"] = engine_result
     return captured["result"]
+
+
+# --------------------------------------------------------------------------- #
+# Captured-key resolution                                                      #
+# --------------------------------------------------------------------------- #
+_MAFIA_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
+
+#: The screens the turn runner names itself: a client draws them from their own
+#: ``client.*`` text or their ``lines``, never by resolving the screen's key.
+_RUNNER_SCREENS = frozenset(
+    {
+        UPKEEP_SCREEN,
+        TURN_OVER_SCREEN,
+        STANDINGS_SCREEN,
+        YEAR_END_SCREEN,
+        JOB_SHIFT_SCREEN,
+        LOCATION_CLOSED_SCREEN,
+        KEY_WAIT_SCREEN,
+    }
+)
+
+
+@functools.cache
+def classic_resolver() -> Resolver:
+    """The Mafia config's classic theme, read once per test run."""
+    return Resolver.from_config(_MAFIA_DIR, theme="classic")
+
+
+def _is_theme_key(option: Any) -> bool:
+    """A choice option that names a theme key (``locations.sgl.after_take``), not a
+    plain value the client prints as it is (a number, a name)."""
+    return isinstance(option, str) and "." in option and " " not in option
+
+
+def theme_emissions(captured: Any) -> list[tuple[str, dict]]:
+    """Every ``(key, params)`` a client resolves through the theme to draw ``captured``.
+
+    ``captured`` is a sequence of interactions (``scripted.seen``) or of ``(key,
+    params)`` pairs, or a mix. Per interaction:
+
+    - ``ShowMessage``, ``PromptInt``, ``PromptText``, ``RollFrame``: ``key`` with ``params``.
+    - ``Confirm``: ``key``, no params.
+    - ``PromptChoice``: ``key``, each option that is a theme key, and ``prompt``.
+    - ``Acknowledge``: each of ``params["lines"]`` when it has lines, else ``key`` with
+      ``params``; ``Heading``: ``key`` with ``params``. A runner screen's own key
+      (``engine.turns``' ``*_SCREEN``) is drawn from client text, so it is skipped.
+    - ``CombatScreen``: a string ``message`` is ``combat.<message>``; a shot result
+      (a dict) carries no key, the client picks one.
+    - ``LocationMenu``: the location's ``title``, ``entry_prompt`` and each option's
+      ``menu.<id>``; ``TurnMenu``: each option's ``turn.menu.option.<id>``.
+
+    ``StartCombat``, ``LoadSubState``, ``MapMove`` and ``OptionDone`` carry no theme
+    key (a sub-state's own interactions are captured where it yields them).
+    """
+    out: list[tuple[str, dict]] = []
+    for item in captured:
+        if isinstance(item, tuple):
+            key, params = item
+            out.append((key, dict(params)))
+        elif isinstance(item, (ShowMessage, PromptInt, PromptText, RollFrame)):
+            out.append((item.key, dict(item.params)))
+        elif isinstance(item, Confirm):
+            out.append((item.key, {}))
+        elif isinstance(item, PromptChoice):
+            out.append((item.key, {}))
+            out.extend((str(o), {}) for o in item.options if _is_theme_key(o))
+            if item.prompt is not None:
+                out.append((item.prompt, {}))
+        elif isinstance(item, (Acknowledge, Heading)):
+            lines = item.params.get("lines")
+            if lines is not None:
+                out.extend((key, dict(params)) for key, params in lines)
+            elif item.key not in _RUNNER_SCREENS:
+                out.append((item.key, dict(item.params)))
+        elif isinstance(item, CombatScreen):
+            if isinstance(item.message, str):
+                out.append((f"combat.{item.message}", {}))
+        elif isinstance(item, LocationMenu):
+            base = f"locations.{item.location}"
+            out.append((f"{base}.title", {}))
+            out.append((f"{base}.entry_prompt", {}))
+            out.extend((f"{base}.menu.{o}", {}) for o in item.options)
+        elif isinstance(item, TurnMenu):
+            out.extend((f"turn.menu.option.{o}", {}) for o in item.options)
+    return out
+
+
+def assert_captured_keys_resolve(captured: Any, resolver: Resolver | None = None) -> set[str]:
+    """Resolve every key ``captured`` carries (:func:`theme_emissions`) through
+    ``resolver`` (default: the Mafia classic theme); fail naming the key when the theme
+    lacks it or its template asks for a param the emission does not carry.
+
+    Returns the keys resolved, so a caller can check its runs reached the keys it
+    meant to.
+    """
+    resolver = resolver or classic_resolver()
+    keys: set[str] = set()
+    for key, params in theme_emissions(captured):
+        try:
+            resolver.resolve(key, params)
+        except KeyError as exc:  # MissingKeyError, or str.format's missing param
+            pytest.fail(f"theme key {key!r} with params {params!r} does not resolve: {exc}")
+        except (IndexError, ValueError) as exc:
+            pytest.fail(f"theme key {key!r} with params {params!r} does not format: {exc}")
+        keys.add(key)
+    return keys
+
+
+#: A location's own strings the location screen draws from its shell, not a handler.
+_SHELL_STRINGS = ("title", "entry_prompt", "menu")
+
+
+def location_strings(location: str, resolver: Resolver | None = None) -> set[str]:
+    """Every template key under ``locations.<location>`` in ``resolver``'s theme
+    (default: the Mafia classic theme) but the shell's own (``title``,
+    ``entry_prompt``, ``menu.*``): the strings the location's handlers print."""
+    tree = (resolver or classic_resolver()).tree["locations"][location]
+    keys: set[str] = set()
+
+    def walk(node: Mapping, prefix: str) -> None:
+        for name, value in node.items():
+            if isinstance(value, Mapping):
+                walk(value, f"{prefix}.{name}")
+            else:
+                keys.add(f"{prefix}.{name}")
+
+    walk({k: v for k, v in tree.items() if k not in _SHELL_STRINGS}, f"locations.{location}")
+    return keys

@@ -3,18 +3,32 @@
 kdh has SIX menu options: five handler-backed (borrow/repay/trade/capital/collect,
 all guardless at the shell level — every refusal lives inside the handler body, per
 ``pub.drink``/``pub.tip``/``pub.job``'s established shape) plus a guardless leave.
-This checks the shell loads and resolves every handler id, and that every string key
-``handlers/kdh.py`` emits resolves in the classic theme.
+This checks the shell loads and resolves every handler id, and that the keys
+``handlers/kdh.py`` emits in its behavioural runs (``tests/test_kdh.py``) resolve in the
+classic theme with the params they carry and reach every kdh string.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
+from data.game_configs.mafia_1920s.gangster import Gangster
+from data.game_configs.mafia_1920s.state import Business
+from engine.combat import STEP_RIGHT
 from engine.config_loader import load_game_config
-from engine.locations import load_location
+from engine.locations import HANDLERS, load_location
+from engine.rng import Rng
+from tests.helpers import (
+    StubRng,
+    assert_captured_keys_resolve,
+    location_strings,
+    run_pure,
+    scripted,
+)
+from tests.test_kdh import _EXITS, _OWN, _player, _state
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -72,39 +86,52 @@ def test_kdh_shell_menu_strings_present():
         assert _get(data, f"locations.kdh.menu.{opt_id}")
 
 
-def test_kdh_strings_resolve_for_every_key_the_handler_emits():
-    data = yaml.safe_load(_KDH_STRINGS.read_text(encoding="utf-8"))
-    for key in [
-        "locations.kdh.pay_old_debts_first",
-        "locations.kdh.borrow_prompt",
-        "locations.kdh.borrow_grace_notice",
-        "locations.kdh.repay_prompt",
-        "locations.kdh.repay_partial",
-        "locations.kdh.repay_full",
-        "locations.kdh.already_own_a_shop",
-        "locations.kdh.pay_own_debts_first",
-        "locations.kdh.shop_belongs_to",
-        "locations.kdh.buy_offer",
-        "locations.kdh.buy_confirm",
-        "locations.kdh.bought",
-        "locations.kdh.sell_offer",
-        "locations.kdh.sell_confirm",
-        "locations.kdh.not_your_shop",
-        "locations.kdh.capital_status",
-        "locations.kdh.capital_prompt",
-        "locations.kdh.debts_paid_on_time",
-        "locations.kdh.ambush_intro",
-        "locations.kdh.ambush_loot",
-    ]:
-        assert _get(data, key), f"missing string for {key}"
-    # Template params present.
-    assert "{remaining}" in _get(data, "locations.kdh.repay_partial")
-    assert "{name}" in _get(data, "locations.kdh.shop_belongs_to")
-    assert "{price}" in _get(data, "locations.kdh.buy_offer")
-    assert "{price}" in _get(data, "locations.kdh.sell_offer")
-    assert "{capital}" in _get(data, "locations.kdh.capital_status")
-    assert "{max:mid$}" in _get(data, "locations.kdh.capital_status")
-    assert "{amount}" in _get(data, "locations.kdh.ambush_loot")
+_STRONG = (Gangster(name="p0", energie=100, kraft=50, brutalitaet=50, weapon=8),)
+
+#: The behavioural runs whose captured keys are resolved: every exit of
+#: ``tests/test_kdh.py`` (id, option, each player's kwargs, rng draws or ``None`` for
+#: the seeded engine RNG, answers), and the paths no exit ends on: a rival's shop
+#: (:15107), a purchase into the capital screen (:15120-15125) and the ambush lost and
+#: won (:15312-15321; seed 0 reaches the win with the aimed shots).
+_RUNS = [(case[0], case[1], (case[2],), case[3], case[4]) for case in _EXITS] + [
+    (
+        "15107-rival-owner",
+        "kdh.trade",
+        ({"last_location": 1}, {"name": "p1", "business": Business(shop_tile=1)}),
+        (),
+        (),
+    ),
+    ("15125-bought", "kdh.trade", ({"ka": 100000, "last_location": 1},), (0,), (True, 0)),
+    ("15315-ambush-lost", "kdh.collect", ({"ka": 1000, **_OWN},), (1,), ("surrender",)),
+    (
+        "15321-ambush-won",
+        "kdh.collect",
+        ({"ka": 1000, "roster": _STRONG, **_OWN},),
+        None,
+        (*[("shoot", STEP_RIGHT)] * 40, "surrender"),
+    ),
+]
+
+
+def _captured(handler, players, draws, answers) -> list:
+    src = scripted(*answers)
+    rng = Rng(0) if draws is None else StubRng(*draws)
+    run_pure(HANDLERS[handler], src, state=_state([_player(**p) for p in players]), rng=rng)
+    return src.seen
+
+
+@pytest.mark.parametrize(
+    ("handler", "players", "draws", "answers"),
+    [run[1:] for run in _RUNS],
+    ids=[run[0] for run in _RUNS],
+)
+def test_the_keys_each_kdh_run_emits_resolve_in_the_classic_theme(handler, players, draws, answers):
+    assert_captured_keys_resolve(_captured(handler, players, draws, answers))
+
+
+def test_the_kdh_runs_reach_every_kdh_string():
+    reached = set().union(*(assert_captured_keys_resolve(_captured(*r[1:])) for r in _RUNS))
+    assert location_strings("kdh") - reached == set()
 
 
 def test_kdh_strings_verbatim():

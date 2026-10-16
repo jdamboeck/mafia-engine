@@ -2,18 +2,23 @@
 
 The sph handler's game menu lives INSIDE the handler (a PromptChoice), so the shell
 is a single guardless "play" entry routing to the "sph" handler plus a guardless
-"leave". This unit checks the shell loads and resolves its handler id, and that every
-string key sph.py emits resolves in the classic theme.
+"leave". This unit checks the shell loads and resolves its handler id, and that the
+keys sph.py emits in its behavioural runs (``tests/test_sph.py``) resolve in the classic
+theme with the params they carry and reach every sph string.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_game_config
+from engine.interactions import CANCEL
 from engine.locations import load_location
+from tests.helpers import StubRng, assert_captured_keys_resolve, location_strings
+from tests.test_sph import _sph_exit
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -43,23 +48,36 @@ def test_sph_shell_loads_and_resolves_handler():
     assert play.handler is _CONFIG.handlers["sph"]
 
 
-def test_sph_strings_resolve_for_every_key_the_handler_emits():
-    data = yaml.safe_load(_SPH_STRINGS.read_text(encoding="utf-8"))
-    # Keys sph.py yields (game menu + option labels + wager/resolve lines).
-    for key in [
-        "locations.sph.game_menu",
-        "locations.sph.poker",
-        "locations.sph.blackjack",
-        "locations.sph.roulette",
-        "locations.sph.wager_prompt",
-        "locations.sph.at_the_table",
-        "locations.sph.won",
-        "locations.sph.lost",
-    ]:
-        assert _get(data, key), f"missing string for {key}"
-    # Template params present.
-    assert "{cash}" in _get(data, "locations.sph.wager_prompt")
-    assert "{amount}" in _get(data, "locations.sph.won")
+#: The behavioural runs whose captured keys are resolved: each exit of
+#: ``tests/test_sph.py``'s ``_sph_exit`` (id, answers, rng draws) -- nothing chosen
+#: (:16015), no stake (:16020), a stake above the cash (:16025), a lost and a won hand
+#: (:16035, :16040) -- and a hand of each other game.
+_RUNS = [
+    ("16015-nothing", (CANCEL,), ()),
+    ("16020-no-stake", (0, 0), ()),
+    ("16025-too-poor", (0, 6000), ()),
+    ("16035-lost", (0, 100), (1,)),
+    ("16040-won", (0, 100), (0,)),
+    ("16040-blackjack", (1, 100), (0,)),
+    ("16040-roulette", (2, 100), (0,)),
+]
+
+
+def _captured(answers, draws) -> list:
+    src, _ = _sph_exit(answers, StubRng(*draws))
+    return src.seen
+
+
+@pytest.mark.parametrize(
+    ("answers", "draws"), [run[1:] for run in _RUNS], ids=[run[0] for run in _RUNS]
+)
+def test_the_keys_each_sph_run_emits_resolve_in_the_classic_theme(answers, draws):
+    assert_captured_keys_resolve(_captured(answers, draws))
+
+
+def test_the_sph_runs_reach_every_sph_string():
+    reached = set().union(*(assert_captured_keys_resolve(_captured(*r[1:])) for r in _RUNS))
+    assert location_strings("sph") - reached == set()
 
 
 def test_sph_shell_menu_strings_present():

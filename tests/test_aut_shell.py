@@ -1,7 +1,8 @@
 """Tests for the aut shell + classic-theme strings (``mf-prg.bas:14000-14131``).
 
-The four checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
-resolve, the menu strings exist, every key the handlers emit resolves with its params,
+The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
+resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
+(``tests/test_aut.py``) resolve in the classic theme and reach every aut string,
 and the text is verbatim from the research corpus (location-dialogue.yaml, aut).
 """
 
@@ -9,11 +10,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_game_config
 from engine.locations import load_location
 from engine.strings import Resolver
+from tests.helpers import assert_captured_keys_resolve, location_strings
+from tests.test_aut import _EXITS, _run, _state
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -53,7 +57,33 @@ def test_aut_menu_strings_present():
         assert _get(data, f"locations.aut.menu.{opt_id}")
 
 
-def test_every_key_the_handlers_emit_resolves_with_its_params():
+#: The behavioural runs whose captured keys are resolved: every exit of
+#: ``tests/test_aut.py`` (id, option, state fields, answers, rng draws), and a theft
+#: that leaves the old car behind (:14117).
+_RUNS = [case[:5] for case in _EXITS] + [
+    ("14117-old-car-left", "aut.steal", {"vehicle": 4}, (1,), (0, 120)),
+]
+
+
+def _captured(key, fields, answers, draws) -> list:
+    return _run(key, _state(**fields), answers=answers, draws=draws)[1].seen
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws"),
+    [run[1:] for run in _RUNS],
+    ids=[run[0] for run in _RUNS],
+)
+def test_the_keys_each_aut_run_emits_resolve_in_the_classic_theme(key, fields, answers, draws):
+    assert_captured_keys_resolve(_captured(key, fields, answers, draws))
+
+
+def test_the_aut_runs_reach_every_aut_string():
+    reached = set().union(*(assert_captured_keys_resolve(_captured(*r[1:])) for r in _RUNS))
+    assert location_strings("aut") - reached == set()
+
+
+def test_the_classic_theme_prints_each_aut_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
         "locations.aut.showroom": (

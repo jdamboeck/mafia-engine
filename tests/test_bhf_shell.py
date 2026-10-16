@@ -1,7 +1,8 @@
 """Tests for the bhf shell + classic-theme strings (``mf-prg.bas:19000-19050``).
 
-The four checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
-resolve, the menu strings exist, every key the handlers emit resolves with its params,
+The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
+resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
+(``tests/test_bhf.py``) resolve in the classic theme and reach every bhf string,
 and the text is verbatim from the research corpus (location-dialogue.yaml, bhf; the
 corpus misses :19015 and :19016, which are the listing's).
 """
@@ -10,11 +11,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_game_config
 from engine.locations import load_location
 from engine.strings import Resolver
+from tests.helpers import assert_captured_keys_resolve, location_strings
+from tests.test_bhf import _EXITS, _run, _state, _won_fight
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -55,7 +59,45 @@ def test_bhf_menu_strings_present():
         assert _get(data, f"locations.bhf.menu.{opt_id}")
 
 
-def test_every_key_the_handlers_emit_resolves_with_its_params():
+#: The behavioural runs whose captured keys are resolved: every exit of
+#: ``tests/test_bhf.py`` (id, option, state fields, answers, rng draws, whether the
+#: guards' fight is a stand-in win), a won mail train paying out on the bank's screen
+#: (:19040 goto20050) and the station's handbag (:19050 w=1 into :18046).
+_RUNS = [(*case[:5], False) for case in _EXITS] + [
+    ("19040-loot", "mail_train", {}, (), (1234,), True),
+    ("19050-handbag", "pickpocket", {}, (1,), (0, 10, 0), False),
+]
+
+#: The screens bhf borrows: :19040's is the bank's, :19050's the subway's.
+_BORROWED = {"locations.ban.loot", "locations.sub.thief_prompt", "locations.sub.loot_handbag"}
+
+
+def _captured(monkeypatch, key, fields, answers, draws, won) -> list:
+    with monkeypatch.context() as patch:
+        if won:
+            _won_fight(patch)
+        return _run(key, _state(**fields), answers=answers, draws=draws)[1].seen
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws", "won"),
+    [run[1:] for run in _RUNS],
+    ids=[run[0] for run in _RUNS],
+)
+def test_the_keys_each_bhf_run_emits_resolve_in_the_classic_theme(
+    monkeypatch, key, fields, answers, draws, won
+):
+    assert_captured_keys_resolve(_captured(monkeypatch, key, fields, answers, draws, won))
+
+
+def test_the_bhf_runs_reach_every_bhf_string_and_the_borrowed_screens(monkeypatch):
+    reached = set().union(
+        *(assert_captured_keys_resolve(_captured(monkeypatch, *r[1:])) for r in _RUNS)
+    )
+    assert (location_strings("bhf") | _BORROWED) - reached == set()
+
+
+def test_the_classic_theme_prints_each_bhf_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
         "locations.bhf.no_train": ({}, "kein postzug zu sehen..."),

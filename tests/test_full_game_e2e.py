@@ -1,19 +1,20 @@
-"""End-to-end seeded runs of the whole game through the terminal client's ``play()``.
+"""Two seeded scenarios through the terminal client's ``play()``: a late game and a jail.
 
-Two runs, each from a start state built here (not a stored fixture), saved and resumed
-with ``play(load=...)`` at a turn's upkeep, with every house rule at its faithful
-default:
+Neither plays a whole game from setup. Each starts from an advanced state built here
+(not a stored fixture): a rank-9 gang one cash transport short of rank 10, or a rank-6
+boss on the street. Each is saved and resumed with ``play(load=...)`` at a turn's
+upkeep, with every house rule at its faithful default:
 
-1. **The early win** (AE4, ``mf-prg.bas:1011``): a rank-9 player one cash transport
-   short of rank 10, holding no tip and no win flag, buys tips at the pub until tip 3
-   or 5 comes up (``:12200-12252``), walks to the cell it arms and wins the flow there
-   (the cash transport at 569, ``:23000-23030``; the mayor hit at 861,
-   ``:24000-24020``), until both flags are held; the transport's score lifts the
-   pending rank to 10, upkeep commits it (``:4030``), and the next turn start shows the
-   victory picture and the ranking (``:40000``/``:40100``).
-2. **The jail** (AE3): a rank-6 player walks the street until the roadblock stops them
-   (``:2041``, ``:6000-6036``), surrenders (``:26030``), takes no lawyer and is
-   sentenced (``:26045-26080``); every following turn shows upkeep, then the jail
+1. **The late-game scenario, ending in the early win** (AE4, ``mf-prg.bas:1011``): a
+   rank-9 player one cash transport short of rank 10, holding no tip and no win flag,
+   buys tips at the pub until tip 3 or 5 comes up (``:12200-12252``), walks to the cell
+   it arms and wins the flow there (the cash transport at 569, ``:23000-23030``; the
+   mayor hit at 861, ``:24000-24020``), until both flags are held; the transport's
+   score lifts the pending rank to 10, upkeep commits it (``:4030``), and the next turn
+   start shows the victory picture and the ranking (``:40000``/``:40100``).
+2. **The jail scenario** (AE3): a rank-6 player walks the street until the roadblock
+   stops them (``:2041``, ``:6000-6036``), surrenders (``:26030``), takes no lawyer and
+   is sentenced (``:26045-26080``); every following turn shows upkeep, then the jail
    screen (``:1500-1515``) for exactly the sentence's months, and then a normal turn.
 
 Neither run is a fixed key list. :class:`ScreenPlayer` is the piped stdin: every key
@@ -273,7 +274,7 @@ def _gang(size: int, *, stat: int, energie: int, weapon: int) -> tuple:
 
 
 # --------------------------------------------------------------------------- #
-# Run 1 — tips, both win flows, rank 10, the early win (AE4)                   #
+# The late-game scenario — tips, both win flows, rank 10, the early win (AE4) #
 # --------------------------------------------------------------------------- #
 class EarlyWinPlayer(ScreenPlayer):
     """Buys tips until one arms a flow whose flag is still missing, walks there, wins it.
@@ -373,7 +374,11 @@ def _early_win_start(seed: int):
 
 
 @pytest.mark.parametrize("seed", [42])
-def test_tips_both_win_flows_and_rank_10_end_the_game_early(monkeypatch, tmp_path, seed):
+def test_late_game_scenario_rank_9_tips_both_win_flows_and_rank_10_ends_the_game_early(
+    monkeypatch, tmp_path, seed
+):
+    """The late-game scenario (from :func:`_early_win_start`, rank 9 and score 92): the
+    tips, both win flows and the early win, through ``play()``."""
     out = io.StringIO()
     player = EarlyWinPlayer(out, budget=6000)
     final, _rng = _resume(monkeypatch, tmp_path, _early_win_start(seed), player, seed=seed)
@@ -398,7 +403,7 @@ def test_tips_both_win_flows_and_rank_10_end_the_game_early(monkeypatch, tmp_pat
 
 
 # --------------------------------------------------------------------------- #
-# Run 2 — roadblock, surrender, sentence, the jail turns, release (AE3)        #
+# The jail scenario — roadblock, surrender, sentence, jail turns (AE3)       #
 # --------------------------------------------------------------------------- #
 class JailPlayer(ScreenPlayer):
     """Walks one street back and forth until the police stop it, then gives up.
@@ -452,7 +457,11 @@ def _jail_start(seed: int):
 
 
 @pytest.mark.parametrize("seed", [42])
-def test_a_roadblock_capture_jails_for_the_sentence_then_a_normal_turn(monkeypatch, tmp_path, seed):
+def test_jail_scenario_rank_6_roadblock_capture_jails_for_the_sentence_then_a_normal_turn(
+    monkeypatch, tmp_path, seed
+):
+    """The jail scenario (from :func:`_jail_start`, a rank-6 boss on the street): the
+    roadblock, the sentence's jail turns and the free turn after them, through ``play()``."""
     out = io.StringIO()
     start, home = _jail_start(seed)
     player = JailPlayer(out, budget=3000, home=home)
