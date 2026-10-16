@@ -488,6 +488,47 @@ def test_each_job_exit_waits_for_a_key_where_the_source_does(
         assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
 
 
+_STRONG_BOSS = (Gangster(name="boss", weapon=6, energie=99, kraft=50, brutalitaet=50),)
+
+_WON_SHIFT_EXITS = [
+    # id, job, trick answer, seed, key waits. The fight is real (a won fight needs
+    # many draws); the boss shoots right, as in
+    # ``test_croupier_caught_but_wins_the_fight_completes_the_shift``, and each seed
+    # is one whose fight the boss wins.
+    # :25030 ...print"{down}tu etwas!":gosub1100, the fight (:30520 print:goto1100),
+    # :25500 ifs=1goto25550 -> :25550 jd(sp)=jd(sp)-1:ifjd(sp)<>0thenreturn
+    ("25030-brawler-won", Job(type=1, pending_pay=2500, months_left=3), (), 0, 2),
+    # ... the same, the last month: :25550 -> :25560 x=3+3*(jo(sp)=2):...:goto1100
+    ("25560-brawler-won-last", Job(type=1, pending_pay=2500, months_left=1), (), 0, 3),
+    # :25131 ...und zieht ein messer!":gosub1100, the fight, :25140 goto25500 -> :25550
+    ("25131-croupier-won", Job(type=2, pending_pay=1200, months_left=2), (3,), 1, 2),
+    ("25560-croupier-won-last", Job(type=2, pending_pay=1200, months_left=1), (3,), 1, 3),
+    # :25206 ...seitenstrasse...":gosub1100, the fight (:25210 ...gosub5000:goto25500),
+    # the killer's one month (:12322 ...jd(sp)=1): :25550 -> :25560's goto1100
+    ("25560-killer-won", Job(type=4, pending_pay=2200, months_left=1), (), 0, 3),
+]
+
+
+@pytest.mark.parametrize(
+    ("job", "trick", "seed", "waits"),
+    [case[1:] for case in _WON_SHIFT_EXITS],
+    ids=[case[0] for case in _WON_SHIFT_EXITS],
+)
+def test_each_won_shift_fight_waits_for_a_key_where_the_source_does(job, trick, seed, waits):
+    from engine.combat import STEP_RIGHT
+    from engine.interactions import CombatScreen
+
+    src = _scripted(*trick, *[("shoot", STEP_RIGHT)] * 300)
+    st = _state(jobs=job, roster=_STRONG_BOSS)
+    result = run_pure(HANDLERS["job.shift"], src, state=st, rng=Rng(seed))
+
+    assert any(isinstance(i, CombatScreen) for i in src.seen), "no fight was fought"
+    assert "job.shift_failed" not in src.message_keys(), "the fight was lost"
+    assert game.job(result.state.players[0]).months_left == job.months_left - 1
+    assert src.key_waits() == waits
+    assert src.ends_in_key_wait(), "the exit did not end in a :1100 key wait"
+
+
 def test_a_shift_fight_waits_before_it_starts_and_under_its_outcome():
     """:25030 ``print"{down}tu etwas!":gosub1100`` before ``gosub5000``, then the outcome
     screen's ``:30520 print:goto1100``, then :25505-25510's own ``goto1100``."""

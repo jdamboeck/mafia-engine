@@ -648,6 +648,14 @@ def test_each_gang_war_exit_waits_for_a_key_where_the_source_does(monkeypatch):
     from engine.turns import KEY_WAIT_SCREEN
 
     _fights(monkeypatch, 2)
+    # :27000 ifsz=1thenprint"{clr}{down}bei solo-spiel nicht moeglich!":goto1100
+    # :27001 ifja<1925+4/12thenprint"{clr}{down}erst ab 4/1925 moeglich!":goto1100
+    # One key each: the refusal's own screen, and no :1100 wait beside it.
+    for refused in (_state(players=_TWO[:1]), _state(month=3)):
+        _, source = _duel(refused, answers=(), draws=())
+        assert [i.key for i in source.seen if isinstance(i, Acknowledge)] == [GANG_WAR_SCREEN]
+        assert _last_wait(source) == GANG_WAR_SCREEN and source.key_waits() == 0
+
     _, source = _duel(_state())  # :27045 ms=ms-10:goto1100
     assert _last_wait(source) == GANG_WAR_SCREEN
 

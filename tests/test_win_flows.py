@@ -57,7 +57,13 @@ from engine.interactions import (
 from engine.locations import HANDLERS
 from engine.persistence import load_game, save_game
 from engine.rng import Rng
-from engine.turns import SPECIAL_CELL_HOOK_KEY, TURN_OVER_SCREEN, WALKING, TurnRunner
+from engine.turns import (
+    KEY_WAIT_SCREEN,
+    SPECIAL_CELL_HOOK_KEY,
+    TURN_OVER_SCREEN,
+    WALKING,
+    TurnRunner,
+)
 from tests.helpers import StubRng, run_pure, scripted, with_values
 from tests.test_turn_runner import _CITY, _approach
 
@@ -395,6 +401,109 @@ def test_a_lost_transport_then_an_escape_lets_the_player_restart(monkeypatch):
     assert tip_target(player) == 3
     assert player.po == start
     assert player.ms == 11  # two flows, 5 each
+
+
+# --------------------------------------------------------------------------- #
+# The :1100 key wait at each exit, the fights' own included (#175)             #
+# --------------------------------------------------------------------------- #
+def _decided_fights(monkeypatch, *winners: int):
+    """Decide each fight's winner (``winners[n]``) one level below
+    :func:`~data.game_configs.mafia_1920s.setup.run_encounter`: the engine's fight loop
+    is stood in for, so the encounter's own outcome screen and its ``:30520
+    print:goto1100`` key wait still run, as they do after every fight."""
+    from engine import fight_loop
+
+    results = list(winners)
+
+    def fight(start, ctx, *, observe_ai=False):
+        return CombatResult(winner=results.pop(0), losses=(0, 0))
+        yield  # a generator, as _run_combat is
+
+    monkeypatch.setattr(fight_loop, "_run_combat", fight)
+
+
+def _acks(source) -> list[str]:
+    return [i.key for i in source.seen if isinstance(i, Acknowledge)]
+
+
+_FLOW_EXITS = [
+    # id, cell, tip, gang, fight winners, answers, draws, acknowledgements in order
+    # :23010 ifgz(sp)<3thenprint"{down}du hast zuwenig gangster!":tp(sp)=0:goto1100
+    ("23010-too-few", _TRANSPORT, 3, _GANG3[:2], (), (None,), (), [WIN_FLOWS_SCREEN]),
+    # :23020 ...polizeieskorte begleitet!":gosub1100 (the flow's screen), the fight's
+    # :30520 print:goto1100, :23030 ...goto20050 -> :20060 ...:x=4:gosub1160:goto1100
+    (
+        "23030-transport-won",
+        _TRANSPORT,
+        3,
+        _GANG3,
+        (1,),
+        (None,),
+        (0,),
+        [WIN_FLOWS_SCREEN, KEY_WAIT_SCREEN, KEY_WAIT_SCREEN],
+    ),
+    # :23020's screen, :30520's, :23025 ifs=2goto26020 -> surrendered, the trial,
+    # :26080 ms=0:...:po(sp)=911:goto1100
+    (
+        "23025-transport-lost",
+        _TRANSPORT,
+        3,
+        _GANG3,
+        (2,),
+        (None, _SURRENDER, False),
+        (0,),
+        [WIN_FLOWS_SCREEN, KEY_WAIT_SCREEN, KEY_WAIT_SCREEN],
+    ),
+    # :24005 ...gosub5000 and :24010 ...gosub5000, each fight's :30520 wait, then
+    # :24015-24017's reward screen, closed by :24020 ...x6%(sp)=1:goto1100
+    (
+        "24020-mayor-won",
+        _MAYOR,
+        5,
+        _GANG3,
+        (1, 1),
+        (None,),
+        (),
+        [KEY_WAIT_SCREEN, KEY_WAIT_SCREEN, WIN_FLOWS_SCREEN],
+    ),
+    # :24005 ...ifs=2goto26020: the bodyguards' :30520 wait, then :26080's
+    (
+        "24005-guards-lost",
+        _MAYOR,
+        5,
+        _GANG3,
+        (2,),
+        (_SURRENDER, False),
+        (0,),
+        [KEY_WAIT_SCREEN, KEY_WAIT_SCREEN],
+    ),
+    # :24010 ...ifs=2goto26020: both fights' :30520 waits, then :26080's
+    (
+        "24010-mayor-lost",
+        _MAYOR,
+        5,
+        _GANG3,
+        (1, 2),
+        (_SURRENDER, False),
+        (0,),
+        [KEY_WAIT_SCREEN, KEY_WAIT_SCREEN, KEY_WAIT_SCREEN],
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("cell", "tip", "gang", "winners", "answers", "draws", "acks"),
+    [case[1:] for case in _FLOW_EXITS],
+    ids=[case[0] for case in _FLOW_EXITS],
+)
+def test_each_win_flow_exit_waits_for_a_key_where_the_source_does(
+    monkeypatch, cell, tip, gang, winners, answers, draws, acks
+):
+    _decided_fights(monkeypatch, *winners)
+    state = _walking(tip=tip, roster=gang)
+    _, source = _hook(state, answers=answers, draws=draws, cell=cell)
+    assert _acks(source) == acks
+    assert source.key_waits() == acks.count(KEY_WAIT_SCREEN)
 
 
 # --------------------------------------------------------------------------- #

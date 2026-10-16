@@ -24,6 +24,12 @@ person reads the screen before pressing a key. So an added RNG draw elsewhere ch
 which screens come and in what order, not whether the script can answer them. Walks are
 planned over the live city map, as ``make_walk_script`` walks the engine. A step budget
 and a deadline make a broken feature fail the run instead of looping.
+
+Known limit: :class:`ScreenPlayer` answers every ``Acknowledge`` with the same key,
+whatever screen it closes, so these runs are blind by design to a missing or an extra
+key wait. They prove the game reaches its ending, not where it waits for a key: that
+rests on the per-handler exit tests, which count the ``:1100`` waits on each exit path
+against the BASIC (the ``test_each_*_waits_for_a_key_where_the_source_does`` tests).
 """
 
 from __future__ import annotations

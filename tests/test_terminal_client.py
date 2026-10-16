@@ -569,6 +569,37 @@ class TestSetupFlags:
         assert "unrecognized arguments" not in captured.err
         assert argv[0] in captured.err
 
+    # The edge of input_ranges.score_weight (0.1..2, :176 ``ifx8<0.1orx8>2goto175``),
+    # within 1e-10 of a bound. The weight must be in range under both readings
+    # (score_weight_accepted): "0.09999999999" and "2.0000000001" are the C64 parser's
+    # 0.1 and 2 but lie outside as floats, so they are refused (#173).
+    @pytest.mark.parametrize(
+        "text", ["0.0999999999", "0.09999999999", "2.0000000001", "2.00000000001"]
+    )
+    def test_a_score_weight_just_outside_a_bound_is_refused(self, monkeypatch, capsys, text):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        with pytest.raises(SystemExit) as exc:
+            main(["--score-weight", text])
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
+        assert "--score-weight" in captured.err and text in captured.err
+        assert "Traceback" not in captured.err
+
+    @pytest.mark.parametrize("text", ["0.1000000001", "0.1", "2", "1.9999999999"])
+    def test_a_score_weight_on_or_just_inside_a_bound_starts_the_game(
+        self, monkeypatch, tmp_path, text
+    ):
+        from engine.c64_numbers import c64_val
+
+        _, state = self._main(
+            monkeypatch,
+            tmp_path,
+            [*_SOLO_ARGS, "--end-year", "1950", "--score-weight", text],
+            "\n\n\n\np\nq\n",
+        )
+        assert state.config.formula_params["score_mult"] == c64_val(text)
+
 
 class TestClientErrorGuard:
     """U9 / KTD-9: known bad inputs end as ONE readable stderr line and a non-zero

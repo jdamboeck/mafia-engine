@@ -321,3 +321,46 @@ def test_each_tip_exit_waits_for_a_key_where_the_source_does(kwargs, draws, answ
     assert src.key_waits() == waits
     if waits:
         assert src.ends_in_key_wait(), "the exit did not end in the :1100 key wait"
+
+
+# --------------------------------------------------------------------------- #
+# The tip texts, word for word from the research corpus (#175)                #
+# --------------------------------------------------------------------------- #
+#: Each tip's theme key and the source lines it prints (``:12226
+#: ontp(sp)goto12230,12235,12240,12245,12250``).
+_TIP_LINES = {
+    "locations.pub.tip_postzug": (12230, 12231),
+    "locations.pub.tip_bank": (12235, 12236),
+    "locations.pub.tip_geldtransport": (12240, 12241, 12242),
+    "locations.pub.tip_waffenschmuggel": (12245, 12246),
+    "locations.pub.tip_buergermeister": (12250, 12251, 12252),
+}
+
+
+def test_the_tip_texts_are_the_research_corpus_word_for_word():
+    """The classic theme's five tip texts are ``location-dialogue.yaml``'s responses
+    of the pub's tip option at the tip's lines, their printed lines joined by one space (the
+    theme's own line breaks are the client's wrap), and a word the 40-column
+    screen hyphenates across two lines kept whole. Nothing else is fixed up: the
+    geldtransport's doubled "wagen wagen" (``:12241-12242``) is the source's."""
+    import yaml
+
+    from engine.strings import Resolver
+    from tests.helpers import LOCATION_DIALOGUE, read_research
+
+    data = yaml.safe_load(read_research(LOCATION_DIALOGUE))
+    (pub,) = [loc for loc in data["location_dialogue"]["locations"] if loc["key"] == "pub"]
+    # The tip option, "hast du einen tip?" (:12200): its printed responses by line.
+    (tip,) = [option for option in pub["options"] if option["handler_line"] == 12200]
+    printed: dict[int, list[str]] = {}
+    for response in tip["responses"]:
+        line = int(response["source"].rsplit(":", 1)[1])
+        printed.setdefault(line, []).append(response["text"])
+    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+
+    for key, lines in _TIP_LINES.items():
+        corpus = " ".join(text for line in lines for text in printed[line])
+        # :12251 ends "umge-" and :12252 goes on "legt": the hyphen is the 40-column
+        # line's, and the theme keeps the word whole.
+        corpus = corpus.replace("- ", "")
+        assert resolver.resolve(key) == corpus, key

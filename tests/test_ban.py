@@ -613,6 +613,29 @@ _EXITS = [
     ("20060-no-guards", "holdup", {}, (), (0, 1234), 1, True),
     # :20012 gosub1100, the fight's :30520 wait, :20015 ifs=2goto26020 -> :26080's
     ("20015-guards-won", "holdup", {}, (_SURRENDER_FIGHT, _SURRENDER), (1, 0), 3, True),
+    # The safe's prologue (:20003-20004 run before :20005 onwgoto20009,20100):
+    # :20003 ifra(sp)<3thenprint"werde erst '"ra$(3)"'!":goto1100
+    ("20003-rank-safe", "safe", {"rank": 2}, (), (), 1, True),
+    # :20004 ifll(sp)=20*la+lngoto17008 -> :17009 ...:gosub1100:kf$="ks":goto26000,
+    # the police fight's :30520 wait, surrendered, :26080's goto1100
+    (
+        "20004-trap-safe",
+        "safe",
+        {"ln": 2, "previous": (_LA, 2)},
+        (_SURRENDER_FIGHT, _SURRENDER),
+        (0, 0, 0),
+        3,
+        True,
+    ),
+    (
+        "20004-trap-holdup",
+        "holdup",
+        {"ln": 2, "previous": (_LA, 2)},
+        (_SURRENDER_FIGHT, _SURRENDER),
+        (0, 0, 0),
+        3,
+        True,
+    ),
     # :20101 print"{clr}{down}{gry2}du musst noch trainieren!":goto1100
     ("20101-untrained", "safe", {"roster": (_WEAK,)}, (), (), 1, True),
     # :20104 ...gosub1130:ify=0thenreturn
