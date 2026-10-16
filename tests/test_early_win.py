@@ -26,7 +26,7 @@ import sys
 from dataclasses import replace
 
 import data.game_configs.mafia_1920s.state as game
-from clients.terminal import CLEAR, CONFIG_DIR, play
+from clients.terminal import CLEAR, CONFIG_DIR, PlayOptions, play
 from data.game_configs.mafia_1920s.handlers.turn import JAIL_SCREEN, VICTORY_SCREEN
 from data.game_configs.mafia_1920s.state import Job
 from engine.config_loader import load_game_config
@@ -239,7 +239,7 @@ def test_play_shows_the_victory_screen_then_the_ranking_and_ends(monkeypatch, tm
     monkeypatch.setattr(sys, "stdin", io.StringIO("x\nx\nx\n"))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(30, "play() did not return (spin?)"):
-        play(load=str(save))
+        play(PlayOptions(load=str(save)))
     output = out.getvalue()
 
     victory_at = output.index("chef der unterwelt")

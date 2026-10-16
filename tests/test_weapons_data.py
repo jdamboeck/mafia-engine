@@ -27,7 +27,7 @@ import pytest
 import yaml
 
 from data.game_configs.mafia_1920s.setup import load_weapons, weapon_stats_by_id
-from engine.types import ConfigValidationError
+from engine.types import ConfigValidationError, WeaponInstance, validate_weapon
 from tests.helpers import load_source
 
 _WEAPONS_YAML = (
@@ -189,6 +189,30 @@ def test_a_weapon_missing_range_is_rejected_at_load_time(tmp_path):
     bad = tmp_path / "weapons.yaml"
     bad.write_text(yaml.safe_dump({"weapons": [entry]}), encoding="utf-8")
     with pytest.raises(ConfigValidationError, match="range"):
+        load_weapons(bad)
+
+
+def test_the_engine_weapon_type_carries_only_name_and_range():
+    # The engine reads a weapon's name and its reach in combat cells, nothing else:
+    # price, accuracy, damage and sound are the config's (its ``Weapon`` type).
+    assert set(WeaponInstance.__annotations__) == {"name", "range"}
+    assert validate_weapon({"name": "x", "range": 2}) == {"name": "x", "range": 2}
+
+
+@pytest.mark.parametrize(
+    "field, value", [("price", None), ("ts", None), ("tg", None), ("ws", None), ("ts", "5")]
+)
+def test_the_config_refuses_a_weapon_missing_or_mistyping_its_own_field(tmp_path, field, value):
+    # The fields the engine no longer checks are still checked, by the config, at load.
+    entry = dict(load_weapons(_WEAPONS_YAML)[5])
+    if value is None:
+        del entry[field]
+    else:
+        entry[field] = value
+    validate_weapon(entry)  # the engine's contract alone lets it through
+    bad = tmp_path / "weapons.yaml"
+    bad.write_text(yaml.safe_dump({"weapons": [entry]}), encoding="utf-8")
+    with pytest.raises(ConfigValidationError, match=field):
         load_weapons(bad)
 
 

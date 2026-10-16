@@ -82,3 +82,23 @@ def test_denied_result_carries_reason_and_guard():
     )
     assert dr.reason_key == "not_enough_money"
     assert dr.guard == {"lhs": "ka", "op": ">=", "rhs": 100}
+
+
+@pytest.mark.parametrize("status", ["needs_input", "started_combat"])
+def test_no_engine_code_names_a_status_nothing_produces(status):
+    # A run that needs input suspends at a yield and a fight runs inside the action,
+    # so no producer ever returned these: they are not statuses, and nothing in
+    # ``engine/`` (the Literal included) may still name one.
+    from pathlib import Path
+    from typing import get_args
+
+    from engine.actions import EngineStatus
+
+    assert status not in get_args(EngineStatus)
+    engine_dir = Path(__file__).resolve().parents[1] / "engine"
+    naming = [
+        str(path.relative_to(engine_dir))
+        for path in sorted(engine_dir.rglob("*.py"))
+        if status in path.read_text(encoding="utf-8")
+    ]
+    assert naming == []

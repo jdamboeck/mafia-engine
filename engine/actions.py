@@ -27,6 +27,7 @@ from collections.abc import Generator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
+from engine.config_owner import ConfigOwner, check_owner
 from engine.state import GameState
 
 if TYPE_CHECKING:  # avoid importing the shell/driver at module load (layering + cycles)
@@ -39,8 +40,6 @@ EngineStatus = Literal[
     "blocked",
     "cancelled",
     "turn_over",
-    "needs_input",
-    "started_combat",
     "not_implemented",
     "error",
 ]
@@ -161,23 +160,26 @@ def step_option(
     ln: int | None,
     rng=None,
     observe_ai: bool = False,
+    owner: ConfigOwner | None = None,
 ) -> Generator[Any, Any, EngineResult[GameState]]:
     """The generator form of :func:`run_option`: yield the handler's interactions.
 
     The same dispatch and the same result, but a handler option runs through
     :func:`engine.interactions.step`, so its prompts, sub-states and fights reach
     whoever drives this generator (the engine turn runner composes it with
-    ``yield from``). ``observe_ai`` is ``step``'s. A guard denial or a consequence
-    option yields nothing.
+    ``yield from``). ``observe_ai`` and ``owner`` are ``step``'s; ``owner`` is checked
+    first, before the option's guards and consequences read the live registries. A
+    guard denial or a consequence option yields nothing.
     """
     from engine.interactions import step
 
+    check_owner(owner)
     option = _find_option(location, option_id)
     settled = _settle_without_handler(location, option, state, ln)
     if settled is not None:
         return settled
     assert option.handler is not None, f"option {option_id!r} has neither handler nor consequences"
-    result = yield from step(option.handler, state, rng, observe_ai=observe_ai)
+    result = yield from step(option.handler, state, rng, observe_ai=observe_ai, owner=owner)
     return _with_lifecycle(result, location, option_id)
 
 

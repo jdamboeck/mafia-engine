@@ -47,8 +47,6 @@ the jail skip and the early win yield (display-only screens).
 from __future__ import annotations
 
 import math
-from decimal import ROUND_FLOOR, Decimal
-from pathlib import Path
 
 from engine.c64_numbers import c64_divide, c64_float
 from engine.effects import SetScore
@@ -65,8 +63,8 @@ from engine.turns import (
     SCORE_TRUNCATION_HOOK_KEY,
 )
 
-from ..effects import C64_FLOAT_SCORE, Jail, PendingRankReset
-from ..setup import gangster_line, load_ranks, load_vehicles, load_weapons
+from ..effects import C64_FLOAT_SCORE, ExactScoreCut, Jail, PendingRankReset
+from ..setup import RANKS, VEHICLES, WEAPONS, gangster_line
 from ..state import contraband, job, next_rank, rented_months, wanted
 
 __all__ = [
@@ -87,10 +85,8 @@ __all__ = [
     "GANG_SCREEN",
 ]
 
-_CONFIG_DIR = Path(__file__).resolve().parents[1]
 
-
-def truncated_score(gf: float, *, decimal: bool = False) -> float:
+def truncated_score(gf: float) -> float:
     """``:1013`` ``gf(sp)=int(gf(sp)*100)/100``: the score cut to two decimals, as the C64
     computes it in its 5-byte floats (:mod:`engine.c64_numbers`).
 
@@ -106,12 +102,9 @@ def truncated_score(gf: float, *, decimal: bool = False) -> float:
 
     The faithful score reaching it is the C64's own sum (``:1160`` in the C64's
     arithmetic, :class:`..effects.ScoreAndRank`), so the series of the capture stay on
-    the C64's cents. With ``decimal`` (the ``c64_float_score`` house rule at intent) the
-    score is cut as the decimal it is written as instead (``25.4`` stays ``25.4``), to
-    match that rule's exact decimal sums.
+    the C64's cents. Under the ``c64_float_score`` house rule's intent the exact score
+    is cut instead (:class:`..effects.ExactScoreCut`: ``25.4`` stays ``25.4``).
     """
-    if decimal:
-        return float(Decimal(repr(float(gf))).quantize(Decimal("0.01"), rounding=ROUND_FLOOR))
     cents = math.floor(c64_float(gf) * 100)  # int(gf(sp)*100): a 32-bit mantissa times 100 is exact
     return c64_divide(cents, 100)
 
@@ -153,7 +146,7 @@ def movement_points(ctx):
     active = ctx.state.players[ctx.state.clock.active_player]
     if next_rank(active) != active.rank:  # :1012 nr(sp)=ra(sp)
         ctx.apply(PendingRankReset())
-    return load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")[active.vehicle]["tr"]
+    return VEHICLES[active.vehicle]["tr"]
 
 
 @register(JOB_HOOK_KEY)
@@ -178,8 +171,10 @@ def score_truncation(ctx):
     # The c64_float_score house rule: the C64's cut (faithful) or the decimal's (intent).
     # Read off the map, not through ``intent``: this runs every turn, also in a copy of
     # this config whose catalogue offers other switches (a missing switch is faithful).
-    exact = ctx.state.config.house_rules.get(C64_FLOAT_SCORE) == INTENT
-    ctx.apply(SetScore(truncated_score(active.gf, decimal=exact)))
+    if ctx.state.config.house_rules.get(C64_FLOAT_SCORE) == INTENT:
+        ctx.apply(ExactScoreCut())
+    else:
+        ctx.apply(SetScore(truncated_score(active.gf)))
     return []
 
 
@@ -235,8 +230,8 @@ def overview_lines(state) -> list[tuple[str, dict]]:
     ``:1208``'s free-memory line is a debug switch (``peek(53247)=1``) and not shown.
     """
     active = state.players[state.clock.active_player]
-    ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
-    vehicles = load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
+    ranks = RANKS
+    vehicles = VEHICLES
     held = contraband(active)
     lines: list[tuple[str, dict]] = [
         ("turn.overview.title", {"name": active.name}),  # :1200
@@ -268,9 +263,8 @@ def gang_lines(state) -> list[tuple[str, dict]]:
     if not active.roster:  # :1230 ifgz(sp)=0thenprint"{down}keine!"
         lines.append(("turn.overview.no_gang", {}))
         return lines
-    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
     for member in active.roster:
-        lines.append(("turn.overview.gangster", gangster_line(member, weapons)))
+        lines.append(("turn.overview.gangster", gangster_line(member, WEAPONS)))
     return lines
 
 

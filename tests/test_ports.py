@@ -13,7 +13,8 @@ Conventions
 -----------
 - A :class:`Quote` is one statement (or the condition of an ``if``) copied verbatim
   from its line. :func:`test_quote_is_verbatim` checks each one against
-  ``mf-prg.bas`` when the research tree is present (it is not in CI).
+  ``mf-prg.bas``, read from its vendored copy (:data:`tests.helpers.MF_PRG`), so CI
+  runs them too.
 - ``fnm(ln)`` and ``fnr(0)`` are user functions (``def fn``, lines 115/117), which
   the evaluator does not support. :func:`_expand` substitutes their quoted bodies.
 - Control flow (``if``/``goto`` between statements) is expressed in Python in each

@@ -17,6 +17,8 @@ pip install -e .
 python -m clients.terminal
 ```
 
+The game is played from a checkout of this repository, installed in place as above. It is not delivered as a wheel: a built wheel ships no game content.
+
 A new game starts with the original's setup screens:
 
 1. The year the game ends (`spielende`, 1928-1978) and the score weight (`punktewertigkeit`, 0.1-2).

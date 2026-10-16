@@ -1,24 +1,38 @@
 """Tests for the sgl shell + classic-theme strings (``mf-prg.bas:17000-17592``).
 
-The four checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
-resolve, the menu strings exist, every key the handlers emit resolves with its params,
+The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
+resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
+(``tests/test_sgl.py``) resolve in the classic theme and reach every sgl string,
 and the text is verbatim from the research corpus (location-dialogue.yaml, sgl; the
 lines the corpus misses, :17006, :17008-17009 and :17016, from the listing).
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 from engine.strings import Resolver
+from tests.helpers import assert_captured_keys_resolve, location_strings
+from tests.test_sgl import (
+    _BOSS,
+    _EXITS,
+    _SURRENDER,
+    _SURRENDER_FIGHT,
+    _TAKE,
+    _run,
+    _state,
+    _won_jack_fight,
+)
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "sgl.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "sgl.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -42,7 +56,7 @@ def test_sgl_shell_resolves_four_handlers_and_a_guardless_leave():
     assert [o.id for o in loc.options] == [*_OPTIONS, "leave"]
     by_id = {o.id: o for o in loc.options}
     for opt_id in _OPTIONS:
-        assert by_id[opt_id].handler is HANDLERS[f"sgl.{opt_id}"]
+        assert by_id[opt_id].handler is _CONFIG.handlers[f"sgl.{opt_id}"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"
@@ -55,7 +69,55 @@ def test_sgl_menu_strings_present():
         assert _get(data, f"locations.sgl.menu.{opt_id}")
 
 
-def test_every_key_the_handlers_emit_resolves_with_its_params():
+_WEAK_BOSS = replace(_BOSS, attrs={**_BOSS.attrs, "brutalitaet": 29})
+
+#: The behavioural runs whose captured keys are resolved: every exit of
+#: ``tests/test_sgl.py`` (id, option, state fields, answers, rng draws, whether Jack's
+#: fight is a stand-in win), the big payout's reply for each option (:17510), the boss
+#: who makes no impression (:17016) and Jack leaving after a won fight (:17221).
+_RUNS = [(*case[:5], False) for case in _EXITS] + [
+    ("17510-threat-pays", "threat", {"ln": 7}, (_TAKE,), (1, 199), False),
+    ("17510-sob-story", "sob_story", {"ln": 1}, (_TAKE,), (1, 199), False),
+    ("17510-protection-enough", "protection", {"ln": 2}, (_TAKE,), (1, 199), False),
+    ("17510-fake-police-forged", "fake_police", {"ln": 6}, (_TAKE,), (1, 199), False),
+    (
+        "17016-no-impression",
+        "threat",
+        {"ln": 1, "roster": (_WEAK_BOSS,)},
+        (_SURRENDER_FIGHT, _SURRENDER),
+        (0, 0, 0),
+        False,
+    ),
+    ("17221-jack-leaves", "protection", {"ln": 5}, (_TAKE,), (1, 0), True),
+]
+
+
+def _captured(monkeypatch, key, fields, answers, draws, jack_won) -> list:
+    with monkeypatch.context() as patch:
+        if jack_won:
+            _won_jack_fight(patch, None)
+        return _run(key, _state(**fields), answers=answers, draws=draws)[1].seen
+
+
+@pytest.mark.parametrize(
+    ("key", "fields", "answers", "draws", "jack_won"),
+    [run[1:] for run in _RUNS],
+    ids=[run[0] for run in _RUNS],
+)
+def test_the_keys_each_sgl_run_emits_resolve_in_the_classic_theme(
+    monkeypatch, key, fields, answers, draws, jack_won
+):
+    assert_captured_keys_resolve(_captured(monkeypatch, key, fields, answers, draws, jack_won))
+
+
+def test_the_sgl_runs_reach_every_sgl_string(monkeypatch):
+    reached = set().union(
+        *(assert_captured_keys_resolve(_captured(monkeypatch, *r[1:])) for r in _RUNS)
+    )
+    assert location_strings("sgl") - reached == set()
+
+
+def test_the_classic_theme_prints_each_sgl_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
         "locations.sgl.milksop": ({}, "'verschwinde, du milchgesicht!'"),

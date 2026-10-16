@@ -72,7 +72,14 @@ commit + branch conventions, and how to pick up the next unit. Then:
    fixes; the seizure minus, reverse video and the human fighter's label; the brawl's
    key waits to the jailed player; spaced-sign and motel/casino negatives under
    `c64_input_negatives`; the weapon shop's score in C64 float; the CLI's player cap and
-   the menu quit's bye; screen and pacing departures recorded; closed #179–#187).
+   the menu quit's bye; screen and pacing departures recorded; closed #179–#187),
+   and the Engine Contracts plan (`2026-10-15-001-…`, U1–U15 — acting on the review
+   reports #157/#158 with #174/#175/#177: one live config per process with
+   `StaleConfigError` (`engine/config_owner.py`), content read once at import, saves as
+   checkpoints with typed keys, save-time schema check and schema 3, `InputExhausted`,
+   the intent arm's exact score, the protocol in `engine/protocol.py`, the vendored
+   research copy so CI runs every port test, the per-line citation audit, captured-key
+   shell tests, VICE divide/val captures; closed #189–#203).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the feature branch the active plan names in its `branch:`

@@ -24,6 +24,7 @@ from engine.interactions import (
     Ack,
     Cancelled,
     Confirm,
+    InputExhausted,
     LoadSubState,
     PromptChoice,
     PromptInt,
@@ -33,6 +34,7 @@ from engine.interactions import (
     ShowMessage,
     run,
 )
+from engine.effects import MoneyChange
 from engine.state import Clock, Fighter, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
 from tests.helpers import run_fight, run_pure, scripted
@@ -521,6 +523,22 @@ def test_run_pure_catches_a_readonly_collection_downgrade():
         run_pure(downgrading_handler, scripted(), state=st)
 
 
+def test_run_pure_catches_a_key_type_change_equality_cannot_see():
+    """A map key drifting from ``int`` to ``float`` (``1 == 1.0``, same hash) is
+    invisible to the value comparison; the save codec keeps key types, so the
+    harness's fingerprint records them too."""
+    from engine.state import CombatState
+
+    def rekeying_handler(ctx):
+        object.__setattr__(ctx.state.combat, "dir_memory", MappingProxyType({1.0: -1}))
+        return []
+        yield  # pragma: no cover - make this a generator
+
+    st = dataclasses.replace(_harness_state(ka=5000), combat=CombatState(dir_memory={1: -1}))
+    with pytest.raises(AssertionError, match="changed the TYPE"):
+        run_pure(rekeying_handler, scripted(), state=st)
+
+
 def test_run_pure_catches_result_state_unexplained_by_effects():
     """Assertion (b) must be able to fail — it is the harness's real purity claim.
 
@@ -926,3 +944,42 @@ def test_prompttext_and_rollframe_carry_only_generic_fields():
     # Generic protocol pieces: no name rule, no stat, no range — key, params, player.
     for cls in (PromptText, RollFrame):
         assert [f.name for f in dataclasses.fields(cls)] == ["key", "params", "player"]
+
+
+# --------------------------------------------------------------------------- #
+# An input source that runs dry raises; it never half-completes an action      #
+# --------------------------------------------------------------------------- #
+def _dry_after(*answers):
+    """An input source that answers ``answers`` in order, then raises StopIteration."""
+    remaining = iter(answers)
+    return lambda interaction: next(remaining)
+
+
+def _apply_then_confirm(ctx):
+    """Buffer ``MoneyChange(100)``, then ask a ``Confirm`` (AE4's handler)."""
+    ctx.apply(MoneyChange(100))
+    answer = yield Confirm("sure")
+    return answer
+
+
+def test_an_input_source_that_runs_dry_raises_and_commits_nothing():
+    """AE4: the effect buffered before the unanswered ``Confirm`` is never committed."""
+    st = _harness_state(ka=5000)
+    returned = None
+    with pytest.raises(InputExhausted):
+        returned = run(_apply_then_confirm, _dry_after(), state=st)
+    assert returned is None
+    assert st.players[0].ka == 5000
+
+
+def test_input_exhaustion_is_a_runtime_error_naming_the_unanswered_interaction():
+    with pytest.raises(RuntimeError, match="sure"):
+        run(_apply_then_confirm, _dry_after(), state=_harness_state())
+
+
+def test_an_input_source_that_suffices_still_completes_and_commits():
+    """The same handler with its one answer scripted completes as before."""
+    result = run(_apply_then_confirm, _dry_after(True), state=_harness_state(ka=5000))
+    assert result.status == "completed"
+    assert result.payload.returned is True
+    assert result.state.players[0].ka == 5100

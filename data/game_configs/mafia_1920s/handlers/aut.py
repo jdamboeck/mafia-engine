@@ -47,7 +47,7 @@ from engine.interactions import READ_KEY, Confirm, PromptInt, ShowMessage
 from engine.locations import register
 
 from ..effects import VehicleSet
-from ..setup import KEY_WAIT, load_encounter, load_vehicles, pick_gangster, run_encounter
+from ..setup import KEY_WAIT, VEHICLES, load_encounter, pick_gangster, run_encounter
 from .police import Arrest, caught
 
 __all__ = ["aut_buy", "aut_steal"]
@@ -59,7 +59,7 @@ _OWNER = load_encounter(_CONFIG_DIR / "content" / "encounters" / "aut_owner.yaml
 
 
 def _vehicles() -> list[dict]:
-    return load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
+    return VEHICLES
 
 
 @register("aut.buy")

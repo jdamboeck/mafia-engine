@@ -29,6 +29,8 @@ police:
   lawyer_offer: "willst du einen anwalt (j/n) ?"
   # :26060 — the lawyer's fee.
   lawyer_prompt: "wieviel legst du an (0-10000$)"
+  # :26061 `ifx>ka(sp)orx<0thenprint"{up}{up}";:goto26060`: a fee above the cash, or
+  # below 0, asks again.
   # :26070 — the lawyer got the sentence to 0.
   acquitted: "du wirst freigesprochen!"
   # :26071-26072 — the lawyer cut the sentence.

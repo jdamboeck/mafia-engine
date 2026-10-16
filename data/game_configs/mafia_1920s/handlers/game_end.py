@@ -32,24 +32,32 @@ from __future__ import annotations
 from engine.game_end import STANDINGS_HANDLER_KEY, YEAR_END_HANDLER_KEY
 from engine.interactions import ShowMessage
 from engine.locations import register
+from engine.state import INTENT
+
+from ..effects import C64_FLOAT_SCORE
+from ..state import exact_score
 
 __all__ = ["standings", "top_scorers", "year_end"]
 
 
-def top_scorers(players) -> list[int]:
+def top_scorers(players, *, exact: bool = False) -> list[int]:
     """Return the indices of the year-end winner(s), in player order (``:40100-40110``).
 
     ``:40100`` seeds the list with player 1 (``g=1:g(g)=1``). ``:40105`` scans players
     2..sz: a STRICTLY higher score (``gf(i)>gf(g(g))``) resets the list to that single
     player; ``:40106`` an EQUAL score (``gf(i)=gf(g(g))``) appends the player to it.
     A lower score is ignored. One entry = sole winner, more = shared victory (``:40110``).
+
+    With ``exact`` (the ``c64_float_score`` house rule at intent) the scores compared
+    are the exact ones (:func:`~..state.exact_score`), not their floats.
     """
+    scores = [exact_score(p) if exact else p.gf for p in players]
     winners = [0]
     for i in range(1, len(players)):
-        lead = players[winners[-1]].gf
-        if players[i].gf > lead:
+        lead = scores[winners[-1]]
+        if scores[i] > lead:
             winners = [i]
-        elif players[i].gf == lead:
+        elif scores[i] == lead:
             winners.append(i)
     return winners
 
@@ -78,7 +86,10 @@ def year_end(ctx):
     """The year-end result (``mf-prg.bas:40100-40166``): standings, then the winner(s)."""
     state = ctx.state
     yield from _standings_messages(state)  # :40100 gosub4500
-    winners = top_scorers(state.players)
+    # Read off the map, as the turn's score cut does: a copy of this config whose
+    # catalogue lacks the switch is faithful.
+    exact = state.config.house_rules.get(C64_FLOAT_SCORE) == INTENT
+    winners = top_scorers(state.players, exact=exact)
     if len(winners) == 1:  # :40110 falls through to 40115
         yield ShowMessage("game_end.winner", {"name": state.players[winners[0]].name})
         return []

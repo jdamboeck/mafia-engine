@@ -135,6 +135,7 @@ from collections.abc import Generator, Mapping
 from typing import TYPE_CHECKING, Any
 
 from engine.actions import step_option
+from engine.config_owner import check_owner
 from engine.effects import (
     AdvanceTurn,
     MsChange,
@@ -169,6 +170,7 @@ from engine.upkeep import UPKEEP_HANDLER_KEY
 if TYPE_CHECKING:  # typing only
     from engine.locations import Location
     from engine.movement import City
+    from engine.persistence import Registries
     from engine.state import GameState
 
 __all__ = [
@@ -316,7 +318,12 @@ class TurnRunner:
     """Runs turns over ``state``: the order is the engine's, the rules are the config's.
 
     ``handlers`` is the registry the hooks are looked up in (default: the live
-    :data:`engine.locations.HANDLERS`, filled when the config loads). ``rng`` is the
+    :data:`engine.locations.HANDLERS`, filled when the config loads). ``registries``
+    is the loaded config's (:attr:`~engine.config_loader.LoadedConfig.registries`):
+    its owner is checked here and passed to every action the runner starts
+    (:func:`engine.interactions.step`'s ``owner``), so a runner for a config that is
+    no longer live raises :class:`~engine.config_owner.StaleConfigError`, when built
+    or at its next action. Without it nothing is checked. ``rng`` is the
     session RNG, shared by every hook and handler. ``city`` and ``shells`` are the
     loaded config's map and location shells
     (:attr:`~engine.config_loader.LoadedConfig.city`,
@@ -336,11 +343,14 @@ class TurnRunner:
         rng: Any = None,
         *,
         handlers: dict[str, Any] | None = None,
+        registries: Registries | None = None,
         city: City | None = None,
         shells: Mapping[str, Location] | None = None,
         turn_menu: Location | None = None,
         observe_ai: bool = False,
     ) -> None:
+        self._owner = registries.owner if registries is not None else None
+        check_owner(self._owner)
         self.state = state
         self.rng = rng
         if handlers is None:
@@ -482,7 +492,13 @@ class TurnRunner:
             # :1030 any other key is ignored; a save is the driver's, nothing changes.
         chosen = options[keys.index(answer)]
         result = yield from step_option(
-            menu, chosen.id, self.state, ln=None, rng=self.rng, observe_ai=self._observe_ai
+            menu,
+            chosen.id,
+            self.state,
+            ln=None,
+            rng=self.rng,
+            observe_ai=self._observe_ai,
+            owner=self._owner,
         )
         self.state = result.state
         returned = result.payload.returned if isinstance(result.payload, HandlerResult) else None
@@ -619,7 +635,13 @@ class TurnRunner:
             answer = yield menu
         chosen = options[answer]
         result = yield from step_option(
-            shell, chosen.id, self.state, ln=ln, rng=self.rng, observe_ai=self._observe_ai
+            shell,
+            chosen.id,
+            self.state,
+            ln=ln,
+            rng=self.rng,
+            observe_ai=self._observe_ai,
+            owner=self._owner,
         )
         self.state = result.state
         yield OptionDone(location=shell.key, option=chosen.id, status=result.status, player=player)
@@ -644,7 +666,9 @@ class TurnRunner:
                 "turn hook the engine turn runner calls (even a no-op one)"
             )
         handler = functools.partial(factory, **params) if params else factory
-        result = yield from step(handler, self.state, self.rng, observe_ai=self._observe_ai)
+        result = yield from step(
+            handler, self.state, self.rng, observe_ai=self._observe_ai, owner=self._owner
+        )
         self.state = result.state
         return result.payload.returned
 

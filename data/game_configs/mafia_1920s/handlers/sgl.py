@@ -71,8 +71,8 @@ from engine.locations import register
 
 from ..setup import (
     KEY_WAIT,
+    WEAPONS,
     load_encounter,
-    load_weapons,
     roster_after,
     run_encounter,
     score_and_rank,
@@ -299,7 +299,7 @@ def _kill_owner(ctx, ln: int, roster):
     # :17580 ``ifln<>1andln<>4goto17590``
     if ln in params["sgl_kill_tiles"]:
         # :17585-17586 ``...und laedt seine "wa$(7)"!"``
-        weapon = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")[_OWNER.variants[0].weapon]
+        weapon = WEAPONS[_OWNER.variants[0].weapon]
         yield ShowMessage("locations.sgl.owner_arms", {"weapon": weapon["name"]})
         yield KEY_WAIT  # :17586 ...:gosub1100, before the fight
         result = yield from run_encounter(ctx, _OWNER, roster=roster)  # :17587

@@ -53,6 +53,7 @@ from clients.terminal import (  # noqa: E402
     EndOfInput,
     TerminalInput,
     main,
+    PlayOptions,
     play,
     render_message,
 )
@@ -342,7 +343,7 @@ def test_the_map_loop_adopts_the_moved_state_and_renders_it(monkeypatch):
     monkeypatch.setattr(sys, "stdin", make_walk_script(["s", "q"]))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(20.0, "play() did not return (EOF spin?)", exc_type=AssertionError):
-        final, _rng = play(seed=42, end_year=1930, score_weight=1.0, players=SOLO)
+        final, _rng = play(PlayOptions(seed=42, end_year=1930, score_weight=1.0, players=SOLO))
     # One real step happened and the client adopted the new pure state (po moved, ms spent).
     assert final.players[0].po == after.po
     assert final.players[0].ms == before.ms - 1
@@ -383,7 +384,7 @@ def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, *
         f"play() did not return within {seconds}s (EOF spin?)",
         exc_type=AssertionError,
     ):
-        state, _rng = play(seed=42, **play_kwargs)
+        state, _rng = play(PlayOptions(seed=42, **play_kwargs))
     return state, out.getvalue()
 
 
@@ -569,6 +570,37 @@ class TestSetupFlags:
         assert "unrecognized arguments" not in captured.err
         assert argv[0] in captured.err
 
+    # The edge of input_ranges.score_weight (0.1..2, :176 ``ifx8<0.1orx8>2goto175``),
+    # within 1e-10 of a bound. The weight must be in range under both readings
+    # (score_weight_accepted): "0.09999999999" and "2.0000000001" are the C64 parser's
+    # 0.1 and 2 but lie outside as floats, so they are refused (#173).
+    @pytest.mark.parametrize(
+        "text", ["0.0999999999", "0.09999999999", "2.0000000001", "2.00000000001"]
+    )
+    def test_a_score_weight_just_outside_a_bound_is_refused(self, monkeypatch, capsys, text):
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        with pytest.raises(SystemExit) as exc:
+            main(["--score-weight", text])
+        assert exc.value.code == 2
+        captured = capsys.readouterr()
+        assert captured.out == "", "the game started (the title screen was drawn)"
+        assert "--score-weight" in captured.err and text in captured.err
+        assert "Traceback" not in captured.err
+
+    @pytest.mark.parametrize("text", ["0.1000000001", "0.1", "2", "1.9999999999"])
+    def test_a_score_weight_on_or_just_inside_a_bound_starts_the_game(
+        self, monkeypatch, tmp_path, text
+    ):
+        from engine.c64_numbers import c64_val
+
+        _, state = self._main(
+            monkeypatch,
+            tmp_path,
+            [*_SOLO_ARGS, "--end-year", "1950", "--score-weight", text],
+            "\n\n\n\np\nq\n",
+        )
+        assert state.config.formula_params["score_mult"] == c64_val(text)
+
 
 class TestClientErrorGuard:
     """U9 / KTD-9: known bad inputs end as ONE readable stderr line and a non-zero
@@ -649,17 +681,20 @@ class TestClientErrorGuard:
         lines[0] = json.dumps({**json.loads(lines[0]), **changes})
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    def test_ae6_a_version_1_save_says_it_was_made_by_an_older_version(self, capsys, tmp_path):
-        """AE6: a save written before the version bump is one line naming it older,
-        exit status 1, no traceback."""
-        path = self._valid_save(tmp_path / "v1.jsonl")
-        self._rewrite_header(path, version=1)
+    @pytest.mark.parametrize("version", [1, 2])
+    def test_ae6_an_older_save_says_it_was_made_by_an_older_version(
+        self, capsys, tmp_path, version
+    ):
+        """AE6: a save written before a version bump (1, or 2 before the schema-3 save
+        codec) is one line naming it older, exit status 1, no traceback."""
+        path = self._valid_save(tmp_path / f"v{version}.jsonl")
+        self._rewrite_header(path, version=version)
         code, err = self._fail(capsys, ["--load", str(path)])
         self._assert_one_readable_line(code, err, path)
         assert code == 1
         assert err == (
             f"cannot load {path}: the save was made by an older version of the game "
-            "(save version 1; this version reads 2)\n"
+            f"(save version {version}; this version reads 3)\n"
         )
 
     @pytest.mark.parametrize(
@@ -1426,7 +1461,7 @@ class TestMultiplayerSetup:
         monkeypatch.setattr(sys, "stdin", io.StringIO(f"2\n{step_key}\nq\n"))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(30, "play() did not return", exc_type=AssertionError):
-            state, _rng = play(load=str(tmp_path / "s.jsonl"))
+            state, _rng = play(PlayOptions(load=str(tmp_path / "s.jsonl")))
         assert state.players[0].name == "anna"
         assert state.players[0].ms == start.ms - 1, "the loaded game did not play on"
         assert _stats(state.players[0]) == _stats(start)

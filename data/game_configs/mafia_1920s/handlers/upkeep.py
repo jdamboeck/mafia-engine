@@ -167,7 +167,7 @@ from engine.interactions import ShowMessage
 from engine.locations import register
 from engine.upkeep import UPKEEP_HANDLER_KEY
 
-from ..setup import KEY_WAIT, load_encounter, run_encounter
+from ..setup import KEY_WAIT, RANKS, load_encounter, run_encounter
 from .pub import ARMS_DEAL_TIP
 
 __all__ = ["upkeep_turn_start"]
@@ -188,16 +188,12 @@ _COLLECTORS_ENCOUNTER = load_encounter(
 def _rank_names() -> list[str]:
     """This config's rank-name table (``ra$``), 0-based (index i == in-game rank i+1).
 
-    Goes through the config's own ``load_ranks`` loader — which validates every entry
-    against ``engine.types.validate_rank`` — rather than reading the YAML directly, so
-    the handler and the client's promotion screen share one validated path. Matches
-    ``waf.py``'s ``_weapons()`` pattern (a handler reads its OWN config's entity
-    data, never the engine's); the config is frozen per game, so a fresh read per call
-    is harmless.
+    The table ``setup.RANKS`` read once when the config loaded, through the config's own
+    ``load_ranks`` loader (which validates every entry against
+    ``engine.types.validate_rank``), so the handler and the client's promotion screen
+    share one validated table.
     """
-    from ..setup import load_ranks
-
-    return load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
+    return RANKS
 
 
 @register(UPKEEP_HANDLER_KEY)

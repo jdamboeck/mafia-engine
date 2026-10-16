@@ -1,7 +1,8 @@
 """Tests for the pol shell + classic-theme strings (``mf-prg.bas:21000-21255``).
 
-The four checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
-resolve, the menu strings exist, every key the handlers emit resolves with its params,
+The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
+resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
+(``tests/test_pol.py``) resolve in the classic theme and reach every pol string,
 and the text is verbatim from the research (the SEQ menu src/pol, via
 location-dialogue.yaml; the handler lines from the listing).
 """
@@ -10,15 +11,18 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_config, load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 from engine.strings import Resolver
+from tests.helpers import assert_captured_keys_resolve, location_strings
+from tests.test_pol import _EXITS, _run, _state
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "pol.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "pol.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -40,9 +44,9 @@ def test_pol_shell_resolves_its_handlers_and_a_guardless_leave():
     assert loc.key == "pol"
     assert [o.id for o in loc.options] == ["surrender", "bribe", "free", "leave"]
     by_id = {o.id: o for o in loc.options}
-    assert by_id["surrender"].handler is HANDLERS["pol.surrender"]
-    assert by_id["bribe"].handler is HANDLERS["pol.bribe"]
-    assert by_id["free"].handler is HANDLERS["pol.free"]
+    assert by_id["surrender"].handler is _CONFIG.handlers["pol.surrender"]
+    assert by_id["bribe"].handler is _CONFIG.handlers["pol.bribe"]
+    assert by_id["free"].handler is _CONFIG.handlers["pol.free"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"
@@ -55,7 +59,33 @@ def test_pol_menu_strings_present():
         assert _get(data, f"locations.pol.menu.{opt_id}")
 
 
-def test_every_key_the_handlers_emit_resolves_with_its_params():
+#: The behavioural runs whose captured keys are resolved: every exit of
+#: ``tests/test_pol.py`` (id, option, other players, active fields, answers, rng draws).
+_RUNS = [case[:6] for case in _EXITS]
+
+
+def _captured(key, others, fields, answers, draws) -> list:
+    state = _state(*(dict(o) for o in others), **fields)
+    return _run(key, state, answers=answers, draws=draws)[1].seen
+
+
+@pytest.mark.parametrize(
+    ("key", "others", "fields", "answers", "draws"),
+    [run[1:] for run in _RUNS],
+    ids=[run[0] for run in _RUNS],
+)
+def test_the_keys_each_pol_run_emits_resolve_in_the_classic_theme(
+    key, others, fields, answers, draws
+):
+    assert_captured_keys_resolve(_captured(key, others, fields, answers, draws))
+
+
+def test_the_pol_runs_reach_every_pol_string():
+    reached = set().union(*(assert_captured_keys_resolve(_captured(*r[1:])) for r in _RUNS))
+    assert location_strings("pol") - reached == set()
+
+
+def test_the_classic_theme_prints_each_pol_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
         "locations.pol.chief_offer": ({}, "aha! fuer einen monat untaetigkeit"),

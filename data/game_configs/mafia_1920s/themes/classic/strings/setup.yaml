@@ -19,6 +19,7 @@ setup:
   player_name_prompt: "name spieler{number:str$}:"
   # :215 -- the gang name (bn$).
   gang_name_prompt: "bandenname:"
+  # Both names are read under their prompt by :290 `inputx$` (:210/:215 `gosub290`).
   # :300 -- the eigenschaften screen's title (its Heading and closing Acknowledge).
   eigenschaften: "eigenschaften:"
   # :310-312, one frame of each roll: :350 print"   {left}{left}{left}"x; prints the

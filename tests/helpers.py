@@ -48,20 +48,81 @@ from dataclasses import replace
 import pytest
 
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
-from data.game_configs.mafia_1920s.state import tenancy_values, values_of
+from data.game_configs.mafia_1920s.effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT
+from data.game_configs.mafia_1920s.state import set_exact_score, tenancy_values, values_of
 from engine.combat import CombatFight
 from engine.effects import commit, effect_tag
-from engine.interactions import Acknowledge, ShowMessage, run
-from engine.turns import KEY_WAIT_SCREEN
+from engine.interactions import (
+    Acknowledge,
+    CombatScreen,
+    Confirm,
+    Heading,
+    LocationMenu,
+    PromptChoice,
+    PromptInt,
+    PromptText,
+    RollFrame,
+    ShowMessage,
+    TurnMenu,
+    run,
+)
+from engine.strings import Resolver
+from engine.turns import (
+    JOB_SHIFT_SCREEN,
+    KEY_WAIT_SCREEN,
+    LOCATION_CLOSED_SCREEN,
+    STANDINGS_SCREEN,
+    TURN_OVER_SCREEN,
+    UPKEEP_SCREEN,
+    YEAR_END_SCREEN,
+)
 from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
 
 
-#: The decompiled BASIC listing in the sibling research tree. It is absent in CI, so
-#: every test that reads it goes through :func:`load_source`, which skips with a reason.
-MF_PRG = (
-    Path(__file__).resolve().parents[2] / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
+#: The reason every research-dependent skip starts with; :mod:`tests.research_guard`
+#: fails the run on any skip that carries it.
+RESEARCH_MISSING = "this test needs the research tree"
+
+#: The vendored copy of the research files the tests read, at their ``../research/``
+#: paths. It is what every test reads, locally and in CI, so both read the same bytes
+#: (KTD-11); ``../research/`` stays the authority, and ``tests/test_research_fixtures.py``
+#: fails when the copy drifts from it.
+VENDORED_RESEARCH = Path(__file__).resolve().parent / "fixtures" / "research"
+
+#: The sibling research tree the vendored copy is checked against, when it is present.
+SIBLING_RESEARCH = Path(__file__).resolve().parents[2] / "research"
+
+
+def research_file(relative: str) -> Path:
+    """The vendored copy of the research file at ``relative`` (a ``../research/`` path).
+
+    The one resolver every research reader goes through. It names the vendored path
+    whether or not the file is there: a reader that finds it missing skips with
+    :data:`RESEARCH_MISSING`, which :mod:`tests.research_guard` turns into a red run.
+    """
+    return VENDORED_RESEARCH / relative
+
+
+#: The decompiled BASIC listing. Every test that reads it goes through
+#: :func:`load_source`.
+MF_PRG = research_file("src/decompiled_basic/mf-prg.bas")
+
+#: The research's location dialogue (titles, prompts and lines, by location).
+LOCATION_DIALOGUE = research_file("research-data/pass-2/location-dialogue.yaml")
+
+#: Every vendored research file, as its ``../research/`` path.
+VENDORED_FILES = (
+    "src/decompiled_basic/mf-prg.bas",
+    "research-data/pass-2/location-dialogue.yaml",
 )
+
+
+def read_research(path: Path) -> str:
+    """The text of a research file; skips the calling test, with its reason, when absent."""
+    if not path.exists():
+        pytest.skip(f"{RESEARCH_MISSING}: {path} is not present")
+    return path.read_text(encoding="utf-8")
 
 
 def parse_source(text: str) -> dict[int, str]:
@@ -79,10 +140,15 @@ def _parsed_source(path: Path) -> Mapping[int, str]:
     return MappingProxyType(parse_source(path.read_text(encoding="utf-8")))
 
 
-def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
-    """The parsed listing, read once per path; skips the calling test when it is absent."""
+def load_source(path: Path | None = None) -> Mapping[int, str]:
+    """The parsed listing, read once per path; skips the calling test when it is absent.
+
+    ``path`` defaults to :data:`MF_PRG` as it is when called, so a test that patches
+    ``MF_PRG`` reaches the callers that pass no path too.
+    """
+    path = MF_PRG if path is None else path
     if not path.exists():
-        pytest.skip(f"this test needs the research tree: {path} is not present")
+        pytest.skip(f"{RESEARCH_MISSING}: {path} is not present")
     return _parsed_source(path)
 
 
@@ -323,6 +389,31 @@ def with_config(state, **field_changes):
     return dataclasses.replace(state, config=dataclasses.replace(state.config, **field_changes))
 
 
+def with_exact_score(state, weight: str, scores=None):
+    """Return ``state`` under the ``c64_float_score`` house rule's intent arm.
+
+    ``weight`` is the ``x8`` weight as typed: it becomes both ``formula_params`` keys,
+    as setup writes them. ``scores`` maps player indices to exact scores (text or
+    ``Decimal``); unnamed players keep the exact score they hold. Each one's ``gf`` is
+    derived, as the intent arm derives it.
+    """
+    from decimal import Decimal
+
+    config = state.config
+    state = with_config(
+        state,
+        formula_params={
+            **config.formula_params,
+            "score_mult": float(weight),
+            SCORE_WEIGHT_TEXT: weight,
+        },
+        house_rules={**config.house_rules, C64_FLOAT_SCORE: "intent"},
+    )
+    for idx, score in (scores or {}).items():
+        state = set_exact_score(state, Decimal(score), player=idx)
+    return state
+
+
 def _shape(value):
     """Return a type fingerprint of ``value``'s whole graph, ignoring its contents.
 
@@ -334,7 +425,9 @@ def _shape(value):
     ``5000 == 5000.0``), so an int silently becoming a float — the corruption that
     surfaces only on load — would compare equal too.
 
-    Pairing this fingerprint with the value check closes both.
+    Pairing this fingerprint with the value check closes both. Map keys are
+    fingerprinted by type too (``1 == 1.0`` share a dict slot), as the save codec keeps
+    every key's type (:func:`engine.persistence._encode`).
     """
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return (
@@ -342,7 +435,10 @@ def _shape(value):
             {f.name: _shape(getattr(value, f.name)) for f in dataclasses.fields(value)},
         )
     if isinstance(value, Mapping):
-        return (type(value).__name__, {k: _shape(v) for k, v in value.items()})
+        return (
+            type(value).__name__,
+            {(type(k).__name__, k): _shape(v) for k, v in value.items()},
+        )
     if isinstance(value, (list, tuple)):
         return (type(value).__name__, [_shape(v) for v in value])
     return type(value).__name__
@@ -629,3 +725,131 @@ def run_fight(
     engine_result = run(handler, input_source, state=state, rng=rng)
     captured["engine_result"] = engine_result
     return captured["result"]
+
+
+# --------------------------------------------------------------------------- #
+# Captured-key resolution                                                      #
+# --------------------------------------------------------------------------- #
+_MAFIA_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
+
+#: The screens the turn runner names itself: a client draws them from their own
+#: ``client.*`` text or their ``lines``, never by resolving the screen's key.
+_RUNNER_SCREENS = frozenset(
+    {
+        UPKEEP_SCREEN,
+        TURN_OVER_SCREEN,
+        STANDINGS_SCREEN,
+        YEAR_END_SCREEN,
+        JOB_SHIFT_SCREEN,
+        LOCATION_CLOSED_SCREEN,
+        KEY_WAIT_SCREEN,
+    }
+)
+
+
+@functools.cache
+def classic_resolver() -> Resolver:
+    """The Mafia config's classic theme, read once per test run."""
+    return Resolver.from_config(_MAFIA_DIR, theme="classic")
+
+
+def _is_theme_key(option: Any) -> bool:
+    """A choice option that names a theme key (``locations.sgl.after_take``), not a
+    plain value the client prints as it is (a number, a name)."""
+    return isinstance(option, str) and "." in option and " " not in option
+
+
+def theme_emissions(captured: Any) -> list[tuple[str, dict]]:
+    """Every ``(key, params)`` a client resolves through the theme to draw ``captured``.
+
+    ``captured`` is a sequence of interactions (``scripted.seen``) or of ``(key,
+    params)`` pairs, or a mix. Per interaction:
+
+    - ``ShowMessage``, ``PromptInt``, ``PromptText``, ``RollFrame``: ``key`` with ``params``.
+    - ``Confirm``: ``key``, no params.
+    - ``PromptChoice``: ``key``, each option that is a theme key, and ``prompt``.
+    - ``Acknowledge``: each of ``params["lines"]`` when it has lines, else ``key`` with
+      ``params``; ``Heading``: ``key`` with ``params``. A runner screen's own key
+      (``engine.turns``' ``*_SCREEN``) is drawn from client text, so it is skipped.
+    - ``CombatScreen``: a string ``message`` is ``combat.<message>``; a shot result
+      (a dict) carries no key, the client picks one.
+    - ``LocationMenu``: the location's ``title``, ``entry_prompt`` and each option's
+      ``menu.<id>``; ``TurnMenu``: each option's ``turn.menu.option.<id>``.
+
+    ``StartCombat``, ``LoadSubState``, ``MapMove`` and ``OptionDone`` carry no theme
+    key (a sub-state's own interactions are captured where it yields them).
+    """
+    out: list[tuple[str, dict]] = []
+    for item in captured:
+        if isinstance(item, tuple):
+            key, params = item
+            out.append((key, dict(params)))
+        elif isinstance(item, (ShowMessage, PromptInt, PromptText, RollFrame)):
+            out.append((item.key, dict(item.params)))
+        elif isinstance(item, Confirm):
+            out.append((item.key, {}))
+        elif isinstance(item, PromptChoice):
+            out.append((item.key, {}))
+            out.extend((str(o), {}) for o in item.options if _is_theme_key(o))
+            if item.prompt is not None:
+                out.append((item.prompt, {}))
+        elif isinstance(item, (Acknowledge, Heading)):
+            lines = item.params.get("lines")
+            if lines is not None:
+                out.extend((key, dict(params)) for key, params in lines)
+            elif item.key not in _RUNNER_SCREENS:
+                out.append((item.key, dict(item.params)))
+        elif isinstance(item, CombatScreen):
+            if isinstance(item.message, str):
+                out.append((f"combat.{item.message}", {}))
+        elif isinstance(item, LocationMenu):
+            base = f"locations.{item.location}"
+            out.append((f"{base}.title", {}))
+            out.append((f"{base}.entry_prompt", {}))
+            out.extend((f"{base}.menu.{o}", {}) for o in item.options)
+        elif isinstance(item, TurnMenu):
+            out.extend((f"turn.menu.option.{o}", {}) for o in item.options)
+    return out
+
+
+def assert_captured_keys_resolve(captured: Any, resolver: Resolver | None = None) -> set[str]:
+    """Resolve every key ``captured`` carries (:func:`theme_emissions`) through
+    ``resolver`` (default: the Mafia classic theme); fail naming the key when the theme
+    lacks it or its template asks for a param the emission does not carry.
+
+    Returns the keys resolved, so a caller can check its runs reached the keys it
+    meant to.
+    """
+    resolver = resolver or classic_resolver()
+    keys: set[str] = set()
+    for key, params in theme_emissions(captured):
+        try:
+            resolver.resolve(key, params)
+        except KeyError as exc:  # MissingKeyError, or str.format's missing param
+            pytest.fail(f"theme key {key!r} with params {params!r} does not resolve: {exc}")
+        except (IndexError, ValueError) as exc:
+            pytest.fail(f"theme key {key!r} with params {params!r} does not format: {exc}")
+        keys.add(key)
+    return keys
+
+
+#: A location's own strings the location screen draws from its shell, not a handler.
+_SHELL_STRINGS = ("title", "entry_prompt", "menu")
+
+
+def location_strings(location: str, resolver: Resolver | None = None) -> set[str]:
+    """Every template key under ``locations.<location>`` in ``resolver``'s theme
+    (default: the Mafia classic theme) but the shell's own (``title``,
+    ``entry_prompt``, ``menu.*``): the strings the location's handlers print."""
+    tree = (resolver or classic_resolver()).tree["locations"][location]
+    keys: set[str] = set()
+
+    def walk(node: Mapping, prefix: str) -> None:
+        for name, value in node.items():
+            if isinstance(value, Mapping):
+                walk(value, f"{prefix}.{name}")
+            else:
+                keys.add(f"{prefix}.{name}")
+
+    walk({k: v for k, v in tree.items() if k not in _SHELL_STRINGS}, f"locations.{location}")
+    return keys

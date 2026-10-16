@@ -38,6 +38,7 @@ import yaml
 from engine.conditions import build_context, evaluate, validate
 
 __all__ = [
+    "MAX_POSITIONAL_OPTIONS",
     "HANDLERS",
     "register",
     "Option",
@@ -153,11 +154,19 @@ def _parse_option(raw: dict) -> Option:
     )
 
 
+#: The most options a menu picked by position may hold: the one-key pick reads one of
+#: the keys "1".."9", so a tenth option could never be chosen. A menu whose options
+#: name their keys (the turn menu) is not capped.
+MAX_POSITIONAL_OPTIONS = 9
+
+
 def load_location(raw: dict) -> Location:
     """Parse a location dict (from ``yaml.safe_load``) into a :class:`Location`.
 
     Validates each option: guard structure, handler resolution, and the
-    exactly-one-of handler/consequences rule. Any violation raises
+    exactly-one-of handler/consequences rule, and the keys a menu picks the options by
+    (an option's ``key``, else its 1-based position): no two alike, and no option past
+    the :data:`MAX_POSITIONAL_OPTIONS`-th without a ``key`` of its own. Any violation raises
     :class:`ValueError` at load time.
     """
     if "key" not in raw:
@@ -166,9 +175,17 @@ def load_location(raw: dict) -> Location:
     if not isinstance(options_raw, list):
         raise ValueError(f"location 'options' must be a list: {options_raw!r}")
     options = [_parse_option(o) for o in options_raw]
-    keys = [o.key for o in options if o.key is not None]
+    # The key a menu picks each option by: its own, else its 1-based position.
+    keys = [o.key if o.key is not None else str(i + 1) for i, o in enumerate(options)]
     if len(keys) != len(set(keys)):
         raise ValueError(f"shell {raw['key']!r} gives two options one key: {keys!r}")
+    unreachable = [o.id for o in options[MAX_POSITIONAL_OPTIONS:] if o.key is None]
+    if unreachable:
+        raise ValueError(
+            f"shell {raw['key']!r} has {len(options)} options; a menu picked by one key "
+            f"holds at most {MAX_POSITIONAL_OPTIONS} without a key of their own "
+            f"(no key: {unreachable!r})"
+        )
     return Location(key=raw["key"], options=options)
 
 

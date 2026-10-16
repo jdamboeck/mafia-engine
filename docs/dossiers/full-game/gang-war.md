@@ -83,7 +83,7 @@ D8. `:27150` `ms-=10`; `x=2:gosub1160` (attacker +2) in both outcomes; pause; re
 ## 6. Dependencies
 
 - **Turn menu** (NEW in the client/session): options 1-4, re-shown while `ms>0` (`:1045`); option 4 ends the turn voluntarily; map exit key `_` (`:2019`) returns to the menu. Overview (option 1, `:1200-1245`) also unported.
-- **Combat engine:** hot-seat is supported (`StartCombat.cpu_sides=()`, engine/interactions.py:141-147), but `fight_loop._run_combat` persists energy only for side 1 and targets the **active** player (engine/fight_loop.py:196-212, `EnergyChange` without `player`). Gang war needs both sides persisted to their owners (side 1 = defender, side 2 = attacker); the brawl needs side 1 persisted to `us`. Needs a per-side owner field (e.g. `roster_owner`) — engine change.
+- **Combat engine:** hot-seat is supported (`StartCombat.cpu_sides=()`, engine/protocol.py:209-272), but `fight_loop._run_combat` persists energy only for side 1 and targets the **active** player (engine/fight_loop.py:196-212, `EnergyChange` without `player`). Gang war needs both sides persisted to their owners (side 1 = defender, side 2 = attacker); the brawl needs side 1 persisted to `us`. Needs a per-side owner field (e.g. `roster_owner`) — engine change.
 - Player-side placement for side 2 as a *roster* side (`:30000 kp(i,j)=129-18*(i=2)+p(j)`) — `setup_combat` currently builds side 2 as an NPC party only.
 - Prompts to a non-active player (winner's vehicle j/n; `us` driving side 1) — interaction protocol has no addressee; fine for the hot-seat terminal, needed for network.
 - Clock: gate on `Clock.month`.

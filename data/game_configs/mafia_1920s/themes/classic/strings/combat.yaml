@@ -45,13 +45,16 @@ combat:
   # target down, with the damage y it did.
   hit: "treffer! energie -{damage:mid$}!"
 
-  # 30500: "{rvon} sieger: <gang>!!!" -- the winner banner. {name} = winning side's name.
+  # :30500 `print"{clr}{down}{gry3}{rvon} sieger: "bn$(ks(s))"!!! "` -- the winner banner.
+  # {name} = winning side's name.
   winner_banner: "sieger: {name}!!!"
 
   # 30510/30515: "verluste der spieler:" heading + bn$(ks(i))":"v(i) per side
   # (the count PRINTs with its sign space: "<gang>: <n> ").
   losses_heading: "verluste der spieler:"
   losses_line: "{name}:{count}"
+  # :30520 `print:goto1100`: a blank row, then the outcome screen's key wait, which the
+  # client prints (the fight's KEY_WAIT).
 
   # The fighter panel (:30116 gosub1300): the name, then :1315's stat line, then
   # :1320's weapon. :1315 prints the ge$ fields that :1365-1385 build: each stat is

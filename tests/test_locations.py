@@ -1,4 +1,4 @@
-"""Tests for the YAML location-shell loader + HANDLERS registry (U6, PART 2).
+"""Tests for the YAML location-shell loader + handler registry (U6, PART 2).
 
 Proof-first: written and observed RED (module missing) before
 ``engine/locations.py`` existed.
@@ -13,7 +13,6 @@ import pytest
 import yaml
 
 from engine.locations import (
-    HANDLERS,
     Location,
     Option,
     available_options,
@@ -73,7 +72,7 @@ def test_shell_parses_into_structured_objects():
 
 def test_handler_resolves_from_registry():
     loc = load_location(yaml.safe_load(SHELL))
-    assert loc.options[0].handler is HANDLERS["test.dummy"]
+    assert loc.options[0].handler is _dummy_handler
 
 
 def test_unregistered_handler_raises():
@@ -126,3 +125,59 @@ def test_flat_consequences_option_has_no_handler():
     leave = next(o for o in loc.options if o.id == "leave")
     assert leave.handler is None
     assert leave.consequences == [{"type": "ms_change", "amount": -5}]
+
+
+# --------------------------------------------------------------------------- #
+# The one-key pick reaches 9 options: a positional menu caps there (KTD-10)   #
+# --------------------------------------------------------------------------- #
+def _shell(n: int, *, keyed: bool = False) -> dict:
+    """A shell of ``n`` handler options; ``keyed`` gives each its own ``key``."""
+    options = []
+    for i in range(n):
+        option = {"id": f"opt{i}", "handler": "test.dummy"}
+        if keyed:
+            option["key"] = f"k{i}"
+        options.append(option)
+    return {"key": "big", "options": options}
+
+
+def test_a_positional_shell_of_10_options_is_refused_at_load():
+    # A location menu is picked by one key, "1".."9": a tenth option is unreachable.
+    assert len(load_location(_shell(9)).options) == 9
+    with pytest.raises(ValueError, match=r"10 options"):
+        load_location(_shell(10))
+
+
+def test_a_keyed_menu_of_10_options_loads():
+    # A menu that names its keys (the turn menu) is not picked by position.
+    assert len(load_location(_shell(10, keyed=True)).options) == 10
+
+
+def test_a_mixed_shell_caps_its_positional_options_too():
+    # One keyed option does not lift the cap: an unkeyed tenth option is still "10".
+    shell = _shell(10)
+    shell["options"][0]["key"] = "x"
+    with pytest.raises(ValueError, match=r"opt9"):
+        load_location(shell)
+    shell["options"][9]["key"] = "y"
+    assert len(load_location(shell).options) == 10
+
+
+def test_a_key_that_is_another_options_position_is_refused():
+    # Option 2's own key "1" is option 1's positional key: one key, two options.
+    shell = _shell(2)
+    shell["options"][1]["key"] = "1"
+    with pytest.raises(ValueError, match=r"two options one key"):
+        load_location(shell)
+
+
+def test_every_mafia_shell_and_menu_loads():
+    from pathlib import Path
+
+    from engine.config_loader import load_game_config
+
+    config_dir = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
+    config = load_game_config(config_dir)
+    shell_files = {p.stem for p in (config_dir / "content" / "locations").glob("*.yaml")}
+    assert set(config.shells) == shell_files and len(shell_files) == 12
+    assert "turn" in config.menus

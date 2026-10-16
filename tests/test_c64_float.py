@@ -21,6 +21,8 @@ The rows come in four groups:
 
 from __future__ import annotations
 
+import math
+
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -321,18 +323,33 @@ X8_TEXTS = [
 ]
 
 
-def _score_state(gf: float, weight: float, setting: str):
+def _score_state(gf: float | str, weight: float | str, setting: str):
+    """One player scoring ``gf`` at weight ``weight``. Under intent both are the exact
+    decimals they are written as (a float's ``repr``), the score held as the exact
+    value and ``gf`` its float, as setup and the intent arm leave them."""
     from engine.state import Clock, Config, GameState, Player
 
     from data.game_configs.mafia_1920s.gangster import Gangster
+    from tests.helpers import with_exact_score
 
-    return GameState(
-        players=(Player(name="p0", gf=gf, roster=(Gangster(name="g0"),)),),
+    text = {k: v if isinstance(v, str) else repr(v) for k, v in (("gf", gf), ("x8", weight))}
+    state = GameState(
+        players=(Player(name="p0", gf=float(gf), roster=(Gangster(name="g0"),)),),
         clock=Clock(active_player=0),
         config=Config(
-            formula_params={"score_mult": weight}, house_rules={"c64_float_score": setting}
+            formula_params={"score_mult": float(weight)},
+            house_rules={"c64_float_score": setting},
         ),
     )
+    if setting == "intent":
+        state = with_exact_score(state, text["x8"], {0: text["gf"]})
+    return state
+
+
+def _exact_of(state):
+    import data.game_configs.mafia_1920s.state as game
+
+    return game.exact_score(state.players[0])
 
 
 def _award(gf: float, x: int, weight: float, setting: str) -> tuple[float, int]:
@@ -369,31 +386,37 @@ def test_faithful_sums_match_every_captured_series(i: int):
 
 @pytest.mark.parametrize("i", range(1, 12))
 def test_intent_sums_are_the_exact_decimal_sums(i: int):
-    """AE4: under intent each step is the exact decimal sum, capped, floored and cut."""
+    """AE4: under intent each step is the exact decimal sum, capped, floored and cut;
+    the exact score is that sum and ``gf`` its float."""
     from decimal import ROUND_FLOOR, Decimal
 
-    weight = float(X8_TEXTS[i - 1])
+    from data.game_configs.mafia_1920s.effects import ExactScoreCut, ScoreAndRank
+    from engine.effects import apply
+
     expected = Decimal(0)
-    gf = 0.0
+    state = _score_state("0", X8_TEXTS[i - 1], "intent")
     for x in STEPS:
         expected = min(max(expected + int(x) * Decimal(X8_TEXTS[i - 1]), Decimal(0)), Decimal(100))
-        gf, _ = _award(gf, int(x), weight, "intent")
-        assert gf == float(expected)
-        gf = truncated_score(gf, decimal=True)
+        state = apply(state, ScoreAndRank(amount=int(x), rank_divisor=11.1))
+        assert (_exact_of(state), state.players[0].gf) == (expected, float(expected))
+        state = apply(state, ExactScoreCut())
         expected = expected.quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
-        assert gf == float(expected)
+        assert (_exact_of(state), state.players[0].gf) == (expected, float(expected))
 
 
 def test_the_settings_part_where_the_capture_says():
     """Series 3 (x8=.3): both settings reach 1.8 at step 3 (the C64's sum lies above it,
     so :1013 keeps it); at step 4 the C64's 2.1 lies below and is cut to 2.09 (``S3-4``),
     where the exact decimal keeps 2.1."""
+    from data.game_configs.mafia_1920s.effects import ExactScoreCut, ScoreAndRank
+    from engine.effects import apply
+
     faithful = [ROWS[f"S3-{n}"].t_str for n in range(1, 25)]
-    intent_gf, intent = 0.0, []
+    state, intent = _score_state("0", X8_TEXTS[2], "intent"), []
     for x in STEPS:
-        intent_gf, _ = _award(intent_gf, int(x), 0.3, "intent")
-        intent_gf = truncated_score(intent_gf, decimal=True)
-        intent.append(c64_str(intent_gf))
+        state = apply(state, ScoreAndRank(amount=int(x), rank_divisor=11.1))
+        state = apply(state, ExactScoreCut())
+        intent.append(c64_str(state.players[0].gf))
     assert faithful[:3] == intent[:3] == [" .3", " .9", " 1.8"]
     assert (faithful[3], intent[3]) == (" 2.09", " 2.1")
 
@@ -513,6 +536,116 @@ def test_the_effect_ranks_by_the_setting(gf: float, faithful: int, intent: int):
     stored = c64_divide(round(gf * 100), 100)  # the score as :1013 leaves it on the C64
     assert _award(stored, 0, 1.0, "faithful")[1] == faithful
     assert _award(gf, 0, 1.0, "intent")[1] == intent
+
+
+#: ``idiv_cases.bas`` pokes 5-byte operands ``a`` and ``b`` and writes ``r=int(a/b)`` per
+#: pair (``Q<i>``, by ``str$``): the rank divide's scores negated, a few hand cases, and
+#: random ``n*b`` nudged a unit or two either way, nearly all with a negative quotient,
+#: where ``int``'s floor moves away from zero; then the random pairs again, positive.
+#: VICE 3.10 (``x64sc``) wrote ``idiv_capture.txt``.
+IDIV_PROGRAM = FIXTURE / "idiv_cases.bas"
+IDIV_CAPTURE = FIXTURE / "idiv_capture.txt"
+
+
+def _idiv_rows() -> list[tuple[int, float, float, int]]:
+    program = IDIV_PROGRAM.read_text("ascii").splitlines()
+    data = [line.split(" data ")[1] for line in program if " data " in line]
+    count, pairs = int(data[0]), [list(map(int, d.split(","))) for d in data[1:]]
+    lines = IDIV_CAPTURE.read_text("ascii").splitlines()
+    assert lines[-1] == "END", "the capture is cut short"
+    got = {int(label[1:]): int(r) for label, r in (ln.split(":") for ln in lines[:-1])}
+    assert len(pairs) == count == len(got)
+    return [
+        (i, _decode(bytes(n[:5])), _decode(bytes(n[5:])), got[i])
+        for i, n in enumerate(pairs, start=1)
+    ]
+
+
+IDIV_ROWS = _idiv_rows()
+
+#: Two negative quotients where the ROM's ``int(a/b)`` is ``-n`` and the model's ``-n-1``:
+#: the exact quotient lies about 1.7 units of the 34-bit cut above ``n``, and the ROM's
+#: quotient is ``n`` exactly (``a/b-n`` is 0 on the C64), so FDIV's quotient falls short
+#: of :func:`c64_int_divide`'s exact cut there. The positive mirrors agree (``int`` cuts
+#: toward zero either way). The game never divides a negative score (``:1160-1161``
+#: keeps ``gf`` in 0..100), so this is the model's open edge, not a game divergence.
+IDIV_MODEL_MISSES = {35: -13, 72: -7}
+
+
+@pytest.mark.parametrize(
+    ("i", "a", "b", "r"),
+    [
+        pytest.param(
+            *row,
+            marks=pytest.mark.xfail(
+                strict=True, reason="FDIV's quotient falls short of the exact 34-bit cut"
+            ),
+        )
+        if row[0] in IDIV_MODEL_MISSES
+        else row
+        for row in IDIV_ROWS
+    ],
+    ids=lambda v: str(v),
+)
+def test_c64_int_divide_floors_as_the_c64_did(i: int, a: float, b: float, r: int):
+    assert c64_int_divide(a, b) == r
+
+
+def test_the_divide_capture_has_negative_quotients_doubles_floor_elsewhere():
+    """The capture tells the cut from doubles: ``floor(a/b)`` misses it on negative
+    quotients, and the model's two misses are what :data:`IDIV_MODEL_MISSES` says."""
+    negative = [row for row in IDIV_ROWS if row[1] / row[2] < 0]
+    assert len(negative) >= 150
+    assert any(math.floor(a / b) != r for _, a, b, r in negative)
+    assert {i: r for i, _, _, r in IDIV_ROWS if i in IDIV_MODEL_MISSES} == IDIV_MODEL_MISSES
+
+
+# --------------------------------------------------------------------------- #
+# The decimal parser's exponent, overflow and underflow edges                  #
+# --------------------------------------------------------------------------- #
+#: ``val_cases.bas`` writes, per text, the 5 bytes ``x=val(t$)`` gives it, or ``!`` and
+#: the error the C64 printed (the keyboard buffer holds ``goto100``, which READY runs
+#: after an error; line 100 reads the message off the screen and goes on). The labels
+#: come back in upper case. VICE 3.10 (``x64sc``) wrote ``val_capture.txt``.
+VAL_CAPTURE = FIXTURE / "val_capture.txt"
+
+
+def _val_rows() -> list[tuple[str, bytes | None]]:
+    lines = VAL_CAPTURE.read_text("ascii").splitlines()
+    assert lines[-1] == "END", "the capture is cut short"
+    rows = []
+    for line in lines[:-1]:
+        text, got = line[1:].split("]:")
+        if got.startswith("!"):
+            assert got.startswith("!?OVERFLOW"), got
+            rows.append((text.lower(), None))
+        else:
+            rows.append((text.lower(), bytes.fromhex(got)))
+    return rows
+
+
+VAL_ROWS = _val_rows()
+
+
+@pytest.mark.parametrize(("text", "by_val"), VAL_ROWS, ids=lambda v: str(v))
+def test_c64_val_reads_the_edges_as_the_c64_did(text: str, by_val: bytes | None):
+    """``None`` is ``?overflow error``; a zero is compared by its exponent byte."""
+    if by_val is None:
+        with pytest.raises(ValueError):
+            c64_val(text)
+    else:
+        assert _same(c64_bytes(c64_val(text)), by_val)
+
+
+def test_the_val_capture_reaches_both_edges():
+    """It holds the largest value (``FF 7F FF FF FF``), overflows, the smallest
+    (``01 00 00 00 00``) and underflows to zero."""
+    by_text = dict(VAL_ROWS)
+    assert by_text["1.7014118345e38"] == bytes.fromhex("FF7FFFFFFF")
+    assert by_text["1.7014118346e38"] is None and by_text["0.1e40"] is None
+    assert by_text["2.93873588e-39"] == bytes.fromhex("0100000000")
+    assert by_text["2.93873587e-39"] == bytes.fromhex("007FFFFFF3")  # exponent 0: zero
+    assert by_text["1e-99999"] == bytes.fromhex("0020000000")
 
 
 # --------------------------------------------------------------------------- #
@@ -646,31 +779,37 @@ def test_intent_shop_series_are_the_exact_decimal_sums(i: int):
     """AE5: under intent each step is the exact decimal sum, guarded and unclamped."""
     from decimal import Decimal
 
+    from data.game_configs.mafia_1920s.effects import WeaponBuyScore
+    from engine.effects import apply
+
     start, weight, letters = SHOP_SERIES[i - 1]
     expected, step = Decimal(start), Decimal(weight)
-    gf = float(start)
+    state = _score_state(start, weight, "intent")
     for letter in letters:
         if letter == "u" and expected < 100:
             expected += step
         elif letter == "d" and expected > 0:
             expected -= 2 * step
-        gf = _shop_step(gf, float(weight), letter == "d", "intent")
-        assert gf == float(expected)
+        state = apply(state, WeaponBuyScore(downgrade=letter == "d"))
+        assert (_exact_of(state), state.players[0].gf) == (expected, float(expected))
 
 
 def test_the_shop_settings_part_where_the_capture_says():
     """Doubles miss the C64 along the series, and the exact decimal parts from it."""
+    from data.game_configs.mafia_1920s.effects import WeaponBuyScore
+    from engine.effects import apply
+
     missed_by_doubles = 0
     parted = 0
     for i, (start, weight, letters) in enumerate(SHOP_SERIES, 1):
-        double, intent_gf = float(start), float(start)
+        double, state = float(start), _score_state(start, weight, "intent")
         for n, letter in enumerate(letters, 1):
             if letter == "u":
                 double = double + float(weight) if double < 100 else double
             else:
                 double = double - 2 * float(weight) if double > 0 else double
-            intent_gf = _shop_step(intent_gf, float(weight), letter == "d", "intent")
+            state = apply(state, WeaponBuyScore(downgrade=letter == "d"))
             missed_by_doubles += c64_bytes(double) != SHOP[f"T{i}-{n}"]
-            parted += not _same(c64_bytes(intent_gf), SHOP[f"T{i}-{n}"])
+            parted += not _same(c64_bytes(state.players[0].gf), SHOP[f"T{i}-{n}"])
     assert missed_by_doubles >= 50
     assert parted >= 50

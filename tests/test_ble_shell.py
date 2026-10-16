@@ -1,23 +1,34 @@
 """Tests for the ble shell + classic-theme strings (``mf-prg.bas:22000-22120``).
 
-The four checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
-resolve, the menu strings exist, every key the handlers emit resolves with its params,
-and the text is verbatim from the research corpus (location-dialogue.yaml, ble).
+The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
+resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
+(``tests/test_ble.py``'s exits) resolve in the classic theme with the params they carry
+and reach every ble string, and the text is verbatim from the research corpus
+(location-dialogue.yaml, ble).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from engine.config_loader import load_game_config
 from engine.locations import HANDLERS, load_location
 from engine.strings import Resolver
+from tests.helpers import (
+    StubRng,
+    assert_captured_keys_resolve,
+    location_strings,
+    run_pure,
+    scripted,
+)
+from tests.test_ble import _EXITS, _state
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "ble.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "ble.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -39,8 +50,8 @@ def test_ble_shell_resolves_both_handlers_and_a_guardless_leave():
     assert loc.key == "ble"
     assert [o.id for o in loc.options] == ["passport", "counterfeit", "leave"]
     by_id = {o.id: o for o in loc.options}
-    assert by_id["passport"].handler is HANDLERS["ble.passport"]
-    assert by_id["counterfeit"].handler is HANDLERS["ble.counterfeit"]
+    assert by_id["passport"].handler is _CONFIG.handlers["ble.passport"]
+    assert by_id["counterfeit"].handler is _CONFIG.handlers["ble.counterfeit"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"
@@ -53,7 +64,35 @@ def test_ble_menu_strings_present():
         assert _get(data, f"locations.ble.menu.{opt_id}")
 
 
-def test_every_key_the_handlers_emit_resolves_with_its_params():
+#: The behavioural runs whose captured keys are resolved: every exit of
+#: ``tests/test_ble.py`` (id, option, state kwargs, answers, rng draws), and an offer
+#: to a gang of three (:22011's plural).
+_RUNS = [case[:5] for case in _EXITS] + [
+    ("22011-for-many", "ble.passport", {"gang": 3}, (True,), ()),
+]
+
+
+def _captured(key, kwargs, answers, draws) -> list:
+    src = scripted(*answers)
+    run_pure(HANDLERS[key], src, state=_state(**kwargs), rng=StubRng(*draws))
+    return src.seen
+
+
+@pytest.mark.parametrize(
+    ("key", "kwargs", "answers", "draws"),
+    [run[1:] for run in _RUNS],
+    ids=[run[0] for run in _RUNS],
+)
+def test_the_keys_each_ble_run_emits_resolve_in_the_classic_theme(key, kwargs, answers, draws):
+    assert_captured_keys_resolve(_captured(key, kwargs, answers, draws))
+
+
+def test_the_ble_runs_reach_every_ble_string():
+    reached = set().union(*(assert_captured_keys_resolve(_captured(*r[1:])) for r in _RUNS))
+    assert location_strings("ble") - reached == set()
+
+
+def test_the_classic_theme_prints_each_ble_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
         "locations.ble.passport_for_one": ({}, "gut, mein sohn. fuer einen pass"),

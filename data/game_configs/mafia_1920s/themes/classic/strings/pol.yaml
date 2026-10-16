@@ -40,3 +40,5 @@ locations:
     # player; :21252's `inputx$` then prints "?".
     thank_you: "{name}!\ndu bist von {rescuer} aus dem\nknast befreit worden. wieviel zahlst du\nihm zum dank (0 -{cash:str$}):"
     thank_you_prompt: "?"
+    # :21253 `ify>ka(x)ory<0thenprint"{up}{up}";:goto21252`: an answer below 0 asks the
+    # prompt again.

@@ -53,8 +53,9 @@ unknown types. `dataclasses.asdict()` deep-copies internally, so **it cannot wal
 a graph containing a mappingproxy** — which is why the engine has a hand-rolled
 walker, `engine.state.json_safe()`, the public inverse of `freeze()`. Save unwraps
 read-only containers to plain dict/list; `engine.persistence.state_from_dict()`
-rebuilds the read-only forms. Old saves still load: the JSON shape is identical
-either way.
+rebuilds the read-only forms. The save codec tags a mapping whose keys are not all
+strings (`{"__map__": [[key, value], ...]}`), so a key's type survives the round trip;
+that change took the save format to schema 3, and an older save is refused, not read.
 
 The same constraint bites anywhere else deepcopy was used as a cheap snapshot —
 which leads directly to the third gotcha.

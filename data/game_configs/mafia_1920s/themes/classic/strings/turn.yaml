@@ -57,6 +57,9 @@ turn:
     no_gang: "keine!"
     # :1300-1320 gn$(a,b); "e"left$(x$,2)" k"mid$(x$,3,2)" i"mid$(x$,5,2)" b"right$(x$,2);
     # "w:"wa$(gw(a,b)) -- ge$ holds each stat as two digits (:1385).
+    # :1235 `gosub1300:poke198,0:wait198,1` prints each gangster so, then waits for a
+    # key (one turn.overview_gang screen per gangster); the client draws the gangsters
+    # with no blank row between them, where :1235's `print` leaves one.
     gangster: "{name}\ne{energie:mid$0>2} k{kraft:mid$0>2} i{intelligenz:mid$0>2} b{brutalitaet:mid$0>2}\nw:{weapon}"
 
   # The gangster picker (:1130-1155), shared by every location that picks one gangster

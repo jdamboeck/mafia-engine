@@ -66,7 +66,7 @@ header rendered on every screen.
 # on nearly every screen, whether or not the gamble ever resolved:
 assert "won" in output.lower() or "lost" in output.lower() or "$" in output
 
-# After (tests/test_client_loop.py:205-223) — resolved outcome text plus
+# After (tests/test_client_loop.py, test_gamble_completes_and_pays_out) — resolved outcome text plus
 # the exact cash values:
 assert "gewonnen" in low, "sph's win narration never reached the client"
 assert "verloren" not in low, "seed 42 wins; a loss string means the seed drifted"
@@ -77,8 +77,8 @@ assert "cash 5550$" in low
 The same shape appeared in the unimplemented-door test, which asserted
 `"closed for renovations" in output or "sgl" in output.lower()`. The map legend
 renders the location key `sgl` on every map screen. Replacing the entire denial
-message with unrelated text kept the test green. Fixed at
-`tests/test_client_loop.py:709` to assert the denial text alone.
+message with unrelated text kept the test green. Fixed in
+`test_walking_into_an_unimplemented_door_denies_gracefully` to assert the denial text alone.
 
 **The tell:** one arm of the `or` references something the handler under test
 does not produce.
@@ -91,7 +91,7 @@ own contract already promises, so no code path can violate it.
 output = run_play(monkeypatch, seed=42, stdin_keys=keys)
 assert isinstance(output, str)
 
-# After (tests/test_client_loop.py:655-666) — asserts what the EOF path
+# After (tests/test_client_loop.py, test_eof_during_sph_wager_prompt_exits_without_committing) — asserts what the EOF path
 # actually determines:
 assert "bye." in low, "the client did not exit cleanly on EOF"
 assert "gewonnen" not in low and "verloren" not in low, (
@@ -114,7 +114,7 @@ never executes — and the assertion happens to hold on the unreached state too.
 result = run_upkeep(st, rng=_StubRng())
 
 # Before — a bare string is a directionless shot. _parse_combat_response
-# (engine/interactions.py:733-749) maps any str to (raw, None), so the shot
+# (engine/fight_loop.py:645-662) maps any str to (raw, None), so the shot
 # never connects:
 src = _scripted(*([3] + ["shoot"] * 120))
 

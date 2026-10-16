@@ -1,8 +1,12 @@
-"""Coverage ledger checker: every line block of ``mf-prg.bas`` is ported or a named exception.
+"""Coverage ledger: a citation and traceability audit of every line block of ``mf-prg.bas``.
 
 ``docs/coverage-ledger.yaml`` lists every block of the decompiled source (R23, KTD-15),
 each ``ported`` or an ``exception`` with a category and a reason. This module holds it
-to the source and to the port's citations.
+to the source and to the port's citations. It is a citation and traceability audit,
+not behavioural coverage: it proves that code (and, for a player-facing line, a theme
+string or a client) names every block and every printed line, so each one can be
+traced to where the port does it; it does not prove that the port does it right.
+The port's tests prove that.
 
 Rules (KTD-15)
 --------------
@@ -19,24 +23,29 @@ Rules (KTD-15)
   checks the port and a doc explains it, but only code shows the port does the block.
 - **Checks.** A ``ported`` block that no code cites fails, as does an ``exception`` that
   code does cite, and a ledger whose blocks are not the source's (a new jump target
-  splits a block: the new block is missing from the ledger). Only that last check and
-  the ``player_facing`` flags need ``../research/``; without it, they skip with a reason
-  naming the path, and the others still run, as the ledger commits its boundaries and
-  flags.
+  splits a block: the new block is missing from the ledger). Only that last check, the
+  ``player_facing`` flags and the per-line player-facing check need the listing, read
+  from the vendored copy (:data:`tests.helpers.MF_PRG`); without it, they skip with a
+  reason naming the path (and :mod:`tests.research_guard` fails the run), and the
+  others still run, as the ledger commits its boundaries and flags.
 - **Narrow.** A citation spanning many blocks (a whole location's ``:12000-12335``
   header) would keep every block in it looking ported. So a ported block also needs a
   citation that spans at most :data:`NARROW` blocks, unless :data:`BROAD_ONLY` names it
   with its reason; an entry there that is no longer needed fails.
-- **Player-facing.** A block whose code (outside strings and ``rem``) holds ``print``,
+- **Player-facing.** A line whose code (outside strings and ``rem``) holds ``print``,
   ``input`` or ``get`` (not the disk's ``input#1``) or the key wait ``wait198`` reaches
-  the player; each block commits it as ``player_facing``, checked against the source
-  (with ``../research/`` only, like the boundaries). Game logic citing such a block shows
-  the port does its logic, not that the player sees its screen, so a ported
-  player-facing block also needs a citation where its text is shown, a theme's
-  ``strings/*.yaml`` or ``clients/`` (:func:`shows_text`), that spans at most
-  :data:`NARROW` blocks (a theme file's header range shows no one block's text; a bare
-  ``# 13100`` is no citation, ``# :13100`` is), or ``screen: deferred`` with a
-  ``screen_reason`` naming its issue. A deferral that is no longer needed fails.
+  the player (:func:`player_facing`); a block with such a line commits it as
+  ``player_facing``, checked against the source (from the vendored listing, like the
+  boundaries). Game logic citing such a block traces its logic, not its screen, so each
+  player-facing line of a ported block also needs a citation where its text is shown, a
+  theme's ``strings/*.yaml`` or ``clients/`` (:func:`shows_text`): one whose numbers
+  name the line, or whose range covers it and spans at most :data:`NARROW` blocks
+  (:func:`shows_line`; a theme file's header range shows no one line's text; a bare
+  ``# 13100`` is no citation, ``# :13100`` is). The rule is per printed line, not per
+  block, so a block with one cited print and one uncited print fails. Otherwise the
+  block carries ``screen: deferred`` with a ``screen_reason`` naming its issue; a
+  deferral that is no longer needed (each of the block's player-facing lines is cited
+  so) fails.
 - **Exception.** ``category`` is one of :data:`CATEGORIES`; ``reason`` says why the port
   leaves the block out. A ``deferred`` block is game behavior not ported yet, and its
   reason names the follow-up issue (``#146``).
@@ -300,13 +309,27 @@ def shows_text(cited: Cited) -> bool:
     return bool(_SHOWN.match(cited.path))
 
 
-def check_player_facing(blocks: Sequence[Block], citations: Iterable[Cited]) -> list[str]:
-    """A ported player-facing block needs a narrow citation where its text is shown, or a deferral.
+def shows_line(cited: Cited, line: int, width: int) -> bool:
+    """Whether ``cited`` names ``line``: among its numbers, or in a range of at most
+    :data:`NARROW` blocks (``width``, the blocks the citation cites)."""
+    citation = cited.citation
+    return line in citation.numbers or (
+        width <= NARROW and any(low <= line <= high for low, high in citation.ranges)
+    )
 
-    A citation where text is shown (:func:`shows_text`) counts only if it spans at most
-    :data:`NARROW` blocks, as in :func:`check_narrow`: a theme file's header range shows
-    no one block's text. A deferral that is no longer needed (a narrow theme string or
-    client citation cites the block, or the block is not player-facing) fails, so it
+
+def check_player_facing(
+    blocks: Sequence[Block], citations: Iterable[Cited], source: Mapping[int, str]
+) -> list[str]:
+    """Each player-facing line of a ported block is cited where its text is shown, or the
+    block defers its screen.
+
+    A line passes when a citation where text is shown (:func:`shows_text`) names it
+    (:func:`shows_line`): among its numbers, or in a range of at most :data:`NARROW`
+    blocks, as in :func:`check_narrow` (a theme file's header range shows no one line's
+    text). ``source`` gives the lines and says which are player-facing
+    (:func:`player_facing`). A deferral that is no longer needed (each player-facing
+    line of the block is cited so, or the block is not player-facing) fails, so it
     cannot outlive the gap it records.
     """
     shown = [c for c in citations if shows_text(c)]
@@ -315,32 +338,43 @@ def check_player_facing(blocks: Sequence[Block], citations: Iterable[Cited]) -> 
     for block in blocks:
         if block.status != "ported":
             continue
-        showers = [c for c in shown if cites(c, block)]
-        narrow = [c for c in showers if width[id(c)] <= NARROW]
         deferred = block.screen == SCREEN_DEFERRED
         if deferred and not block.player_facing:
             errors.append(
                 f"{block.label}: its screen is deferred, but it is not player-facing "
                 "(drop the deferral)"
             )
-        elif deferred and narrow:
-            where = ", ".join(f"{c.path}:{c.lineno}" for c in narrow[:3])
-            errors.append(
-                f"{block.label}: its screen is deferred, but a theme string or client cites "
-                f"it: {where} (drop the deferral)"
-            )
-        elif block.player_facing and not deferred and showers and not narrow:
-            widest = min(showers, key=lambda c: width[id(c)])
-            errors.append(
-                f"{block.label}: player-facing, but only citations wider than {NARROW} blocks "
-                f"show it (the narrowest, {widest.path}:{widest.lineno}, spans "
-                f"{width[id(widest)]}); cite it where its text is shown"
-            )
-        elif block.player_facing and not deferred and not showers:
-            errors.append(
-                f"{block.label}: player-facing, but only game logic cites it (cite it where "
-                "its text is shown: a theme string or clients/; or defer its screen)"
-            )
+            continue
+        lines = [
+            n for n in sorted(source) if block.start <= n <= block.end and player_facing(source[n])
+        ]
+        showers = {n: [c for c in shown if shows_line(c, n, width[id(c)])] for n in lines}
+        uncited = [n for n in lines if not showers[n]]
+        if deferred:
+            if lines and not uncited:
+                citers = {id(c): c for n in lines for c in showers[n]}.values()
+                where = ", ".join(f"{c.path}:{c.lineno}" for c in list(citers)[:3])
+                errors.append(
+                    f"{block.label}: its screen is deferred, but a theme string or client "
+                    f"cites each of its player-facing lines: {where} (drop the deferral)"
+                )
+            continue
+        for n in uncited:
+            wide = [c for c in shown if any(lo <= n <= hi for lo, hi in c.citation.ranges)]
+            if wide:
+                narrowest = min(wide, key=lambda c: width[id(c)])
+                errors.append(
+                    f"{block.label}: :{n} is player-facing, but only citations wider than "
+                    f"{NARROW} blocks show it (the narrowest, {narrowest.path}:"
+                    f"{narrowest.lineno}, spans {width[id(narrowest)]}); cite it where its "
+                    "text is shown"
+                )
+            else:
+                errors.append(
+                    f"{block.label}: :{n} is player-facing, but no theme string or client "
+                    "cites it (cite it where its text is shown: a theme string or clients/; "
+                    "or defer the block's screen)"
+                )
     return errors
 
 
@@ -522,7 +556,8 @@ def test_player_facing_lines_are_read_from_crunched_code() -> None:
 
 
 # :1-10 prints and :100-110 prints after then; :20 is a key wait; :200 prints only
-# in a string; :300 reads a disk file; :310 waits on the raster.
+# in a string; :300 reads a disk file; :310 waits on the raster. The player-facing
+# lines are :10, :20 and :110.
 _SCREENS = parse_source(
     "    1 ifzgoto20\n"
     '   10 print"goto99":gosub100,200\n'
@@ -535,10 +570,12 @@ _SCREENS = parse_source(
 )
 
 
-def _flagged(*, defer: Mapping[int, str] | None = None) -> list[Block]:
-    """Every ``_SCREENS`` block ported, flagged from the source, deferrals per ``defer``."""
+def _flagged(
+    source: Mapping[int, str] = _SCREENS, *, defer: Mapping[int, str] | None = None
+) -> list[Block]:
+    """Every block of ``source`` ported, flagged from it, deferrals per ``defer``."""
     defer = defer or {}
-    facing = player_facing_blocks(_SCREENS)
+    facing = player_facing_blocks(source)
     return [
         Block(
             lo,
@@ -548,82 +585,124 @@ def _flagged(*, defer: Mapping[int, str] | None = None) -> list[Block]:
             screen="deferred" if lo in defer else None,
             screen_reason=defer.get(lo),
         )
-        for lo, hi in source_blocks(_SCREENS)
+        for lo, hi in source_blocks(source)
     ]
 
 
 _THEME = "data/game_configs/g/themes/classic/strings/s.yaml"
 
 
+def _uncited(label: str, line: int) -> str:
+    return (
+        f"{label}: :{line} is player-facing, but no theme string or client cites it "
+        "(cite it where its text is shown: a theme string or clients/; or defer the "
+        "block's screen)"
+    )
+
+
 def test_player_facing_blocks_are_flagged_from_the_source() -> None:
     assert [b.label for b in _flagged() if b.player_facing] == [":1-10", ":20", ":100-110"]
 
 
-def test_a_player_facing_block_cited_only_by_game_logic_fails() -> None:
+def test_a_player_facing_line_cited_only_by_game_logic_fails() -> None:
     blocks = _flagged()
     logic = citations_in_file("engine/m.py", _ALL)
-    theme = citations_in_file(_THEME, "# :1-20 and :100\n")
-    client = citations_in_file("clients/terminal/s.py", "# :1-20 and :100\n")
-    errors = check_player_facing(blocks, logic)
-    assert errors == [
-        f":{label}: player-facing, but only game logic cites it "
-        "(cite it where its text is shown: a theme string or clients/; or defer its screen)"
-        for label in ("1-10", "20", "100-110")
-    ]
-    assert check_player_facing(blocks, logic + theme) == []
-    assert check_player_facing(blocks, logic + client) == []
+    theme = citations_in_file(_THEME, "# :1-20 and :110\n")
+    client = citations_in_file("clients/terminal/s.py", "# :1-20 and :110\n")
+    errors = check_player_facing(blocks, logic, _SCREENS)
+    assert errors == [_uncited(":1-10", 10), _uncited(":20", 20), _uncited(":100-110", 110)]
+    assert check_player_facing(blocks, logic + theme, _SCREENS) == []
+    assert check_player_facing(blocks, logic + client, _SCREENS) == []
     # a theme file outside strings/ (a renderer palette) shows no text
     palette = citations_in_file("data/game_configs/g/themes/classic/renderer/p.yaml", "# :20\n")
-    assert [e[:4] for e in check_player_facing(blocks, logic + palette)] == [":1-1", ":20:", ":100"]
+    assert [e[:4] for e in check_player_facing(blocks, logic + palette, _SCREENS)] == [
+        ":1-1",
+        ":20:",
+        ":100",
+    ]
 
 
-def test_a_player_facing_block_shown_only_by_a_wide_citation_fails() -> None:
-    # A theme file's header range (:1-310, all six blocks) shows no one block's text.
+# :100-110 prints twice, as :12070's block did before #173 cited its second print.
+_TWO_PRINTS = parse_source(
+    '  100 print"wieviel":inputy\n  110 ify>9thenprint"gier":goto100\n  120 end\n'
+)
+
+
+def test_a_block_with_one_cited_print_and_one_uncited_print_fails() -> None:
+    blocks = _flagged(_TWO_PRINTS)
+    assert [b.label for b in blocks] == [":100-120"]
+    first = citations_in_file(_THEME, 'a: "wieviel"  # :100\n')
+    # The block is cited, narrowly, where its text is shown; its second print is not.
+    assert check_player_facing(blocks, first, _TWO_PRINTS) == [_uncited(":100-120", 110)]
+    second = citations_in_file(_THEME, 'b: "gier"  # :110\n')
+    assert check_player_facing(blocks, first + second, _TWO_PRINTS) == []
+
+
+def test_a_line_a_narrow_shown_range_covers_passes() -> None:
     blocks = _flagged()
-    logic = citations_in_file("engine/m.py", _ALL)
+    # :1-110 spans three blocks (:1-10, :20, :100-110), the most a narrow citation may.
+    assert check_player_facing(blocks, citations_in_file(_THEME, "# :1-110\n"), _SCREENS) == []
+    ranges = citations_in_file(_THEME, "# :1-20\n# :100-110\n")
+    assert check_player_facing(blocks, ranges, _SCREENS) == []
+
+
+def test_a_line_only_a_range_wider_than_narrow_covers_fails() -> None:
+    blocks = _flagged()
+    # :1-200 spans four blocks: it covers :110, but too widely to pin it down.
+    wide = citations_in_file(_THEME, "# :1-200\n")
+    exact = citations_in_file(_THEME, 'a: "x"  # :10\nb: "y"  # :20\n')
+    assert check_player_facing(blocks, wide + exact, _SCREENS) == [
+        ":100-110: :110 is player-facing, but only citations wider than 3 blocks show it "
+        f"(the narrowest, {_THEME}:1, spans 4); cite it where its text is shown"
+    ]
+    # A theme file's header range (:1-310, all six blocks) shows no one line's text.
     header = citations_in_file(_THEME, "# Strings for :1-310.\n")
-    assert check_player_facing(blocks, logic + header) == [
-        f":{label}: player-facing, but only citations wider than 3 blocks show it "
-        f"(the narrowest, {_THEME}:1, spans 6); cite it where its text is shown"
-        for label in ("1-10", "20", "100-110")
+    assert check_player_facing(blocks, header, _SCREENS) == [
+        f"{label}: :{line} is player-facing, but only citations wider than 3 blocks show "
+        f"it (the narrowest, {_THEME}:1, spans 6); cite it where its text is shown"
+        for label, line in ((":1-10", 10), (":20", 20), (":100-110", 110))
     ]
     strings = 'a: "x"  # :10\nb: "y"  # :20, :110\n'
-    assert check_player_facing(blocks, logic + citations_in_file(_THEME, strings)) == []
+    shown = header + citations_in_file(_THEME, strings)
+    assert check_player_facing(blocks, shown, _SCREENS) == []
     # A client's wide citation is held to the same width.
     client = citations_in_file("clients/terminal/s.py", "# :1-310\n")
-    assert [e[:5] for e in check_player_facing(blocks, logic + client)] == [
+    assert [e[:5] for e in check_player_facing(blocks, client, _SCREENS)] == [
         ":1-10",
         ":20: ",
         ":100-",
     ]
 
 
-def test_a_bare_line_number_in_a_theme_comment_shows_nothing() -> None:
+def test_a_bare_line_number_in_a_theme_comment_cites_nothing() -> None:
     # ``# 110`` is not a citation (tests.test_citations' parser); ``# :110`` is.
     blocks = _flagged()
     logic = citations_in_file("engine/m.py", _ALL)
     bare = citations_in_file(_THEME, 'a: "x"  # 10\nb: "y"  # 20\nc: "z"  # 110\n')
     assert bare == []
-    assert len(check_player_facing(blocks, logic + bare)) == 3
+    assert len(check_player_facing(blocks, logic + bare, _SCREENS)) == 3
     cited = citations_in_file(_THEME, 'a: "x"  # :10\nb: "y"  # :20\nc: "z"  # :110\n')
-    assert check_player_facing(blocks, logic + cited) == []
+    assert check_player_facing(blocks, logic + cited, _SCREENS) == []
 
 
-def test_a_screen_deferral_covers_a_player_facing_block_until_it_is_shown() -> None:
+def test_a_screen_deferral_covers_a_block_until_each_of_its_lines_is_cited() -> None:
     logic = citations_in_file("engine/m.py", _ALL)
     theme = citations_in_file(_THEME, "# :1-20\n")
     deferred = _flagged(defer={100: "the screen is not drawn yet, #153"})
-    assert check_player_facing(deferred, logic + theme) == []
-    # a wide header range over the deferred block does not show its screen
+    assert check_player_facing(deferred, logic + theme, _SCREENS) == []
+    # a wide header range over the deferred block does not cite its lines
     header = citations_in_file(_THEME, "# :1-310\n")
-    assert check_player_facing(deferred, logic + theme + header) == []
+    assert check_player_facing(deferred, logic + theme + header, _SCREENS) == []
+    # a narrow citation of a line that prints nothing leaves :110 uncited: still deferred
+    near = citations_in_file(_THEME, "# :1-20 and :100\n")
+    assert check_player_facing(deferred, logic + near, _SCREENS) == []
     shown = citations_in_file(_THEME, "# :1-20 and :110\n")
-    assert check_player_facing(deferred, logic + shown) == [
-        ":100-110: its screen is deferred, but a theme string or client cites it: "
-        f"{_THEME}:1 (drop the deferral)"
+    assert check_player_facing(deferred, logic + shown, _SCREENS) == [
+        ":100-110: its screen is deferred, but a theme string or client cites each of its "
+        f"player-facing lines: {_THEME}:1 (drop the deferral)"
     ]
     stray = _flagged(defer={100: "#153", 300: "#153"})
-    assert check_player_facing(stray, logic + theme) == [
+    assert check_player_facing(stray, logic + theme, _SCREENS) == [
         ":300: its screen is deferred, but it is not player-facing (drop the deferral)"
     ]
 
@@ -681,31 +760,38 @@ def test_every_ported_block_has_a_narrow_citation() -> None:
 
 
 def test_the_ledger_blocks_are_the_sources() -> None:
-    source = load_source(helpers.MF_PRG)  # skips, naming the path, without ../research/
+    source = load_source()  # the vendored listing; skips, naming the path, if it is gone
     errors = check_boundaries(_ledger(), source)
     assert errors == [], "\n".join(errors)
 
 
-def test_every_player_facing_block_is_shown_or_deferred() -> None:
-    errors = check_player_facing(_ledger(), code_citations())
+def test_every_player_facing_line_is_cited_where_shown_or_deferred() -> None:
+    source = load_source()  # the vendored listing; skips, naming the path, if it is gone
+    errors = check_player_facing(_ledger(), code_citations(), source)
     assert errors == [], "\n".join(errors)
 
 
 def test_the_player_facing_flags_are_the_sources() -> None:
-    source = load_source(helpers.MF_PRG)  # skips, naming the path, without ../research/
+    source = load_source()  # the vendored listing; skips, naming the path, if it is gone
     errors = check_player_facing_flags(_ledger(), source)
     assert errors == [], "\n".join(errors)
 
 
-def test_without_the_research_tree_only_the_source_checks_skip(
+def test_without_the_listing_only_the_source_checks_skip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """With ``MF_PRG`` patched to an absent path, the three source checks skip naming it.
+
+    The source checks call ``load_source()`` with no path, so this also shows its default
+    is read when called, not when defined.
+    """
     absent = tmp_path / "research" / "mf-prg.bas"
     monkeypatch.setattr(helpers, "MF_PRG", absent)
     with pytest.raises(pytest.skip.Exception, match=re.escape(str(absent))):
         test_the_ledger_blocks_are_the_sources()
     with pytest.raises(pytest.skip.Exception, match=re.escape(str(absent))):
         test_the_player_facing_flags_are_the_sources()
+    with pytest.raises(pytest.skip.Exception, match=re.escape(str(absent))):
+        test_every_player_facing_line_is_cited_where_shown_or_deferred()
     test_every_block_is_cited_or_excepted()
     test_every_ported_block_has_a_narrow_citation()
-    test_every_player_facing_block_is_shown_or_deferred()

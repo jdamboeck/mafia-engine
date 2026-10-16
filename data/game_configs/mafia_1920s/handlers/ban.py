@@ -71,8 +71,8 @@ from engine.substates import register_substate
 from ..effects import SafeSkillSet, TipClear
 from ..setup import (
     KEY_WAIT,
+    RANKS,
     load_encounter,
-    load_ranks,
     pick_gangster,
     run_encounter,
     score_and_rank,
@@ -121,8 +121,7 @@ def _prologue(ctx):
     rank = params["ban_rank_min"]
     # :20003 ``ifra(sp)<3thenprint"werde erst '"ra$(3)"'!":goto1100``
     if active.rank < rank:
-        ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
-        yield ShowMessage("locations.ban.rank_too_low", {"rank": ranks[rank - 1]})
+        yield ShowMessage("locations.ban.rank_too_low", {"rank": RANKS[rank - 1]})
         yield KEY_WAIT  # :20003 ...:goto1100
         return True
     # :20004 ``ifll(sp)=20*la+lngoto17008``

@@ -77,7 +77,7 @@ A new title in the genre should start by copying `data/game_configs/mafia_1920s/
 
 One engine change comes before any second config: the engine/config seam (`engine-architecture.md`, "Engine/config seam"). It is an exception to the rule above, for three reasons:
 
-- **The engine already breaks the rule.** `engine/` holds this game's vocabulary: effects such as `DebtChange`, `JobSet` and `BarrelChange`, state entities such as `Debt`, `Job` and `Wanted`, the stat names in `_STAT_NAMES`, and the weapon stat minimums in `WeaponInstance.req_*`. A copied config could not change them without editing the engine.
+- **The engine broke the rule.** Before the seam, `engine/` held this game's vocabulary: effects such as `DebtChange`, `JobSet` and `BarrelChange`, state entities such as `Debt`, `Job` and `Wanted`, a `_STAT_NAMES` list of this game's stat names, and per-weapon stat minimums (`req_int`, `req_kraft`, `req_brut`) in the engine's weapon type. A copied config could not change them without editing the engine. The seam moved them to the config; the engine's `WeaponInstance` now carries only `name` and `range`, and the config's own weapon type adds `price`, `ts`, `tg`, `ws` and the `requires` map.
 - **The leak is growing.** `engine/effects.py` began with 10 effects, two of them this game's (`WantedChange`, `Jail`). It holds 29 now, and 15 of them are this game's. They came with five of the twelve locations.
 - **The rest of the game would multiply it.** The remaining locations, police capture, the jail, the win flows and the gang war each need their own effects and state. Built on the current pattern, each one adds game vocabulary to `engine/`, and moving it later costs more than moving it now.
 

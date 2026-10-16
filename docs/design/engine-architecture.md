@@ -67,7 +67,7 @@ The turn phase (menu, walking) is part of `GameState`. Saving is offered only at
 
 The turn menu is a declarative shell, loaded by the same code as a location shell. It has one handler per option: overview, walk, gang war, next player. Its guards read config-registered guard variables. The loaded config exposes its shells, so clients never find them by path.
 
-The Game FSM state, active turn, turn phase, and any suspended handler state are part of `GameState` so saves and replay can reconstruct where execution stopped.
+The Game FSM state, active turn and turn phase are part of `GameState`. A handler in progress is not: a generator cannot be saved, so a save is a checkpoint taken at the turn menu or the map-move prompt, where no handler is running, and a load re-enters the saved phase (see Save/replay).
 
 ## Interaction protocol
 
@@ -79,7 +79,7 @@ Generator[Interaction, Response, list[Event]]
 
 A handler yields an `Interaction`; the driver turns it into a typed, JSON-serializable screen state, obtains a `Response`, and sends that response back into the generator. The Phase 1 driver is in-process and synchronous. A future WebSocket server is the same driver behind an async transport.
 
-Interaction catalog:
+Interaction catalog (the protocol classes live in `engine/protocol.py`; `engine/interactions.py`, the driver, re-exports them):
 
 | Interaction | Fields | Response | Notes |
 |---|---|---|---|
@@ -127,11 +127,13 @@ There are two kinds of effect:
 
 A game effect's `apply` composes the engine's public state-update helpers (for example, set one player's value). It never rebuilds the state graph by hand. The helpers are part of the handler API.
 
-The registry must survive a config reload, because loading a config re-executes its package. So:
+Loading a config re-executes its package, which registers its effects again. So:
 
 - the registry is returned on the loaded config, like `handlers`, and passed to save loading and replay;
 - re-registering a tag replaces the old entry;
 - `commit()` never looks an effect up by type.
+
+One config is live per process. The registries (handlers, effects, consequences, sub-states, guard variables, stat names) are process-wide, so loading a different config replaces what the first one registered. Each loaded config's handle carries the config it was loaded as (`engine/config_owner.py`). `save_game`, `load_game`, `replay`, building a `TurnRunner` and running an owned action raise `StaleConfigError` for a handle whose config is no longer live, instead of running the other config's code. Reloading the same config path makes its earlier handles live again. A load that fails restores the registries to what they were, and the live config does not change. Direct access to a stale handle's `handlers` or `effects` dict is not checked: both are the process-wide dicts until per-config registries come (#178).
 
 Registration is the only list a new effect joins. There is no apply chain, export list, nested-field table or consequence table to keep in step with it.
 
@@ -141,15 +143,15 @@ Effects are also the replay event vocabulary. Every state change is pure data an
 
 ## Commit pipeline
 
-Effects produced during a handler action are buffered, validated, and then committed atomically as events. The pipeline is:
+Effects produced during a handler action are buffered and then committed atomically, in order. The pipeline is:
 
 1. handler calls `ctx.apply(effect)`;
 2. action-local buffer records the effect;
-3. driver validates the effect against state and schema;
+3. the effect's own `apply` refuses what it cannot do (an out-of-range target, an unknown stat); the value maps are checked against the state schema only when a save is written (see Save/replay);
 4. cancellation or failure discards the buffer;
-5. successful action commits buffered effects as ordered events;
+5. successful action commits the buffered effects in order;
 6. each effect's `apply` builds the new `GameState` (pure; the input state is never mutated);
-7. committed events are available for replay/logging.
+7. the committed effects are returned in order on the result, for logging and for `replay`.
 
 This keeps cancelable prompts atomic and makes tests assert both emitted interactions and committed events.
 
@@ -172,25 +174,26 @@ Handlers remain deterministic functions of `(ctx.state, ctx.rng, Responses)`.
 
 The original returns to the menu on `0` input at multiple prompt sites and aborts some combat-step choices. The protocol must support “abort this action cleanly, commit no partial effects, return to menu.”
 
-The chosen design is **exception-driven cancellation**: the driver throws a `Cancelled` exception into the generator and discards the action-local effect buffer. Handlers may use `finally` for local cleanup, but do not manually check cancel sentinels after every prompt. Cancellation is atomic at the action boundary.
+The chosen design is **exception-driven cancellation**: the driver throws a `Cancelled` exception into the generator and discards the action-local effect buffer. Handlers may use `finally` for local cleanup, but do not manually check cancel sentinels after every prompt. Cancellation is atomic at the action boundary for state: a cancelled action commits no effect. It does not rewind the RNG: the draws the action consumed before the cancel stay in the log, and the next draw follows them.
+
+An input source that runs dry is not a cancel. `run()` raises `InputExhausted` and commits nothing.
 
 ## Save/replay at interaction boundaries
 
-The original has no save game; this engine adds one. Replay is defined as:
+The original has no save game; this engine adds one. A save is a checkpoint:
 
 ```text
-initial seed + setup + ordered event log = game
+save = state snapshot + complete RNG draw history (+ seed, config id, content version)
 ```
 
 Rules:
 
-1. All nondeterminism flows through `ctx.rng`.
-2. RNG draws are logged events, so replay does not re-roll.
-3. Events are pure data and applying an event is a pure function.
-4. A snapshot plus remaining event log can restore exact `GameState`.
-5. Saves occur at interaction boundaries, where the active FSM state and suspended handler position are explicit.
+1. All nondeterminism flows through `ctx.rng`, and every draw is logged (`engine/rng.py`).
+2. A save is written only at the turn menu and the map-move prompt. No handler is running there, so no suspended handler is saved or resumed.
+3. A load restores the snapshot and rebuilds the RNG by re-drawing its logged history, so play continues on the same random sequence.
+4. Effects are pure data and applying an effect is a pure function.
 
-The store is append-only JSONL events plus per-turn snapshots. The schema and determinism contract exist from the beginning, even if the physical store is implemented later.
+The store is JSONL: a header holding the snapshot, then effect and RNG records. The terminal writes an empty effect log, because the snapshot is authoritative. `engine.persistence.replay` folds an effect log a caller supplies over the snapshot, and refuses an effect the loaded config does not register; normal play does not save that way. Event-sourced replay of a whole game (`initial seed + setup + ordered effect log = game`) is future work.
 
 Saves and replay need the loaded config, because the engine cannot name what the config declares:
 
@@ -198,8 +201,10 @@ Saves and replay need the loaded config, because the engine cannot name what the
 - A combat recording keeps its `rules=` signature. It holds only combat scenarios and RNG draws, never effects or player state.
 - The save header records the config's id and a config-owned content version. A save loaded under a different config or content version is refused with one line.
 - On load, the state schema fills the declared default for a missing key and refuses an unknown key. So a later change can add a key without a version bump.
+- A save checks the value maps against the state schema before it writes, so a state the load would refuse never becomes a file and an existing save is left as it was. Committing an effect does not check the schema.
+- A save keeps every mapping key's type. A mapping with only string keys is a JSON object; any other is written as a tagged list of key/value pairs. Nothing guesses a key's type on load: `"01"` and `"1"` stay two string keys, and an int key stays an int.
 
-Saves and recordings share one `SCHEMA_VERSION`. The seam takes one bump, from 1 to 2, after the seam lands and before new content. `ENGINE_API` and the config's `engine_api` go to 2 in the same step. A version mismatch on load is a one-line client message, and the legacy field backfill (`LEGACY_FIELD_DEFAULTS`) goes away. Fields added after that bump ride on version 2: no version-2 artifact exists outside the branch before they land. The house-rules map is the exception: a save without it is refused, never default-filled.
+Saves and recordings share one `SCHEMA_VERSION`. The seam takes one bump, from 1 to 2, after the seam lands and before new content. `ENGINE_API` and the config's `engine_api` go to 2 in the same step. A version mismatch on load is a one-line client message, and the legacy field backfill (`LEGACY_FIELD_DEFAULTS`) goes away. Fields added after that bump ride on version 2: no version-2 artifact exists outside the branch before they land. The house-rules map is the exception: a save without it is refused, never default-filled. A second bump, from 2 to 3, marks the save shape that holds the intent arm's exact score and keeps key types; it drops the null-only `pending_action` header field, since nothing resumes a suspended action. `ENGINE_API` stays at 2. A version-2 save is refused like any other version; a recording re-snapshots, as on any mismatch.
 
 ## RNG/determinism
 
@@ -388,6 +393,7 @@ The engine keeps the guard DSL and a registry of variable resolvers. The config 
 | Name | Verdict | Rule |
 |---|---|---|
 | `WeaponInstance.req_int`, `.req_kraft`, `.req_brut` | config data | Per-weapon stat minimums name this game's stats. They become a config-declared requirement map, read by the weapon shop handler. A requirement naming an undeclared stat is refused at config load. |
+| `WeaponInstance.price`, `.ts`, `.tg`, `.ws` | config data | The engine reads none of them: price is the weapon shop's, accuracy and damage reach combat in each fighter's `equipment` mapping, read by the config's combat rules, and the sound index is read nowhere. They are the config's weapon type (`Weapon` in its `setup.py`), validated when the config loads the table. The engine's `WeaponInstance` keeps `name` and `range`, the shot's reach in combat cells. |
 
 ## Layering rules
 
@@ -420,5 +426,5 @@ The engine/config seam is not left to Phase 8. It lands before Phase 4 content, 
 - Interaction-driver tests feed scripted responses and assert interaction sequences and state/events.
 - Vertical-slice integration tests cover a seeded run through location, crime, wanted, arrest, and jail flows.
 - Manual terminal runs confirm complete playable loops.
-- Replay tests re-run logged event and RNG streams and assert identical final state.
+- Save tests round-trip a checkpoint and re-draw its RNG log; replay tests fold a supplied effect log over a snapshot and assert identical final state. Whole-game event-sourced replay tests wait for event-sourced replay.
 - Guard DSL tests verify every menu guard is expressible within the configured DSL limits.

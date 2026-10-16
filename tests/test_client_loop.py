@@ -39,7 +39,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, main, play
+from clients.terminal import CLEAR, CONFIG_DIR, PlayOptions, TerminalInput, main, play
 from clients.terminal.palette import ColorSupport, Colors, load_palette
 from engine.c64_numbers import c64_divide, c64_float
 from engine.config_loader import load_game_config
@@ -216,7 +216,7 @@ def run_play(
     monkeypatch.setattr(sys, "stdout", out)
     # KTD-4: supply both setup answers (the pre-U5 hardcoded values) so play() skips
     # the end-year / score-weight prompts and every existing key script stays valid.
-    play(seed=seed, players=players, end_year=1930, score_weight=1.0)
+    play(PlayOptions(seed=seed, players=players, end_year=1930, score_weight=1.0))
     return out.getvalue()
 
 
@@ -882,19 +882,39 @@ class TestSessionRngDeterminism:
     script against the identical seed must reproduce the identical transcript,
     including every resolved RNG-dependent outcome (sph payout, waf stat gains)."""
 
-    def test_waf_train_camp_same_seed_twice(self, monkeypatch):
+    def test_waf_train_camp_same_seed_twice(self, monkeypatch, tmp_path):
         """Exercises the camp path (3 rng.hit draws) specifically, since it is the
-        richest rng consumer in-slice — determinism here is the strongest signal."""
-        city_raw = load_city_raw()
-        city = load_city(city_raw)
-        state = new_state(42)
-        cell = find_door_cell(city_raw, "waf", ln=2)
-        walk = walk_keys_to_cell(state, city, cell)
-        keys = walk + ["", "2", "1", "y"]  # train (option 2)
+        richest rng consumer in-slice — determinism here is the strongest signal.
 
-        out1 = run_play(monkeypatch, seed=42, stdin_keys=keys)
-        out2 = run_play(monkeypatch, seed=42, stdin_keys=keys)
+        The camp is offered from rank 5 (``:13103 ifra(sp)<5goto13110``), so the boss is
+        set at rank 5 and resumed on the map. The camp costs ``2500+500*ra(sp)``
+        (``:13150``) and raises intelligenz, brutalitaet and kraft by one ``fnr(0)``
+        draw each (``:13170-13172``), 8 to 15: ``:117 deffnr(x)=int(rnd(1)*8)+8``.
+        """
+        from dataclasses import replace
+
+        city = load_city(load_city_raw())
+        cell = find_door_cell(load_city_raw(), "waf", ln=2)
+        step = walk_keys_to_cell(new_state(42), city, cell)[-1]
+        # The boss starts one step from the door, so no roadblock (drawn per step at
+        # rank 5) stands between him and the camp.
+        boss = replace(new_state(42).players[0], rank=5, po=cell - _MOVE_KEYS[step])
+        state = replace(new_state(42), players=(boss,))
+        # splash ack, train (option 2), the boss, (t)rainingscamp, confirm, :13175's key
+        keys = [step, "", "2", "1", "t", "y", "x", "q"]
+
+        out1, (state1, rng1) = _resume_at(monkeypatch, tmp_path, state, "walking", keys)
+        out2, (state2, _) = _resume_at(monkeypatch, tmp_path, state, "walking", keys)
         assert out1 == out2
+        assert state1 == state2
+
+        assert "ist im trainingscamp" in out1 and "da ist er wieder!" in out1
+        before, after = boss.roster[0], state1.players[0].roster[0]
+        assert state1.players[0].ka == boss.ka - (2500 + 500 * 5)
+        draws = [value for method, args, value in rng1.log if (method, args) == ("hit", (8, 15))]
+        gains = [after.attrs[s] - before.attrs[s] for s in ("intelligenz", "brutalitaet", "kraft")]
+        assert len(draws) == 3, f"the camp drew fnr(0) {len(draws)} times, not 3"
+        assert gains == draws, "each stat did not rise by its own fnr(0) draw, in order"
 
 
 # --------------------------------------------------------------------------- #
@@ -1576,18 +1596,58 @@ class TestWholeSessionDeterminism:
     """
 
     def _script(self, seed, players):
-        """A multi-turn walk: player 0 walks into the pub and trades, then both
-        players' turns roll over (upkeep runs for each rotation)."""
+        """A multi-turn, two-player walk into the ``ln=4`` pub, where player 0 buys a barrel.
+
+        The ``ln=4`` door is farther than one turn's movement points, so player 0's walk
+        crosses a round: his turn ends on the map (turn-over ack), player 1's turn is
+        spent at the menu (upkeep ack, ``4`` -- ``:1031 ifx=4goto1010`` -- and its
+        turn-over ack), the wrap shows the standings, and player 0 walks on from where
+        he stopped. Each rotation runs upkeep, so every RNG consumer in the session
+        draws from the one Rng in a fixed order.
+        """
+        from engine.movement import try_move
+
         city_raw = load_city_raw()
         city = load_city(city_raw)
         load_game_config(_CONFIG_DIR)  # registers the turn hooks
         state = new_state(seed, players=players)
         cell = find_door_cell(city_raw, "pub", ln=4)
-        walk = walk_keys_across_turns(state, city, cell)
+        keys: list[str] = []
+        result = None
+        for key in walk_keys_to_cell(state, city, cell):
+            result = try_move(state, city, _MOVE_KEYS[key])
+            state = result.state
+            keys.append(key)
+            if getattr(result.payload, "turn_over", False):
+                keys.append("x")  # player 0's turn-over
+                state, _ = next_turn_by_hand(state)
+                assert state.clock.active_player == 1
+                keys += ["x", "4", "x"]  # player 1: upkeep, menu "next player", turn-over
+                state, _ = next_turn_by_hand(state)
+                assert state.clock.active_player == 0
+                keys += ["x", "x", MENU_WALK_KEY]  # standings, upkeep, menu: walk
+        assert result is not None and result.payload.kind == "enter"
+        entered = (result.payload.la, result.payload.ln, state.clock.active_player)
+        assert entered == (2, 4, 0), "player 0 did not walk into the ln=4 pub (la=2)"
         # splash ack, drink (option 1), buy 1 barrel -- then walk the rest of the turn
         # out so the rotation to player 1 (and its upkeep screen) is part of the
         # transcript.
-        return walk + ["", "1", "1"] + ["w"] * 12 + ["x", "x"] + ["s"] * 3
+        return keys + ["", "1", "1"] + ["w"] * 12 + ["x", "x"] + ["s"] * 3
+
+    def test_the_script_buys_a_barrel_in_the_ln4_pub(self, monkeypatch):
+        """The walk the determinism tests replay really reaches the ``ln=4`` pub, which
+        sells (``:12010 ifln=4orln=5goto12020``), and buys one barrel there
+        (``:12035 ta(sp)=ta(sp)+y``) -- otherwise byte equality would hold over a
+        session that never traded."""
+        players = [("alcapone", "the outfit"), ("moran", "north side")]
+        keys = self._script(11, players)
+        out, (state, _rng) = run_play_returning(
+            monkeypatch, seed=11, stdin_keys=keys, players=players
+        )
+        boss = state.players[0]
+        assert boss.last_location == 4
+        assert game.contraband(boss).alcohol_barrels == 1
+        assert "faesser fuer" in out
 
     def test_same_seed_and_script_reproduce_the_session_byte_for_byte(self, monkeypatch):
         players = [("alcapone", "the outfit"), ("moran", "north side")]
@@ -2006,7 +2066,7 @@ def run_play_returning(
     monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys, players=len(players)))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
-        ret = play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
+        ret = play(PlayOptions(seed=seed, players=players, end_year=end_year, score_weight=1.0))
     return out.getvalue(), ret
 
 
@@ -2150,7 +2210,7 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
-        ret = play(**play_kwargs)
+        ret = play(PlayOptions(**play_kwargs))
     return out.getvalue(), ret
 
 
@@ -2286,6 +2346,20 @@ class TestSaveAndLoad:
         assert combat == json_safe(CombatState())
         assert combat["sides"] == [[], []] and combat["dir_memory"] == {}
 
+    def test_a_refused_save_is_a_note_and_play_goes_on(self, monkeypatch, tmp_path):
+        """A save the engine refuses (here, a state its schema does not allow) shows
+        ``session.save_failed`` and the map asks again; the game does not end."""
+        from engine.state import StateSchemaError
+
+        def refuse(*args, **kwargs):
+            raise StateSchemaError("players[0].rank: not a declared value")
+
+        monkeypatch.setattr("clients.terminal.session.save_game", refuse)
+        save = tmp_path / "s.jsonl"
+        out, _ = _run_session(monkeypatch, _new_game_lines(["p", "q"]), save=str(save), **self._NEW)
+        assert "speichern fehlgeschlagen: players[0].rank: not a declared value" in out
+        assert not save.exists()
+
     def test_second_save_overwrites_with_the_later_position(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
 
@@ -2309,7 +2383,7 @@ class TestSaveAndLoad:
         monkeypatch.setattr(sys, "stdin", stdin)
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(60, "play() did not return", exc_type=_Deadline):
-            play(save=str(save), **self._NEW)
+            play(PlayOptions(save=str(save), **self._NEW))
 
         # One read per line: title, house rules, eigenschaften, upkeep, walk, k1, p, k2,
         # p, q. The file read before k2 holds the first save; the one read before q
@@ -2555,6 +2629,8 @@ class TestTurnPhases:
         from data.game_configs.mafia_1920s.setup import score_and_rank
         from engine.effects import commit
 
+        from tests.helpers import with_exact_score
+
         state = new_state(42, [("alcapone", "the outfit"), ("moran", "north side")])
         state = replace(
             state,
@@ -2569,6 +2645,8 @@ class TestTurnPhases:
         awards = [score_and_rank(3, params)] * 12 + [
             replace(score_and_rank(9, params), player=1)
         ] * 4
+        if setting == "intent":
+            state = with_exact_score(state, "0.7")
         state = commit(state, awards).state
         if setting == "faithful":
             assert state.players[0].gf != state.players[1].gf, "no float drift: vacuous"
@@ -2663,7 +2741,6 @@ class TestWhoseTurnLine:
     def _play_with_upkeep_asking(self, monkeypatch, player):
         import clients.terminal.session as session_module
         from engine.interactions import PromptInt
-        from engine.locations import HANDLERS
         from engine.upkeep import UPKEEP_HANDLER_KEY
 
         def asking_upkeep(ctx):
@@ -2674,7 +2751,7 @@ class TestWhoseTurnLine:
 
         def load_then_swap(config_dir):
             cfg = real_load(config_dir)
-            monkeypatch.setitem(HANDLERS, UPKEEP_HANDLER_KEY, asking_upkeep)
+            monkeypatch.setitem(cfg.handlers, UPKEEP_HANDLER_KEY, asking_upkeep)
             return cfg
 
         monkeypatch.setattr(session_module, "load_game_config", load_then_swap)

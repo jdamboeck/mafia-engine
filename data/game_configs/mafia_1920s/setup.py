@@ -25,14 +25,14 @@ handler imports ``fnm`` from HERE (its own config), not from the engine.
 
 from __future__ import annotations
 
-import math
+import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any, Protocol
 
 import yaml
 
-from engine.c64_numbers import c64_val
 from engine.combat_setup import SIDE2_ANCHOR, build_player_side, placement_positions
 from engine.config_loader import load_config
 from engine.effects import MoneyChange
@@ -45,21 +45,45 @@ from engine.turns import KEY_WAIT_SCREEN
 
 try:
     from .combat_rules import build_rules, enemy_attrs, equipper
-    from .effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
+    from .effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT, DebtClear, ScoreAndRank
     from .gangster import GANGSTER_ATTR_NAMES, Gangster
     from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from .house_rules import load_house_rules, number_prompt, switchable
+    from .house_rules import CATALOGUE, load_house_rules, number_prompt, switchable
+    from .score_weight import (
+        _exact_weight_text,
+        check_score_weight,
+        in_range,
+        parse_score_weight,
+        parse_setup_number,
+        score_weight_accepted,
+        score_weight_text,
+    )
     from .state import SCHEMA
     from .state import gang_name as _gang_name
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from combat_rules import build_rules, enemy_attrs, equipper
-    from effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
+    from effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT, DebtClear, ScoreAndRank
     from gangster import GANGSTER_ATTR_NAMES, Gangster
     from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from house_rules import load_house_rules, number_prompt, switchable
+    from house_rules import CATALOGUE, load_house_rules, number_prompt, switchable
+    from score_weight import (
+        _exact_weight_text,
+        check_score_weight,
+        in_range,
+        parse_score_weight,
+        parse_setup_number,
+        score_weight_accepted,
+        score_weight_text,
+    )
     from state import SCHEMA
     from state import gang_name as _gang_name
-from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
+from engine.types import (
+    ConfigValidationError,
+    WeaponInstance,
+    validate_rank,
+    validate_vehicle,
+    validate_weapon,
+)
 
 __all__ = [
     "new_game",
@@ -78,9 +102,17 @@ __all__ = [
     "load_vehicles",
     "load_ranks",
     "load_weapons",
+    "Weapon",
     "load_gangster_candidates",
     "load_combat_backdrop",
     "weapon_stats_by_id",
+    "CONFIG",
+    "VEHICLES",
+    "RANKS",
+    "WEAPONS",
+    "WEAPON_STATS",
+    "GANGSTER_CANDIDATES",
+    "BACKDROPS",
     "load_encounter",
     "EnemySpec",
     "Encounter",
@@ -140,22 +172,58 @@ def load_ranks(path: str | Path) -> list[str]:
     return ranks
 
 
+class Weapon(WeaponInstance, Protocol):
+    """This config's weapon: the engine's :class:`~engine.types.WeaponInstance`
+    (``name``, ``range``) plus the DATA-table fields only this config reads
+    (``mf-prg.bas:50100-50115``, read at ``:121``).
+
+    ``price`` is the weapon shop's (``handlers/waf.py``), ``ts``/``tg`` accuracy and
+    damage are the combat rules' (``combat_rules.py``, via :func:`weapon_stats_by_id`),
+    ``ws`` is the sound index the table carries. The stat minimums are its
+    ``requires`` map (:func:`_validate_requires`).
+    """
+
+    price: int
+    ts: int
+    tg: int
+    ws: int
+
+
+#: The fields of :class:`Weapon` beyond the engine's, with their types.
+_WEAPON_DATA_FIELDS: dict[str, type] = {"price": int, "ts": int, "tg": int, "ws": int}
+
+
 def load_weapons(path: str | Path) -> list[dict]:
     """Load the weapon table (list of ``{name, price, ts, tg, range, ws, requires}``).
 
     Ports the DATA table (``mf-prg.bas:50100-50115``). Each entry is validated against
-    the engine's :func:`~engine.types.validate_weapon` contract (the fields the engine
-    knows) and against this config's own ``requires`` contract: the per-weapon stat
-    minimums derived from the buy-guard lines (``13050-13060``), a map from a declared
-    gangster stat (:data:`GANGSTER_ATTR_NAMES`) to an int. The engine names no stat, so
-    it cannot check that map; the config does, here. Returned 0-based
-    (``weapons[i]`` == in-game weapon index ``i``, 0..8).
+    the engine's :func:`~engine.types.validate_weapon` contract (``name`` and
+    ``range``, the fields the engine reads), this config's :class:`Weapon` fields and
+    its own ``requires`` contract: the per-weapon stat minimums derived from the
+    buy-guard lines (``13050-13060``), a map from a declared gangster stat
+    (:data:`GANGSTER_ATTR_NAMES`) to an int. The engine names no stat, so it cannot
+    check that map; the config does, here. Returned 0-based (``weapons[i]`` == in-game
+    weapon index ``i``, 0..8).
     """
     weapons = list(_load_yaml(path)["weapons"])
     for i, w in enumerate(weapons):
         validate_weapon(w, index=i)
+        _validate_weapon_data(w, index=i)
         _validate_requires(w, index=i)
     return weapons
+
+
+def _validate_weapon_data(entry: Any, index: int) -> None:
+    """Refuse a weapon missing one of :class:`Weapon`'s own fields, or mistyped."""
+    where = f"weapon[{index}]"
+    for field_name, field_type in _WEAPON_DATA_FIELDS.items():
+        if field_name not in entry:
+            raise ConfigValidationError(f"{where} missing required field {field_name!r}")
+        if type(entry[field_name]) is not field_type:
+            raise ConfigValidationError(
+                f"{where} field {field_name!r} must be {field_type.__name__}, "
+                f"got {type(entry[field_name]).__name__}"
+            )
 
 
 def _validate_requires(entry: dict, index: int) -> None:
@@ -218,8 +286,38 @@ def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int, int]]:
     them: the engine holds no weapon taxonomy of its own, so a weapon's reach — and
     with it whether the AI treats it as melee — has to arrive from the config.
     """
-    weapons = load_weapons(path)
+    return _weapon_stats(load_weapons(path))
+
+
+def _weapon_stats(weapons: Sequence[Mapping]) -> dict[int, tuple[int, int, int]]:
     return {i: (w["ts"], w["tg"], w["range"]) for i, w in enumerate(weapons)}
+
+
+# --- this config's content, read once per load -----------------------------
+#
+# The package executes again on every ``load_game_config``, so these are read once per
+# load: an edit to a content file reaches a game through a new load, and a malformed
+# file is refused at load. The handlers read these, never the files. The ``load_*``
+# functions above stay for an explicit other path (a copy of the config).
+
+#: This config's ``config.yaml``.
+CONFIG = load_config(_DEFAULT_CONFIG)
+_VEHICLES_PATH = (_CONFIG_DIR / CONFIG["entities"]["vehicles"]).resolve()
+#: The vehicle table (:func:`load_vehicles`).
+VEHICLES = load_vehicles(_VEHICLES_PATH)
+#: The rank names (:func:`load_ranks`).
+RANKS = load_ranks(_CONFIG_DIR / CONFIG["entities"]["ranks"])
+#: The weapon table (:func:`load_weapons`).
+WEAPONS = load_weapons(_CONFIG_DIR / CONFIG["entities"]["weapons"])
+#: The weapon id -> ``(ts, tg, range)`` table (:func:`weapon_stats_by_id`).
+WEAPON_STATS = _weapon_stats(WEAPONS)
+#: The recruit candidates (:func:`load_gangster_candidates`).
+GANGSTER_CANDIDATES = load_gangster_candidates(_CONFIG_DIR / "entities" / "gangsters.yaml")
+#: Every combat backdrop under ``content/combat`` by its name (``kf$``), e.g. ``"ks"``.
+BACKDROPS = {
+    path.stem: load_combat_backdrop(path)
+    for path in sorted((_CONFIG_DIR / "content" / "combat").glob("*.yaml"))
+}
 
 
 # --- encounter declarations -------------------------------------------------
@@ -495,10 +593,8 @@ def run_encounter(
         active.roster if roster is None else roster,
         build_rules(ctx.state.config.house_rules),
         enemy_attrs=enemy_attrs(params),
-        grid=load_combat_backdrop(
-            _CONFIG_DIR / "content" / "combat" / f"{grid or encounter.grid}.yaml"
-        ),
-        equip=equipper(weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")),
+        grid=BACKDROPS[grid or encounter.grid],
+        equip=equipper(WEAPON_STATS),
         # Side 1's gang is its owner's: its energy is written back to them.
         owner=ctx.state.clock.active_player if owner is None else owner,
     )
@@ -551,8 +647,7 @@ def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
     The outcome screen (``:30500-30515``) names the gangs, ``bn$(ks(i))``.
     """
     players = ctx.state.players
-    weapons_path = _CONFIG_DIR / "entities" / "weapons.yaml"
-    equip = equipper(weapon_stats_by_id(weapons_path))
+    equip = equipper(WEAPON_STATS)
     defending = players[defender].roster
     attacking = players[attacker].roster
     side1 = build_player_side(defending, owner=defender)
@@ -570,7 +665,7 @@ def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
     )
     scenario = Scenario(
         sides=sides,
-        grid=load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{grid}.yaml"),
+        grid=BACKDROPS[grid],
         rules=build_rules(ctx.state.config.house_rules),
         # :30020 seeds the direction memory for a CPU side only (ks(2)=0): none here.
         dir_memory={},
@@ -669,7 +764,7 @@ def pick_gangster(ctx, *, cancellable: bool):
     roster = ctx.state.players[ctx.state.clock.active_player].roster
     if not roster:  # :1130
         return None
-    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
+    weapons = WEAPONS
     for number, member in enumerate(roster, start=1):  # :1135-1140
         yield ShowMessage(
             "turn.picker.gangster", {"index": number, **gangster_line(member, weapons)}
@@ -784,8 +879,14 @@ INTELLIGENCE_OR_30 = "intelligence_or_30"
 
 
 def _house_rules_map(cfg_dir: Path, choices: Mapping[str, str]) -> dict[str, str]:
-    """Every switch of the catalogue in ``cfg_dir`` at faithful, then ``choices``."""
-    rules = switchable(load_house_rules(cfg_dir / HOUSE_RULES_FILE))
+    """Every switch of the catalogue in ``cfg_dir`` at faithful, then ``choices``.
+
+    This config's own directory takes the catalogue read at import; another reads its file.
+    """
+    catalogue = (
+        CATALOGUE if cfg_dir == _CONFIG_DIR else load_house_rules(cfg_dir / HOUSE_RULES_FILE)
+    )
+    rules = switchable(catalogue)
     chosen = {rule.id: FAITHFUL for rule in rules}
     for rule_id, setting in choices.items():
         if rule_id not in chosen:
@@ -799,96 +900,11 @@ def _house_rules_map(cfg_dir: Path, choices: Mapping[str, str]) -> dict[str, str
     return chosen
 
 
-def parse_setup_number(text: str, *, integer: bool) -> float | None:
-    """Parse one numeric setup answer; ``None`` for non-numeric input (asked again).
-
-    The end year is ``int(val(x$))`` in the source (mf-prg.bas:170) -- truncated to an
-    integer; the score weight is ``val(x$)`` (:175), a decimal such as ``0.5``, and so
-    is the player count (:205 ``sz=val(x$)``). Only a finite number is a number here.
-    """
-    try:
-        value = float(text.strip())
-    except ValueError:
-        return None
-    if not math.isfinite(value):
-        return None
-    return int(value) if integer else value
-
-
-def in_range(value: float, bounds: Mapping[str, float]) -> bool:
-    """``bounds`` is one ``input_ranges`` entry (``{min, max}``) from config.yaml."""
-    return bounds["min"] <= value <= bounds["max"]
-
-
 def check_end_year(end_year: int, ranges: Mapping) -> None:
     """Refuse an ``x9`` end year outside ``input_ranges.end_year`` (:172)."""
     yr = ranges["end_year"]
     if not in_range(end_year, yr):
         raise ValueError(f"end_year must be in [{yr['min']}, {yr['max']}], got {end_year}")
-
-
-def score_weight_text(weight: float | str) -> str:
-    """The text an ``x8`` score weight is parsed from.
-
-    Typed text is kept as typed, without the spaces around it (C64 ``INPUT`` drops
-    them); a number -- the keyword :func:`new_game`'s ``score_weight=0.1`` -- becomes its
-    shortest text (``repr``), so it reaches the weight typing that text reaches.
-    """
-    if isinstance(weight, str):
-        return weight.strip()
-    if isinstance(weight, bool) or not isinstance(weight, (int, float)):
-        raise TypeError(f"score_weight must be a number or its text, got {weight!r}")
-    return repr(weight)
-
-
-def parse_score_weight(text: str, *, c64: bool) -> float | None:
-    """``:175`` ``x8=val(x$)`` for a clean number; ``None`` for other text (asked again).
-
-    The clean-number check is :func:`parse_setup_number`'s. With ``c64`` the value is
-    the one the C64's decimal parser gives the text
-    (:func:`~engine.c64_numbers.c64_val`: ``0.01`` lies a unit above ``1/100``),
-    else Python's ``float``. Text the C64 parser does not read as a whole number --
-    ``val("1.5x")`` is 1.5 on the C64 -- is no number under either reading.
-    """
-    value = parse_setup_number(text, integer=False)
-    if value is None or not c64:
-        return value
-    try:
-        return c64_val(text)
-    except ValueError:
-        return None
-
-
-def _score_weight_in_range(value: float, bounds: Mapping[str, float], *, c64: bool) -> bool:
-    """``:176`` ``ifx8<0.1orx8>2goto175``: on the C64 the bounds are parsed literals."""
-    if not c64:
-        return in_range(value, bounds)
-    low, high = (c64_val(repr(float(bounds[end]))) for end in ("min", "max"))
-    return low <= value <= high
-
-
-def score_weight_accepted(weight: float | str, ranges: Mapping) -> bool:
-    """Whether setup takes ``weight`` as the ``x8`` score weight (``:175-176``).
-
-    Setup asks the weight before the house rules, so it cannot know yet whether the
-    C64's parser or ``float`` will read it (:data:`..effects.C64_FLOAT_SCORE`): the
-    weight must be a clean number inside ``input_ranges.score_weight`` under both.
-    """
-    text = score_weight_text(weight)
-    for c64 in (True, False):
-        value = parse_score_weight(text, c64=c64)
-        if value is None or not _score_weight_in_range(value, ranges["score_weight"], c64=c64):
-            return False
-    return True
-
-
-def check_score_weight(score_weight: float | str, ranges: Mapping) -> None:
-    """Refuse an ``x8`` score weight setup would ask again for (:176)."""
-    if not score_weight_accepted(score_weight, ranges):
-        sw = ranges["score_weight"]
-        raise ValueError(
-            f"score_weight must be a number in [{sw['min']}, {sw['max']}], got {score_weight!r}"
-        )
 
 
 def name_fits(name: str, ranges: Mapping) -> bool:
@@ -1005,9 +1021,13 @@ def new_game(
         another setting, raises ``ValueError``. The full map lands on
         ``state.config.house_rules``.
     config_path:
-        Which ``config.yaml`` to assemble from.
+        Which ``config.yaml`` to assemble from. This config's own (the default) is the
+        one read at import; another path is read now, with the files beside it.
     """
-    cfg = load_config(config_path)
+    if Path(config_path).resolve() == _DEFAULT_CONFIG:
+        cfg = copy.deepcopy(CONFIG)
+    else:
+        cfg = load_config(config_path)
     cfg_dir = Path(config_path).resolve().parent
     setup = cfg["setup"]
     if record is None:
@@ -1039,16 +1059,16 @@ def _build_state(record: SetupRecord, cfg: Mapping, cfg_dir: Path) -> GameState:
     check_players([(p.name, p.gang_name) for p in record.players], ranges)
     chosen_rules = _house_rules_map(cfg_dir, record.house_rules)
     # :175 x8=val(x$): the C64 parser's value (faithful c64_float_score) or float's.
-    score_weight = parse_score_weight(
-        score_weight_text(record.score_weight), c64=chosen_rules.get(C64_FLOAT_SCORE) != INTENT
-    )
+    weight_text = score_weight_text(record.score_weight)
+    score_weight = parse_score_weight(weight_text, c64=chosen_rules.get(C64_FLOAT_SCORE) != INTENT)
     if score_weight is None:  # unreachable: check_score_weight took it under both readings
         raise ValueError(f"score_weight is no number: {record.score_weight!r}")
     # House rule intelligence_or_30: faithful stores the roll OR 30, intent the roll.
     intelligence_as_rolled = chosen_rules.get(INTELLIGENCE_OR_30) == INTENT
 
     # --- entity tables -----------------------------------------------------
-    vehicles = load_vehicles(cfg_dir / cfg["entities"]["vehicles"])
+    vehicles_path = (cfg_dir / cfg["entities"]["vehicles"]).resolve()
+    vehicles = VEHICLES if vehicles_path == _VEHICLES_PATH else load_vehicles(vehicles_path)
     start_vehicle = setup["start_vehicle"]
     start_ms = vehicles[start_vehicle]["tr"]  # ms = tr(vehicle); on foot tr(0)=25
 
@@ -1092,8 +1112,13 @@ def _build_state(record: SetupRecord, cfg: Mapping, cfg_dir: Path) -> GameState:
     )
     config = Config(
         # Passed as plain YAML dicts: Config deep-freezes them on construction. The
-        # x8 score weight is a setup input, so it joins the static params here.
-        formula_params={**cfg["formula_params"], "score_mult": score_weight},
+        # x8 score weight is a setup input, so it joins the static params here: its
+        # value, and its text for the c64_float_score house rule's exact intent arm.
+        formula_params={
+            **cfg["formula_params"],
+            "score_mult": score_weight,
+            SCORE_WEIGHT_TEXT: _exact_weight_text(weight_text),
+        },
         house_rules=chosen_rules,
     )
 

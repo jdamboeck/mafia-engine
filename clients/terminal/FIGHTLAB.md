@@ -208,11 +208,13 @@ declaration, and edit the `player` list.
 ## Making a recording file
 
 By design, `play` writes nothing to disk — that is the "no save UI" boundary — and no
-recording ships with the repo: recordings are **run artifacts, not versioned game
-content**, so `recordings/` is gitignored. A recording also stores the house-rules map
-its fight ran under, and `watch` refuses one without it ("the recording stores no
-house-rules map"), so a file recorded before the house rules existed must be recorded
-again.
+recording ships with the repo: recordings are **local run artifacts, not versioned game
+content**, so `recordings/` is gitignored and never committed. A recording is only as
+current as the recording schema it was written under: **after a change to that schema,
+record it again** — an old file is not migrated. A recording stores the house-rules map
+its fight ran under, for example, and `watch` refuses one without it ("the recording
+stores no house-rules map"), so a file recorded before the house rules existed must be
+recorded again.
 
 To record the shipped scenario (both sides AI, its seed 42), run from the repo root:
 

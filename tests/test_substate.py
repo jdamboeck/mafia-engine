@@ -18,13 +18,15 @@ import pytest
 
 from engine.interactions import (
     CANCEL,
+    InputExhausted,
     LoadSubState,
     PromptInt,
     ShowMessage,
     StartCombat,
     run,
 )
-from engine.state import Fighter
+from engine.effects import MoneyChange
+from engine.state import Clock, Fighter, GameState, Player
 from engine.substates import SUBSTATES, register_substate
 from tests.helpers import scripted
 
@@ -62,8 +64,30 @@ def test_substate_return_value_threads_into_parent():
     assert received["got"] == 7
 
 
+def test_substate_that_returns_before_its_first_yield_hands_its_value_to_the_parent():
+    # A child that finishes without asking anything is still a generator (the
+    # ``yield from ()`` makes it one); priming it ends it at once, and its return
+    # value is what the parent receives -- not an escaping StopIteration.
+    @register_substate("returns_at_once")
+    def _returns_at_once(ctx, params):
+        yield from ()
+        return 42
+
+    received = {}
+
+    def parent(ctx):
+        received["got"] = yield LoadSubState("returns_at_once", {})
+        yield ShowMessage("spec.after")
+        return []
+
+    result = run(parent, scripted(), state=None)
+
+    assert result.status == "completed"
+    assert received["got"] == 42
+
+
 # --------------------------------------------------------------------------- #
-# Scenario 2 — sub-state effects buffer into the parent's committed effects    #
+# Scenario 2— sub-state effects buffer into the parent's committed effects    #
 # --------------------------------------------------------------------------- #
 def test_substate_effects_merge_into_parent_action():
     @register_substate("buffers_effect")
@@ -219,3 +243,30 @@ def test_startcombat_inside_a_substate_is_asserted_out():
             run(parent, lambda interaction: CANCEL, state=None)
     finally:
         SUBSTATES.pop("u5_combat_in_substate", None)
+
+
+# --------------------------------------------------------------------------- #
+# An input source that runs dry inside a sub-state raises; nothing commits     #
+# --------------------------------------------------------------------------- #
+def test_input_that_runs_dry_inside_a_substate_raises_and_commits_nothing():
+    """The parent's and the child's buffered effects both stay uncommitted."""
+
+    @register_substate("asks_after_buffering")
+    def _asks(ctx, params):
+        ctx.apply(MoneyChange(50))
+        n = yield PromptInt("how_many", min=1, max=5)
+        return n
+
+    def parent(ctx):
+        ctx.apply(MoneyChange(100))
+        n = yield LoadSubState("asks_after_buffering", {})
+        ctx.apply(MoneyChange(n))
+        return []
+
+    st = GameState(players=(Player(ka=5000),), clock=Clock(active_player=0, player_count=1))
+    answers = iter(())
+    returned = None
+    with pytest.raises(InputExhausted):
+        returned = run(parent, lambda interaction: next(answers), state=st)
+    assert returned is None
+    assert st.players[0].ka == 5000

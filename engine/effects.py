@@ -47,7 +47,7 @@ from engine.state import Combatant, Fighter, GameState, tuple_replace
 #: effect references this module-level constant via its class-level ``SCHEMA_VERSION``
 #: attribute. A save of another version is refused on load
 #: (:class:`engine.persistence.SchemaVersionError`); nothing upgrades an old record.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 #: The ``attrs`` keys a :class:`StatChange` may target: the loaded config's declared
 #: stat names. The engine names none; the config fills this with

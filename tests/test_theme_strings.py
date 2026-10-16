@@ -134,14 +134,6 @@ _LOCATION_TITLES = {
     "ble": "BLUETEN-EDDIE",
 }
 
-_LOCATION_DIALOGUE = (
-    Path(__file__).resolve().parents[2]
-    / "research"
-    / "research-data"
-    / "pass-2"
-    / "location-dialogue.yaml"
-)
-
 
 def test_every_location_title_resolves_from_the_theme():
     """``locations.<key>.title`` for each of the twelve locations, as :3025 prints it."""
@@ -155,10 +147,8 @@ def test_every_location_title_resolves_from_the_theme():
 
 def test_the_location_titles_are_the_research_titles():
     """The table above is the research's, title by title, for every location it has."""
-    import pytest
+    from tests.helpers import LOCATION_DIALOGUE, read_research
 
-    if not _LOCATION_DIALOGUE.exists():
-        pytest.skip(f"this test needs the research tree: {_LOCATION_DIALOGUE} is not present")
-    data = yaml.safe_load(_LOCATION_DIALOGUE.read_text(encoding="utf-8"))
+    data = yaml.safe_load(read_research(LOCATION_DIALOGUE))
     research = {loc["key"]: loc["title"] for loc in data["location_dialogue"]["locations"]}
     assert research == _LOCATION_TITLES

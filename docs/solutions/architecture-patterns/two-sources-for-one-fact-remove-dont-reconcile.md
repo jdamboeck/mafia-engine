@@ -109,6 +109,17 @@ contract, or two representations that legitimately diverge (a display string vs.
 its source datum), are not "two sources for one fact." The test is whether the two
 are *supposed* to always be equal — if they are, one of them should not exist.
 
+A second instance, from the score under the `c64_float_score` house rule's intent
+arm (KTD-9 of the engine contracts plan): the exact decimal score was rebuilt from
+`Player.gf` at every award (`:1160` `gf(sp)=gf(sp)+(x*x8)`), so each step went
+through a float and two awards of 4 and 2 at weight `0.3333333333333333` did not
+equal one award of 6. Keeping a decimal *beside* `gf` would have been two values that
+must agree. Instead the exact score is the one source under intent (the declared
+value `exact_score`, written only by `set_exact_score` in the config's `state.py`),
+and `gf` is derived from it at every write; tested by
+`test_intent_split_awards_score_and_rank_as_one_award` and
+`test_intent_gf_is_the_float_of_the_exact_score_after_every_write`.
+
 ## Examples
 
 **Before** — id handle + external table, reconciled by convention:

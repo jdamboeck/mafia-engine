@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 import data.game_configs.mafia_1920s.state as game
-from clients.terminal import CLEAR, CONFIG_DIR, play
+from clients.terminal import CLEAR, CONFIG_DIR, PlayOptions, play
 from data.game_configs.mafia_1920s.handlers.turn import truncated_score
 from data.game_configs.mafia_1920s.state import Job
 from engine.c64_numbers import c64_float
@@ -445,7 +445,7 @@ def _play(monkeypatch, stdin, **kw) -> str:
     monkeypatch.setattr(sys, "stdin", stdin)
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(30, "play() did not return"):
-        play(**kw)
+        play(PlayOptions(**kw))
     return out.getvalue()
 
 

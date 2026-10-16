@@ -51,7 +51,7 @@ not a terminal every roll stops on its first frame. The setup prompts read one l
 each too, unless their answer is passed to `play()`: the end year and the score
 weight (`end_year`/`score_weight`) come between the title and the house-rules
 offer, and the player count and each player's name and gang name come after the
-offer unless `players` is passed (`play(players=None)` asks them; it no longer means
+offer unless `players` is passed (`play(PlayOptions(players=None))` asks them; it no longer means
 a solo "alcapone"). Every later turn change adds one more upkeep ack and one more
 turn-menu key. A scripted stdin whose first line is the first movement key is
 therefore off — the acks eat it, every later key shifts, and the walk lands on the
@@ -160,7 +160,7 @@ keys = self._walk_to_turn_over() + ["q"]        # walk, then the key under test
 out = io.StringIO()
 monkeypatch.setattr(sys, "stdin", make_walk_script(keys))   # prepends the acks and the walk
 monkeypatch.setattr(sys, "stdout", out)
-state, _rng = play(seed=42, end_year=1930, score_weight=1.0, players=SOLO)
+state, _rng = play(PlayOptions(seed=42, end_year=1930, score_weight=1.0, players=SOLO))
 output = out.getvalue()
 assert "turn_over" in output, "the walk never reached the turn-over screen"
 assert (state.clock.year, state.clock.month) == (1925, 0)   # no next turn began

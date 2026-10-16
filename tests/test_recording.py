@@ -308,6 +308,30 @@ def test_shape_drift_discards_snapshots_rebuilds_and_matches_every_state(
     assert replay(loaded).diverged is False
 
 
+def test_a_schema_2_recording_re_snapshots_and_replays_without_divergence(
+    ambush_recording, tmp_path
+):
+    """A recording written before the schema-3 bump (snapshots and file stamped 2) is
+    rebuilt at the current version on load and replays clean against the live rules."""
+    _, recording = ambush_recording
+    assert SCHEMA_VERSION == 3
+    path = tmp_path / "schema2.json"
+    save(recording, path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["schema_version"] = 2
+    for event in raw["events"]:
+        if event.get("snapshot") is not None:
+            event["snapshot_shape_version"] = 2
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load(path, rules=build_rules({}))
+
+    stamped = [e.snapshot_shape_version for e in loaded.events if e.snapshot is not None]
+    assert stamped and set(stamped) == {SCHEMA_VERSION}
+    assert [e.snapshot for e in loaded.events] == [e.snapshot for e in recording.events]
+    assert replay(loaded, rules=build_rules({})).diverged is False
+
+
 # --------------------------------------------------------------------------- #
 # KTD-14: a fighter's owner — absent from a recording made before owners        #
 # --------------------------------------------------------------------------- #
@@ -619,5 +643,48 @@ def test_a_scripted_input_that_runs_dry_mid_fight_raises_after_an_activation():
             _kdh_ambush_scenario(), {1: HumanDriver(), 2: AiDriver()}, input_source=dry
         )
     assert returned is None
+    assert dry.consumed == full.consumed - 1
+    assert dry.observed >= 1, "at least one AI activation applied before the input ran dry"
+
+
+def test_a_scripted_input_that_runs_dry_mid_fight_raises_out_of_run_and_commits_nothing():
+    """#174 item 1, the run()-level twin of the test above: a handler buffers an effect,
+    then starts the fight; an answer list that runs out mid-fight raises out of ``run``
+    rather than completing the action with the pre-fight effect committed."""
+    from data.game_configs.mafia_1920s.gangster import Gangster
+    from engine.effects import MoneyChange
+    from engine.fight_loop import HumanDriver
+    from engine.interactions import InputExhausted, StartCombat, run
+    from engine.state import Clock, GameState, Player
+
+    def endless_shots():
+        while True:
+            yield ("shoot", +1)
+
+    def handler(ctx):
+        ctx.apply(MoneyChange(100))
+        result = yield StartCombat(
+            scenario=_kdh_ambush_scenario(), drivers={1: HumanDriver(), 2: AiDriver()}
+        )
+        return result.winner
+
+    st = GameState(
+        players=(Player(ka=5000, roster=(Gangster(),)),),
+        clock=Clock(active_player=0, player_count=1),
+    )
+
+    # Calibrate outcome-agnostically: with enough answers the action completes, commits.
+    full = _ScriptedClient(endless_shots())
+    completed = run(handler, full, state=st, rng=Rng(42))
+    assert completed.status == "completed"
+    assert completed.state.players[0].ka == 5100
+    assert full.consumed >= 2, "the fixture must ask the human more than once"
+
+    dry = _ScriptedClient([("shoot", +1)] * (full.consumed - 1))
+    returned = None
+    with pytest.raises(InputExhausted):
+        returned = run(handler, dry, state=st, rng=Rng(42))
+    assert returned is None
+    assert st.players[0].ka == 5000
     assert dry.consumed == full.consumed - 1
     assert dry.observed >= 1, "at least one AI activation applied before the input ran dry"

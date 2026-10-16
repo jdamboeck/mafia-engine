@@ -34,6 +34,7 @@ from clients.terminal.session import (
     _DEFAULT_SEED,
     _DEFAULT_THEME,
     LoadError,
+    PlayOptions,
     play,
 )
 
@@ -188,16 +189,18 @@ def main(argv: list[str] | None = None) -> None:
     # traceback.
     try:
         play(
-            seed=args.seed,
-            players=players,
-            end_year=args.end_year,
-            score_weight=args.score_weight,
-            load=args.load,
-            save=args.save,
-            watch_ai=args.watch_ai,
-            resolver=resolver,
-            palette=palette,
-            reverse=reverse,
+            PlayOptions(
+                seed=args.seed,
+                players=players,
+                end_year=args.end_year,
+                score_weight=args.score_weight,
+                load=args.load,
+                save=args.save,
+                watch_ai=args.watch_ai,
+                resolver=resolver,
+                palette=palette,
+                reverse=reverse,
+            )
         )
     except LoadError as exc:
         _die(str(exc))

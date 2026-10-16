@@ -67,7 +67,7 @@ from engine.interactions import READ_KEY, Confirm, PromptChoice, ShowMessage
 
 from ..effects import Jail, JobClear, TipClear
 from ..house_rules import ANY_NUMBER, intent, number_prompt
-from ..setup import KEY_WAIT, load_encounter, load_vehicles, run_encounter, score_and_rank
+from ..setup import KEY_WAIT, VEHICLES, load_encounter, run_encounter, score_and_rank
 from ..state import wanted
 
 __all__ = [
@@ -232,7 +232,7 @@ def _pay(ctx, run: _Run, price: int):
 
 def _flee(ctx, run: _Run):
     """``:26040-26043``: the flight."""
-    vehicles = load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
+    vehicles = VEHICLES
     if intent(ctx.state, FLIGHT_ODDS_BY_SEAT):
         reach = vehicles[run.player.vehicle]["tr"]  # :1012 ``ms=tr(tm(sp))``
     else:

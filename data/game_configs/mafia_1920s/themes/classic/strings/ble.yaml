@@ -26,4 +26,5 @@ locations:
     # --- counterfeit money (22100-22120) ---
     counterfeit_reluctant: "nng...hoechst ungern! wieviel dollar"   # :22100 `nng...hoechst ungern! wieviel dollar`
     counterfeit_prompt: "willst du anlegen (0-5000)"                # :22105 `willst du anlegen (0-5000)`
+    # :22106 `ifq>5000orq>ka(sp)thenprint"{up}{up}";:goto22105`: too much asks again.
     counterfeit_offer: "ich gebe dir{amount}$ blueten dafuer."     # :22110 `$ blueten dafuer.`

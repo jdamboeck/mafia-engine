@@ -40,6 +40,7 @@ import os
 import select
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -73,7 +74,7 @@ from engine.persistence import (
     save_game,
 )
 from engine.rng import Rng
-from engine.state import GameState
+from engine.state import GameState, StateSchemaError
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
@@ -441,6 +442,10 @@ def _render_location_menu(
         entry_text = resolver.resolve("client.location.entry_fallback", {"location": location_key})
 
     # --- render location screen ---
+    # :3005-3006 ``print"{wht}grafik laden (j/n) ?"`` is never asked: only graphics
+    # mode lm=2 reaches it, and only the F1 toggle (:1032, not ported:
+    # content/menus/turn.yaml) sets that, so lm stays at :127's ``lm=1`` and :3001
+    # ``iflm=0orlm=1goto3007`` goes on to the picture.
     render_screen_clear(out)
     # Location ASCII art splash (if available): the location's picture
     # (:3007 `syslh,lk$(la)+"-pic"`), drawn for the terminal.
@@ -603,32 +608,65 @@ _RUNNER_SCREENS = frozenset({UPKEEP_SCREEN, TURN_OVER_SCREEN, STANDINGS_SCREEN, 
 _IN_PLACE_WAITS = frozenset({_EIGENSCHAFTEN_SCREEN, KEY_WAIT_SCREEN})
 
 
+@dataclass(frozen=True)
+class PlayOptions:
+    """What one :func:`play` session is played with; every field defaults as unset.
+
+    ``seed`` seeds the ONE session :class:`~engine.rng.Rng` (default 42); the setup
+    rolls draw from a separate ``Rng(seed)``. ``players`` is ``[(name, gang_name), ...]``,
+    1..4 hot-seat players; left ``None``, the setup asks the player count and every name
+    (``mf-prg.bas:205-215``). ``end_year`` / ``score_weight`` (x9, x8) left ``None`` are
+    asked after the title screen (``:170-176``). A supplied value skips its prompt; each
+    player's eigenschaften screen is always shown.
+
+    ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
+    player's turn at the menu or on the map, where it was saved (no title, setup or
+    upkeep); the new-game inputs are ignored. ``p`` at the turn menu or on the map saves
+    to ``save``, else the loaded file, else ``mafia-save.jsonl``.
+    ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
+    ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
+    drawn in (default: the ``classic`` theme's); the terminal's colour support is read
+    from ``$COLORTERM``/``$TERM`` once, when the session starts. ``reverse`` is the
+    theme keys drawn in reverse video (default: the ``classic`` theme's
+    ``renderer/reverse.yaml``; an empty set draws every text plain).
+    """
+
+    seed: int | None = None
+    players: list[tuple[str, str]] | None = None
+    end_year: int | None = None
+    score_weight: float | str | None = None
+    load: str | Path | None = None
+    save: str | Path | None = None
+    watch_ai: bool = False
+    resolver: Resolver | None = None
+    palette: Palette | None = None
+    reverse: frozenset[str] | None = None
+
+
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
 
     ``sys.stdin``/``sys.stdout`` are read when the session is built (the session's
     :class:`TerminalInput` keeps that ``stdin``), so a caller replacing them must do so
-    first. ``resolver`` is the theme every screen is worded in, ``palette`` the
-    colours it is drawn in and ``reverse`` the keys it draws in reverse video
-    (default: the config's ``classic`` theme for all three). The
+    first. ``options`` is what it is played with (:class:`PlayOptions`): its
+    ``resolver`` is the theme every screen is worded in, ``palette`` the colours it is
+    drawn in and ``reverse`` the keys it draws in reverse video (default: the
+    config's ``classic`` theme for all three). The
     terminal's colour support is read from the environment once, here, into
     :attr:`colors`: a session never switches colour mode half-way.
     """
 
-    def __init__(
-        self,
-        *,
-        seed: int | None,
-        players: list[tuple[str, str]] | None,
-        end_year: int | None,
-        score_weight: float | str | None,
-        load: str | Path | None,
-        save: str | Path | None,
-        watch_ai: bool,
-        resolver: Resolver | None = None,
-        palette: Palette | None = None,
-        reverse: frozenset[str] | None = None,
-    ) -> None:
+    def __init__(self, options: PlayOptions) -> None:
+        seed = options.seed
+        players = options.players
+        end_year = options.end_year
+        score_weight = options.score_weight
+        load = options.load
+        save = options.save
+        watch_ai = options.watch_ai
+        resolver = options.resolver
+        palette = options.palette
+        reverse = options.reverse
         self.out = sys.stdout
         self.state = None
         self.players = players
@@ -842,6 +880,8 @@ class TerminalSession:
         runner = TurnRunner(
             self.state,
             self.rng,
+            handlers=self.cfg.handlers,
+            registries=self.cfg.registries,
             city=self.cfg.city,
             shells=self.cfg.shells,
             turn_menu=self.cfg.menus.get("turn"),
@@ -965,6 +1005,7 @@ class TerminalSession:
         if screen.key == TURN_OVER_SCREEN:
             return None if self.turn_over() else _QUIT
         if screen.key == STANDINGS_SCREEN:
+            # :4515 ``print:goto1100``: the standings end in a blank row and the key wait.
             header = self.text("client.header.standings")
             if not _render_lines_screen(
                 header, screen.params["lines"], self.resolver, self.colors, self.out
@@ -974,6 +1015,9 @@ class TerminalSession:
             return None
         if screen.key == YEAR_END_SCREEN:
             # :40100 — the year-end result; the game ends after it, whatever the key.
+            # :40165 ``poke198,0:wait198,1`` is this screen's key wait. :40166
+            # ``poke198,0:wait198,1:run`` waits again and restarts the program; the
+            # session ends instead (no second wait, no restart).
             header = self.text("client.header.game_over")
             _render_lines_screen(
                 header, screen.params["lines"], self.resolver, self.colors, self.out
@@ -1058,6 +1102,8 @@ class TerminalSession:
             render_map(self.city, self.city_raw, self.state, out, self.resolver, self.colors)
             out.write(f"{DIM}{self.note}{RESET}\n")
             out.flush()
+            # :2010 ``getx$:ifx$=""goto2010``: one key; a key that is no move asks for
+            # the next (:2029 ``goto2010``).
             key = _read_key()
             if check_resize():
                 self.note = self.text("client.map.resized")
@@ -1081,8 +1127,9 @@ class TerminalSession:
         # A map-turn save -- the snapshot is authoritative, so
         # the effect log is empty; the RNG log lets a load resume the
         # stream mid-way. Overwrites without asking.
-        # A failed save (missing directory, full disk, no permission)
-        # must never end the game: say so and keep playing.
+        # A failed save (missing directory, full disk, no permission) or a save
+        # the engine refuses (a state its schema does not allow) must never end
+        # the game: say so and keep playing.
         assert self.state is not None, "state is set by setup or load before any turn"
         try:
             save_game(
@@ -1093,8 +1140,8 @@ class TerminalSession:
                 rng_log=self.rng.log,
                 seed=self.seed,
             )
-        except OSError as exc:
-            reason = exc.strerror or str(exc)
+        except (OSError, StateSchemaError) as exc:
+            reason = getattr(exc, "strerror", None) or str(exc)
             self.note = self.resolver.resolve("session.save_failed", {"reason": reason})
         else:
             self.note = self.resolver.resolve("session.saved", {"path": self.save_path})
@@ -1127,52 +1174,13 @@ class TerminalSession:
         return True
 
 
-def play(
-    seed: int | None = None,
-    players: list[tuple[str, str]] | None = None,
-    *,
-    end_year: int | None = None,
-    score_weight: float | str | None = None,
-    load: str | Path | None = None,
-    save: str | Path | None = None,
-    watch_ai: bool = False,
-    resolver: Resolver | None = None,
-    palette: Palette | None = None,
-    reverse: frozenset[str] | None = None,
-) -> tuple:
+def play(options: PlayOptions | None = None) -> tuple:
     """Play the default config over real stdin/stdout; return the final ``(state, rng)``.
 
-    ``seed`` seeds the ONE session :class:`~engine.rng.Rng` (default 42); the setup
-    rolls draw from a separate ``Rng(seed)``. ``players`` is ``[(name, gang_name), ...]``,
-    1..4 hot-seat players; left ``None``, the setup asks the player count and every name
-    (``mf-prg.bas:205-215``). ``end_year`` / ``score_weight`` (x9, x8) left ``None`` are
-    asked after the title screen (``:170-176``). A supplied value skips its prompt; each
-    player's eigenschaften screen is always shown.
-
-    ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
-    player's turn at the menu or on the map, where it was saved (no title, setup or
-    upkeep); the new-game inputs are ignored. ``p`` at the turn menu or on the map saves
-    to ``save``, else the loaded file, else ``mafia-save.jsonl``.
-    ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
-    ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
-    drawn in (default: the ``classic`` theme's); the terminal's colour support is read
-    from ``$COLORTERM``/``$TERM`` once, when the session starts. ``reverse`` is the
-    theme keys drawn in reverse video (default: the ``classic`` theme's
-    ``renderer/reverse.yaml``; an empty set draws every text plain).
+    ``options`` is the game's :class:`PlayOptions` (``None``: every field unset -- a
+    new game that asks every setup question, in the ``classic`` theme).
 
     Returns on EVERY exit -- quit, EOF, or the year-end ending. ``state`` is ``None``
     only if the session ends before setup finished.
     """
-    session = TerminalSession(
-        seed=seed,
-        players=players,
-        end_year=end_year,
-        score_weight=score_weight,
-        load=load,
-        save=save,
-        watch_ai=watch_ai,
-        resolver=resolver,
-        palette=palette,
-        reverse=reverse,
-    )
-    return session.run()
+    return TerminalSession(options if options is not None else PlayOptions()).run()
