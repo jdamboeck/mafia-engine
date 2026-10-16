@@ -29,7 +29,7 @@ from dataclasses import replace
 import pytest
 
 import data.game_configs.mafia_1920s.state as game
-from clients.terminal import CLEAR, CONFIG_DIR, play
+from clients.terminal import CLEAR, CONFIG_DIR, PlayOptions, play
 from data.game_configs.mafia_1920s.gangster import Gangster
 from data.game_configs.mafia_1920s.handlers.gang_war import (
     GANG_WAR_SCREEN,
@@ -452,7 +452,7 @@ def test_the_defenders_board_is_announced_and_the_line_survives_the_render(monke
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(30, "play() did not return"):
-        after, _rng = play(load=str(save))
+        after, _rng = play(PlayOptions(load=str(save)))
 
     output = out.getvalue()
     boards = [s for s in output.split(CLEAR) if _is_board(s)]
@@ -594,7 +594,7 @@ def test_the_jailed_players_board_is_announced(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(30, "play() did not return"):
-        after, _rng = play(load=str(save))
+        after, _rng = play(PlayOptions(load=str(save)))
 
     output = out.getvalue()
     boards = [s for s in output.split(CLEAR) if _is_board(s)]

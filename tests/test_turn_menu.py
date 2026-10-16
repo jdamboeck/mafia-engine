@@ -22,7 +22,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import data.game_configs.mafia_1920s.state as game
-from clients.terminal import CLEAR, CONFIG_DIR, play
+from clients.terminal import CLEAR, CONFIG_DIR, PlayOptions, play
 from data.game_configs.mafia_1920s.gangster import Gangster
 from data.game_configs.mafia_1920s.handlers.turn import GANG_SCREEN
 from data.game_configs.mafia_1920s.state import Contraband, Wanted
@@ -230,7 +230,7 @@ def _play_returning(monkeypatch, lines: list[str], **kw):
     monkeypatch.setattr(sys, "stdin", io.StringIO("".join(f"{line}\n" for line in lines)))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(30, "play() did not return"):
-        result = play(**kw)
+        result = play(PlayOptions(**kw))
     return out.getvalue(), result
 
 

@@ -29,6 +29,7 @@ import copy
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any, Protocol
 
 import yaml
 
@@ -76,7 +77,13 @@ except ImportError:  # loaded bare (config dir on sys.path), not as a package
     )
     from state import SCHEMA
     from state import gang_name as _gang_name
-from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
+from engine.types import (
+    ConfigValidationError,
+    WeaponInstance,
+    validate_rank,
+    validate_vehicle,
+    validate_weapon,
+)
 
 __all__ = [
     "new_game",
@@ -95,6 +102,7 @@ __all__ = [
     "load_vehicles",
     "load_ranks",
     "load_weapons",
+    "Weapon",
     "load_gangster_candidates",
     "load_combat_backdrop",
     "weapon_stats_by_id",
@@ -164,22 +172,58 @@ def load_ranks(path: str | Path) -> list[str]:
     return ranks
 
 
+class Weapon(WeaponInstance, Protocol):
+    """This config's weapon: the engine's :class:`~engine.types.WeaponInstance`
+    (``name``, ``range``) plus the DATA-table fields only this config reads
+    (``mf-prg.bas:50100-50115``, read at ``:121``).
+
+    ``price`` is the weapon shop's (``handlers/waf.py``), ``ts``/``tg`` accuracy and
+    damage are the combat rules' (``combat_rules.py``, via :func:`weapon_stats_by_id`),
+    ``ws`` is the sound index the table carries. The stat minimums are its
+    ``requires`` map (:func:`_validate_requires`).
+    """
+
+    price: int
+    ts: int
+    tg: int
+    ws: int
+
+
+#: The fields of :class:`Weapon` beyond the engine's, with their types.
+_WEAPON_DATA_FIELDS: dict[str, type] = {"price": int, "ts": int, "tg": int, "ws": int}
+
+
 def load_weapons(path: str | Path) -> list[dict]:
     """Load the weapon table (list of ``{name, price, ts, tg, range, ws, requires}``).
 
     Ports the DATA table (``mf-prg.bas:50100-50115``). Each entry is validated against
-    the engine's :func:`~engine.types.validate_weapon` contract (the fields the engine
-    knows) and against this config's own ``requires`` contract: the per-weapon stat
-    minimums derived from the buy-guard lines (``13050-13060``), a map from a declared
-    gangster stat (:data:`GANGSTER_ATTR_NAMES`) to an int. The engine names no stat, so
-    it cannot check that map; the config does, here. Returned 0-based
-    (``weapons[i]`` == in-game weapon index ``i``, 0..8).
+    the engine's :func:`~engine.types.validate_weapon` contract (``name`` and
+    ``range``, the fields the engine reads), this config's :class:`Weapon` fields and
+    its own ``requires`` contract: the per-weapon stat minimums derived from the
+    buy-guard lines (``13050-13060``), a map from a declared gangster stat
+    (:data:`GANGSTER_ATTR_NAMES`) to an int. The engine names no stat, so it cannot
+    check that map; the config does, here. Returned 0-based (``weapons[i]`` == in-game
+    weapon index ``i``, 0..8).
     """
     weapons = list(_load_yaml(path)["weapons"])
     for i, w in enumerate(weapons):
         validate_weapon(w, index=i)
+        _validate_weapon_data(w, index=i)
         _validate_requires(w, index=i)
     return weapons
+
+
+def _validate_weapon_data(entry: Any, index: int) -> None:
+    """Refuse a weapon missing one of :class:`Weapon`'s own fields, or mistyped."""
+    where = f"weapon[{index}]"
+    for field_name, field_type in _WEAPON_DATA_FIELDS.items():
+        if field_name not in entry:
+            raise ConfigValidationError(f"{where} missing required field {field_name!r}")
+        if type(entry[field_name]) is not field_type:
+            raise ConfigValidationError(
+                f"{where} field {field_name!r} must be {field_type.__name__}, "
+                f"got {type(entry[field_name]).__name__}"
+            )
 
 
 def _validate_requires(entry: dict, index: int) -> None:

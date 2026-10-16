@@ -53,6 +53,7 @@ from clients.terminal import (  # noqa: E402
     EndOfInput,
     TerminalInput,
     main,
+    PlayOptions,
     play,
     render_message,
 )
@@ -342,7 +343,7 @@ def test_the_map_loop_adopts_the_moved_state_and_renders_it(monkeypatch):
     monkeypatch.setattr(sys, "stdin", make_walk_script(["s", "q"]))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(20.0, "play() did not return (EOF spin?)", exc_type=AssertionError):
-        final, _rng = play(seed=42, end_year=1930, score_weight=1.0, players=SOLO)
+        final, _rng = play(PlayOptions(seed=42, end_year=1930, score_weight=1.0, players=SOLO))
     # One real step happened and the client adopted the new pure state (po moved, ms spent).
     assert final.players[0].po == after.po
     assert final.players[0].ms == before.ms - 1
@@ -383,7 +384,7 @@ def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, *
         f"play() did not return within {seconds}s (EOF spin?)",
         exc_type=AssertionError,
     ):
-        state, _rng = play(seed=42, **play_kwargs)
+        state, _rng = play(PlayOptions(seed=42, **play_kwargs))
     return state, out.getvalue()
 
 
@@ -1460,7 +1461,7 @@ class TestMultiplayerSetup:
         monkeypatch.setattr(sys, "stdin", io.StringIO(f"2\n{step_key}\nq\n"))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(30, "play() did not return", exc_type=AssertionError):
-            state, _rng = play(load=str(tmp_path / "s.jsonl"))
+            state, _rng = play(PlayOptions(load=str(tmp_path / "s.jsonl")))
         assert state.players[0].name == "anna"
         assert state.players[0].ms == start.ms - 1, "the loaded game did not play on"
         assert _stats(state.players[0]) == _stats(start)

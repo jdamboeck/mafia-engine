@@ -2,7 +2,7 @@
 
 Neither plays a whole game from setup. Each starts from an advanced state built here
 (not a stored fixture): a rank-9 gang one cash transport short of rank 10, or a rank-6
-boss on the street. Each is saved and resumed with ``play(load=...)`` at a turn's
+boss on the street. Each is saved and resumed with ``play(PlayOptions(load=...))`` at a turn's
 upkeep, with every house rule at its faithful default:
 
 1. **The late-game scenario, ending in the early win** (AE4, ``mf-prg.bas:1011``): a
@@ -43,7 +43,7 @@ from typing import Any
 import pytest
 
 import data.game_configs.mafia_1920s.state as game
-from clients.terminal import CONFIG_DIR, TerminalSession, play
+from clients.terminal import CONFIG_DIR, PlayOptions, TerminalSession, play
 from data.game_configs.mafia_1920s.gangster import Gangster
 from data.game_configs.mafia_1920s.handlers.roadblock import ROADBLOCK_SCREEN
 from data.game_configs.mafia_1920s.handlers.turn import JAIL_SCREEN, VICTORY_SCREEN
@@ -248,13 +248,13 @@ def _street_beside(cell: int) -> int:
 
 
 def _resume(monkeypatch, tmp_path, state, player: ScreenPlayer, *, seed: int):
-    """Save ``state`` at its turn's upkeep and play it on with ``play(load=...)``."""
+    """Save ``state`` at its turn's upkeep and play it on with ``play(PlayOptions(load=...))``."""
     state = replace(state, clock=replace(state.clock, turn_phase=UPKEEP))
     save = tmp_path / "start.jsonl"
     save_game(save, state, registries=_CONFIG.registries, effect_log=[], rng_log=[], seed=seed)
     player.install(monkeypatch)
     with deadline(60, "play() did not finish the run in 60s"):
-        return play(load=str(save))
+        return play(PlayOptions(load=str(save)))
 
 
 def _new_game(seed: int):

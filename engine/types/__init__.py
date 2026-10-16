@@ -123,30 +123,22 @@ def validate_rank(entry: Any, index: int | None = None) -> str:
 
 
 class WeaponInstance(Protocol):
-    """Required fields of one weapon entity the config supplies.
+    """Required fields of one weapon entity the config supplies: what the engine reads.
 
-    ``name/price/ts/tg/ws`` are the DATA-table fields (``mf-prg.bas:50100-50115``);
-    ``range`` is the shot's travel distance in combat cells, DERIVED from the attack
-    block (``30215-30216``). A weapon's stat minimums are not part of this contract:
-    they name the game's stats, so the config declares and validates them (its
-    ``requires`` map, read by its own weapon shop handler).
+    ``name`` names the weapon; ``range`` is the shot's travel distance in combat cells
+    (the combat-cell contract), DERIVED from the attack block (``30215-30216``). The
+    rest of a weapon is the config's: its price, accuracy and damage, its sound and
+    its stat minimums name this game's economy and stats, so the config declares and
+    validates them (its own weapon type, read by its own handlers and combat rules).
     """
 
     name: str
-    price: int
-    ts: int
-    tg: int
     range: int
-    ws: int
 
 
 _WEAPON_FIELDS: dict[str, type] = {
     "name": str,
-    "price": int,
-    "ts": int,
-    "tg": int,
     "range": int,
-    "ws": int,
 }
 
 

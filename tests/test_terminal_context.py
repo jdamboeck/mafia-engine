@@ -18,6 +18,7 @@ from clients.terminal import (
     check_resize,
     hide_cursor,
     install_sigwinch_handler,
+    PlayOptions,
     play,
     show_cursor,
 )
@@ -172,7 +173,7 @@ class TestResizeOnTheMap:
         monkeypatch.setattr(sys, "stdin", _ResizingStdin(lines, resize_at))
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(20.0, "play() did not return (EOF spin?)", exc_type=AssertionError):
-            state, _rng = play(seed=42, end_year=1930, score_weight=1, players=SOLO)
+            state, _rng = play(PlayOptions(seed=42, end_year=1930, score_weight=1, players=SOLO))
         return state, out.getvalue()
 
     def test_resize_redraws_the_map_and_drops_the_key(self, monkeypatch) -> None:

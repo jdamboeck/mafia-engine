@@ -40,6 +40,7 @@ import os
 import select
 import sys
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -607,32 +608,65 @@ _RUNNER_SCREENS = frozenset({UPKEEP_SCREEN, TURN_OVER_SCREEN, STANDINGS_SCREEN, 
 _IN_PLACE_WAITS = frozenset({_EIGENSCHAFTEN_SCREEN, KEY_WAIT_SCREEN})
 
 
+@dataclass(frozen=True)
+class PlayOptions:
+    """What one :func:`play` session is played with; every field defaults as unset.
+
+    ``seed`` seeds the ONE session :class:`~engine.rng.Rng` (default 42); the setup
+    rolls draw from a separate ``Rng(seed)``. ``players`` is ``[(name, gang_name), ...]``,
+    1..4 hot-seat players; left ``None``, the setup asks the player count and every name
+    (``mf-prg.bas:205-215``). ``end_year`` / ``score_weight`` (x9, x8) left ``None`` are
+    asked after the title screen (``:170-176``). A supplied value skips its prompt; each
+    player's eigenschaften screen is always shown.
+
+    ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
+    player's turn at the menu or on the map, where it was saved (no title, setup or
+    upkeep); the new-game inputs are ignored. ``p`` at the turn menu or on the map saves
+    to ``save``, else the loaded file, else ``mafia-save.jsonl``.
+    ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
+    ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
+    drawn in (default: the ``classic`` theme's); the terminal's colour support is read
+    from ``$COLORTERM``/``$TERM`` once, when the session starts. ``reverse`` is the
+    theme keys drawn in reverse video (default: the ``classic`` theme's
+    ``renderer/reverse.yaml``; an empty set draws every text plain).
+    """
+
+    seed: int | None = None
+    players: list[tuple[str, str]] | None = None
+    end_year: int | None = None
+    score_weight: float | str | None = None
+    load: str | Path | None = None
+    save: str | Path | None = None
+    watch_ai: bool = False
+    resolver: Resolver | None = None
+    palette: Palette | None = None
+    reverse: frozenset[str] | None = None
+
+
 class TerminalSession:
     """One terminal play session: what :func:`play` builds, and one method per phase.
 
     ``sys.stdin``/``sys.stdout`` are read when the session is built (the session's
     :class:`TerminalInput` keeps that ``stdin``), so a caller replacing them must do so
-    first. ``resolver`` is the theme every screen is worded in, ``palette`` the
-    colours it is drawn in and ``reverse`` the keys it draws in reverse video
-    (default: the config's ``classic`` theme for all three). The
+    first. ``options`` is what it is played with (:class:`PlayOptions`): its
+    ``resolver`` is the theme every screen is worded in, ``palette`` the colours it is
+    drawn in and ``reverse`` the keys it draws in reverse video (default: the
+    config's ``classic`` theme for all three). The
     terminal's colour support is read from the environment once, here, into
     :attr:`colors`: a session never switches colour mode half-way.
     """
 
-    def __init__(
-        self,
-        *,
-        seed: int | None,
-        players: list[tuple[str, str]] | None,
-        end_year: int | None,
-        score_weight: float | str | None,
-        load: str | Path | None,
-        save: str | Path | None,
-        watch_ai: bool,
-        resolver: Resolver | None = None,
-        palette: Palette | None = None,
-        reverse: frozenset[str] | None = None,
-    ) -> None:
+    def __init__(self, options: PlayOptions) -> None:
+        seed = options.seed
+        players = options.players
+        end_year = options.end_year
+        score_weight = options.score_weight
+        load = options.load
+        save = options.save
+        watch_ai = options.watch_ai
+        resolver = options.resolver
+        palette = options.palette
+        reverse = options.reverse
         self.out = sys.stdout
         self.state = None
         self.players = players
@@ -1139,52 +1173,13 @@ class TerminalSession:
         return True
 
 
-def play(
-    seed: int | None = None,
-    players: list[tuple[str, str]] | None = None,
-    *,
-    end_year: int | None = None,
-    score_weight: float | str | None = None,
-    load: str | Path | None = None,
-    save: str | Path | None = None,
-    watch_ai: bool = False,
-    resolver: Resolver | None = None,
-    palette: Palette | None = None,
-    reverse: frozenset[str] | None = None,
-) -> tuple:
+def play(options: PlayOptions | None = None) -> tuple:
     """Play the default config over real stdin/stdout; return the final ``(state, rng)``.
 
-    ``seed`` seeds the ONE session :class:`~engine.rng.Rng` (default 42); the setup
-    rolls draw from a separate ``Rng(seed)``. ``players`` is ``[(name, gang_name), ...]``,
-    1..4 hot-seat players; left ``None``, the setup asks the player count and every name
-    (``mf-prg.bas:205-215``). ``end_year`` / ``score_weight`` (x9, x8) left ``None`` are
-    asked after the title screen (``:170-176``). A supplied value skips its prompt; each
-    player's eigenschaften screen is always shown.
-
-    ``load`` resumes a save: its state, seed and RNG draw log, straight into the saved
-    player's turn at the menu or on the map, where it was saved (no title, setup or
-    upkeep); the new-game inputs are ignored. ``p`` at the turn menu or on the map saves
-    to ``save``, else the loaded file, else ``mafia-save.jsonl``.
-    ``watch_ai`` shows the board after every CPU combat activation (off, as in the original).
-    ``resolver`` is the theme the session is worded in and ``palette`` the colours it is
-    drawn in (default: the ``classic`` theme's); the terminal's colour support is read
-    from ``$COLORTERM``/``$TERM`` once, when the session starts. ``reverse`` is the
-    theme keys drawn in reverse video (default: the ``classic`` theme's
-    ``renderer/reverse.yaml``; an empty set draws every text plain).
+    ``options`` is the game's :class:`PlayOptions` (``None``: every field unset -- a
+    new game that asks every setup question, in the ``classic`` theme).
 
     Returns on EVERY exit -- quit, EOF, or the year-end ending. ``state`` is ``None``
     only if the session ends before setup finished.
     """
-    session = TerminalSession(
-        seed=seed,
-        players=players,
-        end_year=end_year,
-        score_weight=score_weight,
-        load=load,
-        save=save,
-        watch_ai=watch_ai,
-        resolver=resolver,
-        palette=palette,
-        reverse=reverse,
-    )
-    return session.run()
+    return TerminalSession(options if options is not None else PlayOptions()).run()

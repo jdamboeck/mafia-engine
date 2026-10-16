@@ -390,6 +390,7 @@ The engine keeps the guard DSL and a registry of variable resolvers. The config 
 | Name | Verdict | Rule |
 |---|---|---|
 | `WeaponInstance.req_int`, `.req_kraft`, `.req_brut` | config data | Per-weapon stat minimums name this game's stats. They become a config-declared requirement map, read by the weapon shop handler. A requirement naming an undeclared stat is refused at config load. |
+| `WeaponInstance.price`, `.ts`, `.tg`, `.ws` | config data | The engine reads none of them: price is the weapon shop's, accuracy and damage reach combat in each fighter's `equipment` mapping, read by the config's combat rules, and the sound index is read nowhere. They are the config's weapon type (`Weapon` in its `setup.py`), validated when the config loads the table. The engine's `WeaponInstance` keeps `name` and `range`, the shot's reach in combat cells. |
 
 ## Layering rules
 

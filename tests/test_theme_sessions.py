@@ -18,7 +18,7 @@ import pytest
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 sys.path.insert(0, str(_CONFIG_DIR.parent.parent))
 
-from clients.terminal import TerminalSession  # noqa: E402
+from clients.terminal import PlayOptions, TerminalSession  # noqa: E402
 from engine.strings import Resolver  # noqa: E402
 
 _TEST_THEME = Path(__file__).resolve().parent / "fixtures" / "themes" / "test"
@@ -39,16 +39,7 @@ _FIXTURE = {
 
 def _session(resolver: Resolver) -> TerminalSession:
     """A session as :func:`~clients.terminal.play` builds it, worded in ``resolver``."""
-    return TerminalSession(
-        seed=42,
-        players=None,
-        end_year=None,
-        score_weight=None,
-        load=None,
-        save=None,
-        watch_ai=False,
-        resolver=resolver,
-    )
+    return TerminalSession(PlayOptions(seed=42, resolver=resolver))
 
 
 @pytest.fixture

@@ -51,6 +51,7 @@ _DIGITS = "0123456789"
 __all__ = [
     "CONFIG_DIR",
     "play",
+    "PlayOptions",
     "main",
     "TerminalSession",
     "EndOfInput",
@@ -555,5 +556,5 @@ def render_result(result: Any, out: TextIO, resolver: Resolver, colors: Colors) 
 # building blocks above from this package, so those must exist before they load.
 # Neither is ``__main__``, so ``python -m clients.terminal`` stays free of runpy's
 # "found in sys.modules" warning.
-from clients.terminal.session import TerminalSession, play  # noqa: E402
+from clients.terminal.session import PlayOptions, TerminalSession, play  # noqa: E402
 from clients.terminal.cli import main  # noqa: E402

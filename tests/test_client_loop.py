@@ -39,7 +39,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from clients.terminal import CLEAR, CONFIG_DIR, TerminalInput, main, play
+from clients.terminal import CLEAR, CONFIG_DIR, PlayOptions, TerminalInput, main, play
 from clients.terminal.palette import ColorSupport, Colors, load_palette
 from engine.c64_numbers import c64_divide, c64_float
 from engine.config_loader import load_game_config
@@ -216,7 +216,7 @@ def run_play(
     monkeypatch.setattr(sys, "stdout", out)
     # KTD-4: supply both setup answers (the pre-U5 hardcoded values) so play() skips
     # the end-year / score-weight prompts and every existing key script stays valid.
-    play(seed=seed, players=players, end_year=1930, score_weight=1.0)
+    play(PlayOptions(seed=seed, players=players, end_year=1930, score_weight=1.0))
     return out.getvalue()
 
 
@@ -2066,7 +2066,7 @@ def run_play_returning(
     monkeypatch.setattr(sys, "stdin", make_walk_script(stdin_keys, players=len(players)))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
-        ret = play(seed=seed, players=players, end_year=end_year, score_weight=1.0)
+        ret = play(PlayOptions(seed=seed, players=players, end_year=end_year, score_weight=1.0))
     return out.getvalue(), ret
 
 
@@ -2210,7 +2210,7 @@ def _run_session(monkeypatch, lines: list[str], *, seconds: float = 60.0, **play
     monkeypatch.setattr(sys, "stdin", io.StringIO("\n".join(lines) + "\n"))
     monkeypatch.setattr(sys, "stdout", out)
     with deadline(seconds, f"play() did not return within {seconds}s (spin?)", exc_type=_Deadline):
-        ret = play(**play_kwargs)
+        ret = play(PlayOptions(**play_kwargs))
     return out.getvalue(), ret
 
 
@@ -2369,7 +2369,7 @@ class TestSaveAndLoad:
         monkeypatch.setattr(sys, "stdin", stdin)
         monkeypatch.setattr(sys, "stdout", out)
         with deadline(60, "play() did not return", exc_type=_Deadline):
-            play(save=str(save), **self._NEW)
+            play(PlayOptions(save=str(save), **self._NEW))
 
         # One read per line: title, house rules, eigenschaften, upkeep, walk, k1, p, k2,
         # p, q. The file read before k2 holds the first save; the one read before q
