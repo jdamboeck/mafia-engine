@@ -8,10 +8,9 @@ purely additively — it changes nothing in the frozen ``engine.state``/``engine
 Store shape (append-only JSONL, one JSON object per line)
 --------------------------------------------------------
 - **line 0 — header**: ``{"kind":"header", "version", "config_id", "content_version", "seed",
-  "snapshot", "pending_action"?}`` where ``config_id``/``content_version`` name the config
-  (and its content version) the save was written under, ``snapshot`` is a serialized
-  per-turn ``GameState`` and ``pending_action`` (optional) is carried as given; no
-  caller passes one and nothing resumes a mid-handler save from it.
+  "snapshot"}`` where ``config_id``/``content_version`` name the config (and its content
+  version) the save was written under and ``snapshot`` is a serialized per-turn
+  ``GameState``.
 - **line 1..n — effect / rng records**: ``{"kind":"effect"|"rng", "version", ...}`` in commit
   order. **Semantic events are never written** — they are audit/UI records, not replay input
   (binding replay-semantics note in docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md).
@@ -23,18 +22,31 @@ serializable and none lives in ``GameState``, so an action in progress is not sa
 Serialization is **type-tagged**: each effect is written as ``{"_type": "<tag>", ...}``
 (the tag it registered under, :func:`engine.effects.register_effect`) and reconstructed by
 looking the tag up in the loaded config's effect registry. ``GameState`` is nested
-dataclasses; it round-trips via :func:`~engine.state.json_safe` + typed reconstruction, with the
-int-keyed mapping fields (``combat.dir_memory``, int-keyed ``formula_params`` sub-maps) restored
-to int keys (JSON stringifies dict keys). Game state is never a class here: it lives in the
-declared value maps, which hold only scalars. The graph's READ-ONLY collections are unwrapped to plain dict/list on
-save and rebuilt as read-only on load, so a restored state is as immutable as a built one.
+dataclasses; it round-trips via :func:`~engine.state.json_safe` + typed reconstruction
+(:func:`state_from_dict`). Game state is never a class here: it lives in the declared value
+maps, which hold only scalars. The graph's READ-ONLY collections are unwrapped to plain
+dict/list on save and rebuilt as read-only on load, so a restored state is as immutable as a
+built one.
+
+**Key types are kept, never guessed.** JSON object keys are strings, so between
+:func:`~engine.state.json_safe`'s output and the file sits one codec (:func:`_encode` /
+:func:`_decode`): a mapping whose keys are all strings is written as a plain JSON object; any
+other mapping -- an int-keyed ``combat.dir_memory`` or ``formula_params['fnm']['overrides']``,
+a mixed one -- is written as ``{"__map__": [[key, value], ...]}``, each key a JSON scalar of
+its own type. A string-keyed mapping that holds the key ``"__map__"`` is written tagged too,
+so the tag is never ambiguous. ``"01"`` and ``"1"`` stay two string keys; ``1`` stays an int.
+
+**A save validates before it writes.** :func:`save_game` checks the value maps against the
+config's state schema first, so a state :func:`load_game` would refuse never becomes a file
+and an existing save at the path is left as it was. Committing an effect does not validate.
 
 **Loading needs the loaded config.** The engine cannot name what a config declares, so
 :func:`load_game` and :func:`replay` take the config's :class:`Registries`: the effect
 registry (effects are rebuilt by tag) and the state schema (value maps are rebuilt, with a
 missing key default-filled and an unknown key refused). :func:`save_game` takes them too,
-for the config's id and content version it stamps in the header; a save loaded under
-another config or content version is refused (:class:`SaveConfigError`), as is a save of
+for the state schema it checks first and the config's id and content version it stamps in
+the header; a save loaded under another config or content version is refused
+(:class:`SaveConfigError`), as is a save of
 another :data:`SCHEMA_VERSION` (:class:`SchemaVersionError`) -- nothing upgrades an old
 save. A snapshot whose config stores no house-rules map is refused too
 (:class:`MissingHouseRulesError`): the map is never default-filled. Recordings
@@ -66,6 +78,11 @@ from engine.state import (
     StateSchema,
     json_safe,
 )
+
+#: The one key of a JSON object that encodes a mapping with a non-string key.
+_KEYED_MAP = "__map__"
+#: The key types the codec writes as JSON scalars, each read back as itself.
+_KEY_TYPES = (str, int, float, bool, type(None))
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -150,6 +167,39 @@ class Registries:
 
 
 # --------------------------------------------------------------------------- #
+# The JSON codec — key types kept                                             #
+# --------------------------------------------------------------------------- #
+def _encode(value: Any) -> Any:
+    """Encode a :func:`~engine.state.json_safe` tree for JSON, keeping every key's type.
+
+    A mapping with only string keys (and no ``"__map__"`` key) stays a plain object;
+    any other is written as ``{"__map__": [[key, value], ...]}``. A key that is not a
+    JSON scalar raises ``TypeError``, as ``json.dumps`` would.
+    """
+    if isinstance(value, Mapping):
+        if _KEYED_MAP not in value and all(type(k) is str for k in value):
+            return {k: _encode(v) for k, v in value.items()}
+        for k in value:
+            if type(k) not in _KEY_TYPES:
+                raise TypeError(f"cannot save a mapping key of type {type(k).__name__}: {k!r}")
+        return {_KEYED_MAP: [[k, _encode(v)] for k, v in value.items()]}
+    if isinstance(value, (list, tuple)):
+        return [_encode(v) for v in value]
+    return value
+
+
+def _decode(value: Any) -> Any:
+    """The inverse of :func:`_encode`: JSON-loaded data back to a json_safe tree."""
+    if isinstance(value, dict):
+        if len(value) == 1 and _KEYED_MAP in value:
+            return {k: _decode(v) for k, v in value[_KEYED_MAP]}
+        return {k: _decode(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_decode(v) for v in value]
+    return value
+
+
+# --------------------------------------------------------------------------- #
 # Effect (de)serialization — type-tagged                                      #
 # --------------------------------------------------------------------------- #
 def _effect_to_dict(effect: Any) -> dict:
@@ -159,14 +209,15 @@ def _effect_to_dict(effect: Any) -> dict:
     :class:`~engine.state.Fighter` carries an ``attrs`` mapping held as a
     read-only ``mappingproxy``, and ``asdict`` deepcopies internally — ``mappingproxy``
     is not picklable, so it cannot walk a frozen graph at all. ``json_safe`` is the
-    engine's declared inverse of that frozen form and unwraps it correctly.
+    engine's declared inverse of that frozen form and unwraps it correctly. A field
+    holding a mapping keeps its key types through :func:`_encode`.
     """
     tag = effect_tag(effect)
     if tag is None:
         raise UnknownEffectError(
             f"cannot serialize {type(effect).__name__!r}: it is not a registered effect"
         )
-    return {"_type": tag, **json_safe(effect)}
+    return {"_type": tag, **_encode(json_safe(effect))}
 
 
 def _dataclass_in(hint: Any) -> type | None:
@@ -206,47 +257,15 @@ def _effect_from_dict(raw: dict, effects: Mapping[str, type]) -> Any:
         raise UnknownEffectError(
             f"the save names effect {tag!r}, which the loaded config does not register"
         )
-    return _rebuild(effects[tag], {k: v for k, v in raw.items() if k != "_type"})
+    return _rebuild(effects[tag], _decode({k: v for k, v in raw.items() if k != "_type"}))
 
 
 # --------------------------------------------------------------------------- #
-# GameState (de)serialization — nested dataclasses + int-key restoration      #
+# GameState (de)serialization — nested dataclasses                            #
 # --------------------------------------------------------------------------- #
 def _state_to_dict(state: GameState) -> dict:
-    """Serialize a ``GameState`` to a JSON-safe nested dict."""
-    return json_safe(state)
-
-
-def _restore_int_keys(d: dict) -> Mapping[int, int]:
-    """Return ``d`` with keys coerced back to int (JSON stringified them).
-
-    Yields a READ-ONLY mapping: a restored graph must satisfy the same deep-immutability
-    invariant as a freshly built one.
-    """
-    return MappingProxyType({int(k): v for k, v in d.items()})
-
-
-def _restore_numeric_keys(value: Any) -> Any:
-    """Recursively restore int dict keys JSON stringified (general — for opaque
-    config sub-dicts like ``formula_params['fnm']['overrides']`` whose keys are ints).
-
-    A dict whose keys are ALL int-looking strings has them coerced back to int; mixed or
-    non-numeric key sets are left untouched (real string keys must survive). Recurses into
-    nested dicts and lists so arbitrarily deep config data round-trips losslessly.
-    """
-    if isinstance(value, Mapping):
-        restored = {k: _restore_numeric_keys(v) for k, v in value.items()}
-        if restored and all(isinstance(k, str) and _is_int_literal(k) for k in restored):
-            restored = {int(k): v for k, v in restored.items()}
-        return MappingProxyType(restored)  # read-only: the graph stays immutable after load
-    if isinstance(value, list):
-        return tuple(_restore_numeric_keys(v) for v in value)
-    return value
-
-
-def _is_int_literal(s: str) -> bool:
-    body = s[1:] if s[:1] in "+-" else s
-    return body.isascii() and body.isdigit()
+    """Serialize a ``GameState`` to the JSON tree a save's ``snapshot`` holds."""
+    return _encode(json_safe(state))
 
 
 def _roster_member_from_dict(raw: dict) -> Combatant:
@@ -279,19 +298,15 @@ def _player_from_dict(raw: dict, schema: StateSchema | None, index: int) -> Play
 
 
 def _config_from_dict(raw: dict) -> Config:
-    """Reconstruct ``Config``, restoring the int dict keys JSON stringified.
+    """Reconstruct ``Config``; ``Config`` freezes ``formula_params`` back to read-only.
 
-    ``formula_params`` holds opaque nested game data whose sub-dicts may be int-keyed
-    (e.g. ``fnm.overrides``) — restore those. The house-rules map (string ids) comes
-    back as saved; a config with no map raises :class:`MissingHouseRulesError`, never
-    a default: the one saved field that is never default-filled.
+    The house-rules map (string ids) comes back as saved; a config with no map raises
+    :class:`MissingHouseRulesError`, never a default: the one saved field that is never
+    default-filled.
     """
     if "house_rules" not in raw:
         raise MissingHouseRulesError()
-    restored = dict(raw)
-    if "formula_params" in restored:
-        restored["formula_params"] = _restore_numeric_keys(restored["formula_params"])
-    return Config(**restored)
+    return Config(**raw)
 
 
 def _combat_from_dict(raw: dict) -> CombatState:
@@ -299,12 +314,10 @@ def _combat_from_dict(raw: dict) -> CombatState:
 
     ``sides`` is a 2-tuple of fighter-dict lists (JSON-safed by :func:`~engine.state.json_safe`
     into plain lists of plain dicts) — each dict rebuilds into a :class:`~engine.state.Fighter`.
-    ``dir_memory`` is keyed by enemy fighter index (int), JSON-stringified on save, so it
-    goes through :func:`_restore_int_keys`.
+    ``dir_memory`` keeps its int keys (the save codec writes them as ints).
     """
     restored = dict(raw)
     restored["sides"] = tuple(tuple(Fighter(**f) for f in side) for side in raw["sides"])
-    restored["dir_memory"] = _restore_int_keys(raw["dir_memory"])
     return CombatState(**restored)
 
 
@@ -313,9 +326,11 @@ def state_from_dict(raw: dict, schema: StateSchema | None = None) -> GameState:
 
     Public because it is the declared inverse of :func:`~engine.state.json_safe`
     for the WHOLE state graph: it owns the typed per-dataclass reconstruction
-    (and int-key restoration) that a generic walker cannot do. The test purity
-    harness rebuilds its replay baseline with it, so this is a supported entry
-    point, not persistence-internal — changing its shape breaks that harness.
+    that a generic walker cannot do. Keys come back as given: it takes json_safe's
+    output, whose keys keep their types (:func:`load_game` decodes a save's snapshot
+    into that form first). The test purity harness rebuilds its replay baseline with
+    it, so this is a supported entry point, not persistence-internal — changing its
+    shape breaks that harness.
 
     With a ``schema`` the value maps load through it (default-fill, refuse unknown
     keys) — :func:`load_game` always passes the loaded config's. Without one they come
@@ -346,7 +361,6 @@ class SaveData:
     effect_log: list
     rng_log: list
     seed: int
-    pending_action: dict | None
     raw_records: list[dict]
 
 
@@ -369,6 +383,13 @@ def _check_config(header: dict, registries: Registries) -> None:
             raise SaveConfigError(field, found, expected)
 
 
+def _check_values(state: GameState, schema: StateSchema) -> None:
+    """Refuse a state whose value maps the load would refuse (:class:`StateSchemaError`)."""
+    for index, player in enumerate(state.players):
+        schema.load_player_values(player.values, where=f"players[{index}]")
+    schema.load_global_values(state.values)
+
+
 def save_game(
     path: str | Path,
     state: GameState,
@@ -377,7 +398,6 @@ def save_game(
     effect_log: list,
     rng_log: list,
     seed: int,
-    pending_action: dict | None = None,
 ) -> None:
     """Write the append-only JSONL save: header (snapshot) then effect/RNG records.
 
@@ -386,8 +406,13 @@ def save_game(
     is the ordered committed-effect stream; ``rng_log`` is the ordered RNG draw records
     (``engine.rng.Rng.log`` tuples). Semantic events, if a caller has any, are
     intentionally not accepted here — they are never part of replay.
+
+    The state's value maps are checked against ``registries.state_schema`` before
+    anything is written: a mistyped or undeclared value raises
+    :class:`~engine.state.StateSchemaError` and leaves the path as it was.
     """
     path = Path(path)
+    _check_values(state, registries.state_schema)
     header = {
         "kind": "header",
         "version": SCHEMA_VERSION,
@@ -396,8 +421,6 @@ def save_game(
         "seed": seed,
         "snapshot": _state_to_dict(state),
     }
-    if pending_action is not None:
-        header["pending_action"] = pending_action
 
     lines = [json.dumps(header)]
     for effect in effect_log:
@@ -454,7 +477,7 @@ def load_game(path: str | Path, registries: Registries) -> SaveData:
 
     header = records[0]
     _check_config(header, registries)
-    state = state_from_dict(header["snapshot"], registries.state_schema)
+    state = state_from_dict(_decode(header["snapshot"]), registries.state_schema)
     effect_log = [
         _effect_from_dict(rec["effect"], registries.effects)
         for rec in records
@@ -471,7 +494,6 @@ def load_game(path: str | Path, registries: Registries) -> SaveData:
         effect_log=effect_log,
         rng_log=rng_log,
         seed=header["seed"],
-        pending_action=header.get("pending_action"),
         raw_records=records,
     )
 

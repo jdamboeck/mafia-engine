@@ -360,7 +360,9 @@ def _shape(value):
     ``5000 == 5000.0``), so an int silently becoming a float — the corruption that
     surfaces only on load — would compare equal too.
 
-    Pairing this fingerprint with the value check closes both.
+    Pairing this fingerprint with the value check closes both. Map keys are
+    fingerprinted by type too (``1 == 1.0`` share a dict slot), as the save codec keeps
+    every key's type (:func:`engine.persistence._encode`).
     """
     if dataclasses.is_dataclass(value) and not isinstance(value, type):
         return (
@@ -368,7 +370,10 @@ def _shape(value):
             {f.name: _shape(getattr(value, f.name)) for f in dataclasses.fields(value)},
         )
     if isinstance(value, Mapping):
-        return (type(value).__name__, {k: _shape(v) for k, v in value.items()})
+        return (
+            type(value).__name__,
+            {(type(k).__name__, k): _shape(v) for k, v in value.items()},
+        )
     if isinstance(value, (list, tuple)):
         return (type(value).__name__, [_shape(v) for v in value])
     return type(value).__name__

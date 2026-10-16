@@ -4,8 +4,8 @@ Proves the persistence contract (docs/design/engine-architecture.md § Save/repl
 KTD-6): a game is ``initial seed + setup + ordered effect/RNG log``. The store is an
 append-only JSONL log of **effects + RNG draws** (semantic events are NOT in it) plus a
 per-turn ``GameState`` snapshot. Serialization is type-tagged so a frozen ``Effect``
-dataclass round-trips exactly, and int-keyed ``dict`` state fields (``tenancy``,
-``special_cells``) survive JSON (which stringifies keys).
+dataclass round-trips exactly, and maps keep their key types through JSON (which
+would stringify them) because the save records each non-string key's type.
 
 A save holds committed state only: an action suspended at a prompt is not saved and
 nothing resumes one (generators are not serializable and none lives in ``GameState``).
@@ -13,6 +13,7 @@ nothing resumes one (generators are not serializable and none lives in ``GameSta
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sys
 from pathlib import Path
@@ -81,8 +82,8 @@ def test_roundtrip_preserves_a_written_global_value(tmp_path: Path):
 
 
 def test_string_keyed_formula_params_survive_roundtrip(tmp_path: Path):
-    """A string-keyed ``formula_params`` sub-map whose keys are not all int-looking keeps
-    its string keys: the restorer coerces only an all-int-looking key set."""
+    """A string-keyed ``formula_params`` sub-map keeps its string keys, a numeric-looking
+    one included: the save records each key's type rather than guessing it."""
     # A numeric-looking string key is the adversarial case for a blanket int-key restore.
     params = {**_fresh_state().config.formula_params, "costs": {"bribe": 100, "42": 7}}
     state = with_config(_fresh_state(), formula_params=freeze(params))
@@ -286,7 +287,7 @@ def _saved(tmp_path: Path) -> Path:
 
 def test_the_header_records_the_config_id_and_content_version(tmp_path: Path):
     header = json.loads(_saved(tmp_path).read_text(encoding="utf-8").splitlines()[0])
-    assert header["version"] == persistence.SCHEMA_VERSION == 2
+    assert header["version"] == persistence.SCHEMA_VERSION == 3
     assert header["config_id"] == _CONFIG.config["name"] == "mafia_1920s"
     assert header["content_version"] == _CONFIG.config["content_version"]
 
@@ -464,3 +465,204 @@ def test_roster_append_effect_round_trips_its_gangster(tmp_path: Path):
     replayed = persistence.replay(loaded, _REGISTRIES)
     assert replayed == live
     assert isinstance(replayed.players[0].roster[-1], Combatant)
+
+
+# --------------------------------------------------------------------------- #
+# Lossless key types, save-time validation, schema 3 (R7, R12; AE5, AE6)        #
+# --------------------------------------------------------------------------- #
+def _round_trip(tmp_path: Path, state, *, effect_log=()):
+    path = tmp_path / "game.jsonl"
+    persistence.save_game(
+        path,
+        state,
+        registries=_REGISTRIES,
+        effect_log=list(effect_log),
+        rng_log=[],
+        seed=SEED,
+    )
+    return persistence.load_game(path, _REGISTRIES)
+
+
+def _with_params(**extra):
+    state = _fresh_state()
+    return with_config(state, formula_params={**state.config.formula_params, **extra})
+
+
+def test_ae6_numeric_string_keys_survive_as_distinct_strings(tmp_path: Path):
+    """AE6: ``"01"`` and ``"1"`` are two string keys, and both come back as saved."""
+    state = _with_params(labels={"01": "first", "1": "second"})
+
+    loaded = _round_trip(tmp_path, state)
+
+    assert dict(loaded.state.config.formula_params["labels"]) == {"01": "first", "1": "second"}
+    assert all(type(k) is str for k in loaded.state.config.formula_params["labels"])
+    assert loaded.state == state
+
+
+def test_an_all_numeric_string_key_set_stays_strings(tmp_path: Path):
+    """No guessing: a sub-map whose string keys all look like ints is still string-keyed."""
+    state = _with_params(labels={"1": "one", "2": "two"})
+
+    loaded = _round_trip(tmp_path, state)
+
+    assert sorted(loaded.state.config.formula_params["labels"]) == ["1", "2"]
+    assert loaded.state == state
+
+
+def test_int_keys_come_back_as_ints(tmp_path: Path):
+    """``fnm.overrides``' int keys (the live config's) and ``dir_memory``'s keys are ints
+    after a load."""
+    from engine.state import CombatState
+
+    state = dataclasses.replace(_fresh_state(), combat=CombatState(dir_memory={0: -1, 3: 2}))
+    overrides = state.config.formula_params["fnm"]["overrides"]
+    assert overrides and all(type(k) is int for k in overrides)
+
+    loaded = _round_trip(tmp_path, state).state
+
+    assert loaded.config.formula_params["fnm"]["overrides"] == overrides
+    assert all(type(k) is int for k in loaded.config.formula_params["fnm"]["overrides"])
+    assert dict(loaded.combat.dir_memory) == {0: -1, 3: 2}
+    assert all(type(k) is int for k in loaded.combat.dir_memory)
+    assert loaded == state
+
+
+def test_mixed_and_nested_key_types_round_trip_unchanged(tmp_path: Path):
+    """A map mixing int and string keys keeps each key's type; an int-keyed map nested
+    under string keys does too; and a string key that spells the codec's own tag is
+    still an ordinary key."""
+    state = _with_params(
+        mixed={1: "int one", "1": "string one", "b": 2, 2.5: "float"},
+        scalars={True: "bool", None: "none"},
+        outer={"inner": {1: "x", 2: ("y", "z")}, "flat": "v"},
+        tagged={"__map__": [[1, 2]]},
+    )
+
+    loaded = _round_trip(tmp_path, state).state
+    params = loaded.config.formula_params
+
+    assert {(type(k), k) for k in params["mixed"]} == {
+        (int, 1),
+        (str, "1"),
+        (str, "b"),
+        (float, 2.5),
+    }
+    assert {(type(k), k) for k in params["scalars"]} == {(bool, True), (type(None), None)}
+    assert params["outer"]["inner"] == {1: "x", 2: ("y", "z")}
+    assert all(type(k) is int for k in params["outer"]["inner"])
+    assert params["tagged"] == {"__map__": ((1, 2),)}
+    assert loaded == state
+
+
+def test_an_effect_field_holding_an_int_keyed_map_round_trips(tmp_path: Path):
+    """The effect codec keeps key types too. No engine effect holds an int-keyed map
+    today, so a fighter's ``attrs`` stands in for one: the codec, not the field's
+    declared type, is under test."""
+    from engine.effects import SpawnFighter
+    from engine.state import Fighter
+
+    attrs: dict = {"kraft": 3, 7: 1}
+    effect = SpawnFighter(fighter=Fighter(name="Al", attrs=attrs), side=1)
+
+    loaded = _round_trip(tmp_path, _fresh_state(), effect_log=[effect])
+
+    assert loaded.effect_log == [effect]
+    assert {type(k) for k in loaded.effect_log[0].fighter.attrs} == {str, int}
+
+
+def test_state_from_dict_is_the_exact_inverse_of_json_safe():
+    """The purity harness's baseline: ``state_from_dict(json_safe(s)) == s`` with no key
+    guessing, so a string key that looks like an int stays a string there too."""
+    from engine.state import json_safe
+
+    state = _with_params(labels={"1": "one"}, ints={1: "one"})
+
+    rebuilt = persistence.state_from_dict(json_safe(state))
+
+    assert list(rebuilt.config.formula_params["labels"]) == ["1"]
+    assert list(rebuilt.config.formula_params["ints"]) == [1]
+    assert rebuilt == state
+
+
+def test_ae5_an_invalid_value_is_refused_before_a_file_is_written(tmp_path: Path):
+    """AE5: a declared int set to a string makes ``save_game`` raise, and no file claims
+    to be a save -- not at a fresh path, and not over an existing save."""
+    from engine.effects import set_player_value
+    from engine.state import StateSchemaError
+
+    bad = set_player_value(_fresh_state(), "debt.amount", "not-an-int", player=0)
+
+    fresh = tmp_path / "fresh.jsonl"
+    with pytest.raises(StateSchemaError, match="debt.amount"):
+        persistence.save_game(
+            fresh, bad, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=SEED
+        )
+    assert list(tmp_path.iterdir()) == []
+
+    existing = _saved(tmp_path)
+    before = existing.read_bytes()
+    with pytest.raises(StateSchemaError, match="debt.amount"):
+        persistence.save_game(
+            existing, bad, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=SEED
+        )
+    assert existing.read_bytes() == before
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["game.jsonl"]
+
+
+def test_an_invalid_global_value_is_refused_too(tmp_path: Path):
+    from engine.effects import set_global_value
+    from engine.state import StateSchemaError
+
+    bad = set_global_value(_fresh_state(), "tenancy.1", "nobody")
+    with pytest.raises(StateSchemaError, match="tenancy.1"):
+        persistence.save_game(
+            tmp_path / "g.jsonl", bad, registries=_REGISTRIES, effect_log=[], rng_log=[], seed=1
+        )
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_schema_2_save_is_refused_naming_its_version(tmp_path: Path):
+    path = _saved(tmp_path)
+    _rewrite_header(path, version=2)
+    with pytest.raises(persistence.SchemaVersionError) as exc:
+        persistence.load_game(path, _REGISTRIES)
+    assert exc.value.older
+    assert (exc.value.found, exc.value.supported) == (2, 3)
+    assert "2" in str(exc.value)
+
+
+def test_a_save_carries_no_pending_action(tmp_path: Path):
+    """Nothing resumes a suspended action, so the save shape holds no slot for one."""
+    import inspect
+
+    header = json.loads(_saved(tmp_path).read_text(encoding="utf-8").splitlines()[0])
+    assert "pending_action" not in header
+    assert "pending_action" not in inspect.signature(persistence.save_game).parameters
+    assert "pending_action" not in {f.name for f in dataclasses.fields(persistence.SaveData)}
+
+
+@pytest.mark.parametrize("arm", ["faithful", "intent"])
+def test_a_two_player_mafia_game_saves_and_loads_equal(tmp_path: Path, arm: str):
+    """A real new game, both arms of ``c64_float_score``, round-trips whole -- the intent
+    arm's exact score and the typed weight text included."""
+    from tests.helpers import with_exact_score
+
+    state = new_game(
+        seed=SEED,
+        end_year=1930,
+        score_weight="0.7",
+        players=[("alcapone", "the outfit"), ("moran", "north side")],
+        house_rules={"c64_float_score": arm},
+    )
+    if arm == "intent":
+        state = with_exact_score(state, "0.7", {0: "12.3456789012345678901", 1: "-3.5"})
+
+    loaded = _round_trip(tmp_path, state).state
+
+    assert loaded == state
+    assert loaded.config.formula_params["score_mult_text"] == "0.7"
+    assert [p.values["exact_score"] for p in loaded.players] == [
+        p.values["exact_score"] for p in state.players
+    ]
+    if arm == "intent":
+        assert loaded.players[0].values["exact_score"] == "12.3456789012345678901"

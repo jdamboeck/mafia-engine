@@ -523,6 +523,22 @@ def test_run_pure_catches_a_readonly_collection_downgrade():
         run_pure(downgrading_handler, scripted(), state=st)
 
 
+def test_run_pure_catches_a_key_type_change_equality_cannot_see():
+    """A map key drifting from ``int`` to ``float`` (``1 == 1.0``, same hash) is
+    invisible to the value comparison; the save codec keeps key types, so the
+    harness's fingerprint records them too."""
+    from engine.state import CombatState
+
+    def rekeying_handler(ctx):
+        object.__setattr__(ctx.state.combat, "dir_memory", MappingProxyType({1.0: -1}))
+        return []
+        yield  # pragma: no cover - make this a generator
+
+    st = dataclasses.replace(_harness_state(ka=5000), combat=CombatState(dir_memory={1: -1}))
+    with pytest.raises(AssertionError, match="changed the TYPE"):
+        run_pure(rekeying_handler, scripted(), state=st)
+
+
 def test_run_pure_catches_result_state_unexplained_by_effects():
     """Assertion (b) must be able to fail — it is the harness's real purity claim.
 

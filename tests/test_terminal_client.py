@@ -649,17 +649,20 @@ class TestClientErrorGuard:
         lines[0] = json.dumps({**json.loads(lines[0]), **changes})
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    def test_ae6_a_version_1_save_says_it_was_made_by_an_older_version(self, capsys, tmp_path):
-        """AE6: a save written before the version bump is one line naming it older,
-        exit status 1, no traceback."""
-        path = self._valid_save(tmp_path / "v1.jsonl")
-        self._rewrite_header(path, version=1)
+    @pytest.mark.parametrize("version", [1, 2])
+    def test_ae6_an_older_save_says_it_was_made_by_an_older_version(
+        self, capsys, tmp_path, version
+    ):
+        """AE6: a save written before a version bump (1, or 2 before the schema-3 save
+        codec) is one line naming it older, exit status 1, no traceback."""
+        path = self._valid_save(tmp_path / f"v{version}.jsonl")
+        self._rewrite_header(path, version=version)
         code, err = self._fail(capsys, ["--load", str(path)])
         self._assert_one_readable_line(code, err, path)
         assert code == 1
         assert err == (
             f"cannot load {path}: the save was made by an older version of the game "
-            "(save version 1; this version reads 2)\n"
+            f"(save version {version}; this version reads 3)\n"
         )
 
     @pytest.mark.parametrize(

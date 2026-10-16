@@ -308,6 +308,30 @@ def test_shape_drift_discards_snapshots_rebuilds_and_matches_every_state(
     assert replay(loaded).diverged is False
 
 
+def test_a_schema_2_recording_re_snapshots_and_replays_without_divergence(
+    ambush_recording, tmp_path
+):
+    """A recording written before the schema-3 bump (snapshots and file stamped 2) is
+    rebuilt at the current version on load and replays clean against the live rules."""
+    _, recording = ambush_recording
+    assert SCHEMA_VERSION == 3
+    path = tmp_path / "schema2.json"
+    save(recording, path)
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["schema_version"] = 2
+    for event in raw["events"]:
+        if event.get("snapshot") is not None:
+            event["snapshot_shape_version"] = 2
+    path.write_text(json.dumps(raw), encoding="utf-8")
+
+    loaded = load(path, rules=build_rules({}))
+
+    stamped = [e.snapshot_shape_version for e in loaded.events if e.snapshot is not None]
+    assert stamped and set(stamped) == {SCHEMA_VERSION}
+    assert [e.snapshot for e in loaded.events] == [e.snapshot for e in recording.events]
+    assert replay(loaded, rules=build_rules({})).diverged is False
+
+
 # --------------------------------------------------------------------------- #
 # KTD-14: a fighter's owner — absent from a recording made before owners        #
 # --------------------------------------------------------------------------- #

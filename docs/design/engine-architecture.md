@@ -145,7 +145,7 @@ Effects produced during a handler action are buffered, validated, and then commi
 
 1. handler calls `ctx.apply(effect)`;
 2. action-local buffer records the effect;
-3. driver validates the effect against state and schema;
+3. the effect's own `apply` refuses what it cannot do (an out-of-range target, an unknown stat); the value maps are checked against the state schema only when a save is written (see Save/replay);
 4. cancellation or failure discards the buffer;
 5. successful action commits buffered effects as ordered events;
 6. each effect's `apply` builds the new `GameState` (pure; the input state is never mutated);
@@ -198,8 +198,10 @@ Saves and replay need the loaded config, because the engine cannot name what the
 - A combat recording keeps its `rules=` signature. It holds only combat scenarios and RNG draws, never effects or player state.
 - The save header records the config's id and a config-owned content version. A save loaded under a different config or content version is refused with one line.
 - On load, the state schema fills the declared default for a missing key and refuses an unknown key. So a later change can add a key without a version bump.
+- A save checks the value maps against the state schema before it writes, so a state the load would refuse never becomes a file and an existing save is left as it was. Committing an effect does not check the schema.
+- A save keeps every mapping key's type. A mapping with only string keys is a JSON object; any other is written as a tagged list of key/value pairs. Nothing guesses a key's type on load: `"01"` and `"1"` stay two string keys, and an int key stays an int.
 
-Saves and recordings share one `SCHEMA_VERSION`. The seam takes one bump, from 1 to 2, after the seam lands and before new content. `ENGINE_API` and the config's `engine_api` go to 2 in the same step. A version mismatch on load is a one-line client message, and the legacy field backfill (`LEGACY_FIELD_DEFAULTS`) goes away. Fields added after that bump ride on version 2: no version-2 artifact exists outside the branch before they land. The house-rules map is the exception: a save without it is refused, never default-filled.
+Saves and recordings share one `SCHEMA_VERSION`. The seam takes one bump, from 1 to 2, after the seam lands and before new content. `ENGINE_API` and the config's `engine_api` go to 2 in the same step. A version mismatch on load is a one-line client message, and the legacy field backfill (`LEGACY_FIELD_DEFAULTS`) goes away. Fields added after that bump ride on version 2: no version-2 artifact exists outside the branch before they land. The house-rules map is the exception: a save without it is refused, never default-filled. A second bump, from 2 to 3, marks the save shape that holds the intent arm's exact score and keeps key types; it drops the null-only `pending_action` header field, since nothing resumes a suspended action. `ENGINE_API` stays at 2. A version-2 save is refused like any other version; a recording re-snapshots, as on any mismatch.
 
 ## RNG/determinism
 
