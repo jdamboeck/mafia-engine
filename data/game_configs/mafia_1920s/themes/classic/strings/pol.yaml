@@ -11,13 +11,13 @@ locations:
   pol:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "POLIZEI-PRAESIDIUM"
-    entry_prompt: "'WAS HABEN SIE HIER ZU SUCHEN? MACHEN   SIE, DASS SIE RAUS KOMMEN!'"
+    title: "Polizei-Präsidium"
+    entry_prompt: "'Was haben Sie hier zu suchen? Machen Sie, dass Sie raus kommen!'"
     menu:
-      surrender: "'ICH BIN EIN GESUCHTER GANGSTER! ICH    MOECHTE MICH STELLEN.'"
-      bribe: "POLIZEICHEF BESTECHEN"
-      free: "VERSUCHEN, INHAFTIERTEN GANGSTER ZU     BEFREIEN"
-      leave: "LIEBER GAR NICHTS TUN"
+      surrender: "'Ich bin ein gesuchter Gangster! Ich möchte mich stellen.'"
+      bribe: "Polizeichef bestechen"
+      free: "Versuchen, inhaftierten Gangster zu befreien"
+      leave: "Lieber gar nichts tun"
 
     # --- the chief bribe (21010-21030) ---
     chief_offer: "aha! fuer einen monat untaetigkeit"              # :21010 `aha! fuer einen monat untaetigkeit`

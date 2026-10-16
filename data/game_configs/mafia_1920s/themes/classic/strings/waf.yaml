@@ -7,13 +7,13 @@ locations:
   waf:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "WAFFENLADEN"
+    title: "Waffenladen"
     # Entry + shell menu (dialogue block, at the WAFFENLADEN door).
-    entry_prompt: "'TAG, MISTER. EIN PAAR GUTE HANDBOELLER  GEFAELLIG? SIND IM HINTERZIMMER...'"
+    entry_prompt: "'Tag, Mister. Ein paar gute Handböller gefällig? Sind im Hinterzimmer...'"
     menu:
-      buy: "'YEAH, MAL SEHEN, WAS DA IST.'"
-      train: "'KANNST DU MEINE JUNGS IM SCHIESSEN     AUSBILDEN? SIND EINFACH ZU SCHLAPP!'"
-      leave: "'DANKE, DANKE! KEIN BEDARF. BYE!'"
+      buy: "'Yeah, mal sehen, was da ist.'"
+      train: "'Kannst du meine Jungs im Schießen ausbilden? Sind einfach zu schlapp!'"
+      leave: "'Danke, danke! Kein Bedarf. Bye!'"
 
     # --- buy (13010-13091) ---
     weapon_list: "ok, wir haben folgendes:\n"  # :13010 `ok, wir haben folgendes:`

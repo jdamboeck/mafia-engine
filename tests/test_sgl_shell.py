@@ -190,6 +190,30 @@ def test_sgl_strings_verbatim():
     assert fixture_value("locations.sgl.menu.leave") == "HEUTE MAL NICHT KASSIEREN"
 
 
+def test_sgl_screen_text_in_today_s_spelling():
+    """The live classic theme's sgl title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.sgl.title") == (
+        "Einfacher Laden (wie geschaffen zum Schutzgeld eintreiben!)"
+    )
+    assert _get(data, "locations.sgl.entry_prompt") == "'Tag, Mister. Was darf's denn sein?'"
+    assert _get(data, "locations.sgl.menu.threat") == (
+        "'Den Zaster her, aber schnell! Sonst geht der Böller hier los!'"
+    )
+    assert _get(data, "locations.sgl.menu.sob_story") == (
+        "'Bitte, bitte ein paar Dollars für meine kranke Ma! Sie ist soooo arm!'"
+    )
+    assert _get(data, "locations.sgl.menu.protection") == (
+        "'Wir schützen dich für eine kleine Spende vor den bösen Gangstern!'"
+    )
+    assert _get(data, "locations.sgl.menu.fake_police") == (
+        "'Polizei! In Ihrer Kasse ist Falschgeld versteckt, das ist konfisziert!'"
+    )
+    assert _get(data, "locations.sgl.menu.leave") == "Heute mal nicht kassieren"
+
+
 def test_the_sgl_doors_open_the_sgl_shell_one_per_tile():
     """Cells 49, 145, 340, 443, 538, 772, 790, 874 and 905 are sgl's doors (``la=7``,
     ``ln`` 1..9)."""

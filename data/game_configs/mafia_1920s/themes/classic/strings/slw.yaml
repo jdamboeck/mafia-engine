@@ -9,12 +9,12 @@ locations:
   slw:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)"
-    entry_prompt: "'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'"
+    title: "Schlupfwinkel (Motel, Mietskaserne)"
+    entry_prompt: "'Ah, ein Kunde! Was wünscht der Herr?'"
     menu:
-      rent: "'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'"
-      pay_rent: "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
-      leave: "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
+      rent: "'Eine Unterkunft, aber zack, zack! Und ich möchte nicht gestört werden!'"
+      pay_rent: "'Ich möchte meine Miete bezahlen!'"
+      leave: "'Ich wünsche nichts. Sie vielleicht?'"
     no_room: "'nichts mehr frei!'"  # :10010 `'nichts mehr frei!'`
     rent_quote: "'gut. pro monat kostet das{price}$ miete.'"  # :10020 `'gut. pro monat kostet das`
     months_prompt: "wieviele monate willst du mieten"  # :10025 `wieviele monate willst du mieten`

@@ -5,4 +5,9 @@
 # (tests/text_fold.py); an entry no key uses fails tests/test_text_fold.py.
 #
 #   - {source: "FALSCH-    GELD", new: "Falschgeld", keys: [locations.sgl.menu.fake_police]}
-hyphen_joins: []
+hyphen_joins:
+  - {source: "UM-      SEHEN", new: "umsehen", keys: [locations.ban.menu.safe]}
+  - {source: "NAECHS-  TEN", new: "nächsten", keys: [locations.ble.menu.leave]}
+  - {source: "SCHUL-  DEN", new: "Schulden", keys: [locations.kdh.menu.repay]}
+  - {source: "FALSCH-    GELD", new: "Falschgeld", keys: [locations.sgl.menu.fake_police]}
+  - {source: "SPIEL-  CHEN", new: "Spielchen", keys: [locations.sph.entry_prompt]}

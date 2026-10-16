@@ -7,15 +7,15 @@ locations:
   kdh:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "KREDIT-HAI"
-    entry_prompt: "'EIN WUNDERSCHOENEN GUTEN TAG, KANN     ICH IHNEN HELFEN?'"
+    title: "Kredit-Hai"
+    entry_prompt: "'Ein wunderschönen guten Tag, kann ich Ihnen helfen?'"
     menu:
-      borrow: "'JA. ICH BRAUCHE EIN BISSCHEN KNETE!'"
-      repay: "'NEIN, NEIN! ICH WILL NUR MEINE SCHUL-  DEN ABZAHLEN!'"
-      trade: "LADEN AUFKAUFEN BZW. VERKAUFEN"
-      capital: "KAPITAL IM LADEN AENDERN (BEI EIGENEM   KREDITGESCHAEFT)"
-      collect: "UEBERFAELLIGE SCHULDEN EINTREIBEN (BEI  EIGENEM GESCHAEFT)"
-      leave: "'ICH HELFE MIR SELBST.'"
+      borrow: "'Ja. Ich brauche ein bisschen Knete!'"
+      repay: "'Nein, nein! Ich will nur meine Schulden abzahlen!'"
+      trade: "Laden aufkaufen bzw. verkaufen"
+      capital: "Kapital im Laden ändern (bei eigenem Kreditgeschäft)"
+      collect: "Überfällige Schulden eintreiben (bei eigenem Geschäft)"
+      leave: "'Ich helfe mir selbst.'"
 
     # --- borrow (15010-15030) ---
     pay_old_debts_first: "zahle erstmal deine alten schulden ab!"  # :15010 `zahle erstmal deine alten schulden ab!`

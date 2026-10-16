@@ -10,12 +10,12 @@ locations:
   aut:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "AUTOMOBIL-HAENDLER"
-    entry_prompt: "EIN UMFANGREICHES SORTIMENT DER         FLOTTESTEN SCHLITTEN."
+    title: "Automobil-Händler"
+    entry_prompt: "Ein umfangreiches Sortiment der flottesten Schlitten."
     menu:
-      buy: "WAGEN KAUFEN"
-      steal: "AUTO 'ORGANISIEREN'"
-      leave: "WIEDER GEHEN"
+      buy: "Wagen kaufen"
+      steal: "Auto 'organisieren'"
+      leave: "Wieder gehen"
 
     # --- buy (14006-14052) ---
     showroom: "der verkaeufer zeigt dir eine auswahl\nder modelle. zum kauf die entsprechende\nnummerntaste (0=ende) druecken!"  # :14006-14008 `der verkaeufer zeigt dir eine auswahl`

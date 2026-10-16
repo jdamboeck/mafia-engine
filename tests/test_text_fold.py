@@ -233,7 +233,10 @@ _STRINGS = Path("data/game_configs/mafia_1920s/themes/classic/strings")
 
 @pytest.fixture
 def scratch(tmp_path: Path) -> Path:
-    """A copy of the tree's text sources and the fixture, to change freely."""
+    """A copy of the tree's text sources and the fixture, to change freely.
+
+    The copy's fixture is frozen again from the copy's own text, with empty reform and
+    hyphen lists, so the copy starts unchanged however far the normalization has got."""
     for part in (
         _STRINGS,
         Path("data/game_configs/mafia_1920s/entities"),
@@ -243,6 +246,11 @@ def scratch(tmp_path: Path) -> Path:
         shutil.copytree(ROOT / part, tmp_path / part)
     (tmp_path / ASCII_ART).parent.mkdir(parents=True)
     shutil.copy(ROOT / ASCII_ART, tmp_path / ASCII_ART)
+    for name, keys in tree_text(tmp_path).items():
+        dumped = yaml.safe_dump(keys, allow_unicode=True, sort_keys=False, width=1_000_000)
+        (tmp_path / FIXTURE / name).write_text(dumped, encoding="utf-8")
+    for kind in ("reform", "hyphen_joins"):
+        (tmp_path / FIXTURE / f"{kind}.yaml").write_text(f"{kind}: []\n", encoding="utf-8")
     return tmp_path
 
 
@@ -253,24 +261,24 @@ def _edit(path: Path, old: str, new: str) -> None:
 
 
 def test_the_tool_lists_no_change_on_an_unchanged_tree(scratch: Path):
-    assert "No changes" in side_by_side(ROOT)
     assert "No changes" in side_by_side(scratch)
+    assert " 0 whose fold differs." in side_by_side(ROOT)
 
 
 def test_the_tool_lists_exactly_the_changed_key(scratch: Path):
-    _edit(scratch / _STRINGS / "aut.yaml", '"WAGEN KAUFEN"', '"Wagen kaufen"')
+    _edit(scratch / _STRINGS / "aut.yaml", '"Wagen kaufen"', '"Wagen Kaufen"')
     report = side_by_side(scratch)
     assert "1 changed keys, 0 whose fold differs." in report
     assert f"## {_STRINGS.as_posix()}/aut.yaml" in report
     assert "- `locations.aut.menu.buy`" in report
-    assert "  - old: `WAGEN KAUFEN`" in report
-    assert "  - new: `Wagen kaufen`" in report
+    assert "  - old: `Wagen kaufen`" in report
+    assert "  - new: `Wagen Kaufen`" in report
     assert report.count("- `locations.") == 1
     assert "fold differs" not in report.split("\n", 3)[3]
 
 
 def test_the_tool_flags_a_changed_word_and_the_fold_check_fails(scratch: Path):
-    _edit(scratch / _STRINGS / "aut.yaml", '"WAGEN KAUFEN"', '"WAGEN LEASEN"')
+    _edit(scratch / _STRINGS / "aut.yaml", '"Wagen kaufen"', '"Wagen leasen"')
     report = side_by_side(scratch)
     assert "1 changed keys, 1 whose fold differs." in report
     assert "  - **fold differs**: `wagen leasen` ≠ `wagen kaufen`" in report

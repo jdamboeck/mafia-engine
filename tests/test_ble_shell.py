@@ -130,6 +130,26 @@ def test_ble_strings_verbatim():
     )
 
 
+def test_ble_screen_text_in_today_s_spelling():
+    """The live classic theme's ble title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.ble.title") == "Blüten-Eddie"
+    assert _get(data, "locations.ble.entry_prompt") == (
+        "'Na, mein Junge, wo drückt der Schuh? Kann ich dir helfen?'"
+    )
+    assert _get(data, "locations.ble.menu.passport") == (
+        "'Yeah, kannst du mir einen neuen Pass machen? Er muss gut sein, klar?'"
+    )
+    assert _get(data, "locations.ble.menu.counterfeit") == (
+        "'Druckst du noch Blüten? Wie wärs, wenn du mir ein paar verkaufst?'"
+    )
+    assert _get(data, "locations.ble.menu.leave") == (
+        "'Danke, Eddie, vielleicht beim nächsten Mal. Bye!'"
+    )
+
+
 def test_the_ble_door_opens_the_ble_shell():
     """Cell 371 is ble's one door (``la=12, ln=1``)."""
     city = yaml.safe_load(_CITY.read_text(encoding="utf-8"))

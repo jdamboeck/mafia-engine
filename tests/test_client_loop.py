@@ -449,23 +449,21 @@ class TestLocationScreen:
         plain = _ANSI.sub("", output)
         rows = plain.splitlines()
         # :3025 print"{clr}{down}{rvon} "x$": " -- the title, framed, reverse video on.
-        title = " SCHLUPFWINKEL (MOTEL, MIETSKASERNE): "
+        title = " Schlupfwinkel (Motel, Mietskaserne): "
         assert title in rows
         raw_title_row = next(r for r in output.splitlines() if title in _ANSI.sub("", r))
         assert "\033[7m" in raw_title_row, "the title is not in reverse video"
         # :3030 print"{down}"mid$(str$(i),2)" "x$ -- "1 ...", no ")" and no leading space.
         options = [
-            "1 'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'",
-            "2 'ICH MOECHTE MEINE MIETE BEZAHLEN!'",
-            "3 'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'",
+            "1 'Eine Unterkunft, aber zack, zack! Und ich möchte nicht gestört werden!'",
+            "2 'Ich möchte meine Miete bezahlen!'",
+            "3 'Ich wünsche nichts. Sie vielleicht?'",
         ]
         for option in options:
             assert option in rows, f"{option!r} is not a row of the screen"
         # Title, then the description (:3025's second input#1), then the options.
         at = rows.index(title)
-        assert rows.index("'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'", at) < rows.index(
-            options[0], at
-        )
+        assert rows.index("'Ah, ein Kunde! Was wünscht der Herr?'", at) < rows.index(options[0], at)
         assert rows.index(options[0], at) < rows.index(options[1], at) < rows.index(options[2])
 
     def test_ae5_a_key_from_1_to_the_count_picks_every_other_key_is_ignored(self, monkeypatch):
@@ -484,7 +482,7 @@ class TestLocationScreen:
         rent, :10020's quote; the old 0-based ``1`` was pay the rent, :10100's refusal)."""
         keys = [*self._slw_walk(), "", "q", "1", "", ""]
         output, _ = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, seconds=20)
-        assert "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)" in output
+        assert "Schlupfwinkel (Motel, Mietskaserne)" in output
         assert "pro monat kostet das" not in output, "the menu went on after q"
         assert "du wohnst hier nicht!" not in output, "the menu went on after q"
 
@@ -492,7 +490,7 @@ class TestLocationScreen:
         output, _ = run_play_returning(
             monkeypatch, seed=42, stdin_keys=[*self._slw_walk(), ""], seconds=20
         )
-        assert "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)" in output
+        assert "Schlupfwinkel (Motel, Mietskaserne)" in output
 
 
 # --------------------------------------------------------------------------- #
@@ -529,7 +527,7 @@ class TestSlwRentThroughClient:
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
         quote = output.index("pro monat kostet das")
-        menu = output.rindex("ICH MOECHTE MEINE MIETE BEZAHLEN", 0, quote)
+        menu = output.rindex("Ich möchte meine Miete bezahlen", 0, quote)
         assert CLEAR in output[menu:quote], "the handler printed under the location menu"
 
     @pytest.mark.parametrize(
@@ -1032,7 +1030,7 @@ class TestUnimplementedDoorGracefulDenial:
         # Splash ack, then leave (option 3 of 3).
         output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
         assert "closed for renovations" not in output
-        assert "GUTEN TAG, MEIN HERR!" in output
+        assert "Guten Tag, mein Herr!" in output
 
 
 class TestBleReachableByWalking:
@@ -1047,7 +1045,7 @@ class TestBleReachableByWalking:
         # Splash ack, then leave (option 3).
         output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
         assert "closed for renovations" not in output
-        assert "WO DRUECKT DER SCHUH?" in output
+        assert "wo drückt der Schuh?" in output
 
 
 class TestAutReachableByWalking:
@@ -1063,7 +1061,7 @@ class TestAutReachableByWalking:
         # Splash ack, then leave (option 3).
         output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "3"])
         assert "closed for renovations" not in output
-        assert "FLOTTESTEN SCHLITTEN." in output
+        assert "flottesten Schlitten." in output
 
 
 class TestPolReachableByWalking:
@@ -1078,7 +1076,7 @@ class TestPolReachableByWalking:
         # Splash ack, then leave (option 4).
         output = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "4"])
         assert "closed for renovations" not in output
-        assert "WAS HABEN SIE HIER ZU SUCHEN?" in output
+        assert "Was haben Sie hier zu suchen?" in output
 
 
 # --------------------------------------------------------------------------- #

@@ -132,6 +132,19 @@ def test_bhf_strings_verbatim():
     assert fixture_value("locations.bhf.menu.leave") == "NICHTS WIE WEG"
 
 
+def test_bhf_screen_text_in_today_s_spelling():
+    """The live classic theme's bhf title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.bhf.title") == "Railway-Station (Bahnhof)"
+    assert _get(data, "locations.bhf.entry_prompt") == "Du bist im Bahnhof von Chickago."
+    assert _get(data, "locations.bhf.menu.pub") == "Bahnhofskneipe aufsuchen"
+    assert _get(data, "locations.bhf.menu.pickpocket") == "Taschendiebstahl"
+    assert _get(data, "locations.bhf.menu.mail_train") == "Postzug überfallen"
+    assert _get(data, "locations.bhf.menu.leave") == "Nichts wie weg"
+
+
 def test_the_bhf_door_opens_the_bhf_shell():
     """Cell 68 is the station's one door (``la=9``, ``ln=1``)."""
     city = yaml.safe_load(_CITY.read_text(encoding="utf-8"))

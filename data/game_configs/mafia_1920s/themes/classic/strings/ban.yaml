@@ -12,12 +12,12 @@ locations:
   ban:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "BANK/POSTAMT"
-    entry_prompt: "'GUTEN TAG, MEIN HERR! WAS IST IHR      BEGEHR?'"
+    title: "Bank/Postamt"
+    entry_prompt: "'Guten Tag, mein Herr! Was ist Ihr Begehr?'"
     menu:
-      holdup: "'QUATSCH NICH' UND LANG DEN ZASTER      'RUEBER, ABER SCHNELL!'"
-      safe: "UNAUFFAELLIG NACH ALARMANLAGEN UM-      SEHEN UND NACHTS EINBRECHEN"
-      leave: "WIEDER GEHEN"
+      holdup: "'Quatsch nich' und lang den Zaster 'rüber, aber schnell!'"
+      safe: "Unauffällig nach Alarmanlagen umsehen und nachts einbrechen"
+      leave: "Wieder gehen"
 
     # --- the prologue (20003) ---
     rank_too_low: "werde erst '{rank}'!"                                   # :20003 `werde erst '"ra$(3)"'!`

@@ -14,14 +14,14 @@ locations:
   pub:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "PUB/BAR (EIN ZWIELICHTIGES LOKAL)"
-    entry_prompt: "'EH, AMIGO, WILLST DU 'NE MILCH? ODER   SUCHST DU WAS ANDERES?'"
+    title: "Pub/Bar (ein zwielichtiges Lokal)"
+    entry_prompt: "'Eh, Amigo, willst du 'ne Milch? Oder suchst du was anderes?'"
     menu:
-      drink: "'NEIN, KEINE MILCH! HAST DU WAS         ALKOHOLISCHES DA?'"
-      recruit: "'ICH SUCHE EIN PAAR JUNGS FUER MEINE    GANG. MAL SEHEN, WER DA IST...'"
-      tip: "'HAST DU VIELLEICHT 'N GUTEN TIP FUER   'NEN UEBERFALL ODER SOWAS?'"
-      job: "'ICH BRAUCHE DRINGEND EINEN JOB, EINEN  AUFTRAG! DU VERSTEHST SCHON...'"
-      leave: "'SCHEINT NICHT DER RICHTIGE LADEN ZU    SEIN. ICH VERSCHWINDE WIEDER...'"
+      drink: "'Nein, keine Milch! Hast du was Alkoholisches da?'"
+      recruit: "'Ich suche ein paar Jungs für meine Gang. Mal sehen, wer da ist...'"
+      tip: "'Hast du vielleicht 'n guten Tipp für 'nen Überfall oder sowas?'"
+      job: "'Ich brauche dringend einen Job, einen Auftrag! Du verstehst schon...'"
+      leave: "'Scheint nicht der richtige Laden zu sein. Ich verschwinde wieder...'"
     rank_too_low: "als {rank} kannst du noch keine eigenen leute haben!"  # :12101 `print"als "ra$(ra(sp))" kannst du noch"`
 
     # --- alcohol trade (mf-prg.bas:12010-12075) ---

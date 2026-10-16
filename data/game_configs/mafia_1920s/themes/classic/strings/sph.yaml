@@ -8,12 +8,12 @@ locations:
   sph:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "SPIELHOELLE"
+    title: "Spielhölle"
     # Entry + shell menu (dialogue block, at the SPIELHOELLE door).
-    entry_prompt: "'NA FREUND, WIE WAER'S MIT 'NEM SPIEL-  CHEN? KARTENSPIELE? ROULETTE? WAS?'"
+    entry_prompt: "'Na Freund, wie wär's mit 'nem Spielchen? Kartenspiele? Roulette? Was?'"
     menu:
-      play: "'OK, CHEF, WAS KANNST DU MIR            EMPFEHLEN?'"
-      leave: "'NEIN, NEIN! ICH SPIELE NUR MAU-MAU!'"
+      play: "'OK, Chef, was kannst du mir empfehlen?'"
+      leave: "'Nein, nein! Ich spiele nur Mau-Mau!'"
     # Game menu (inside the handler, mf-prg.bas:16010-16011).
     game_menu: "waehle, mein freund:"
     poker: "1 - poker"

@@ -12,13 +12,13 @@ locations:
   bhf:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "RAILWAY-STATION (BAHNHOF)"
-    entry_prompt: "DU BIST IM BAHNHOF VON CHICKAGO."
+    title: "Railway-Station (Bahnhof)"
+    entry_prompt: "Du bist im Bahnhof von Chickago."
     menu:
-      pub: "BAHNHOFSKNEIPE AUFSUCHEN"
-      pickpocket: "TASCHENDIEBSTAHL"
-      mail_train: "POSTZUG UEBERFALLEN"
-      leave: "NICHTS WIE WEG"
+      pub: "Bahnhofskneipe aufsuchen"
+      pickpocket: "Taschendiebstahl"
+      mail_train: "Postzug überfallen"
+      leave: "Nichts wie weg"
 
     # --- the mail train (19015-19040) ---
     no_train: "kein postzug zu sehen..."                                   # :19015 `kein postzug zu sehen...`

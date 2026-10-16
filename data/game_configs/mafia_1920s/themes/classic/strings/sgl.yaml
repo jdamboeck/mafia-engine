@@ -11,14 +11,14 @@ locations:
   sgl:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "EINFACHER LADEN (WIE GESCHAFFEN ZUM     SCHUTZGELD EINTREIBEN!)"
-    entry_prompt: "'TAG, MISTER. WAS DARF'S DENN SEIN?'"
+    title: "Einfacher Laden (wie geschaffen zum Schutzgeld eintreiben!)"
+    entry_prompt: "'Tag, Mister. Was darf's denn sein?'"
     menu:
-      threat: "'DEN ZASTER HER, ABER SCHNELL! SONST    GEHT DER BOELLER HIER LOS!'"
-      sob_story: "'BITTE, BITTE EIN PAAR DOLLARS FUER     MEINE KRANKE MA! SIE IST SOOOO ARM!'"
-      protection: "'WIR SCHUETZEN DICH FUER EINE KLEINE    SPENDE VOR DEN BOESEN GANGSTERN!'"
-      fake_police: "'POLIZEI! IN IHRER KASSE IST FALSCH-    GELD VERSTECKT, DAS IST KONFISZIERT!'"
-      leave: "HEUTE MAL NICHT KASSIEREN"
+      threat: "'Den Zaster her, aber schnell! Sonst geht der Böller hier los!'"
+      sob_story: "'Bitte, bitte ein paar Dollars für meine kranke Ma! Sie ist soooo arm!'"
+      protection: "'Wir schützen dich für eine kleine Spende vor den bösen Gangstern!'"
+      fake_police: "'Polizei! In Ihrer Kasse ist Falschgeld versteckt, das ist konfisziert!'"
+      leave: "Heute mal nicht kassieren"
 
     # --- the prologue (17005-17009) ---
     milksop: "'verschwinde, du milchgesicht!'"                          # :17006 `'verschwinde, du milchgesicht!'`

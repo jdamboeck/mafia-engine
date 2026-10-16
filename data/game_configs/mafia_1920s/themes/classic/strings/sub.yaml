@@ -9,12 +9,12 @@ locations:
   sub:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "SUBWAY-STATION (U-BAHN)"
-    entry_prompt: "DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM..."
+    title: "Subway-Station (U-Bahn)"
+    entry_prompt: "Du bist in einem großen U-Bahnhof. 'Ne Menge Leute treiben sich hier 'rum..."
     menu:
-      platform: "LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN"
-      train: "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
-      leave: "ZURUECK ANS TAGESLICHT"
+      platform: "Leuten auf dem Bahnsteig die Taschen erleichtern"
+      train: "In der Bahn die Tascheninhalte prüfen"
+      leave: "Zurück ans Tageslicht"
 
     # --- the train's ticket (18015-18030) ---
     ticket: "ein u-bahn-ticket kostet dich\n{price:mid$} $."                     # :18015-18020 `ein u-bahn-ticket kostet dich`

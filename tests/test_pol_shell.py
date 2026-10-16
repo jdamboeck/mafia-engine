@@ -132,6 +132,23 @@ def test_pol_strings_verbatim():
     assert fixture_value("locations.pol.menu.leave") == "LIEBER GAR NICHTS TUN"
 
 
+def test_pol_screen_text_in_today_s_spelling():
+    """The live classic theme's pol title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.pol.title") == "Polizei-Präsidium"
+    assert _get(data, "locations.pol.entry_prompt") == (
+        "'Was haben Sie hier zu suchen? Machen Sie, dass Sie raus kommen!'"
+    )
+    assert _get(data, "locations.pol.menu.surrender") == (
+        "'Ich bin ein gesuchter Gangster! Ich möchte mich stellen.'"
+    )
+    assert _get(data, "locations.pol.menu.bribe") == "Polizeichef bestechen"
+    assert _get(data, "locations.pol.menu.free") == "Versuchen, inhaftierten Gangster zu befreien"
+    assert _get(data, "locations.pol.menu.leave") == "Lieber gar nichts tun"
+
+
 def test_the_pol_door_opens_the_pol_shell_and_is_the_configured_door_cell():
     """Cell 910 is pol's one door (``la=11, ln=1``); the empty month answer's step is
     measured to it (``formula_params.pol_door_cell``)."""

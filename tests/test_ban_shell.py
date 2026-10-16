@@ -148,6 +148,24 @@ def test_ban_strings_verbatim():
     assert fixture_value("locations.ban.menu.leave") == "WIEDER GEHEN"
 
 
+def test_ban_screen_text_in_today_s_spelling():
+    """The live classic theme's ban title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.ban.title") == "Bank/Postamt"
+    assert _get(data, "locations.ban.entry_prompt") == (
+        "'Guten Tag, mein Herr! Was ist Ihr Begehr?'"
+    )
+    assert _get(data, "locations.ban.menu.holdup") == (
+        "'Quatsch nich' und lang den Zaster 'rüber, aber schnell!'"
+    )
+    assert _get(data, "locations.ban.menu.safe") == (
+        "Unauffällig nach Alarmanlagen umsehen und nachts einbrechen"
+    )
+    assert _get(data, "locations.ban.menu.leave") == "Wieder gehen"
+
+
 def test_the_ban_doors_open_the_ban_shell_one_per_tile():
     """Cells 95, 437, 442, 657 and 865 are the bank's doors (``la=10``, ``ln`` 1..5)."""
     city = yaml.safe_load(_CITY.read_text(encoding="utf-8"))

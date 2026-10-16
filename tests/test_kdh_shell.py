@@ -159,6 +159,29 @@ def test_kdh_strings_verbatim():
     )
 
 
+def test_kdh_screen_text_in_today_s_spelling():
+    """The live classic theme's kdh title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_KDH_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.kdh.title") == "Kredit-Hai"
+    assert _get(data, "locations.kdh.entry_prompt") == (
+        "'Ein wunderschönen guten Tag, kann ich Ihnen helfen?'"
+    )
+    assert _get(data, "locations.kdh.menu.borrow") == "'Ja. Ich brauche ein bisschen Knete!'"
+    assert _get(data, "locations.kdh.menu.repay") == (
+        "'Nein, nein! Ich will nur meine Schulden abzahlen!'"
+    )
+    assert _get(data, "locations.kdh.menu.trade") == "Laden aufkaufen bzw. verkaufen"
+    assert _get(data, "locations.kdh.menu.capital") == (
+        "Kapital im Laden ändern (bei eigenem Kreditgeschäft)"
+    )
+    assert _get(data, "locations.kdh.menu.collect") == (
+        "Überfällige Schulden eintreiben (bei eigenem Geschäft)"
+    )
+    assert _get(data, "locations.kdh.menu.leave") == "'Ich helfe mir selbst.'"
+
+
 def test_kdh_upkeep_shop_income_strings_present():
     """The upkeep shop-income slot (U11) reuses the shared upkeep.yaml strings file,
     not kdh's own — checked here since it is this unit's income slot, not U3/U8's."""

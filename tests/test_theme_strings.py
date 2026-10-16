@@ -117,21 +117,21 @@ def test_no_unresolved_placeholders_in_final_strings():
 
 
 #: Each location's title as ``:3025`` reads it from the location's disk file (``input#1,x$``)
-#: and prints it, verbatim from ``research-data/pass-2/location-dialogue.yaml`` (``title``);
-#: sgl's run of spaces is the file's.
+#: and prints it: the words of ``research-data/pass-2/location-dialogue.yaml``'s ``title`` in
+#: today's spelling, sgl's wrap padding one space (the fold check ties them to the source).
 _LOCATION_TITLES = {
-    "slw": "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)",
-    "pub": "PUB/BAR (EIN ZWIELICHTIGES LOKAL)",
-    "waf": "WAFFENLADEN",
-    "aut": "AUTOMOBIL-HAENDLER",
-    "kdh": "KREDIT-HAI",
-    "sph": "SPIELHOELLE",
-    "sgl": "EINFACHER LADEN (WIE GESCHAFFEN ZUM     SCHUTZGELD EINTREIBEN!)",
-    "sub": "SUBWAY-STATION (U-BAHN)",
-    "bhf": "RAILWAY-STATION (BAHNHOF)",
-    "ban": "BANK/POSTAMT",
-    "pol": "POLIZEI-PRAESIDIUM",
-    "ble": "BLUETEN-EDDIE",
+    "slw": "Schlupfwinkel (Motel, Mietskaserne)",
+    "pub": "Pub/Bar (ein zwielichtiges Lokal)",
+    "waf": "Waffenladen",
+    "aut": "Automobil-Händler",
+    "kdh": "Kredit-Hai",
+    "sph": "Spielhölle",
+    "sgl": "Einfacher Laden (wie geschaffen zum Schutzgeld eintreiben!)",
+    "sub": "Subway-Station (U-Bahn)",
+    "bhf": "Railway-Station (Bahnhof)",
+    "ban": "Bank/Postamt",
+    "pol": "Polizei-Präsidium",
+    "ble": "Blüten-Eddie",
 }
 
 
@@ -155,3 +155,59 @@ def test_the_location_titles_are_the_research_titles():
     research = {loc["key"]: loc["title"] for loc in data["location_dialogue"]["locations"]}
     assert research == {key: fixture_value(f"locations.{key}.title") for key in research}
     assert set(research) == set(_LOCATION_TITLES)
+
+
+def _location_screen_text() -> dict[str, str]:
+    """``{key: text}`` of every location's ``title``, ``entry_prompt`` and ``menu.*`` in
+    the live classic theme: the texts ``:3025``-``:3030`` read from the disk files."""
+    out: dict[str, str] = {}
+    for key in _LOCATION_TITLES:
+        data = yaml.safe_load((_THEME_DIR / "strings" / f"{key}.yaml").read_text("utf-8"))
+        location = data["locations"][key]
+        out[f"locations.{key}.title"] = location["title"]
+        out[f"locations.{key}.entry_prompt"] = location["entry_prompt"]
+        for option, text in location["menu"].items():
+            out[f"locations.{key}.menu.{option}"] = text
+    return out
+
+
+def test_no_location_screen_text_has_a_run_of_spaces():
+    """The C64's 40-column wrap padding is one space in every location's title, entry
+    prompt and menu option (R4), the pub's, sgl's and pol's menus among them."""
+    texts = _location_screen_text()
+    assert len(texts) == 12 * 2 + 44
+    assert {"locations.pub.menu.recruit", "locations.sgl.menu.fake_police"} <= set(texts)
+    assert {"locations.pol.menu.free"} <= set(texts)
+    assert [key for key, text in texts.items() if "  " in text] == []
+
+
+def test_the_pub_and_waf_screens_read_in_today_s_spelling():
+    """The two locations without a shell test of their own: the pub's and the weapon
+    shop's menu and entry text, the disk files' words in today's spelling (AE1, AE3)."""
+    texts = _location_screen_text()
+    assert {key: text for key, text in texts.items() if key.split(".")[1] in ("pub", "waf")} == {
+        "locations.pub.title": "Pub/Bar (ein zwielichtiges Lokal)",
+        "locations.pub.entry_prompt": (
+            "'Eh, Amigo, willst du 'ne Milch? Oder suchst du was anderes?'"
+        ),
+        "locations.pub.menu.drink": "'Nein, keine Milch! Hast du was Alkoholisches da?'",
+        "locations.pub.menu.recruit": (
+            "'Ich suche ein paar Jungs für meine Gang. Mal sehen, wer da ist...'"
+        ),
+        "locations.pub.menu.tip": "'Hast du vielleicht 'n guten Tipp für 'nen Überfall oder sowas?'",
+        "locations.pub.menu.job": (
+            "'Ich brauche dringend einen Job, einen Auftrag! Du verstehst schon...'"
+        ),
+        "locations.pub.menu.leave": (
+            "'Scheint nicht der richtige Laden zu sein. Ich verschwinde wieder...'"
+        ),
+        "locations.waf.title": "Waffenladen",
+        "locations.waf.entry_prompt": (
+            "'Tag, Mister. Ein paar gute Handböller gefällig? Sind im Hinterzimmer...'"
+        ),
+        "locations.waf.menu.buy": "'Yeah, mal sehen, was da ist.'",
+        "locations.waf.menu.train": (
+            "'Kannst du meine Jungs im Schießen ausbilden? Sind einfach zu schlapp!'"
+        ),
+        "locations.waf.menu.leave": "'Danke, danke! Kein Bedarf. Bye!'",
+    }

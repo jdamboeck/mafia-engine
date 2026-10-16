@@ -96,3 +96,16 @@ def test_sph_strings_verbatim():
     assert fixture_value("locations.sph.at_the_table") == "du begibst dich an den spieltisch..."
     assert fixture_value("locations.sph.won") == "du hast{amount}$ gewonnen!"
     assert fixture_value("locations.sph.lost") == "leider verloren!"
+
+
+def test_sph_screen_text_in_today_s_spelling():
+    """The live classic theme's sph title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_SPH_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.sph.title") == "Spielhölle"
+    assert _get(data, "locations.sph.entry_prompt") == (
+        "'Na Freund, wie wär's mit 'nem Spielchen? Kartenspiele? Roulette? Was?'"
+    )
+    assert _get(data, "locations.sph.menu.play") == "'OK, Chef, was kannst du mir empfehlen?'"
+    assert _get(data, "locations.sph.menu.leave") == "'Nein, nein! Ich spiele nur Mau-Mau!'"

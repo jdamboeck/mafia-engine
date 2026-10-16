@@ -263,12 +263,12 @@ def test_strings_load_verbatim():
             node = node[part]
         return node
 
-    assert get("locations.slw.entry_prompt") == "'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'"
+    assert get("locations.slw.entry_prompt") == "'Ah, ein Kunde! Was wünscht der Herr?'"
     assert get("locations.slw.menu.rent") == (
-        "'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'"
+        "'Eine Unterkunft, aber zack, zack! Und ich möchte nicht gestört werden!'"
     )
-    assert get("locations.slw.menu.pay_rent") == "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
-    assert get("locations.slw.menu.leave") == "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
+    assert get("locations.slw.menu.pay_rent") == "'Ich möchte meine Miete bezahlen!'"
+    assert get("locations.slw.menu.leave") == "'Ich wünsche nichts. Sie vielleicht?'"
     assert get("locations.slw.no_room") == "'nichts mehr frei!'"
     assert get("locations.slw.rent_quote") == "'gut. pro monat kostet das{price}$ miete.'"
     assert "{price}" in get("locations.slw.rent_quote")

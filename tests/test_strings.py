@@ -347,12 +347,12 @@ _SOURCE_TEXTS = [
     (
         "locations.pub.entry_prompt",
         {},
-        "'EH, AMIGO, WILLST DU 'NE MILCH? ODER   SUCHST DU WAS ANDERES?'",
+        "'Eh, Amigo, willst du 'ne Milch? Oder suchst du was anderes?'",
     ),
     (
         "locations.pub.menu.tip",
         {},
-        "'HAST DU VIELLEICHT 'N GUTEN TIP FUER   'NEN UEBERFALL ODER SOWAS?'",
+        "'Hast du vielleicht 'n guten Tipp für 'nen Überfall oder sowas?'",
     ),
     # --- pub recruit, :12101-12170 ---
     (

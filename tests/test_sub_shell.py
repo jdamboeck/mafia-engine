@@ -131,6 +131,22 @@ def test_sub_strings_verbatim():
     assert fixture_value("locations.sub.menu.leave") == "ZURUECK ANS TAGESLICHT"
 
 
+def test_sub_screen_text_in_today_s_spelling():
+    """The live classic theme's sub title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.sub.title") == "Subway-Station (U-Bahn)"
+    assert _get(data, "locations.sub.entry_prompt") == (
+        "Du bist in einem großen U-Bahnhof. 'Ne Menge Leute treiben sich hier 'rum..."
+    )
+    assert _get(data, "locations.sub.menu.platform") == (
+        "Leuten auf dem Bahnsteig die Taschen erleichtern"
+    )
+    assert _get(data, "locations.sub.menu.train") == "In der Bahn die Tascheninhalte prüfen"
+    assert _get(data, "locations.sub.menu.leave") == "Zurück ans Tageslicht"
+
+
 def test_the_sub_doors_open_the_sub_shell_one_per_tile():
     """Cells 149, 167 and 511 are sub's doors (``la=8``, ``ln`` 1..3)."""
     city = yaml.safe_load(_CITY.read_text(encoding="utf-8"))

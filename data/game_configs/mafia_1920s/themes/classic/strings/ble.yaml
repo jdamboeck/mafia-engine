@@ -9,12 +9,12 @@ locations:
   ble:
     # :3025 the title from the location's disk file, printed in reverse video
     # above the description (verbatim from location-dialogue.yaml).
-    title: "BLUETEN-EDDIE"
-    entry_prompt: "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
+    title: "Blüten-Eddie"
+    entry_prompt: "'Na, mein Junge, wo drückt der Schuh? Kann ich dir helfen?'"
     menu:
-      passport: "'YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'"
-      counterfeit: "'DRUCKST DU NOCH BLUETEN? WIE WAERS,    WENN DU MIR EIN PAAR VERKAUFST?'"
-      leave: "'DANKE, EDDIE, VIELLEICHT BEIM NAECHS-  TEN MAL. BYE!'"
+      passport: "'Yeah, kannst du mir einen neuen Pass machen? Er muss gut sein, klar?'"
+      counterfeit: "'Druckst du noch Blüten? Wie wärs, wenn du mir ein paar verkaufst?'"
+      leave: "'Danke, Eddie, vielleicht beim nächsten Mal. Bye!'"
 
     # --- passport (22010-22020) ---
     passport_for_one: "gut, mein sohn. fuer einen pass"        # :22010-22011 `gut, mein sohn.`

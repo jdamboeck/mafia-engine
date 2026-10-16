@@ -358,7 +358,7 @@ class TestQuitVocabulary:
         )
         # "" passes sph's picture splash; the menu then reads the quit (or EOF).
         output, _ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + [""] + quit_keys)
-        assert "MAU-MAU" in output, "the walk never reached sph's location menu"
+        assert "Mau-Mau" in output, "the walk never reached sph's location menu"
         # Nothing between the menu and the quit: no option was picked.
         assert "waehle, mein freund" not in output
         assert output.endswith("bye.\n" + CURSOR_SHOW)
