@@ -43,8 +43,12 @@ Rules (KTD-9)
   elides with ``...`` must have each piece, in order, within one line.
 - **Allow-list.** :data:`ALLOWED` names the (file, fragment) pairs that paraphrase the
   line by design, each with its reason. An entry nothing uses any more fails the check.
-- **Source.** ``../research/src/decompiled_basic/mf-prg.bas``. When it is absent (CI)
-  the real-tree test is skipped with a reason naming the path, never passed.
+- **Source.** The vendored copy of ``../research/src/decompiled_basic/mf-prg.bas``
+  (:data:`tests.helpers.MF_PRG`), so CI runs the real-tree test too. Were it absent, the
+  test would skip with a reason naming the path, never pass, and
+  :mod:`tests.research_guard` would fail the run.
+- **Not scanned.** The vendored research (:data:`tests.helpers.VENDORED_RESEARCH`) is
+  the source, not the port: its line numbers are the original's, not citations.
 
 The same scan yields every citation, quoted or not (:func:`citations_in_file`), which
 ``tests/test_coverage_ledger.py`` matches against the source's line blocks.
@@ -67,7 +71,7 @@ from types import ModuleType, SimpleNamespace
 import pytest
 import yaml
 
-from tests.helpers import load_source, parse_source
+from tests.helpers import VENDORED_RESEARCH, load_source, parse_source
 
 _REPO = Path(__file__).resolve().parents[1]
 
@@ -490,10 +494,12 @@ def check_quotes(
 
 
 def tree_files(repo: Path = _REPO) -> Iterator[Path]:
+    vendored = repo / VENDORED_RESEARCH.relative_to(_REPO)
     for root in ROOTS:
         for path in sorted((repo / root).rglob("*")):
             if path.suffix in _SUFFIXES and path.is_file() and "__pycache__" not in path.parts:
-                yield path
+                if not path.is_relative_to(vendored):
+                    yield path
 
 
 #: A config's house-rules catalogue: its entries cite as data, not prose.
@@ -885,6 +891,7 @@ def test_every_citation_is_found_quoted_or_not() -> None:
 
 
 def test_skips_with_a_reason_when_the_source_is_absent(tmp_path: Path) -> None:
+    """An explicit absent path skips, naming it; the vendored default is never absent."""
     absent = tmp_path / "mf-prg.bas"
     with pytest.raises(pytest.skip.Exception, match=re.escape(str(absent))):
         load_source(absent)

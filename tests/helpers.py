@@ -58,11 +58,49 @@ from engine.persistence import state_from_dict
 from engine.state import CombatState, Fighter, json_safe, tuple_replace
 
 
-#: The decompiled BASIC listing in the sibling research tree. It is absent in CI, so
-#: every test that reads it goes through :func:`load_source`, which skips with a reason.
-MF_PRG = (
-    Path(__file__).resolve().parents[2] / "research" / "src" / "decompiled_basic" / "mf-prg.bas"
+#: The reason every research-dependent skip starts with; :mod:`tests.research_guard`
+#: fails the run on any skip that carries it.
+RESEARCH_MISSING = "this test needs the research tree"
+
+#: The vendored copy of the research files the tests read, at their ``../research/``
+#: paths. It is what every test reads, locally and in CI, so both read the same bytes
+#: (KTD-11); ``../research/`` stays the authority, and ``tests/test_research_fixtures.py``
+#: fails when the copy drifts from it.
+VENDORED_RESEARCH = Path(__file__).resolve().parent / "fixtures" / "research"
+
+#: The sibling research tree the vendored copy is checked against, when it is present.
+SIBLING_RESEARCH = Path(__file__).resolve().parents[2] / "research"
+
+
+def research_file(relative: str) -> Path:
+    """The vendored copy of the research file at ``relative`` (a ``../research/`` path).
+
+    The one resolver every research reader goes through. It names the vendored path
+    whether or not the file is there: a reader that finds it missing skips with
+    :data:`RESEARCH_MISSING`, which :mod:`tests.research_guard` turns into a red run.
+    """
+    return VENDORED_RESEARCH / relative
+
+
+#: The decompiled BASIC listing. Every test that reads it goes through
+#: :func:`load_source`.
+MF_PRG = research_file("src/decompiled_basic/mf-prg.bas")
+
+#: The research's location dialogue (titles, prompts and lines, by location).
+LOCATION_DIALOGUE = research_file("research-data/pass-2/location-dialogue.yaml")
+
+#: Every vendored research file, as its ``../research/`` path.
+VENDORED_FILES = (
+    "src/decompiled_basic/mf-prg.bas",
+    "research-data/pass-2/location-dialogue.yaml",
 )
+
+
+def read_research(path: Path) -> str:
+    """The text of a research file; skips the calling test, with its reason, when absent."""
+    if not path.exists():
+        pytest.skip(f"{RESEARCH_MISSING}: {path} is not present")
+    return path.read_text(encoding="utf-8")
 
 
 def parse_source(text: str) -> dict[int, str]:
@@ -80,10 +118,15 @@ def _parsed_source(path: Path) -> Mapping[int, str]:
     return MappingProxyType(parse_source(path.read_text(encoding="utf-8")))
 
 
-def load_source(path: Path = MF_PRG) -> Mapping[int, str]:
-    """The parsed listing, read once per path; skips the calling test when it is absent."""
+def load_source(path: Path | None = None) -> Mapping[int, str]:
+    """The parsed listing, read once per path; skips the calling test when it is absent.
+
+    ``path`` defaults to :data:`MF_PRG` as it is when called, so a test that patches
+    ``MF_PRG`` reaches the callers that pass no path too.
+    """
+    path = MF_PRG if path is None else path
     if not path.exists():
-        pytest.skip(f"this test needs the research tree: {path} is not present")
+        pytest.skip(f"{RESEARCH_MISSING}: {path} is not present")
     return _parsed_source(path)
 
 

@@ -10,6 +10,9 @@ Mafia handles the test files hold are checked against it. A test that loads anot
 config and leaves it live would make every later test's Mafia handle stale, so the
 autouse :func:`_mafia_stays_live` puts the registries back and loads Mafia again
 after such a test.
+
+:func:`pytest_configure` registers :mod:`tests.research_guard`, which fails the run when
+any test skips for want of the research tree (R24, AE7).
 """
 
 from __future__ import annotations
@@ -25,6 +28,7 @@ from engine.config_owner import ConfigOwner, active_owner
 from engine.effects import CONSEQUENCES, EFFECTS, STAT_NAMES
 from engine.locations import HANDLERS
 from engine.substates import SUBSTATES
+from tests import research_guard
 
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 _MAFIA = ConfigOwner.for_dir(CONFIG_DIR)
@@ -35,6 +39,10 @@ _REGISTRIES: tuple[dict[str, Any], ...] = (
     SUBSTATES,
     GUARD_VARIABLES,
 )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    research_guard.pytest_configure(config)
 
 
 @pytest.fixture(autouse=True)

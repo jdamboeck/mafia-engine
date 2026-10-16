@@ -20,9 +20,10 @@ Rules (KTD-15)
 - **Checks.** A ``ported`` block that no code cites fails, as does an ``exception`` that
   code does cite, and a ledger whose blocks are not the source's (a new jump target
   splits a block: the new block is missing from the ledger). Only that last check and
-  the ``player_facing`` flags need ``../research/``; without it, they skip with a reason
-  naming the path, and the others still run, as the ledger commits its boundaries and
-  flags.
+  the ``player_facing`` flags need the listing, read from the vendored copy
+  (:data:`tests.helpers.MF_PRG`); without it, they skip with a reason naming the path
+  (and :mod:`tests.research_guard` fails the run), and the others still run, as the
+  ledger commits its boundaries and flags.
 - **Narrow.** A citation spanning many blocks (a whole location's ``:12000-12335``
   header) would keep every block in it looking ported. So a ported block also needs a
   citation that spans at most :data:`NARROW` blocks, unless :data:`BROAD_ONLY` names it
@@ -30,7 +31,7 @@ Rules (KTD-15)
 - **Player-facing.** A block whose code (outside strings and ``rem``) holds ``print``,
   ``input`` or ``get`` (not the disk's ``input#1``) or the key wait ``wait198`` reaches
   the player; each block commits it as ``player_facing``, checked against the source
-  (with ``../research/`` only, like the boundaries). Game logic citing such a block shows
+  (from the vendored listing, like the boundaries). Game logic citing such a block shows
   the port does its logic, not that the player sees its screen, so a ported
   player-facing block also needs a citation where its text is shown, a theme's
   ``strings/*.yaml`` or ``clients/`` (:func:`shows_text`), that spans at most
@@ -681,7 +682,7 @@ def test_every_ported_block_has_a_narrow_citation() -> None:
 
 
 def test_the_ledger_blocks_are_the_sources() -> None:
-    source = load_source(helpers.MF_PRG)  # skips, naming the path, without ../research/
+    source = load_source()  # the vendored listing; skips, naming the path, if it is gone
     errors = check_boundaries(_ledger(), source)
     assert errors == [], "\n".join(errors)
 
@@ -692,14 +693,19 @@ def test_every_player_facing_block_is_shown_or_deferred() -> None:
 
 
 def test_the_player_facing_flags_are_the_sources() -> None:
-    source = load_source(helpers.MF_PRG)  # skips, naming the path, without ../research/
+    source = load_source()  # the vendored listing; skips, naming the path, if it is gone
     errors = check_player_facing_flags(_ledger(), source)
     assert errors == [], "\n".join(errors)
 
 
-def test_without_the_research_tree_only_the_source_checks_skip(
+def test_without_the_listing_only_the_source_checks_skip(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """With ``MF_PRG`` patched to an absent path, the two source checks skip naming it.
+
+    The source checks call ``load_source()`` with no path, so this also shows its default
+    is read when called, not when defined.
+    """
     absent = tmp_path / "research" / "mf-prg.bas"
     monkeypatch.setattr(helpers, "MF_PRG", absent)
     with pytest.raises(pytest.skip.Exception, match=re.escape(str(absent))):

@@ -1,0 +1,1826 @@
+location_dialogue:
+  provenance: interpreted
+  note: 'Per-location complete script: entry prompt + each menu option + the verbatim response strings
+    its handler prints (walked from the handler entry through the control-flow graph until return to the
+    main loop). Every string cites its extracted source. The recreation source of truth for location interactions.'
+  coverage:
+    locations: 12
+    menu_options_total: 44
+    options_with_handler: 31
+    handler_options_with_responses: 29
+  locations:
+  - key: slw
+    title: SCHLUPFWINKEL (MOTEL, MIETSKASERNE)
+    file: src/slw
+    entry_prompt: '''AH, EIN KUNDE! WAS WUENSCHT DER HERR?'''
+    options:
+    - index: 1
+      option_text: '''EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'''
+      outcome:
+        type: handler
+        line: 10010
+      handler_line: 10010
+      responses:
+      - raw: '''gut. pro monat kostet das'
+        text: '''gut. pro monat kostet das'
+        source: src/decompiled_basic/mf-prg.bas:10020
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:10020
+      - raw: '{down}miete.'''
+        text: miete.'
+        source: src/decompiled_basic/mf-prg.bas:10020
+      - raw: '{down}wieviele monate willst du mieten'
+        text: wieviele monate willst du mieten
+        source: src/decompiled_basic/mf-prg.bas:10025
+      - raw: '{down}''guten tag, der herr!'''
+        text: '''guten tag, der herr!'''
+        source: src/decompiled_basic/mf-prg.bas:10045
+      responses_resolved: true
+      delegates_to:
+      - 1125
+    - index: 2
+      option_text: '''ICH MOECHTE MEINE MIETE BEZAHLEN!'''
+      outcome:
+        type: handler
+        line: 10100
+      handler_line: 10100
+      responses:
+      - raw: '''gut. pro monat kostet das'
+        text: '''gut. pro monat kostet das'
+        source: src/decompiled_basic/mf-prg.bas:10020
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:10020
+      - raw: '{down}miete.'''
+        text: miete.'
+        source: src/decompiled_basic/mf-prg.bas:10020
+      - raw: '{down}wieviele monate willst du mieten'
+        text: wieviele monate willst du mieten
+        source: src/decompiled_basic/mf-prg.bas:10025
+      - raw: '{down}''guten tag, der herr!'''
+        text: '''guten tag, der herr!'''
+        source: src/decompiled_basic/mf-prg.bas:10045
+      responses_resolved: true
+      delegates_to:
+      - 1125
+    - index: 3
+      option_text: '''ICH WUENSCHE NICHTS. SIE VIELLEICHT?'''
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: pub
+    title: PUB/BAR (EIN ZWIELICHTIGES LOKAL)
+    file: src/pub
+    entry_prompt: '''EH, AMIGO, WILLST DU ''NE MILCH? ODER   SUCHST DU WAS ANDERES?'''
+    options:
+    - index: 1
+      option_text: '''NEIN, KEINE MILCH! HAST DU WAS         ALKOHOLISCHES DA?'''
+      outcome:
+        type: handler
+        line: 12010
+      handler_line: 12010
+      responses:
+      - raw: '''was? alkohol? ist doch verboten!'''
+        text: '''was? alkohol? ist doch verboten!'''
+        source: src/decompiled_basic/mf-prg.bas:12016
+      - raw: '''ich habe'
+        text: '''ich habe'
+        source: src/decompiled_basic/mf-prg.bas:12021
+      - raw: faesser fuer
+        text: faesser fuer
+        source: src/decompiled_basic/mf-prg.bas:12022
+      - raw: $ pro fass.'
+        text: $ pro fass.'
+        source: src/decompiled_basic/mf-prg.bas:12022
+      - raw: '{down}wieviele willst du (0-'
+        text: wieviele willst du (0-
+        source: src/decompiled_basic/mf-prg.bas:12027
+      - raw: )
+        text: )
+        source: src/decompiled_basic/mf-prg.bas:12027
+      - raw: '''nein. vielleicht hast du aber was fuer'
+        text: '''nein. vielleicht hast du aber was fuer'
+        source: src/decompiled_basic/mf-prg.bas:12055
+      - raw: '{down}mich? ich zahle'
+        text: mich? ich zahle
+        source: src/decompiled_basic/mf-prg.bas:12056
+      - raw: $ pro fass!'
+        text: $ pro fass!'
+        source: src/decompiled_basic/mf-prg.bas:12056
+      - raw: '{down}wieviel willst du abgeben (0-'
+        text: wieviel willst du abgeben (0-
+        source: src/decompiled_basic/mf-prg.bas:12060
+      - raw: )
+        text: )
+        source: src/decompiled_basic/mf-prg.bas:12060
+      - raw: '{down}''besorg noch mehr{$a0}(gier)!'''
+        text: '''besorg noch mehr(gier)!'''
+        source: src/decompiled_basic/mf-prg.bas:12070
+      responses_resolved: true
+      delegates_to:
+      - 1125
+      - 1160
+    - index: 2
+      option_text: '''ICH SUCHE EIN PAAR JUNGS FUER MEINE    GANG. MAL SEHEN, WER DA IST...'''
+      outcome:
+        type: handler
+        line: 12100
+      handler_line: 12100
+      responses:
+      - raw: '''was? alkohol? ist doch verboten!'''
+        text: '''was? alkohol? ist doch verboten!'''
+        source: src/decompiled_basic/mf-prg.bas:12016
+      - raw: '''ich habe'
+        text: '''ich habe'
+        source: src/decompiled_basic/mf-prg.bas:12021
+      - raw: faesser fuer
+        text: faesser fuer
+        source: src/decompiled_basic/mf-prg.bas:12022
+      - raw: $ pro fass.'
+        text: $ pro fass.'
+        source: src/decompiled_basic/mf-prg.bas:12022
+      - raw: '{down}wieviele willst du (0-'
+        text: wieviele willst du (0-
+        source: src/decompiled_basic/mf-prg.bas:12027
+      - raw: )
+        text: )
+        source: src/decompiled_basic/mf-prg.bas:12027
+      - raw: '''nein. vielleicht hast du aber was fuer'
+        text: '''nein. vielleicht hast du aber was fuer'
+        source: src/decompiled_basic/mf-prg.bas:12055
+      - raw: '{down}mich? ich zahle'
+        text: mich? ich zahle
+        source: src/decompiled_basic/mf-prg.bas:12056
+      - raw: $ pro fass!'
+        text: $ pro fass!'
+        source: src/decompiled_basic/mf-prg.bas:12056
+      - raw: '{down}wieviel willst du abgeben (0-'
+        text: wieviel willst du abgeben (0-
+        source: src/decompiled_basic/mf-prg.bas:12060
+      - raw: )
+        text: )
+        source: src/decompiled_basic/mf-prg.bas:12060
+      - raw: '{down}''besorg noch mehr{$a0}(gier)!'''
+        text: '''besorg noch mehr(gier)!'''
+        source: src/decompiled_basic/mf-prg.bas:12070
+      - raw: 'als '
+        text: als
+        source: src/decompiled_basic/mf-prg.bas:12101
+      - raw: ' kannst du noch'
+        text: kannst du noch
+        source: src/decompiled_basic/mf-prg.bas:12101
+      - raw: '{down}keine eigenen leute haben!'
+        text: keine eigenen leute haben!
+        source: src/decompiled_basic/mf-prg.bas:12102
+      - raw: du brauchst eine unterkunft fuer die    {down}gangster!
+        text: du brauchst eine unterkunft fuer die    gangster!
+        source: src/decompiled_basic/mf-prg.bas:12104
+      - raw: '{clr}{down}ein gangster kommt, um mit dir zu    {down}sprechen...'
+        text: ein gangster kommt, um mit dir zu    sprechen...
+        source: src/decompiled_basic/mf-prg.bas:12116
+      - raw: '{clr}{down}eine dame scheint sich fuer deine'
+        text: eine dame scheint sich fuer deine
+        source: src/decompiled_basic/mf-prg.bas:12120
+      - raw: '{down}gang zu interessieren...'
+        text: gang zu interessieren...
+        source: src/decompiled_basic/mf-prg.bas:12121
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:12131
+      - raw: ' wird '
+        text: wird
+        source: src/decompiled_basic/mf-prg.bas:12131
+      - raw: ' genannt.'
+        text: genannt.
+        source: src/decompiled_basic/mf-prg.bas:12131
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:12131
+      - raw: .
+        text: .
+        source: src/decompiled_basic/mf-prg.bas:12131
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:12135
+      - raw: ' verlangt'
+        text: verlangt
+        source: src/decompiled_basic/mf-prg.bas:12135
+      - raw: $ vorschuss, wenn
+        text: $ vorschuss, wenn
+        source: src/decompiled_basic/mf-prg.bas:12135
+      - raw: ' sich dir anschliessen soll.'
+        text: sich dir anschliessen soll.
+        source: src/decompiled_basic/mf-prg.bas:12136
+      - raw: '{down}nun hast du'
+        text: nun hast du
+        source: src/decompiled_basic/mf-prg.bas:12170
+      - raw: gangster!
+        text: gangster!
+        source: src/decompiled_basic/mf-prg.bas:12170
+      - raw: '''du bist noch zu unerfahren!'''
+        text: '''du bist noch zu unerfahren!'''
+        source: src/decompiled_basic/mf-prg.bas:12205
+      - raw: '{down}''ich habe etwas gehoert...aber das'
+        text: '''ich habe etwas gehoert...aber das'
+        source: src/decompiled_basic/mf-prg.bas:12215
+      - raw: '{down}kostet dich'
+        text: kostet dich
+        source: src/decompiled_basic/mf-prg.bas:12216
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:12216
+      - raw: '{clr}{down}''im postzug soll demnaechst eine grosse'
+        text: '''im postzug soll demnaechst eine grosse'
+        source: src/decompiled_basic/mf-prg.bas:12230
+      - raw: '{down}ladung diamanten transportiert werden!'''
+        text: ladung diamanten transportiert werden!'
+        source: src/decompiled_basic/mf-prg.bas:12231
+      - raw: '{clr}{down}''die bank an der hauptstrasse erhaelt'
+        text: '''die bank an der hauptstrasse erhaelt'
+        source: src/decompiled_basic/mf-prg.bas:12235
+      - raw: '{down}in naechster zeit 500 kg goldbarren!'''
+        text: in naechster zeit 500 kg goldbarren!'
+        source: src/decompiled_basic/mf-prg.bas:12236
+      - raw: '{clr}{down}''ein geldtransport wird durch unsere'
+        text: '''ein geldtransport wird durch unsere'
+        source: src/decompiled_basic/mf-prg.bas:12240
+      - raw: '{down}stadt fahren. es ist ein blauer wagen'
+        text: stadt fahren. es ist ein blauer wagen
+        source: src/decompiled_basic/mf-prg.bas:12241
+      - raw: '{down}wagen, du wirst ihn sehen!'''
+        text: wagen, du wirst ihn sehen!'
+        source: src/decompiled_basic/mf-prg.bas:12242
+      - raw: '{clr}{down}''mit 5000 $ kannst du dich an einem'
+        text: '''mit 5000 $ kannst du dich an einem'
+        source: src/decompiled_basic/mf-prg.bas:12245
+      - raw: '{down}grossen waffenschmuggel beteiligen!'''
+        text: grossen waffenschmuggel beteiligen!'
+        source: src/decompiled_basic/mf-prg.bas:12246
+      - raw: '{down}''du wirst es nicht bereuen...'''
+        text: '''du wirst es nicht bereuen...'''
+        source: src/decompiled_basic/mf-prg.bas:12249
+      - raw: '{clr}{down}''psst...ich habe da einen sehr wichtigen'
+        text: '''psst...ich habe da einen sehr wichtigen'
+        source: src/decompiled_basic/mf-prg.bas:12250
+      - raw: auftrag! der buergermeister soll umge-
+        text: auftrag! der buergermeister soll umge-
+        source: src/decompiled_basic/mf-prg.bas:12251
+      - raw: '{down}legt werden, er hat aber leibwaechter!'''
+        text: legt werden, er hat aber leibwaechter!'
+        source: src/decompiled_basic/mf-prg.bas:12252
+      - raw: als '
+        text: als '
+        source: src/decompiled_basic/mf-prg.bas:12301
+      - raw: ''' findest du was'
+        text: ''' findest du was'
+        source: src/decompiled_basic/mf-prg.bas:12301
+      - raw: '{down}besseres!'
+        text: besseres!
+        source: src/decompiled_basic/mf-prg.bas:12301
+      - raw: der inhaber der bahnhofskneipe will
+        text: der inhaber der bahnhofskneipe will
+        source: src/decompiled_basic/mf-prg.bas:12306
+      - raw: '{down}dich fuer 3 monate als rausschmeisser'
+        text: dich fuer 3 monate als rausschmeisser
+        source: src/decompiled_basic/mf-prg.bas:12307
+      - raw: '{down}anstellen.'
+        text: anstellen.
+        source: src/decompiled_basic/mf-prg.bas:12308
+      - raw: du kannst 2 monate als croupier in geor-
+        text: du kannst 2 monate als croupier in geor-
+        source: src/decompiled_basic/mf-prg.bas:12310
+      - raw: ges spielhoelle arbeiten.
+        text: ges spielhoelle arbeiten.
+        source: src/decompiled_basic/mf-prg.bas:12311
+      - raw: das 'le roi'-hotel sucht einen tuer-
+        text: das 'le roi'-hotel sucht einen tuer-
+        source: src/decompiled_basic/mf-prg.bas:12315
+      - raw: '{down}steher fuer 2 monate.'
+        text: steher fuer 2 monate.
+        source: src/decompiled_basic/mf-prg.bas:12316
+      - raw: du erhaelst das foto eines mannes, der
+        text: du erhaelst das foto eines mannes, der
+        source: src/decompiled_basic/mf-prg.bas:12320
+      - raw: '{down}im ''red house'' abgestiegen ist. du'
+        text: im 'red house' abgestiegen ist. du
+        source: src/decompiled_basic/mf-prg.bas:12321
+      - raw: '{down}sollst ihn umlegen!'
+        text: sollst ihn umlegen!
+        source: src/decompiled_basic/mf-prg.bas:12321
+      - raw: '{down}du bekommst dafuer'
+        text: du bekommst dafuer
+        source: src/decompiled_basic/mf-prg.bas:12330
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:12330
+      - raw: '{down}du hast den job!'
+        text: du hast den job!
+        source: src/decompiled_basic/mf-prg.bas:12335
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+      - 1160
+    - index: 3
+      option_text: '''HAST DU VIELLEICHT ''N GUTEN TIP FUER   ''NEN UEBERFALL ODER SOWAS?'''
+      outcome:
+        type: handler
+        line: 12200
+      handler_line: 12200
+      responses:
+      - raw: '''du bist noch zu unerfahren!'''
+        text: '''du bist noch zu unerfahren!'''
+        source: src/decompiled_basic/mf-prg.bas:12205
+      - raw: '{down}''ich habe etwas gehoert...aber das'
+        text: '''ich habe etwas gehoert...aber das'
+        source: src/decompiled_basic/mf-prg.bas:12215
+      - raw: '{down}kostet dich'
+        text: kostet dich
+        source: src/decompiled_basic/mf-prg.bas:12216
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:12216
+      - raw: '{clr}{down}''im postzug soll demnaechst eine grosse'
+        text: '''im postzug soll demnaechst eine grosse'
+        source: src/decompiled_basic/mf-prg.bas:12230
+      - raw: '{down}ladung diamanten transportiert werden!'''
+        text: ladung diamanten transportiert werden!'
+        source: src/decompiled_basic/mf-prg.bas:12231
+      - raw: '{clr}{down}''die bank an der hauptstrasse erhaelt'
+        text: '''die bank an der hauptstrasse erhaelt'
+        source: src/decompiled_basic/mf-prg.bas:12235
+      - raw: '{down}in naechster zeit 500 kg goldbarren!'''
+        text: in naechster zeit 500 kg goldbarren!'
+        source: src/decompiled_basic/mf-prg.bas:12236
+      - raw: '{clr}{down}''ein geldtransport wird durch unsere'
+        text: '''ein geldtransport wird durch unsere'
+        source: src/decompiled_basic/mf-prg.bas:12240
+      - raw: '{down}stadt fahren. es ist ein blauer wagen'
+        text: stadt fahren. es ist ein blauer wagen
+        source: src/decompiled_basic/mf-prg.bas:12241
+      - raw: '{down}wagen, du wirst ihn sehen!'''
+        text: wagen, du wirst ihn sehen!'
+        source: src/decompiled_basic/mf-prg.bas:12242
+      - raw: '{clr}{down}''mit 5000 $ kannst du dich an einem'
+        text: '''mit 5000 $ kannst du dich an einem'
+        source: src/decompiled_basic/mf-prg.bas:12245
+      - raw: '{down}grossen waffenschmuggel beteiligen!'''
+        text: grossen waffenschmuggel beteiligen!'
+        source: src/decompiled_basic/mf-prg.bas:12246
+      - raw: '{down}''du wirst es nicht bereuen...'''
+        text: '''du wirst es nicht bereuen...'''
+        source: src/decompiled_basic/mf-prg.bas:12249
+      - raw: '{clr}{down}''psst...ich habe da einen sehr wichtigen'
+        text: '''psst...ich habe da einen sehr wichtigen'
+        source: src/decompiled_basic/mf-prg.bas:12250
+      - raw: auftrag! der buergermeister soll umge-
+        text: auftrag! der buergermeister soll umge-
+        source: src/decompiled_basic/mf-prg.bas:12251
+      - raw: '{down}legt werden, er hat aber leibwaechter!'''
+        text: legt werden, er hat aber leibwaechter!'
+        source: src/decompiled_basic/mf-prg.bas:12252
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+    - index: 4
+      option_text: '''ICH BRAUCHE DRINGEND EINEN JOB, EINEN  AUFTRAG! DU VERSTEHST SCHON...'''
+      outcome:
+        type: handler
+        line: 12300
+      handler_line: 12300
+      responses:
+      - raw: als '
+        text: als '
+        source: src/decompiled_basic/mf-prg.bas:12301
+      - raw: ''' findest du was'
+        text: ''' findest du was'
+        source: src/decompiled_basic/mf-prg.bas:12301
+      - raw: '{down}besseres!'
+        text: besseres!
+        source: src/decompiled_basic/mf-prg.bas:12301
+      - raw: der inhaber der bahnhofskneipe will
+        text: der inhaber der bahnhofskneipe will
+        source: src/decompiled_basic/mf-prg.bas:12306
+      - raw: '{down}dich fuer 3 monate als rausschmeisser'
+        text: dich fuer 3 monate als rausschmeisser
+        source: src/decompiled_basic/mf-prg.bas:12307
+      - raw: '{down}anstellen.'
+        text: anstellen.
+        source: src/decompiled_basic/mf-prg.bas:12308
+      - raw: du kannst 2 monate als croupier in geor-
+        text: du kannst 2 monate als croupier in geor-
+        source: src/decompiled_basic/mf-prg.bas:12310
+      - raw: ges spielhoelle arbeiten.
+        text: ges spielhoelle arbeiten.
+        source: src/decompiled_basic/mf-prg.bas:12311
+      - raw: das 'le roi'-hotel sucht einen tuer-
+        text: das 'le roi'-hotel sucht einen tuer-
+        source: src/decompiled_basic/mf-prg.bas:12315
+      - raw: '{down}steher fuer 2 monate.'
+        text: steher fuer 2 monate.
+        source: src/decompiled_basic/mf-prg.bas:12316
+      - raw: du erhaelst das foto eines mannes, der
+        text: du erhaelst das foto eines mannes, der
+        source: src/decompiled_basic/mf-prg.bas:12320
+      - raw: '{down}im ''red house'' abgestiegen ist. du'
+        text: im 'red house' abgestiegen ist. du
+        source: src/decompiled_basic/mf-prg.bas:12321
+      - raw: '{down}sollst ihn umlegen!'
+        text: sollst ihn umlegen!
+        source: src/decompiled_basic/mf-prg.bas:12321
+      - raw: '{down}du bekommst dafuer'
+        text: du bekommst dafuer
+        source: src/decompiled_basic/mf-prg.bas:12330
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:12330
+      - raw: '{down}du hast den job!'
+        text: du hast den job!
+        source: src/decompiled_basic/mf-prg.bas:12335
+      responses_resolved: true
+      delegates_to:
+      - 1110
+    - index: 5
+      option_text: '''SCHEINT NICHT DER RICHTIGE LADEN ZU    SEIN. ICH VERSCHWINDE WIEDER...'''
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: waf
+    title: WAFFENLADEN
+    file: src/waf
+    entry_prompt: '''TAG, MISTER. EIN PAAR GUTE HANDBOELLER GEFAELLIG? SIND IM HINTERZIMMER...'''
+    options:
+    - index: 1
+      option_text: '''YEAH, MAL SEHEN, WAS DA IST.'''
+      outcome:
+        type: handler
+        line: 13010
+      handler_line: 13010
+      responses:
+      - raw: '{clr}{down}ok, wir haben folgendes:'
+        text: 'ok, wir haben folgendes:'
+        source: src/decompiled_basic/mf-prg.bas:13010
+      - raw: ' - '
+        text: '-'
+        source: src/decompiled_basic/mf-prg.bas:13015
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:13015
+      - raw: '{down}ihre wahl:'
+        text: 'ihre wahl:'
+        source: src/decompiled_basic/mf-prg.bas:13020
+      - raw: '{clr}{down}fuer welchen gangster:'
+        text: 'fuer welchen gangster:'
+        source: src/decompiled_basic/mf-prg.bas:13035
+      - raw: '{clr}{down}der haendler bietet dir'
+        text: der haendler bietet dir
+        source: src/decompiled_basic/mf-prg.bas:13070
+      - raw: $ fuer
+        text: $ fuer
+        source: src/decompiled_basic/mf-prg.bas:13070
+      - raw: '{down}deine alte waffe. '
+        text: deine alte waffe.
+        source: src/decompiled_basic/mf-prg.bas:13071
+      - raw: '{down}du hast nun die neue waffe!'
+        text: du hast nun die neue waffe!
+        source: src/decompiled_basic/mf-prg.bas:13080
+      - raw: '...brandheiss! eine ladung army-hand-'
+        text: '...brandheiss! eine ladung army-hand-'
+        source: src/decompiled_basic/mf-prg.bas:13090
+      - raw: '{down}granaten ist gerade eingetroffen!'
+        text: granaten ist gerade eingetroffen!
+        source: src/decompiled_basic/mf-prg.bas:13091
+      - raw: 'wen soll ich trainieren:'
+        text: 'wen soll ich trainieren:'
+        source: src/decompiled_basic/mf-prg.bas:13101
+      - raw: '{down}(s)chiesstand oder (t)rainingscamp ?'
+        text: (s)chiesstand oder (t)rainingscamp ?
+        source: src/decompiled_basic/mf-prg.bas:13105
+      - raw: '{down}das kostet dich'
+        text: das kostet dich
+        source: src/decompiled_basic/mf-prg.bas:13110
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:13110
+      - raw: '{clr}{down}''dein gangster uebt an meinem schiess-'
+        text: '''dein gangster uebt an meinem schiess-'
+        source: src/decompiled_basic/mf-prg.bas:13120
+      - raw: '{down}stand...'''
+        text: stand...'
+        source: src/decompiled_basic/mf-prg.bas:13121
+      - raw: '{down}das kostet dich'
+        text: das kostet dich
+        source: src/decompiled_basic/mf-prg.bas:13150
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:13150
+      - raw: '{clr}{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:13165
+      - raw: ' ist im trainingscamp...'
+        text: ist im trainingscamp...
+        source: src/decompiled_basic/mf-prg.bas:13165
+      - raw: '{down}...da ist er wieder!'
+        text: '...da ist er wieder!'
+        source: src/decompiled_basic/mf-prg.bas:13175
+      - raw: '{clr}{down}{rght}{rvon}{blk} waffe: '
+        text: 'waffe:'
+        source: src/decompiled_basic/mf-prg.bas:13500
+      - raw: ' {gry3}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:13500
+      - raw: ' {rvon}      '
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:13500
+      - raw: '{home}{down}{down}{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:13510
+      - raw: '{blk}preis:'
+        text: 'preis:'
+        source: src/decompiled_basic/mf-prg.bas:13510
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:13510
+      - raw: '{down}treffgenauigkeit: '
+        text: 'treffgenauigkeit:'
+        source: src/decompiled_basic/mf-prg.bas:13515
+      - raw: '{down}wirkung: '
+        text: 'wirkung:'
+        source: src/decompiled_basic/mf-prg.bas:13520
+      - raw: '{down}{down} taste druecken!'
+        text: taste druecken!
+        source: src/decompiled_basic/mf-prg.bas:13525
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+      - 1130
+      - 1160
+      - 1365
+      - 14000
+    - index: 2
+      option_text: '''KANNST DU MEINE JUNGS IM SCHIESSEN     AUSBILDEN? SIND EINFACH ZU SCHLAPP!'''
+      outcome:
+        type: handler
+        line: 13100
+      handler_line: 13100
+      responses:
+      - raw: 'wen soll ich trainieren:'
+        text: 'wen soll ich trainieren:'
+        source: src/decompiled_basic/mf-prg.bas:13101
+      - raw: '{down}(s)chiesstand oder (t)rainingscamp ?'
+        text: (s)chiesstand oder (t)rainingscamp ?
+        source: src/decompiled_basic/mf-prg.bas:13105
+      - raw: '{down}das kostet dich'
+        text: das kostet dich
+        source: src/decompiled_basic/mf-prg.bas:13110
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:13110
+      - raw: '{clr}{down}''dein gangster uebt an meinem schiess-'
+        text: '''dein gangster uebt an meinem schiess-'
+        source: src/decompiled_basic/mf-prg.bas:13120
+      - raw: '{down}stand...'''
+        text: stand...'
+        source: src/decompiled_basic/mf-prg.bas:13121
+      - raw: '{down}das kostet dich'
+        text: das kostet dich
+        source: src/decompiled_basic/mf-prg.bas:13150
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:13150
+      - raw: '{clr}{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:13165
+      - raw: ' ist im trainingscamp...'
+        text: ist im trainingscamp...
+        source: src/decompiled_basic/mf-prg.bas:13165
+      - raw: '{down}...da ist er wieder!'
+        text: '...da ist er wieder!'
+        source: src/decompiled_basic/mf-prg.bas:13175
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+      - 1130
+      - 1160
+      - 1365
+    - index: 3
+      option_text: '''DANKE, DANKE! KEIN BEDARF. BYE!'''
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: aut
+    title: AUTOMOBIL-HAENDLER
+    file: src/aut
+    entry_prompt: EIN UMFANGREICHES SORTIMENT DER         FLOTTESTEN SCHLITTEN.
+    options:
+    - index: 1
+      option_text: WAGEN KAUFEN
+      outcome:
+        type: handler
+        line: 14006
+      handler_line: 14006
+      responses:
+      - raw: '{clr}{down}der verkaeufer zeigt dir eine auswahl'
+        text: der verkaeufer zeigt dir eine auswahl
+        source: src/decompiled_basic/mf-prg.bas:14006
+      - raw: '{down}der modelle. zum kauf die entsprechende'
+        text: der modelle. zum kauf die entsprechende
+        source: src/decompiled_basic/mf-prg.bas:14007
+      - raw: '{down}nummerntaste (0=ende) druecken!'
+        text: nummerntaste (0=ende) druecken!
+        source: src/decompiled_basic/mf-prg.bas:14008
+      - raw: '{clr}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:14008
+      - raw: ' {gry3}{rvon}        {blk}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:14012
+      - raw: '{up}{up}{up}{up}{up}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:14014
+      - raw: ' '
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:14014
+      - raw: ${down}{down}{down}
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:14014
+      - raw: '{clr}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:14035
+      - raw: man bietet dir
+        text: man bietet dir
+        source: src/decompiled_basic/mf-prg.bas:14046
+      - raw: $ fuer deine alte
+        text: $ fuer deine alte
+        source: src/decompiled_basic/mf-prg.bas:14046
+      - raw: '{down}schaukel. '
+        text: schaukel.
+        source: src/decompiled_basic/mf-prg.bas:14047
+      - raw: '{clr}{down}der verkaeufer reicht dir schluessel'
+        text: der verkaeufer reicht dir schluessel
+        source: src/decompiled_basic/mf-prg.bas:14051
+      - raw: '{down}und papiere.'
+        text: und papiere.
+        source: src/decompiled_basic/mf-prg.bas:14052
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+    - index: 2
+      option_text: AUTO 'ORGANISIEREN'
+      outcome:
+        type: handler
+        line: 14100
+      handler_line: 14100
+      responses:
+      - raw: 'wer soll den wagen aufbrechen:'
+        text: 'wer soll den wagen aufbrechen:'
+        source: src/decompiled_basic/mf-prg.bas:14101
+      - raw: '{clr}{down}yeah!{$a0}die karre ist offen! du machst'
+        text: yeah!die karre ist offen! du machst
+        source: src/decompiled_basic/mf-prg.bas:14115
+      - raw: '{down}dich damit aus dem staub.'
+        text: dich damit aus dem staub.
+        source: src/decompiled_basic/mf-prg.bas:14116
+      - raw: '{left} und musst lei- {down}der deinen alten wagen stehen lassen.'
+        text: und musst lei- der deinen alten wagen stehen lassen.
+        source: src/decompiled_basic/mf-prg.bas:14117
+      - raw: '{clr}{down}leider erwischt dich der besitzer der   {down}karre!'
+        text: leider erwischt dich der besitzer der   karre!
+        source: src/decompiled_basic/mf-prg.bas:14120
+      - raw: '{clr}{down}nach dem mord an dem besitzer musst du'
+        text: nach dem mord an dem besitzer musst du
+        source: src/decompiled_basic/mf-prg.bas:14130
+      - raw: '{down}verschwinden und den wagen stehen'
+        text: verschwinden und den wagen stehen
+        source: src/decompiled_basic/mf-prg.bas:14131
+      - raw: '{down}lassen!'
+        text: lassen!
+        source: src/decompiled_basic/mf-prg.bas:14131
+      responses_resolved: true
+      delegates_to:
+      - 1130
+      - 5000
+      - 26020
+    - index: 3
+      option_text: WIEDER GEHEN
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: kdh
+    title: KREDIT-HAI
+    file: src/kdh
+    entry_prompt: '''EIN WUNDERSCHOENEN GUTEN TAG, KANN     ICH IHNEN HELFEN?'''
+    options:
+    - index: 1
+      option_text: '''JA. ICH BRAUCHE EIN BISSCHEN KNETE!'''
+      outcome:
+        type: handler
+        line: 15010
+      handler_line: 15010
+      responses:
+      - raw: wieviel geld willst du leihen
+        text: wieviel geld willst du leihen
+        source: src/decompiled_basic/mf-prg.bas:15015
+      - raw: '{down}(0-5000 $)'
+        text: (0-5000 $)
+        source: src/decompiled_basic/mf-prg.bas:15015
+      - raw: '{down}du hast 6 monate zeit, die schulden'
+        text: du hast 6 monate zeit, die schulden
+        source: src/decompiled_basic/mf-prg.bas:15025
+      - raw: '{down}zurueck zu zahlen!'
+        text: zurueck zu zahlen!
+        source: src/decompiled_basic/mf-prg.bas:15026
+      responses_resolved: true
+    - index: 2
+      option_text: '''NEIN, NEIN! ICH WILL NUR MEINE SCHUL-  DEN ABZAHLEN!'''
+      outcome:
+        type: handler
+        line: 15050
+      handler_line: 15050
+      responses:
+      - raw: wieviel willst du zurueckzahlen
+        text: wieviel willst du zurueckzahlen
+        source: src/decompiled_basic/mf-prg.bas:15050
+      - raw: '{down}(0-'
+        text: (0-
+        source: src/decompiled_basic/mf-prg.bas:15051
+      - raw: )
+        text: )
+        source: src/decompiled_basic/mf-prg.bas:15051
+      - raw: '{down}ok, du hast jetzt noch'
+        text: ok, du hast jetzt noch
+        source: src/decompiled_basic/mf-prg.bas:15070
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:15070
+      - raw: '{down}schulden!'
+        text: schulden!
+        source: src/decompiled_basic/mf-prg.bas:15070
+      - raw: '{down}du hast die schulden zurueckgezahlt!'
+        text: du hast die schulden zurueckgezahlt!
+        source: src/decompiled_basic/mf-prg.bas:15075
+      responses_resolved: true
+      delegates_to:
+      - 1125
+    - index: 3
+      option_text: LADEN AUFKAUFEN BZW. VERKAUFEN
+      outcome:
+        type: handler
+        line: 15100
+      handler_line: 15100
+      responses:
+      - raw: 'der laden gehoert '
+        text: der laden gehoert
+        source: src/decompiled_basic/mf-prg.bas:15108
+      - raw: '!'
+        text: '!'
+        source: src/decompiled_basic/mf-prg.bas:15108
+      - raw: der jetzige besitzer verlangt
+        text: der jetzige besitzer verlangt
+        source: src/decompiled_basic/mf-prg.bas:15110
+      - raw: $.
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:15110
+      - raw: '{down}der laden gehoert nun dir!'
+        text: der laden gehoert nun dir!
+        source: src/decompiled_basic/mf-prg.bas:15120
+      - raw: ein kaeufer bietet dir
+        text: ein kaeufer bietet dir
+        source: src/decompiled_basic/mf-prg.bas:15150
+      - raw: $ fuer den
+        text: $ fuer den
+        source: src/decompiled_basic/mf-prg.bas:15150
+      - raw: '{down}laden. willst du verkaufen (j/n) ?'
+        text: laden. willst du verkaufen (j/n) ?
+        source: src/decompiled_basic/mf-prg.bas:15151
+      - raw: '{clr}{down}du hast'
+        text: du hast
+        source: src/decompiled_basic/mf-prg.bas:15205
+      - raw: $ im kreditgeschaeft
+        text: $ im kreditgeschaeft
+        source: src/decompiled_basic/mf-prg.bas:15205
+      - raw: '{down}(maximal 5000 $).'
+        text: (maximal 5000 $).
+        source: src/decompiled_basic/mf-prg.bas:15205
+      - raw: '{down}um wieviel dollar (- oder +) willst du'
+        text: um wieviel dollar (- oder +) willst du
+        source: src/decompiled_basic/mf-prg.bas:15206
+      - raw: '{down}das geldvolumen erhoehen bzw. verrin-'
+        text: das geldvolumen erhoehen bzw. verrin-
+        source: src/decompiled_basic/mf-prg.bas:15207
+      - raw: '{down}gern'
+        text: gern
+        source: src/decompiled_basic/mf-prg.bas:15208
+      - raw: alle schuldner haben puenktlich ge-
+        text: alle schuldner haben puenktlich ge-
+        source: src/decompiled_basic/mf-prg.bas:15306
+      - raw: '{down}zahlt!'
+        text: zahlt!
+        source: src/decompiled_basic/mf-prg.bas:15306
+      - raw: '{clr}{down}einer deiner klienten hat noch geld. er'
+        text: einer deiner klienten hat noch geld. er
+        source: src/decompiled_basic/mf-prg.bas:15310
+      - raw: '{down}lauert dir mit einem gewehr auf, als du {down}kassieren willst!'
+        text: lauert dir mit einem gewehr auf, als du kassieren willst!
+        source: src/decompiled_basic/mf-prg.bas:15311
+      - raw: '{clr}{down}{yel}er hatte noch'
+        text: er hatte noch
+        source: src/decompiled_basic/mf-prg.bas:15321
+      - raw: $ dabei!
+        text: $ dabei!
+        source: src/decompiled_basic/mf-prg.bas:15321
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1115
+      - 1125
+      - 1160
+      - 5000
+    - index: 4
+      option_text: KAPITAL IM LADEN AENDERN (BEI EIGENEM   KREDITGESCHAEFT)
+      outcome:
+        type: handler
+        line: 15200
+      handler_line: 15200
+      responses:
+      - raw: '{clr}{down}du hast'
+        text: du hast
+        source: src/decompiled_basic/mf-prg.bas:15205
+      - raw: $ im kreditgeschaeft
+        text: $ im kreditgeschaeft
+        source: src/decompiled_basic/mf-prg.bas:15205
+      - raw: '{down}(maximal 5000 $).'
+        text: (maximal 5000 $).
+        source: src/decompiled_basic/mf-prg.bas:15205
+      - raw: '{down}um wieviel dollar (- oder +) willst du'
+        text: um wieviel dollar (- oder +) willst du
+        source: src/decompiled_basic/mf-prg.bas:15206
+      - raw: '{down}das geldvolumen erhoehen bzw. verrin-'
+        text: das geldvolumen erhoehen bzw. verrin-
+        source: src/decompiled_basic/mf-prg.bas:15207
+      - raw: '{down}gern'
+        text: gern
+        source: src/decompiled_basic/mf-prg.bas:15208
+      - raw: alle schuldner haben puenktlich ge-
+        text: alle schuldner haben puenktlich ge-
+        source: src/decompiled_basic/mf-prg.bas:15306
+      - raw: '{down}zahlt!'
+        text: zahlt!
+        source: src/decompiled_basic/mf-prg.bas:15306
+      - raw: '{clr}{down}einer deiner klienten hat noch geld. er'
+        text: einer deiner klienten hat noch geld. er
+        source: src/decompiled_basic/mf-prg.bas:15310
+      - raw: '{down}lauert dir mit einem gewehr auf, als du {down}kassieren willst!'
+        text: lauert dir mit einem gewehr auf, als du kassieren willst!
+        source: src/decompiled_basic/mf-prg.bas:15311
+      - raw: '{clr}{down}{yel}er hatte noch'
+        text: er hatte noch
+        source: src/decompiled_basic/mf-prg.bas:15321
+      - raw: $ dabei!
+        text: $ dabei!
+        source: src/decompiled_basic/mf-prg.bas:15321
+      responses_resolved: true
+      delegates_to:
+      - 1125
+      - 1160
+      - 5000
+    - index: 5
+      option_text: UEBERFAELLIGE SCHULDEN EINTREIBEN (BEI  EIGENEM GESCHAEFT)
+      outcome:
+        type: handler
+        line: 15300
+      handler_line: 15300
+      responses:
+      - raw: alle schuldner haben puenktlich ge-
+        text: alle schuldner haben puenktlich ge-
+        source: src/decompiled_basic/mf-prg.bas:15306
+      - raw: '{down}zahlt!'
+        text: zahlt!
+        source: src/decompiled_basic/mf-prg.bas:15306
+      - raw: '{clr}{down}einer deiner klienten hat noch geld. er'
+        text: einer deiner klienten hat noch geld. er
+        source: src/decompiled_basic/mf-prg.bas:15310
+      - raw: '{down}lauert dir mit einem gewehr auf, als du {down}kassieren willst!'
+        text: lauert dir mit einem gewehr auf, als du kassieren willst!
+        source: src/decompiled_basic/mf-prg.bas:15311
+      - raw: '{clr}{down}{yel}er hatte noch'
+        text: er hatte noch
+        source: src/decompiled_basic/mf-prg.bas:15321
+      - raw: $ dabei!
+        text: $ dabei!
+        source: src/decompiled_basic/mf-prg.bas:15321
+      responses_resolved: true
+      delegates_to:
+      - 1160
+      - 5000
+    - index: 6
+      option_text: '''ICH HELFE MIR SELBST.'''
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: sph
+    title: SPIELHOELLE
+    file: src/sph
+    entry_prompt: '''NA FREUND, WIE WAER''S MIT ''NEM SPIEL-  CHEN? KARTENSPIELE? ROULETTE? WAS?'''
+    options:
+    - index: 1
+      option_text: '''OK, CHEF, WAS KANNST DU MIR            EMPFEHLEN?'''
+      outcome:
+        type: submenu
+        line: 16010
+        submenu: at_16010
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+    - index: 2
+      option_text: '''NEIN, NEIN! ICH SPIELE NUR MAU-MAU!'''
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: sgl
+    title: EINFACHER LADEN (WIE GESCHAFFEN ZUM     SCHUTZGELD EINTREIBEN!)
+    file: src/sgl
+    entry_prompt: '''TAG, MISTER. WAS DARF''S DENN SEIN?'''
+    options:
+    - index: 1
+      option_text: '''DEN ZASTER HER, ABER SCHNELL! SONST    GEHT DER BOELLER HIER LOS!'''
+      outcome:
+        type: handler
+        line: 17015
+      handler_line: 17015
+      responses:
+      - raw: '{clr}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:17015
+      - raw: der kerl ruft die polizei!!!
+        text: der kerl ruft die polizei!!!
+        source: src/decompiled_basic/mf-prg.bas:17020
+      - raw: '{clr}{down}''i..i..ich z..zahle ja schon! hi..hier'
+        text: '''i..i..ich z..zahle ja schon! hi..hier'
+        source: src/decompiled_basic/mf-prg.bas:17511
+      - raw: '{down}sind'
+        text: sind
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: $!'
+        text: $!'
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: '{clr}{down}''deine arme ma (schnief)! gib ihr die'
+        text: '''deine arme ma (schnief)! gib ihr die'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: $ hier!'
+        text: $ hier!'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{clr}{down}''ich habe'
+        text: '''ich habe'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: dollar, reicht das?'
+        text: dollar, reicht das?'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: '{clr}{down}''verdammt! wer hat mir nur blueten'
+        text: '''verdammt! wer hat mir nur blueten'
+        source: src/decompiled_basic/mf-prg.bas:17525
+      - raw: '{down}fuer'
+        text: fuer
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: $ angedreht...?'
+        text: $ angedreht...?'
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: '{clr}{down}''ich habe leider nur'
+        text: '''ich habe leider nur'
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: '{down}{down}was machst du:'
+        text: 'was machst du:'
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}1 angebotenes geld nehmen'
+        text: 1 angebotenes geld nehmen
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}2 laden demolieren'
+        text: 2 laden demolieren
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{down}3 besitzer fertigmachen'
+        text: 3 besitzer fertigmachen
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{clr}{down}''saubande! das werdet ihr buessen!'''
+        text: '''saubande! das werdet ihr buessen!'''
+        source: src/decompiled_basic/mf-prg.bas:17571
+      - raw: '{down}(der kerl winkt ein paar schlaeger'
+        text: (der kerl winkt ein paar schlaeger
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{down}heran!)'
+        text: heran!)
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{clr}{down}{blk}du hast kleinholz aus dem laden'
+        text: du hast kleinholz aus dem laden
+        source: src/decompiled_basic/mf-prg.bas:17576
+      - raw: '{down}gemacht. in der kasse waren'
+        text: gemacht. in der kasse waren
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: '{clr}{down}er verspricht dir einen schoenen grab-'
+        text: er verspricht dir einen schoenen grab-
+        source: src/decompiled_basic/mf-prg.bas:17585
+      - raw: '{down}stein und laedt seine '
+        text: stein und laedt seine
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '!'
+        text: '!'
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '{clr}{down}{blk}der aufmuepfige kerl ist hin.'
+        text: der aufmuepfige kerl ist hin.
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: '{down}hatte er der tasche!'
+        text: hatte er der tasche!
+        source: src/decompiled_basic/mf-prg.bas:17592
+      responses_resolved: true
+      delegates_to:
+      - 1160
+      - 1350
+      - 5000
+      - 26000
+    - index: 2
+      option_text: '''BITTE, BITTE EIN PAAR DOLLARS FUER     MEINE KRANKE MA! SIE IST SOOOO ARM!'''
+      outcome:
+        type: handler
+        line: 17100
+      handler_line: 17100
+      responses:
+      - raw: '{clr}{down}''sorge doch selbst fuer deine alte!'''
+        text: '''sorge doch selbst fuer deine alte!'''
+        source: src/decompiled_basic/mf-prg.bas:17105
+      - raw: '{clr}{down}''i..i..ich z..zahle ja schon! hi..hier'
+        text: '''i..i..ich z..zahle ja schon! hi..hier'
+        source: src/decompiled_basic/mf-prg.bas:17511
+      - raw: '{down}sind'
+        text: sind
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: $!'
+        text: $!'
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: '{clr}{down}''deine arme ma (schnief)! gib ihr die'
+        text: '''deine arme ma (schnief)! gib ihr die'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: $ hier!'
+        text: $ hier!'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{clr}{down}''ich habe'
+        text: '''ich habe'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: dollar, reicht das?'
+        text: dollar, reicht das?'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: '{clr}{down}''verdammt! wer hat mir nur blueten'
+        text: '''verdammt! wer hat mir nur blueten'
+        source: src/decompiled_basic/mf-prg.bas:17525
+      - raw: '{down}fuer'
+        text: fuer
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: $ angedreht...?'
+        text: $ angedreht...?'
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: '{clr}{down}''ich habe leider nur'
+        text: '''ich habe leider nur'
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: '{down}{down}was machst du:'
+        text: 'was machst du:'
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}1 angebotenes geld nehmen'
+        text: 1 angebotenes geld nehmen
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}2 laden demolieren'
+        text: 2 laden demolieren
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{down}3 besitzer fertigmachen'
+        text: 3 besitzer fertigmachen
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{clr}{down}''saubande! das werdet ihr buessen!'''
+        text: '''saubande! das werdet ihr buessen!'''
+        source: src/decompiled_basic/mf-prg.bas:17571
+      - raw: '{down}(der kerl winkt ein paar schlaeger'
+        text: (der kerl winkt ein paar schlaeger
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{down}heran!)'
+        text: heran!)
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{clr}{down}{blk}du hast kleinholz aus dem laden'
+        text: du hast kleinholz aus dem laden
+        source: src/decompiled_basic/mf-prg.bas:17576
+      - raw: '{down}gemacht. in der kasse waren'
+        text: gemacht. in der kasse waren
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: '{clr}{down}er verspricht dir einen schoenen grab-'
+        text: er verspricht dir einen schoenen grab-
+        source: src/decompiled_basic/mf-prg.bas:17585
+      - raw: '{down}stein und laedt seine '
+        text: stein und laedt seine
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '!'
+        text: '!'
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '{clr}{down}{blk}der aufmuepfige kerl ist hin.'
+        text: der aufmuepfige kerl ist hin.
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: '{down}hatte er der tasche!'
+        text: hatte er der tasche!
+        source: src/decompiled_basic/mf-prg.bas:17592
+      responses_resolved: true
+      delegates_to:
+      - 1160
+      - 5000
+    - index: 3
+      option_text: '''WIR SCHUETZEN DICH FUER EINE KLEINE    SPENDE VOR DEN BOESEN GANGSTERN!'''
+      outcome:
+        type: handler
+        line: 17200
+      handler_line: 17200
+      responses:
+      - raw: '{clr}{down}''das wird aber narben-jack interes-'
+        text: '''das wird aber narben-jack interes-'
+        source: src/decompiled_basic/mf-prg.bas:17205
+      - raw: '{down}sieren!'''
+        text: sieren!'
+        source: src/decompiled_basic/mf-prg.bas:17206
+      - raw: '{clr}{down}jack verzieht sich erstmal aus diesem'
+        text: jack verzieht sich erstmal aus diesem
+        source: src/decompiled_basic/mf-prg.bas:17220
+      - raw: '{down}gebiet...'
+        text: gebiet...
+        source: src/decompiled_basic/mf-prg.bas:17221
+      - raw: '{clr}{down}''i..i..ich z..zahle ja schon! hi..hier'
+        text: '''i..i..ich z..zahle ja schon! hi..hier'
+        source: src/decompiled_basic/mf-prg.bas:17511
+      - raw: '{down}sind'
+        text: sind
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: $!'
+        text: $!'
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: '{clr}{down}''deine arme ma (schnief)! gib ihr die'
+        text: '''deine arme ma (schnief)! gib ihr die'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: $ hier!'
+        text: $ hier!'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{clr}{down}''ich habe'
+        text: '''ich habe'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: dollar, reicht das?'
+        text: dollar, reicht das?'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: '{clr}{down}''verdammt! wer hat mir nur blueten'
+        text: '''verdammt! wer hat mir nur blueten'
+        source: src/decompiled_basic/mf-prg.bas:17525
+      - raw: '{down}fuer'
+        text: fuer
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: $ angedreht...?'
+        text: $ angedreht...?'
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: '{clr}{down}''ich habe leider nur'
+        text: '''ich habe leider nur'
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: '{down}{down}was machst du:'
+        text: 'was machst du:'
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}1 angebotenes geld nehmen'
+        text: 1 angebotenes geld nehmen
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}2 laden demolieren'
+        text: 2 laden demolieren
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{down}3 besitzer fertigmachen'
+        text: 3 besitzer fertigmachen
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{clr}{down}''saubande! das werdet ihr buessen!'''
+        text: '''saubande! das werdet ihr buessen!'''
+        source: src/decompiled_basic/mf-prg.bas:17571
+      - raw: '{down}(der kerl winkt ein paar schlaeger'
+        text: (der kerl winkt ein paar schlaeger
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{down}heran!)'
+        text: heran!)
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{clr}{down}{blk}du hast kleinholz aus dem laden'
+        text: du hast kleinholz aus dem laden
+        source: src/decompiled_basic/mf-prg.bas:17576
+      - raw: '{down}gemacht. in der kasse waren'
+        text: gemacht. in der kasse waren
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: '{clr}{down}er verspricht dir einen schoenen grab-'
+        text: er verspricht dir einen schoenen grab-
+        source: src/decompiled_basic/mf-prg.bas:17585
+      - raw: '{down}stein und laedt seine '
+        text: stein und laedt seine
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '!'
+        text: '!'
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '{clr}{down}{blk}der aufmuepfige kerl ist hin.'
+        text: der aufmuepfige kerl ist hin.
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: '{down}hatte er der tasche!'
+        text: hatte er der tasche!
+        source: src/decompiled_basic/mf-prg.bas:17592
+      responses_resolved: true
+      delegates_to:
+      - 1160
+      - 5000
+    - index: 4
+      option_text: '''POLIZEI! IN IHRER KASSE IST FALSCH-    GELD VERSTECKT, DAS IST KONFISZIERT!'''
+      outcome:
+        type: handler
+        line: 17300
+      handler_line: 17300
+      responses:
+      - raw: '{clr}{down}''ach, die alte bullen-masche! damit'
+        text: '''ach, die alte bullen-masche! damit'
+        source: src/decompiled_basic/mf-prg.bas:17305
+      - raw: '{down}neppt ihr keinen mehr!'''
+        text: neppt ihr keinen mehr!'
+        source: src/decompiled_basic/mf-prg.bas:17306
+      - raw: '{clr}{down}''i..i..ich z..zahle ja schon! hi..hier'
+        text: '''i..i..ich z..zahle ja schon! hi..hier'
+        source: src/decompiled_basic/mf-prg.bas:17511
+      - raw: '{down}sind'
+        text: sind
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: $!'
+        text: $!'
+        source: src/decompiled_basic/mf-prg.bas:17512
+      - raw: '{clr}{down}''deine arme ma (schnief)! gib ihr die'
+        text: '''deine arme ma (schnief)! gib ihr die'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: $ hier!'
+        text: $ hier!'
+        source: src/decompiled_basic/mf-prg.bas:17515
+      - raw: '{clr}{down}''ich habe'
+        text: '''ich habe'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: dollar, reicht das?'
+        text: dollar, reicht das?'
+        source: src/decompiled_basic/mf-prg.bas:17520
+      - raw: '{clr}{down}''verdammt! wer hat mir nur blueten'
+        text: '''verdammt! wer hat mir nur blueten'
+        source: src/decompiled_basic/mf-prg.bas:17525
+      - raw: '{down}fuer'
+        text: fuer
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: $ angedreht...?'
+        text: $ angedreht...?'
+        source: src/decompiled_basic/mf-prg.bas:17526
+      - raw: '{clr}{down}''ich habe leider nur'
+        text: '''ich habe leider nur'
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17530
+      - raw: '{down}{down}was machst du:'
+        text: 'was machst du:'
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}1 angebotenes geld nehmen'
+        text: 1 angebotenes geld nehmen
+        source: src/decompiled_basic/mf-prg.bas:17550
+      - raw: '{down}2 laden demolieren'
+        text: 2 laden demolieren
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{down}3 besitzer fertigmachen'
+        text: 3 besitzer fertigmachen
+        source: src/decompiled_basic/mf-prg.bas:17551
+      - raw: '{clr}{down}''saubande! das werdet ihr buessen!'''
+        text: '''saubande! das werdet ihr buessen!'''
+        source: src/decompiled_basic/mf-prg.bas:17571
+      - raw: '{down}(der kerl winkt ein paar schlaeger'
+        text: (der kerl winkt ein paar schlaeger
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{down}heran!)'
+        text: heran!)
+        source: src/decompiled_basic/mf-prg.bas:17572
+      - raw: '{clr}{down}{blk}du hast kleinholz aus dem laden'
+        text: du hast kleinholz aus dem laden
+        source: src/decompiled_basic/mf-prg.bas:17576
+      - raw: '{down}gemacht. in der kasse waren'
+        text: gemacht. in der kasse waren
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:17577
+      - raw: '{clr}{down}er verspricht dir einen schoenen grab-'
+        text: er verspricht dir einen schoenen grab-
+        source: src/decompiled_basic/mf-prg.bas:17585
+      - raw: '{down}stein und laedt seine '
+        text: stein und laedt seine
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '!'
+        text: '!'
+        source: src/decompiled_basic/mf-prg.bas:17586
+      - raw: '{clr}{down}{blk}der aufmuepfige kerl ist hin.'
+        text: der aufmuepfige kerl ist hin.
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: $
+        text: $
+        source: src/decompiled_basic/mf-prg.bas:17591
+      - raw: '{down}hatte er der tasche!'
+        text: hatte er der tasche!
+        source: src/decompiled_basic/mf-prg.bas:17592
+      responses_resolved: true
+      delegates_to:
+      - 1160
+      - 1350
+      - 5000
+    - index: 5
+      option_text: HEUTE MAL NICHT KASSIEREN
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: sub
+    title: SUBWAY-STATION (U-BAHN)
+    file: src/sub
+    entry_prompt: DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM...
+    options:
+    - index: 1
+      option_text: LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN
+      outcome:
+        type: handler
+        line: 18035
+      handler_line: 18035
+      responses:
+      - raw: '{clr}{down}welchen spieler setzt du als dieb ein:'
+        text: 'welchen spieler setzt du als dieb ein:'
+        source: src/decompiled_basic/mf-prg.bas:18035
+      - raw: '{clr}{down}du stiehlst...'
+        text: du stiehlst...
+        source: src/decompiled_basic/mf-prg.bas:18039
+      - raw: '{down}...nichts! denn du wirst erwischt!'
+        text: '...nichts! denn du wirst erwischt!'
+        source: src/decompiled_basic/mf-prg.bas:18042
+      - raw: '{down}...eine handtasche - nichts wertvolles!'
+        text: '...eine handtasche - nichts wertvolles!'
+        source: src/decompiled_basic/mf-prg.bas:18046
+      - raw: '{down}...''nen fotoapparat! er bringt 50 $.'
+        text: '...''nen fotoapparat! er bringt 50 $.'
+        source: src/decompiled_basic/mf-prg.bas:18047
+      - raw: '{down}...eine falsche perlenkette!'
+        text: '...eine falsche perlenkette!'
+        source: src/decompiled_basic/mf-prg.bas:18048
+      - raw: '{down}...eine armbanduhr fuer 100 $!'
+        text: '...eine armbanduhr fuer 100 $!'
+        source: src/decompiled_basic/mf-prg.bas:18049
+      - raw: '{down}...''ne brieftasche mit 500 $!'
+        text: '...''ne brieftasche mit 500 $!'
+        source: src/decompiled_basic/mf-prg.bas:18050
+      - raw: '{down}...einen diamanten! der ist 800 $ wert!'
+        text: '...einen diamanten! der ist 800 $ wert!'
+        source: src/decompiled_basic/mf-prg.bas:18051
+      - raw: '{down}...eine anleitung -der safeknacker- ??!'
+        text: '...eine anleitung -der safeknacker- ??!'
+        source: src/decompiled_basic/mf-prg.bas:18052
+      responses_resolved: true
+      delegates_to:
+      - 1130
+      - 1160
+      - 26020
+    - index: 2
+      option_text: IN DER BAHN DIE TASCHENINHALTE PRUEFEN
+      outcome:
+        type: handler
+        line: 18015
+      handler_line: 18015
+      responses:
+      - raw: ein u-bahn-ticket kostet dich
+        text: ein u-bahn-ticket kostet dich
+        source: src/decompiled_basic/mf-prg.bas:18015
+      - raw: '{down}50 $. '
+        text: 50 $.
+        source: src/decompiled_basic/mf-prg.bas:18020
+      - raw: '{clr}{down}welchen spieler setzt du als dieb ein:'
+        text: 'welchen spieler setzt du als dieb ein:'
+        source: src/decompiled_basic/mf-prg.bas:18035
+      - raw: '{clr}{down}du stiehlst...'
+        text: du stiehlst...
+        source: src/decompiled_basic/mf-prg.bas:18039
+      - raw: '{down}...nichts! denn du wirst erwischt!'
+        text: '...nichts! denn du wirst erwischt!'
+        source: src/decompiled_basic/mf-prg.bas:18042
+      - raw: '{down}...eine handtasche - nichts wertvolles!'
+        text: '...eine handtasche - nichts wertvolles!'
+        source: src/decompiled_basic/mf-prg.bas:18046
+      - raw: '{down}...''nen fotoapparat! er bringt 50 $.'
+        text: '...''nen fotoapparat! er bringt 50 $.'
+        source: src/decompiled_basic/mf-prg.bas:18047
+      - raw: '{down}...eine falsche perlenkette!'
+        text: '...eine falsche perlenkette!'
+        source: src/decompiled_basic/mf-prg.bas:18048
+      - raw: '{down}...eine armbanduhr fuer 100 $!'
+        text: '...eine armbanduhr fuer 100 $!'
+        source: src/decompiled_basic/mf-prg.bas:18049
+      - raw: '{down}...''ne brieftasche mit 500 $!'
+        text: '...''ne brieftasche mit 500 $!'
+        source: src/decompiled_basic/mf-prg.bas:18050
+      - raw: '{down}...einen diamanten! der ist 800 $ wert!'
+        text: '...einen diamanten! der ist 800 $ wert!'
+        source: src/decompiled_basic/mf-prg.bas:18051
+      - raw: '{down}...eine anleitung -der safeknacker- ??!'
+        text: '...eine anleitung -der safeknacker- ??!'
+        source: src/decompiled_basic/mf-prg.bas:18052
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+      - 1130
+      - 1160
+      - 26020
+    - index: 3
+      option_text: ZURUECK ANS TAGESLICHT
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: bhf
+    title: RAILWAY-STATION (BAHNHOF)
+    file: src/bhf
+    entry_prompt: DU BIST IM BAHNHOF VON CHICKAGO.
+    options:
+    - index: 1
+      option_text: BAHNHOFSKNEIPE AUFSUCHEN
+      outcome:
+        type: handler
+        line: 19010
+      handler_line: 19010
+      responses: []
+      responses_resolved: true
+      delegates_to:
+      - 3000
+    - index: 2
+      option_text: TASCHENDIEBSTAHL
+      outcome:
+        type: handler
+        line: 19050
+      handler_line: 19050
+      responses: []
+      responses_resolved: true
+      delegates_to:
+      - 18035
+    - index: 3
+      option_text: POSTZUG UEBERFALLEN
+      outcome:
+        type: handler
+        line: 19015
+      handler_line: 19015
+      responses:
+      - raw: '{clr}{down}{blk}du stuermst in den panzerwaggon und'
+        text: du stuermst in den panzerwaggon und
+        source: src/decompiled_basic/mf-prg.bas:19025
+      - raw: '{down}beginnst gerade einzusacken, als du auf'
+        text: beginnst gerade einzusacken, als du auf
+        source: src/decompiled_basic/mf-prg.bas:19026
+      - raw: '{down}drei nette herren aufmerksam wirst...'
+        text: drei nette herren aufmerksam wirst...
+        source: src/decompiled_basic/mf-prg.bas:19027
+      responses_resolved: true
+      delegates_to:
+      - 5000
+      - 20050
+      - 26020
+    - index: 4
+      option_text: NICHTS WIE WEG
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: ban
+    title: BANK/POSTAMT
+    file: src/ban
+    entry_prompt: '''GUTEN TAG, MEIN HERR! WAS IST IHR      BEGEHR?'''
+    options:
+    - index: 1
+      option_text: '''QUATSCH NICH'' UND LANG DEN ZASTER      ''RUEBER, ABER SCHNELL!'''
+      outcome:
+        type: handler
+        line: 20009
+      handler_line: 20009
+      responses:
+      - raw: leider hast du die drei wachmaenner am
+        text: leider hast du die drei wachmaenner am
+        source: src/decompiled_basic/mf-prg.bas:20011
+      - raw: '{down}eingang uebersehen...'
+        text: eingang uebersehen...
+        source: src/decompiled_basic/mf-prg.bas:20012
+      - raw: '{clr}{down}{blk}du hast es geschafft!{$a0}deine beute'
+        text: du hast es geschafft!deine beute
+        source: src/decompiled_basic/mf-prg.bas:20055
+      - raw: '{down}betraegt'
+        text: betraegt
+        source: src/decompiled_basic/mf-prg.bas:20060
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:20060
+      responses_resolved: true
+      delegates_to:
+      - 1160
+      - 5000
+      - 26020
+    - index: 2
+      option_text: UNAUFFAELLIG NACH ALARMANLAGEN UM-      SEHEN UND NACHTS EINBRECHEN
+      outcome:
+        type: handler
+        line: 20100
+      handler_line: 20100
+      responses:
+      - raw: '{clr}{down}{blk}du hast es geschafft!{$a0}deine beute'
+        text: du hast es geschafft!deine beute
+        source: src/decompiled_basic/mf-prg.bas:20055
+      - raw: '{down}betraegt'
+        text: betraegt
+        source: src/decompiled_basic/mf-prg.bas:20060
+      - raw: $!
+        text: $!
+        source: src/decompiled_basic/mf-prg.bas:20060
+      - raw: '{clr}{down}{gry2}du musst noch trainieren!'
+        text: du musst noch trainieren!
+        source: src/decompiled_basic/mf-prg.bas:20101
+      - raw: '{clr}{down}{gry2}wer soll den kasten knacken:'
+        text: 'wer soll den kasten knacken:'
+        source: src/decompiled_basic/mf-prg.bas:20104
+      - raw: '{clr}{down}''hhm. mal sehen. ich versuch''s mit dem'
+        text: '''hhm. mal sehen. ich versuch''s mit dem'
+        source: src/decompiled_basic/mf-prg.bas:20105
+      - raw: '{down}stethoskop...'' (drehen der coderaeder'
+        text: stethoskop...' (drehen der coderaeder
+        source: src/decompiled_basic/mf-prg.bas:20106
+      - raw: '{down}mit f1, f3 und f5!)'
+        text: mit f1, f3 und f5!)
+        source: src/decompiled_basic/mf-prg.bas:20107
+      - raw: '{blk}{rvon}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:20120
+      - raw: '{clr}{down}{gry1}''teufel...! da ist was schiefgegangen!'
+        text: '''teufel...! da ist was schiefgegangen!'
+        source: src/decompiled_basic/mf-prg.bas:20141
+      - raw: '{down}es kommt jemand!'''
+        text: es kommt jemand!'
+        source: src/decompiled_basic/mf-prg.bas:20142
+      responses_resolved: true
+      delegates_to:
+      - 1130
+      - 1160
+      - 1190
+      - 1350
+      - 26000
+    - index: 3
+      option_text: WIEDER GEHEN
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: pol
+    title: POLIZEI-PRAESIDIUM
+    file: src/pol
+    entry_prompt: '''WAS HABEN SIE HIER ZU SUCHEN? MACHEN   SIE, DASS SIE RAUS KOMMEN!'''
+    options:
+    - index: 1
+      option_text: '''ICH BIN EIN GESUCHTER GANGSTER! ICH    MOECHTE MICH STELLEN.'''
+      outcome:
+        type: handler
+        line: 26045
+      handler_line: 26045
+      responses:
+      - raw: '{clr}{down}deine gerichtsverhandlung...'
+        text: deine gerichtsverhandlung...
+        source: src/decompiled_basic/mf-prg.bas:26050
+      - raw: '{down}willst du einen anwalt (j/n) ?'
+        text: willst du einen anwalt (j/n) ?
+        source: src/decompiled_basic/mf-prg.bas:26055
+      - raw: '{down}wieviel legst du an (0-10000$)'
+        text: wieviel legst du an (0-10000$)
+        source: src/decompiled_basic/mf-prg.bas:26060
+      - raw: '{down}dein anwalt boxt eine strafe von'
+        text: dein anwalt boxt eine strafe von
+        source: src/decompiled_basic/mf-prg.bas:26071
+      - raw: nur
+        text: nur
+        source: src/decompiled_basic/mf-prg.bas:26072
+      - raw: monat(en) heraus.
+        text: monat(en) heraus.
+        source: src/decompiled_basic/mf-prg.bas:26072
+      - raw: '{down}du wanderst fuer'
+        text: du wanderst fuer
+        source: src/decompiled_basic/mf-prg.bas:26075
+      - raw: monat(e) hinter
+        text: monat(e) hinter
+        source: src/decompiled_basic/mf-prg.bas:26075
+      - raw: '{down}gitter!'
+        text: gitter!
+        source: src/decompiled_basic/mf-prg.bas:26075
+      responses_resolved: true
+      delegates_to:
+      - 1115
+      - 1160
+    - index: 2
+      option_text: POLIZEICHEF BESTECHEN
+      outcome:
+        type: handler
+        line: 21010
+      handler_line: 21010
+      responses:
+      - raw: aha! fuer einen monat untaetigkeit
+        text: aha! fuer einen monat untaetigkeit
+        source: src/decompiled_basic/mf-prg.bas:21010
+      - raw: '{down}nehme ich 1000 $. wieviele monate:'
+        text: 'nehme ich 1000 $. wieviele monate:'
+        source: src/decompiled_basic/mf-prg.bas:21011
+      - raw: '{down}danke sehr! nehmen sie den hinter-'
+        text: danke sehr! nehmen sie den hinter-
+        source: src/decompiled_basic/mf-prg.bas:21025
+      - raw: '{down}ausgang!'
+        text: ausgang!
+        source: src/decompiled_basic/mf-prg.bas:21030
+      responses_resolved: true
+      delegates_to:
+      - 1160
+    - index: 3
+      option_text: VERSUCHEN, INHAFTIERTEN GANGSTER ZU     BEFREIEN
+      outcome:
+        type: handler
+        line: 21100
+      handler_line: 21100
+      responses:
+      - raw: 'wen willst du befreien:'
+        text: 'wen willst du befreien:'
+        source: src/decompiled_basic/mf-prg.bas:21115
+      - raw: '{down}'
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:21116
+      - raw: ' '
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:21116
+      - raw: '{clr}{down}du brauchst'
+        text: du brauchst
+        source: src/decompiled_basic/mf-prg.bas:21130
+      - raw: $, um die waerter zu
+        text: $, um die waerter zu
+        source: src/decompiled_basic/mf-prg.bas:21130
+      - raw: '{down}bestechen. '
+        text: bestechen.
+        source: src/decompiled_basic/mf-prg.bas:21131
+      - raw: '{clr}{down}du konntest den gefangenen befreien!'
+        text: du konntest den gefangenen befreien!
+        source: src/decompiled_basic/mf-prg.bas:21200
+      - raw: '{clr}{down}{rvon} '
+        text: ''
+        source: src/decompiled_basic/mf-prg.bas:21250
+      - raw: '! '
+        text: '!'
+        source: src/decompiled_basic/mf-prg.bas:21250
+      - raw: '{down}du bist von '
+        text: du bist von
+        source: src/decompiled_basic/mf-prg.bas:21250
+      - raw: ' aus dem'
+        text: aus dem
+        source: src/decompiled_basic/mf-prg.bas:21250
+      - raw: '{down}knast befreit worden. wieviel zahlst du'
+        text: knast befreit worden. wieviel zahlst du
+        source: src/decompiled_basic/mf-prg.bas:21251
+      - raw: '{down}ihm zum dank (0 -'
+        text: ihm zum dank (0 -
+        source: src/decompiled_basic/mf-prg.bas:21252
+      - raw: '{left}):'
+        text: '):'
+        source: src/decompiled_basic/mf-prg.bas:21252
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+      - 1160
+      - 22000
+    - index: 4
+      option_text: LIEBER GAR NICHTS TUN
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
+  - key: ble
+    title: BLUETEN-EDDIE
+    file: src/ble
+    entry_prompt: '''NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'''
+    options:
+    - index: 1
+      option_text: '''YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'''
+      outcome:
+        type: handler
+        line: 22010
+      handler_line: 22010
+      responses:
+      - raw: 'gut, mein sohn. '
+        text: gut, mein sohn.
+        source: src/decompiled_basic/mf-prg.bas:22010
+      - raw: fuer
+        text: fuer
+        source: src/decompiled_basic/mf-prg.bas:22012
+      - raw: paesse
+        text: paesse
+        source: src/decompiled_basic/mf-prg.bas:22012
+      - raw: '{down}macht das'
+        text: macht das
+        source: src/decompiled_basic/mf-prg.bas:22013
+      - raw: '$. '
+        text: $.
+        source: src/decompiled_basic/mf-prg.bas:22013
+      - raw: '{down}hier, noch druckfrisch, he, he!'
+        text: hier, noch druckfrisch, he, he!
+        source: src/decompiled_basic/mf-prg.bas:22015
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1125
+      - 1160
+    - index: 2
+      option_text: '''DRUCKST DU NOCH BLUETEN? WIE WAERS,    WENN DU MIR EIN PAAR VERKAUFST?'''
+      outcome:
+        type: handler
+        line: 22100
+      handler_line: 22100
+      responses:
+      - raw: nng...hoechst ungern! wieviel dollar
+        text: nng...hoechst ungern! wieviel dollar
+        source: src/decompiled_basic/mf-prg.bas:22100
+      - raw: '{down}willst du anlegen (0-5000)'
+        text: willst du anlegen (0-5000)
+        source: src/decompiled_basic/mf-prg.bas:22105
+      - raw: '{down}ich gebe dir'
+        text: ich gebe dir
+        source: src/decompiled_basic/mf-prg.bas:22110
+      - raw: $ blueten dafuer.
+        text: $ blueten dafuer.
+        source: src/decompiled_basic/mf-prg.bas:22110
+      responses_resolved: true
+      delegates_to:
+      - 1110
+      - 1160
+      - 23000
+    - index: 3
+      option_text: '''DANKE, EDDIE, VIELLEICHT BEIM NAECHS-  TEN MAL. BYE!'''
+      outcome:
+        type: leave
+      handler_line: null
+      responses: []
+      responses_resolved: n/a (leave/no handler)
