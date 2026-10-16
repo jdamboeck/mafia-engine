@@ -34,7 +34,8 @@ from . import house_rules  # the quirk catalogue, schema-checked on import
 from .gangster import Gangster
 
 from .combat_rules import build_rules, equipper
-from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game, score_weight_accepted
+from .score_weight import score_weight_accepted
+from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game
 
 # A bad content file is refused at config load: ``setup`` reads and validates every
 # entity table, the backdrops and ``config.yaml`` into its constants on import.

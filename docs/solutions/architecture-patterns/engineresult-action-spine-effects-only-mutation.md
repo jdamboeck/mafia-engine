@@ -76,8 +76,8 @@ but still emits `MoveBlocked`). The future save/load unit (U12, issue #12) build
 this split — do not let events leak into the replay log.
 
 **4. Handlers buffer; the driver commits or discards atomically.** Handlers call
-`ctx.apply(effect)` (`engine/interactions.py:191`) and `ctx.record(event)`
-(`engine/interactions.py:199`) — never mutate `ctx.state` directly. On clean completion
+`ctx.apply(effect)` (`engine/interactions.py:155`) and `ctx.record(event)`
+(`engine/interactions.py:163`) — never mutate `ctx.state` directly. On clean completion
 the driver commits the effect buffer and surfaces the events; on cancel it discards
 **both** buffers and returns the original state object with `status="cancelled"`.
 

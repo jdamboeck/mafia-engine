@@ -114,7 +114,7 @@ never executes — and the assertion happens to hold on the unreached state too.
 result = run_upkeep(st, rng=_StubRng())
 
 # Before — a bare string is a directionless shot. _parse_combat_response
-# (engine/interactions.py:733-749) maps any str to (raw, None), so the shot
+# (engine/fight_loop.py:645-662) maps any str to (raw, None), so the shot
 # never connects:
 src = _scripted(*([3] + ["shoot"] * 120))
 

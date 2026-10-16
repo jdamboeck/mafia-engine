@@ -56,6 +56,13 @@ from engine.state import FAITHFUL, INTENT
 from engine.turns import SETUP_HANDLER_KEY
 
 from ..house_rules import CATALOGUE, CHANGE_KEY, switchable
+from ..score_weight import (
+    check_score_weight,
+    in_range,
+    parse_setup_number,
+    score_weight_accepted,
+    score_weight_text,
+)
 from ..setup import (
     CONFIG,
     SetupPlayer,
@@ -64,12 +71,7 @@ from ..setup import (
     _roll_stat,
     check_end_year,
     check_players,
-    check_score_weight,
-    in_range,
     name_fits,
-    parse_setup_number,
-    score_weight_accepted,
-    score_weight_text,
 )
 
 __all__ = ["EIGENSCHAFTEN_SCREEN", "setup"]
