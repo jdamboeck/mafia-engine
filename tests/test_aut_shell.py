@@ -89,36 +89,36 @@ def test_the_classic_theme_prints_each_aut_line_as_the_source():
     cases = {
         "locations.aut.showroom": (
             {},
-            "der verkaeufer zeigt dir eine auswahl\nder modelle. zum kauf die entsprechende\n"
-            "nummerntaste (0=ende) druecken!",
+            "Der Verkäufer zeigt dir eine Auswahl der Modelle. Zum Kauf die entsprechende"
+            " Nummerntaste (0=Ende) drücken!",
         ),
         "locations.aut.model": (
             {"number": 4, "name": "auburn mod.120", "price": 6000},
             "4 auburn mod.120\n 6000 $",
         ),
         "locations.aut.model_prompt": ({}, ""),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
         "locations.aut.trade_in_offer": (
             {"amount": 2000},
-            "man bietet dir 2000 $ fuer deine alte\nschaukel.",
+            "Man bietet dir 2000 $ für deine alte Schaukel.",
         ),
-        "locations.aut.confirm": ({}, "ok (j/n)?"),
-        "locations.aut.sold": ({}, "der verkaeufer reicht dir schluessel\nund papiere."),
-        "locations.aut.crowded": ({}, "es sind zuviele leute hier!"),
-        "locations.aut.steal_prompt": ({}, "wer soll den wagen aufbrechen:"),
+        "locations.aut.confirm": ({}, "OK (j/n)?"),
+        "locations.aut.sold": ({}, "Der Verkäufer reicht dir Schlüssel und Papiere."),
+        "locations.aut.crowded": ({}, "Es sind zu viele Leute hier!"),
+        "locations.aut.steal_prompt": ({}, "Wer soll den Wagen aufbrechen:"),
         "locations.aut.stolen": (
             {},
-            "yeah! die karre ist offen! du machst\ndich damit aus dem staub.",
+            "Yeah! Die Karre ist offen! Du machst dich damit aus dem Staub.",
         ),
         "locations.aut.stolen_old_car_left": (
             {},
-            "yeah! die karre ist offen! du machst\ndich damit aus dem staub und musst lei-\n"
-            "der deinen alten wagen stehen lassen.",
+            "Yeah! Die Karre ist offen! Du machst dich damit aus dem Staub und musst leider"
+            " deinen alten Wagen stehen lassen.",
         ),
-        "locations.aut.caught": ({}, "leider erwischt dich der besitzer der\nkarre!"),
+        "locations.aut.caught": ({}, "Leider erwischt dich der Besitzer der Karre!"),
         "locations.aut.owner_killed": (
             {},
-            "nach dem mord an dem besitzer musst du\nverschwinden und den wagen stehen\nlassen!",
+            "Nach dem Mord an dem Besitzer musst du verschwinden und den Wagen stehen lassen!",
         ),
         "turn.picker.gangster": (
             {

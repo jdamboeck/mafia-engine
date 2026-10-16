@@ -17,17 +17,17 @@ locations:
       leave: "Zurück ans Tageslicht"
 
     # --- the train's ticket (18015-18030) ---
-    ticket: "ein u-bahn-ticket kostet dich\n{price:mid$} $."                     # :18015-18020 `ein u-bahn-ticket kostet dich`
-    confirm: "ok (j/n)?"                                                   # :1110 `ok (j/n)?`
+    ticket: "Ein U-Bahn-Ticket kostet dich {price:mid$} $."                     # :18015-18020 `ein u-bahn-ticket kostet dich`
+    confirm: "OK (j/n)?"                                                   # :1110 `ok (j/n)?`
 
     # --- the pickpocketing (18035-18052) ---
-    thief_prompt: "welchen spieler setzt du als dieb ein:"                 # :18035 `welchen spieler setzt du als dieb ein:`
-    stealing: "du stiehlst..."                                             # :18039 `du stiehlst...`
-    caught: "...nichts! denn du wirst erwischt!"                           # :18042 `...nichts! denn du wirst erwischt!`
-    loot_handbag: "...eine handtasche - nichts wertvolles!"                # :18046
-    loot_camera: "...'nen fotoapparat! er bringt 50 $."                    # :18047
-    loot_pearls: "...eine falsche perlenkette!"                            # :18048
-    loot_watch: "...eine armbanduhr fuer 100 $!"                           # :18049
-    loot_wallet: "...'ne brieftasche mit 500 $!"                           # :18050
-    loot_diamond: "...einen diamanten! der ist 800 $ wert!"                # :18051
-    loot_manual: "...eine anleitung -der safeknacker- ??!"                 # :18052
+    thief_prompt: "Welchen Spieler setzt du als Dieb ein:"                 # :18035 `welchen spieler setzt du als dieb ein:`
+    stealing: "Du stiehlst..."                                             # :18039 `du stiehlst...`
+    caught: "...nichts! Denn du wirst erwischt!"                           # :18042 `...nichts! denn du wirst erwischt!`
+    loot_handbag: "...eine Handtasche - nichts Wertvolles!"                # :18046
+    loot_camera: "...'nen Fotoapparat! Er bringt 50 $."                    # :18047
+    loot_pearls: "...eine falsche Perlenkette!"                            # :18048
+    loot_watch: "...eine Armbanduhr für 100 $!"                           # :18049
+    loot_wallet: "...'ne Brieftasche mit 500 $!"                           # :18050
+    loot_diamond: "...einen Diamanten! Der ist 800 $ wert!"                # :18051
+    loot_manual: "...eine Anleitung -Der Safeknacker- ??!"                 # :18052

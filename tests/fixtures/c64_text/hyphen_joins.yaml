@@ -11,3 +11,13 @@ hyphen_joins:
   - {source: "SCHUL-  DEN", new: "Schulden", keys: [locations.kdh.menu.repay]}
   - {source: "FALSCH-    GELD", new: "Falschgeld", keys: [locations.sgl.menu.fake_police]}
   - {source: "SPIEL-  CHEN", new: "Spielchen", keys: [locations.sph.entry_prompt]}
+  - {source: "lei-\nder", new: "leider", keys: [locations.aut.stolen_old_car_left]}
+  - {source: "hinter-\nausgang", new: "Hinterausgang", keys: [locations.pol.chief_done]}
+  - {source: "interes-\nsieren", new: "interessieren", keys: [locations.sgl.jack_warning]}
+  - {source: "grab-\nstein", new: "Grabstein", keys: [locations.sgl.owner_arms]}
+  - {source: "army-hand-\n\ngranaten", new: "Army-Handgranaten", keys: [locations.waf.grenades_in]}
+  - {source: "schiess-stand", new: "Schießstand", keys: [locations.waf.range_enter]}
+  # A row the C64 began with a printed number: the number's sign space (_format.yaml)
+  # is the space between the rows, so the joined text has none of its own.
+  - {source: "habe\n{stock}faesser", new: "habe{stock}Fässer", keys: [locations.pub.drink_offer]}
+  - {source: "die\n{p}$", new: "die{p}$", keys: [locations.sgl.reply_sob]}

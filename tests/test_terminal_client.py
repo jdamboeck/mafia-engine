@@ -128,7 +128,7 @@ def test_show_message_is_rendered_by_the_client_without_prompting():
 def test_show_message_with_params_substitutes():
     inp, out = _client([])
     render_message(_resolver(), ShowMessage("locations.slw.rent_quote", {"price": 500}), out)
-    assert "das 500 $ miete" in out.getvalue()  # :10020 "kostet das"p"$": PRINT's spacing
+    assert "das 500 $ Miete" in out.getvalue()  # :10020 "kostet das"p"$": PRINT's spacing
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +192,7 @@ def test_prompt_choice_resolves_option_keys_and_shows_plain_values_as_given():
 
     run(handler, inp, state=None, rng=None)
     lines = out.getvalue().splitlines()
-    assert lines[1:3] == ["1 - poker", "alcapone"]
+    assert lines[1:3] == ["1 - Poker", "alcapone"]
     assert "locations.sph.poker" not in out.getvalue()
 
 
@@ -1554,7 +1554,7 @@ def test_a_line_menu_asks_again_for_a_number_that_names_no_option():
     menu = PromptChoice("locations.sph.game_menu", options=["a", "b", "c"])
     seen, text = _choose(menu, "0\n4\nx\n3\n")
     assert seen == [2]
-    assert text.count("waehle, mein freund:") == 4
+    assert text.count("Wähle, mein Freund:") == 4
 
 
 def test_a_cancellable_line_menu_relays_zero_as_cancel():
@@ -1571,7 +1571,7 @@ def test_a_key_menu_takes_the_first_key_of_a_piped_line_and_ignores_other_keys()
     menu = PromptChoice("locations.sgl.after_menu", options=["a", "b", "c"], read=READ_KEY)
     seen, text = _choose(menu, "0\n4\nq\n\n12\n")
     assert seen == [0]
-    assert text.count("was machst du:") == 1
+    assert text.count("Was machst du:") == 1
     assert "> " not in text, "a one-key menu shows no line prompt"
 
 

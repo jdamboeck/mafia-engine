@@ -89,28 +89,28 @@ def test_the_pol_runs_reach_every_pol_string():
 def test_the_classic_theme_prints_each_pol_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.pol.chief_offer": ({}, "aha! fuer einen monat untaetigkeit"),
-        "locations.pol.chief_prompt": ({}, "nehme ich 1000 $. wieviele monate:"),
-        "locations.pol.chief_broke": ({}, "sie sind leider nich fluessig!"),
-        "locations.pol.chief_done": ({}, "danke sehr! nehmen sie den hinter-\nausgang!"),
-        "locations.pol.nobody_jailed": ({}, "es ist niemand inhaftiert."),
-        "locations.pol.free_prompt": ({}, "wen willst du befreien:"),
+        "locations.pol.chief_offer": ({}, "Aha! Für einen Monat Untätigkeit"),
+        "locations.pol.chief_prompt": ({}, "nehme ich 1000 $. Wie viele Monate:"),
+        "locations.pol.chief_broke": ({}, "Sie sind leider nich flüssig!"),
+        "locations.pol.chief_done": ({}, "Danke sehr! Nehmen Sie den Hinterausgang!"),
+        "locations.pol.nobody_jailed": ({}, "Es ist niemand inhaftiert."),
+        "locations.pol.free_prompt": ({}, "Wen willst du befreien:"),
         "locations.pol.free_entry": ({"index": 2, "name": "moran"}, "2 moran"),
         "locations.pol.free_entry_phantom": ({"index": 1}, "1 irgendjemanden"),
         "locations.pol.free_price": (
             {"price": 3500},
-            "du brauchst 3500 $, um die waerter zu\nbestechen.",
+            "Du brauchst 3500 $, um die Wärter zu bestechen.",
         ),
-        "locations.pol.confirm": ({}, "ok (j/n)?"),
-        "locations.pol.freed": ({}, "du konntest den gefangenen befreien!"),
-        "locations.pol.phantom_leaves": ({}, "er bedankt sich und verschwindet..."),
+        "locations.pol.confirm": ({}, "OK (j/n)?"),
+        "locations.pol.freed": ({}, "Du konntest den Gefangenen befreien!"),
+        "locations.pol.phantom_leaves": ({}, "Er bedankt sich und verschwindet..."),
         "locations.pol.thank_you": (
             {"name": "moran", "rescuer": "alcapone", "cash": 800},
-            "moran!\ndu bist von alcapone aus dem\nknast befreit worden. wieviel zahlst du\n"
-            "ihm zum dank (0 - 800):",
+            "moran! Du bist von alcapone aus dem Knast befreit worden. Wie viel zahlst du ihm"
+            " zum Dank (0 - 800):",
         ),
         "locations.pol.thank_you_prompt": ({}, "?"),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key

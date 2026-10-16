@@ -21,35 +21,35 @@ locations:
       leave: "Heute mal nicht kassieren"
 
     # --- the prologue (17005-17009) ---
-    milksop: "'verschwinde, du milchgesicht!'"                          # :17006 `'verschwinde, du milchgesicht!'`
-    police_waiting: "vor dem laden erwartet dich die\npoliyei!"          # :17008-17009 `vor dem laden erwartet dich die` (sic)
+    milksop: "'Verschwinde, du Milchgesicht!'"                          # :17006 `'verschwinde, du milchgesicht!'`
+    police_waiting: "Vor dem Laden erwartet dich die Polizei!"          # :17008-17009 `vor dem laden erwartet dich die` (sic)
 
     # --- the options (17015-17306) ---
     # :17015 `print"{clr}":a=sp:b=1:gosub1350` clears the screen for the threat's outcome;
     # the client cleared it at the menu pick (:3050).
-    no_impression: "du schindest keinen eindruck..."                    # :17016 `du schindest keinen eindruck...`
-    calls_police: "der kerl ruft die polizei!!!"                        # :17020 `der kerl ruft die polizei!!!`
-    sob_refused: "'sorge doch selbst fuer deine alte!'"                 # :17105 `'sorge doch selbst fuer deine alte!'`
-    jack_warning: "'das wird aber narben-jack interes-\nsieren!'"       # :17205-17206 `'das wird aber narben-jack interes-`
-    jack_leaves: "jack verzieht sich erstmal aus diesem\ngebiet..."     # :17220-17221 `jack verzieht sich erstmal aus diesem`
-    fake_police_refused: "'ach, die alte bullen-masche! damit\nneppt ihr keinen mehr!'"  # :17305-17306 `'ach, die alte bullen-masche! damit`
+    no_impression: "Du schindest keinen Eindruck..."                    # :17016 `du schindest keinen eindruck...`
+    calls_police: "Der Kerl ruft die Polizei!!!"                        # :17020 `der kerl ruft die polizei!!!`
+    sob_refused: "'Sorge doch selbst für deine Alte!'"                 # :17105 `'sorge doch selbst fuer deine alte!'`
+    jack_warning: "'Das wird aber Narben-Jack interessieren!'"       # :17205-17206 `'das wird aber narben-jack interes-`
+    jack_leaves: "Jack verzieht sich erstmal aus diesem Gebiet..."     # :17220-17221 `jack verzieht sich erstmal aus diesem`
+    fake_police_refused: "'Ach, die alte Bullen-Masche! Damit neppt ihr keinen mehr!'"  # :17305-17306 `'ach, die alte bullen-masche! damit`
 
     # --- the payout (17505-17551) ---
-    reply_pays: "'i..i..ich z..zahle ja schon! hi..hier\nsind{p}$!'"       # :17511-17512 `'i..i..ich z..zahle ja schon! hi..hier`
-    reply_sob: "'deine arme ma (schnief)! gib ihr die\n{p}$ hier!'"        # :17515 `'deine arme ma (schnief)! gib ihr die`
-    reply_enough: "'ich habe{p}dollar, reicht das?'"                       # :17520 `dollar, reicht das?'`
-    reply_forged: "'verdammt! wer hat mir nur blueten\nfuer{p}$ angedreht...?'"   # :17525-17526 `'verdammt! wer hat mir nur blueten`
-    reply_small: "'ich habe leider nur{p}$!"                                 # :17530 `'ich habe leider nur` (no closing quote)
+    reply_pays: "'I..i..ich z..zahle ja schon! Hi..hier sind{p}$!'"       # :17511-17512 `'i..i..ich z..zahle ja schon! hi..hier`
+    reply_sob: "'Deine arme Ma (schnief)! Gib ihr die{p}$ hier!'"        # :17515 `'deine arme ma (schnief)! gib ihr die`
+    reply_enough: "'Ich habe{p}Dollar, reicht das?'"                       # :17520 `dollar, reicht das?'`
+    reply_forged: "'Verdammt! Wer hat mir nur Blüten für{p}$ angedreht...?'"   # :17525-17526 `'verdammt! wer hat mir nur blueten`
+    reply_small: "'Ich habe leider nur{p}$!'"                                 # :17530 `'ich habe leider nur` (no closing quote)
     # :17555 `getx$:ifx$<"1"orx$>"3"goto17555` reads the pick of the three below.
-    after_menu: "was machst du:"                                             # :17550 `was machst du:`
-    after_take: "1 angebotenes geld nehmen"                                  # :17550 `1 angebotenes geld nehmen`
-    after_demolish: "2 laden demolieren"                                     # :17551 `2 laden demolieren`
-    after_kill: "3 besitzer fertigmachen"                                    # :17551 `3 besitzer fertigmachen`
+    after_menu: "Was machst du:"                                             # :17550 `was machst du:`
+    after_take: "1 Angebotenes Geld nehmen"                                  # :17550 `1 angebotenes geld nehmen`
+    after_demolish: "2 Laden demolieren"                                     # :17551 `2 laden demolieren`
+    after_kill: "3 Besitzer fertigmachen"                                    # :17551 `3 besitzer fertigmachen`
 
     # --- wreck the shop (17570-17577) ---
-    thugs_called: "'saubande! das werdet ihr buessen!'\n(der kerl winkt ein paar schlaeger\nheran!)"   # :17571-17572 `'saubande! das werdet ihr buessen!'`
-    demolished: "du hast kleinholz aus dem laden\ngemacht. in der kasse waren{p}$!"   # :17576-17577 `du hast kleinholz aus dem laden`
+    thugs_called: "'Saubande! Das werdet ihr büßen!' (Der Kerl winkt ein paar Schläger heran!)"   # :17571-17572 `'saubande! das werdet ihr buessen!'`
+    demolished: "Du hast Kleinholz aus dem Laden gemacht. In der Kasse waren{p}$!"   # :17576-17577 `du hast kleinholz aus dem laden`
 
     # --- finish the owner (17585-17592) ---
-    owner_arms: "er verspricht dir einen schoenen grab-\nstein und laedt seine {weapon}!"   # :17585-17586 `er verspricht dir einen schoenen grab-`
-    owner_dead: "der aufmuepfige kerl ist hin.{p}$\nhatte er der tasche!"   # :17591-17592 `der aufmuepfige kerl ist hin.`
+    owner_arms: "Er verspricht dir einen schönen Grabstein und lädt seine {weapon}!"   # :17585-17586 `er verspricht dir einen schoenen grab-`
+    owner_dead: "Der aufmüpfige Kerl ist hin.{p}$ hatte er in der Tasche!"   # :17591-17592 `der aufmuepfige kerl ist hin.`

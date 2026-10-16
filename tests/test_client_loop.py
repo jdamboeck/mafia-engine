@@ -324,9 +324,9 @@ class TestCasinoMenuReadsAsItsSource:
         and ``:16015``'s prompt follows the options."""
         output = _run_play_with_deadline(monkeypatch, seed=42, stdin_keys=self._keys("1", "100"))
         lines = [line.strip() for line in output.replace(CLEAR, "\n").splitlines()]
-        menu = lines.index("waehle, mein freund:")
-        assert lines[menu + 1 : menu + 4] == ["1 - poker", "2 - black jack", "3 - roulette"]
-        assert lines[menu + 4].startswith("was soll's sein:")
+        menu = lines.index("Wähle, mein Freund:")
+        assert lines[menu + 1 : menu + 4] == ["1 - Poker", "2 - Black Jack", "3 - Roulette"]
+        assert lines[menu + 4].startswith("Was soll's sein:")
 
     def test_the_stake_line_is_shown_once(self, monkeypatch):
         """``:16020 print"{down}du hast"ka(sp)"$. dein einsatz:":inputp``: the cash and
@@ -472,7 +472,7 @@ class TestLocationScreen:
         rents nothing (:10100 ``du wohnst hier nicht!``)."""
         keys = [*self._slw_walk(), "", "0", "4", "x", "", "2", "", "q"]
         output, _ = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, seconds=20)
-        assert output.count("du wohnst hier nicht!") == 1, "2 did not run the second option"
+        assert output.count("Du wohnst hier nicht!") == 1, "2 did not run the second option"
         # 0 is not the first option (rent, :10020's quote), 4 is not the last (leave).
         assert "pro monat kostet das" not in output
         assert "nichts mehr frei" not in output
@@ -484,7 +484,7 @@ class TestLocationScreen:
         output, _ = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, seconds=20)
         assert "Schlupfwinkel (Motel, Mietskaserne)" in output
         assert "pro monat kostet das" not in output, "the menu went on after q"
-        assert "du wohnst hier nicht!" not in output, "the menu went on after q"
+        assert "Du wohnst hier nicht!" not in output, "the menu went on after q"
 
     def test_eof_at_the_menu_ends_the_session(self, monkeypatch):
         output, _ = run_play_returning(
@@ -526,13 +526,13 @@ class TestSlwRentThroughClient:
         keys = walk_keys_across_turns(state, city, cell) + ["", "1", "3"]
 
         output = run_play(monkeypatch, seed=42, stdin_keys=keys)
-        quote = output.index("pro monat kostet das")
+        quote = output.index("Pro Monat kostet das")
         menu = output.rindex("Ich möchte meine Miete bezahlen", 0, quote)
         assert CLEAR in output[menu:quote], "the handler printed under the location menu"
 
     @pytest.mark.parametrize(
         ("months", "result"),
-        [("3", "guten tag, der herr!"), ("999", "du hast zu wenig kies!")],
+        [("3", "Guten Tag, der Herr!"), ("999", "Du hast zu wenig Kies!")],
         ids=["10045-success", "1125-refusal"],
     )
     def test_a_location_result_waits_for_a_key(self, monkeypatch, months, result):
@@ -670,7 +670,7 @@ class TestPubTipThroughClient:
         assert result.state.players[0].ka == 98000  # 100000 - 2000$ tip price
         assert game.tip_target(result.state.players[0]) == 1
         # The Confirm prompt genuinely reached the real TerminalInput wire.
-        assert "ok (j/n)?" in out.getvalue()
+        assert "OK (j/n)?" in out.getvalue()
 
 
 class TestPubRecruitThroughClient:
@@ -727,7 +727,7 @@ class TestPubRecruitThroughClient:
         assert result.state.players[0].roster[1].vitality == 5
         assert game.hired_ids(result.state) == (0,)
         # The Confirm prompt genuinely reached the real TerminalInput wire.
-        assert "ok (j/n)?" in out.getvalue()
+        assert "OK (j/n)?" in out.getvalue()
 
 
 # --------------------------------------------------------------------------- #
@@ -765,7 +765,7 @@ class TestPubJobThroughClient:
         assert game.job(result.state.players[0]).pending_pay == 2261
         assert result.state.players[0].ms == 0  # force-ended (mf-prg.bas:12335 ms=0)
         # The Confirm prompt genuinely reached the real TerminalInput wire.
-        assert "ok (j/n)?" in out.getvalue()
+        assert "OK (j/n)?" in out.getvalue()
 
 
 # --------------------------------------------------------------------------- #
@@ -906,7 +906,7 @@ class TestSessionRngDeterminism:
         assert out1 == out2
         assert state1 == state2
 
-        assert "ist im trainingscamp" in out1 and "da ist er wieder!" in out1
+        assert "ist im Trainingscamp" in out1 and "da ist er wieder!" in out1
         before, after = boss.roster[0], state1.players[0].roster[0]
         assert state1.players[0].ka == boss.ka - (2500 + 500 * 5)
         draws = [value for method, args, value in rng1.log if (method, args) == ("hit", (8, 15))]
@@ -1645,7 +1645,7 @@ class TestWholeSessionDeterminism:
         boss = state.players[0]
         assert boss.last_location == 4
         assert game.contraband(boss).alcohol_barrels == 1
-        assert "faesser fuer" in out
+        assert "Fässer für" in out
 
     def test_same_seed_and_script_reproduce_the_session_byte_for_byte(self, monkeypatch):
         players = [("alcapone", "the outfit"), ("moran", "north side")]
@@ -2308,7 +2308,7 @@ class TestSaveAndLoad:
         )
         assert game.job(state.players[0]).type != 0, "no job taken: vacuous"
         assert state.players[0].ms == -5
-        assert "move: W/A/S/D" not in out.split("du hast den job!")[-1]
+        assert "move: W/A/S/D" not in out.split("Du hast den Job!")[-1]
         assert not save.exists(), "a save fell between the job and its shift"
 
     def test_load_skips_title_setup_and_upkeep(self, monkeypatch, tmp_path):
@@ -2758,7 +2758,7 @@ class TestWhoseTurnLine:
     def test_a_prompt_for_another_player_names_that_player_first(self, monkeypatch):
         output = self._play_with_upkeep_asking(monkeypatch, player=1)
 
-        prompt_at = output.index("wieviele monate willst du mieten")
+        prompt_at = output.index("Wie viele Monate willst du mieten")
         assert self._WHOSE_TURN in output[:prompt_at], "no whose-turn line before the prompt"
 
     def test_the_freed_player_at_pol_is_named_before_their_thank_you(self, monkeypatch, tmp_path):
@@ -2777,7 +2777,7 @@ class TestWhoseTurnLine:
             monkeypatch, tmp_path, state, "walking", ["w", "", "3", "1", "j", "", "100", "q"]
         )
 
-        screen_at = output.index("ihm zum dank (0 - 800):")
+        screen_at = output.index("ihm zum Dank (0 - 800):")
         whose_at = output.index(self._WHOSE_TURN, screen_at)
         prompt_at = output.index("?", whose_at)
         assert screen_at < whose_at < prompt_at
@@ -2788,7 +2788,7 @@ class TestWhoseTurnLine:
     def test_a_prompt_for_the_active_player_names_nobody(self, monkeypatch):
         output = self._play_with_upkeep_asking(monkeypatch, player=None)
 
-        prompt_at = output.index("wieviele monate willst du mieten")
+        prompt_at = output.index("Wie viele Monate willst du mieten")
         # The upkeep banner comes after the upkeep's prompt, so nothing before it names a
         # player.
         assert "ist an der reihe" not in output[:prompt_at], "a whose-turn line was printed"
@@ -2892,13 +2892,13 @@ class TestOneKeyNumberMenus:
         """``:14008 print"{down}nummerntaste (0=ende) druecken!":gosub1100`` prints the
         line before the models; ``:14020 getx$:ifx$=""goto14020`` prints nothing."""
         output = self._showroom(monkeypatch, "21", "q")
-        assert output.count("nummerntaste (0=ende) druecken!") == 1
+        assert output.count("Nummerntaste (0=Ende) drücken!") == 1
 
     def test_return_leaves_the_showroom(self, monkeypatch):
         """``:14025 y=val(x$):ify=0thenpokev+21,0:return``: RETURN is val 0 and leaves."""
         output = self._showroom(monkeypatch, "", "q")
         after = output.split("3 buick century")[1]
-        assert after.count("nummerntaste (0=ende) druecken!") <= 1, "RETURN was asked again"
+        assert after.count("Nummerntaste (0=Ende) drücken!") <= 1, "RETURN was asked again"
         assert "move: W/A/S/D" in after, "RETURN did not leave for the map"
         assert "cash 5500$" in after.lower(), "RETURN bought a car"
 
@@ -2922,7 +2922,7 @@ class TestOneKeyNumberMenus:
         # step in, the art splash, "free" (3), then the inmate's key; EOF at :21131
         output, _ = _resume_at(monkeypatch, tmp_path, state, "walking", [key, "", "3", "12"])
         assert output.count("1 moran") == 1, "the inmates were listed again"
-        assert "um die waerter zu" in output, "the key did not pick moran"
+        assert "um die Wärter zu" in output, "the key did not pick moran"
 
     def test_return_leaves_the_inmate_list(self, monkeypatch, tmp_path):
         """``:21125 g=val(x$):ifg=0thenreturn``: RETURN (val 0) leaves, no price."""
@@ -2930,8 +2930,8 @@ class TestOneKeyNumberMenus:
         # step in, the art splash, "free" (3), RETURN, then "leave" (4) at the menu
         output, _ = _resume_at(monkeypatch, tmp_path, state, "walking", [key, "", "3", "", "4"])
         assert "um die waerter zu" not in output, "RETURN picked an inmate"
-        assert output.count("wen willst du befreien:") == 1, "RETURN was asked again"
-        after = output.split("wen willst du befreien:")[1]
+        assert output.count("Wen willst du befreien:") == 1, "RETURN was asked again"
+        after = output.split("Wen willst du befreien:")[1]
         assert "move: W/A/S/D" in after, "the menu's leave did not follow RETURN"
 
     @staticmethod

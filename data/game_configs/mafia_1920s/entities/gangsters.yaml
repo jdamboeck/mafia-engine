@@ -85,3 +85,10 @@ gangsters:
      description: "ein mann ganz in schwarz"}
   - {name: "ma baker",              weapon: 7, kraft: 20, intelligenz: 80, brutalitaet: 95, price: 5500, female: true,
      description: "ma baker ist fuer ihre brutalitaet und ihre gemeinheit gefuerchtet"}
+
+# The pronoun the recruit offer prints for a candidate (:12130 `y$="er":iffnwe(g(i))theny$="sie"`),
+# by its `female` flag: `start` where y$ opens a sentence (:12131, :12135), `mid` where it
+# falls inside one (:12136). locations.pub.recruit_offer's {Pronoun} and {pronoun}.
+pronouns:
+  male: {start: "Er", mid: "er"}
+  female: {start: "Sie", mid: "sie"}

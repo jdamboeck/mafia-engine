@@ -411,7 +411,7 @@ def test_pub_strings_load_verbatim():
     )
     # Rank-too-low recruit refusal (mf-prg.bas:12101-12102), verbatim.
     assert get("locations.pub.rank_too_low") == (
-        "als {rank} kannst du noch keine eigenen leute haben!"
+        "Als {rank} kannst du noch keine eigenen Leute haben!"
     )
     # Recruit menu option (mf-prg.bas:12100 option 2), the research's words in today's
     # spelling — the wrap padding before Gang is one space; the trailing '...' stays.

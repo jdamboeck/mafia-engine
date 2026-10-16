@@ -15,14 +15,14 @@ locations:
       play: "'OK, Chef, was kannst du mir empfehlen?'"
       leave: "'Nein, nein! Ich spiele nur Mau-Mau!'"
     # Game menu (inside the handler, mf-prg.bas:16010-16011).
-    game_menu: "waehle, mein freund:"
-    poker: "1 - poker"
-    blackjack: "2 - black jack"
-    roulette: "3 - roulette"
+    game_menu: "Wähle, mein Freund:"
+    poker: "1 - Poker"
+    blackjack: "2 - Black Jack"
+    roulette: "3 - Roulette"
     # The game menu's prompt, after the options.
-    game_prompt: "was soll's sein:"  # :16015 `input"{down}was soll's sein:";x`
+    game_prompt: "Was soll's sein:"  # :16015 `input"{down}was soll's sein:";x`
     # Wager + resolve (16020, 16026, 16035, 16040).
-    wager_prompt: "du hast{cash}$. dein einsatz:"  # :16020 `"$. dein einsatz:":inputp`
-    at_the_table: "du begibst dich an den spieltisch..."
-    won: "du hast{amount}$ gewonnen!"
-    lost: "leider verloren!"
+    wager_prompt: "Du hast{cash}$. Dein Einsatz:"  # :16020 `"$. dein einsatz:":inputp`
+    at_the_table: "Du begibst dich an den Spieltisch..."
+    won: "Du hast{amount}$ gewonnen!"
+    lost: "Leider verloren!"

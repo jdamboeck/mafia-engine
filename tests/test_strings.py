@@ -29,15 +29,15 @@ def _resolver():
 # --------------------------------------------------------------------------- #
 def test_resolves_template_with_params():
     r = _resolver()
-    # slw.yaml: rent_quote = "'gut. pro monat kostet das {price}$ miete.'"
+    # slw.yaml: rent_quote = "'Gut. Pro Monat kostet das{price}$ Miete.'"
     out = r.resolve("locations.slw.rent_quote", {"price": 500})
-    assert out == "'gut. pro monat kostet das 500 $ miete.'"
+    assert out == "'Gut. Pro Monat kostet das 500 $ Miete.'"
 
 
 def test_resolves_paramless_key():
     r = _resolver()
     # slw.yaml: no_room has no params.
-    assert r.resolve("locations.slw.no_room") == "'nichts mehr frei!'"
+    assert r.resolve("locations.slw.no_room") == "'Nichts mehr frei!'"
 
 
 def test_merges_keys_across_multiple_string_files():
@@ -60,7 +60,7 @@ def test_runtime_override_deep_merges_over_default():
     assert overridden.resolve("locations.slw.no_room") == "OVERRIDDEN"
     # ...but a non-overridden sibling still resolves to the default (deep merge, not replace).
     assert overridden.resolve("locations.slw.rent_quote", {"price": 1}) == (
-        "'gut. pro monat kostet das 1 $ miete.'"
+        "'Gut. Pro Monat kostet das 1 $ Miete.'"
     )
 
 
@@ -250,9 +250,9 @@ def test_classic_prints_a_float_price_as_the_c64_does():
     the trailing space), never Python's ``3000.0$``."""
     out = _resolver().resolve(
         "locations.pub.recruit_offer",
-        {"pronoun": "er", "name": "joe", "description": "stark", "price": 3000.0},
+        {"Pronoun": "Er", "pronoun": "er", "name": "joe", "description": "stark", "price": 3000.0},
     )
-    assert " verlangt 3000 $ vorschuss" in out
+    assert " verlangt 3000 $ Vorschuss" in out
     assert "3000.0" not in out
 
 
@@ -268,7 +268,7 @@ def test_a_negative_prints_its_minus_without_a_doubled_space():
     r = _styled("c64", "du hast{p}$ schulden")
     assert r.resolve("t", {"p": -500}) == "du hast-500 $ schulden"
     classic = _resolver().resolve("locations.sph.wager_prompt", {"cash": -500})
-    assert classic == "du hast-500 $. dein einsatz:"
+    assert classic == "Du hast-500 $. Dein Einsatz:"
     assert "  " not in classic
 
 
@@ -276,7 +276,7 @@ def test_a_positive_number_gets_the_sign_space():
     """``print"du hast"p"$"`` with p=500 shows ``du hast 500 $``: a space for the sign."""
     assert _styled("c64", "du hast{p}$").resolve("t", {"p": 500}) == "du hast 500 $"
     classic = _resolver().resolve("locations.sph.wager_prompt", {"cash": 500})
-    assert classic == "du hast 500 $. dein einsatz:"
+    assert classic == "Du hast 500 $. Dein Einsatz:"
 
 
 def test_the_plain_number_style_is_unchanged():
@@ -329,19 +329,19 @@ def test_the_classic_standings_row_tabs_as_4510_does():
 # --------------------------------------------------------------------------- #
 _SOURCE_TEXTS = [
     # :16020 print"{down}du hast"ka(sp)"$. dein einsatz:":inputp
-    ("locations.sph.wager_prompt", {"cash": 500}, "du hast 500 $. dein einsatz:"),
+    ("locations.sph.wager_prompt", {"cash": 500}, "Du hast 500 $. Dein Einsatz:"),
     # :12021 print"'ich habe" / :12022 printx"faesser fuer"p"$ pro fass.'"
     (
         "locations.pub.drink_offer",
         {"stock": 150, "price": 7},
-        "'ich habe\n 150 faesser fuer 7 $ pro fass.'",
+        "'Ich habe 150 Fässer für 7 $ pro Fass.'",
     ),
     # :13090 print"...brandheiss! eine ladung army-hand-"
     # :13091 print"{down}granaten ist gerade eingetroffen!":b=8:print:return
     (
         "locations.waf.grenades_in",
         {},
-        "...brandheiss! eine ladung army-hand-\n\ngranaten ist gerade eingetroffen!\n",
+        "...brandheiß! Eine Ladung Army-Handgranaten ist gerade eingetroffen!\n",
     ),
     # The pub's SEQ file (src/pub): 'EH@ AMIGO@ WILLST DU 'NE MILCH? ...
     (
@@ -358,50 +358,56 @@ _SOURCE_TEXTS = [
     (
         "locations.pub.rank_too_low",
         {"rank": "ganove"},
-        "als ganove kannst du noch keine eigenen leute haben!",
+        "Als ganove kannst du noch keine eigenen Leute haben!",
     ),
-    ("locations.pub.recruit_no_housing", {}, "du brauchst eine unterkunft fuer die gangster!"),
-    ("locations.pub.recruit_gang_full", {}, "maximal 10 gangster!"),
-    ("locations.pub.recruit_nobody_available", {}, "es ist niemand da."),
-    ("locations.pub.recruit_intro_male", {}, "ein gangster kommt, um mit dir zu sprechen..."),
+    ("locations.pub.recruit_no_housing", {}, "Du brauchst eine Unterkunft für die Gangster!"),
+    ("locations.pub.recruit_gang_full", {}, "Maximal 10 Gangster!"),
+    ("locations.pub.recruit_nobody_available", {}, "Es ist niemand da."),
+    ("locations.pub.recruit_intro_male", {}, "Ein Gangster kommt, um mit dir zu sprechen..."),
     (
         "locations.pub.recruit_intro_female",
         {},
-        "eine dame scheint sich fuer deine gang zu interessieren...",
+        "Eine Dame scheint sich für deine Gang zu interessieren...",
     ),
     (
         "locations.pub.recruit_offer",
-        {"pronoun": "er", "name": "luigi", "description": "ein killer", "price": 1500},
-        "er wird luigi genannt. ein killer. er verlangt 1500 $ vorschuss, wenn er sich dir"
-        " anschliessen soll.",
+        {
+            "Pronoun": "Er",
+            "pronoun": "er",
+            "name": "luigi",
+            "description": "ein killer",
+            "price": 1500,
+        },
+        "Er wird luigi genannt. ein killer. Er verlangt 1500 $ Vorschuss, wenn er sich dir"
+        " anschließen soll.",
     ),
-    ("locations.pub.recruit_hired", {"gang_size": 3}, "nun hast du 3 gangster!"),
+    ("locations.pub.recruit_hired", {"gang_size": 3}, "Nun hast du 3 Gangster!"),
     # --- pub job, :12301-12335 ---
-    ("locations.pub.job_rank_too_high", {"rank": "boss"}, "als 'boss' findest du was besseres!"),
-    ("locations.pub.job_nobody_available", {}, "niemand hat einen job fuer dich."),
+    ("locations.pub.job_rank_too_high", {"rank": "boss"}, "Als 'boss' findest du was Besseres!"),
+    ("locations.pub.job_nobody_available", {}, "Niemand hat einen Job für dich."),
     (
         "locations.pub.job_offer_bouncer",
         {},
-        "der inhaber der bahnhofskneipe will dich fuer 3 monate als rausschmeisser anstellen.",
+        "Der Inhaber der Bahnhofskneipe will dich für 3 Monate als Rausschmeißer anstellen.",
     ),
     (
         "locations.pub.job_offer_croupier",
         {},
-        "du kannst 2 monate als croupier in georges spielhoelle arbeiten.",
+        "Du kannst 2 Monate als Croupier in Georges Spielhölle arbeiten.",
     ),
     (
         "locations.pub.job_offer_doorman",
         {},
-        "das 'le roi'-hotel sucht einen tuersteher fuer 2 monate.",
+        "Das 'Le Roi'-Hotel sucht einen Türsteher für 2 Monate.",
     ),
     (
         "locations.pub.job_offer_killer",
         {},
-        "du erhaelst das foto eines mannes, der im 'red house' abgestiegen ist. du sollst ihn"
+        "Du erhältst das Foto eines Mannes, der im 'Red House' abgestiegen ist. Du sollst ihn"
         " umlegen!",
     ),
-    ("locations.pub.job_pay_confirm", {"pay": 2500}, "du bekommst dafuer 2500 $."),
-    ("locations.pub.job_accepted", {}, "du hast den job!"),
+    ("locations.pub.job_pay_confirm", {"pay": 2500}, "Du bekommst dafür 2500 $."),
+    ("locations.pub.job_accepted", {}, "Du hast den Job!"),
     # --- job shifts, :25020-25556 ---
     (
         "job.shift_bouncer_wait",
@@ -432,38 +438,38 @@ _SOURCE_TEXTS = [
         "du hast deinen job erledigt und erhaeltst deinen lohn. es sind 2500 $!",
     ),
     # --- loan shark, :15010-15321 ---
-    ("locations.kdh.pay_old_debts_first", {}, "zahle erstmal deine alten schulden ab!"),
+    ("locations.kdh.pay_old_debts_first", {}, "Zahle erstmal deine alten Schulden ab!"),
     (
         "locations.kdh.borrow_grace_notice",
         {},
-        "du hast 6 monate zeit, die schulden zurueck zu zahlen!",
+        "Du hast 6 Monate Zeit, die Schulden zurückzuzahlen!",
     ),
-    ("locations.kdh.repay_partial", {"remaining": 300}, "ok, du hast jetzt noch 300 $ schulden!"),
-    ("locations.kdh.repay_full", {}, "du hast die schulden zurueckgezahlt!"),
-    ("locations.kdh.already_own_a_shop", {}, "du hast schon ein kreditgeschaeft!"),
-    ("locations.kdh.pay_own_debts_first", {}, "zahle erstmal deine eigenen schulden!"),
-    ("locations.kdh.shop_belongs_to", {"name": "moran"}, "der laden gehoert moran!"),
-    ("locations.kdh.buy_offer", {"price": 5500}, "der jetzige besitzer verlangt 5500 $."),
-    ("locations.kdh.bought", {}, "der laden gehoert nun dir!"),
+    ("locations.kdh.repay_partial", {"remaining": 300}, "OK, du hast jetzt noch 300 $ Schulden!"),
+    ("locations.kdh.repay_full", {}, "Du hast die Schulden zurückgezahlt!"),
+    ("locations.kdh.already_own_a_shop", {}, "Du hast schon ein Kreditgeschäft!"),
+    ("locations.kdh.pay_own_debts_first", {}, "Zahle erstmal deine eigenen Schulden!"),
+    ("locations.kdh.shop_belongs_to", {"name": "moran"}, "Der Laden gehört moran!"),
+    ("locations.kdh.buy_offer", {"price": 5500}, "Der jetzige Besitzer verlangt 5500 $."),
+    ("locations.kdh.bought", {}, "Der Laden gehört nun dir!"),
     (
         "locations.kdh.sell_offer",
         {"price": 4500},
-        "ein kaeufer bietet dir 4500 $ fuer den laden. willst du verkaufen (j/n) ?",
+        "Ein Käufer bietet dir 4500 $ für den Laden. Willst du verkaufen (j/n) ?",
     ),
-    ("locations.kdh.not_your_shop", {}, "dieser laden gehoert dir nicht!"),
+    ("locations.kdh.not_your_shop", {}, "Dieser Laden gehört dir nicht!"),
     (
         "locations.kdh.capital_status",
         {"capital": 2000, "max": 5000},
-        "du hast 2000 $ im kreditgeschaeft (maximal 5000 $).",
+        "Du hast 2000 $ im Kreditgeschäft (maximal 5000 $).",
     ),
-    ("locations.kdh.debts_paid_on_time", {}, "alle schuldner haben puenktlich gezahlt!"),
+    ("locations.kdh.debts_paid_on_time", {}, "Alle Schuldner haben pünktlich gezahlt!"),
     (
         "locations.kdh.ambush_intro",
         {},
-        "einer deiner klienten hat noch geld. er lauert dir mit einem gewehr auf, als du"
+        "Einer deiner Klienten hat noch Geld. Er lauert dir mit einem Gewehr auf, als du"
         " kassieren willst!",
     ),
-    ("locations.kdh.ambush_loot", {"amount": 800}, "er hatte noch 800 $ dabei!"),
+    ("locations.kdh.ambush_loot", {"amount": 800}, "Er hatte noch 800 $ dabei!"),
 ]
 
 

@@ -15,13 +15,13 @@ locations:
       rent: "'Eine Unterkunft, aber zack, zack! Und ich möchte nicht gestört werden!'"
       pay_rent: "'Ich möchte meine Miete bezahlen!'"
       leave: "'Ich wünsche nichts. Sie vielleicht?'"
-    no_room: "'nichts mehr frei!'"  # :10010 `'nichts mehr frei!'`
-    rent_quote: "'gut. pro monat kostet das{price}$ miete.'"  # :10020 `'gut. pro monat kostet das`
-    months_prompt: "wieviele monate willst du mieten"  # :10025 `wieviele monate willst du mieten`
-    success: "'guten tag, der herr!'"  # :10045 `'guten tag, der herr!'`
-    not_resident: "du wohnst hier nicht!"  # :10100 `du wohnst hier nicht!`
+    no_room: "'Nichts mehr frei!'"  # :10010 `'nichts mehr frei!'`
+    rent_quote: "'Gut. Pro Monat kostet das{price}$ Miete.'"  # :10020 `'gut. pro monat kostet das`
+    months_prompt: "Wie viele Monate willst du mieten"  # :10025 `wieviele monate willst du mieten`
+    success: "'Guten Tag, der Herr!'"  # :10045 `'guten tag, der herr!'`
+    not_resident: "Du wohnst hier nicht!"  # :10100 `du wohnst hier nicht!`
 
 system:
   # :1125 print"{down}du hast zu wenig kies!":goto1100 -- every refusal for want of cash
   # (goto1125/gosub1125); the :1100 key wait after it is the client's.
-  not_enough_money: "du hast zu wenig kies!"
+  not_enough_money: "Du hast zu wenig Kies!"

@@ -7,11 +7,12 @@ pass, keyed as it is in the tree; a string still has the source's words when its
 :func:`fold` equals its fixture text's fold.
 
 The fold lowercases, writes ä/ö/ü/ß back as ae/oe/ue/ss and collapses each whitespace
-run to one space. Two named lists in the fixture undo what that cannot: a spelling the
-1996/2006 reform changed (``reform.yaml``: ``tip`` → ``Tipp``) and a word the C64 split
+run to one space. Three named lists in the fixture undo what that cannot: a spelling
+the 1996/2006 reform changed (``reform.yaml``: ``tip`` → ``Tipp``), a word the C64 split
 with a hyphen at its line break (``hyphen_joins.yaml``: ``falsch- geld`` →
-``Falschgeld``). Each entry names the keys it applies to and maps the new form back to
-the source form there, so a changed word still fails.
+``Falschgeld``) and an author's clear slip, corrected (``author_typos.yaml``:
+``poliyei`` → ``Polizei``). Each entry names the keys it applies to and maps the new
+form back to the source form there, so a changed word still fails.
 
 The fold is many-to-one: it catches a changed word, not a wrong umlaut or a wrong
 capital. The side-by-side review (``tools/text_side_by_side.py``) is the gate for those.
@@ -63,10 +64,13 @@ _UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
 _WHITESPACE = re.compile(r"\s+")
 _LETTER = re.compile(r"[A-Za-zÄÖÜäöüß]")
 
+#: The fixture's named respelling lists, each ``<name>.yaml`` holding a ``<name>:`` list.
+LISTS = ("reform", "hyphen_joins", "author_typos")
+
 
 @dataclass(frozen=True)
 class Respelling:
-    """One named respelling: a reform spelling or a joined wrap hyphen.
+    """One named respelling: a reform spelling, a joined wrap hyphen or a fixed typo.
 
     ``source`` is the form the C64 text has, ``new`` the form the new text has, and
     ``keys`` the fixture keys it applies to. Both forms are compared folded.
@@ -75,7 +79,7 @@ class Respelling:
     source: str
     new: str
     keys: tuple[str, ...]
-    #: Which list the entry is on (``reform`` or ``hyphen_joins``), for messages.
+    #: Which list the entry is on (:data:`LISTS`), for messages.
     kind: str = "reform"
 
     @property
@@ -232,9 +236,9 @@ def fixture_value(key: str, root: Path = ROOT) -> str:
 
 
 def respellings(root: Path = ROOT) -> list[Respelling]:
-    """The reform list and the hyphen joins, as one list of entries."""
+    """The reform list, the hyphen joins and the author typos, as one list of entries."""
     out: list[Respelling] = []
-    for kind in ("reform", "hyphen_joins"):
+    for kind in LISTS:
         data = yaml.safe_load((root / FIXTURE / f"{kind}.yaml").read_text(encoding="utf-8"))
         for entry in data[kind] or ():
             out.append(Respelling(entry["source"], entry["new"], tuple(entry["keys"]), kind))

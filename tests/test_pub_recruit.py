@@ -50,7 +50,7 @@ from data.game_configs.mafia_1920s.effects import GangsterMarkHired
 from engine.locations import HANDLERS, available_options, load_location
 from engine.state import Clock, Config, GameState, Player
 from data.game_configs.mafia_1920s.gangster import Gangster
-from tests.helpers import StubRng, run_pure, scripted as _scripted
+from tests.helpers import StubRng, classic_resolver, run_pure, scripted as _scripted
 import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -395,6 +395,25 @@ def test_female_candidate_hires_identically_to_male():
     result = run_pure(HANDLERS["pub.recruit"], _scripted(True), state=st, rng=rng)
     assert result.state.players[0].roster[1] == _gangster(3)
     assert result.state.players[0].roster[1].name == "bloody mary"
+
+
+@pytest.mark.parametrize(
+    ("candidate_id", "start", "mid"),
+    [(3, "Sie", "sie"), (0, "Er", "er")],
+    ids=["female-bloody-mary", "male-killer-jack"],
+)
+def test_the_offer_s_pronoun_is_cased_by_its_place_in_the_sentence(candidate_id, start, mid):
+    """:12130 picks ``y$`` (``er``, or ``sie`` for ``fnwe``) and :12131-12136 print it
+    twice at a sentence start and once inside one: the classic offer reads ``Sie wird``,
+    ``Sie verlangt``, ``wenn sie sich`` (``Er``/``er`` for a man), the pronouns from the
+    config's content, none from the handler's code."""
+    source = _scripted(False)
+    run_pure(HANDLERS["pub.recruit"], source, state=_state(), rng=_StubRng(1, candidate_id))
+    (offer,) = [m for m in source.messages() if m.key == "locations.pub.recruit_offer"]
+    text = classic_resolver().resolve(offer.key, offer.params)
+    assert text.startswith(f"{start} wird ")
+    assert f". {start} verlangt " in text
+    assert text.endswith(f", wenn {mid} sich dir anschließen soll.")
 
 
 # --------------------------------------------------------------------------- #

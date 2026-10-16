@@ -17,14 +17,14 @@ locations:
       leave: "'Danke, Eddie, vielleicht beim nächsten Mal. Bye!'"
 
     # --- passport (22010-22020) ---
-    passport_for_one: "gut, mein sohn. fuer einen pass"        # :22010-22011 `gut, mein sohn.`
-    passport_for_many: "gut, mein sohn. fuer{count}paesse"   # :22010, :22012 `gut, mein sohn.`
+    passport_for_one: "Gut, mein Sohn. Für einen Pass"        # :22010-22011 `gut, mein sohn.`
+    passport_for_many: "Gut, mein Sohn. Für{count}Pässe"   # :22010, :22012 `gut, mein sohn.`
     passport_price: "macht das{price}$."                      # :22013 `macht das`
-    passport_done: "hier, noch druckfrisch, he, he!"           # :22015 `hier, noch druckfrisch, he, he!`
-    confirm: "ok (j/n)?"                                       # :1110 `ok (j/n)?`
+    passport_done: "Hier, noch druckfrisch, he, he!"           # :22015 `hier, noch druckfrisch, he, he!`
+    confirm: "OK (j/n)?"                                       # :1110 `ok (j/n)?`
 
     # --- counterfeit money (22100-22120) ---
-    counterfeit_reluctant: "nng...hoechst ungern! wieviel dollar"   # :22100 `nng...hoechst ungern! wieviel dollar`
+    counterfeit_reluctant: "Nng...höchst ungern! Wie viel Dollar"   # :22100 `nng...hoechst ungern! wieviel dollar`
     counterfeit_prompt: "willst du anlegen (0-5000)"                # :22105 `willst du anlegen (0-5000)`
     # :22106 `ifq>5000orq>ka(sp)thenprint"{up}{up}";:goto22105`: too much asks again.
-    counterfeit_offer: "ich gebe dir{amount}$ blueten dafuer."     # :22110 `$ blueten dafuer.`
+    counterfeit_offer: "Ich gebe dir{amount}$ Blüten dafür."     # :22110 `$ blueten dafuer.`

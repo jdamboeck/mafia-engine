@@ -101,22 +101,18 @@ def test_the_bhf_runs_reach_every_bhf_string_and_the_borrowed_screens(monkeypatc
 def test_the_classic_theme_prints_each_bhf_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.bhf.no_train": ({}, "kein postzug zu sehen..."),
-        "locations.bhf.too_few": ({}, "du hast zu wenig gangster!"),
+        "locations.bhf.no_train": ({}, "Kein Postzug zu sehen..."),
+        "locations.bhf.too_few": ({}, "Du hast zu wenig Gangster!"),
         "locations.bhf.storm": (
             {},
-            "du stuermst in den panzerwaggon und\n"
-            "beginnst gerade einzusacken, als du auf\n"
-            "drei nette herren aufmerksam wirst...",
+            "Du stürmst in den Panzerwaggon und beginnst gerade einzusacken, als du auf drei"
+            " nette Herren aufmerksam wirst...",
         ),
         # :19040 goto20050: the payout's screen is the bank's.
-        "locations.ban.loot": (
-            {"p": 8234},
-            "du hast es geschafft! deine beute\nbetraegt 8234 $!",
-        ),
+        "locations.ban.loot": ({"p": 8234}, "Du hast es geschafft! Deine Beute beträgt 8234 $!"),
         # :19050 jumps into the subway's body: its screens are the subway's.
-        "locations.sub.thief_prompt": ({}, "welchen spieler setzt du als dieb ein:"),
-        "locations.sub.loot_handbag": ({}, "...eine handtasche - nichts wertvolles!"),
+        "locations.sub.thief_prompt": ({}, "Welchen Spieler setzt du als Dieb ein:"),
+        "locations.sub.loot_handbag": ({}, "...eine Handtasche - nichts Wertvolles!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key

@@ -193,7 +193,7 @@ def test_the_weapon_list_shows_each_offered_weapon_with_its_price():
     ``fori=atob:printmid$(str$(i),2)" - "wa$(i);wp(i)"$":next`` -- the number without
     its sign position, the name, the price as PRINT prints a number (" 50 ")."""
     assert _list_screen(_state(ln=2), _StubRng()) == [
-        "ok, wir haben folgendes:",
+        "OK, wir haben Folgendes:",
         "",
         "1 - messer 50 $",
         "2 - knueppel 100 $",
@@ -205,8 +205,8 @@ def test_the_weapon_list_shows_each_offered_weapon_with_its_price():
     # :13011 a=3:b=7 on tile 1; the grenade news (:13090) prints after :13010's
     # heading and before the list, which then runs to b=8.
     rows = _list_screen(_state(ln=1, rank=6), _StubRng(0))
-    assert rows[:2] == ["ok, wir haben folgendes:", ""]
-    assert rows[2].startswith("...brandheiss!")
+    assert rows[:2] == ["OK, wir haben Folgendes:", ""]
+    assert rows[2].startswith("...brandheiß!")
     assert rows[-6:] == [
         "3 - schlagkette 500 $",
         "4 - wurfsterne 3000 $",
@@ -674,11 +674,11 @@ def test_cancel_at_gangster_pick_commits_nothing():
 #: ``"brutal","erschreckend!"``. Worked by hand from the (ts, tg) pairs of :50100-50115
 #: (no weapon has ts < 2, so none reaches the never-assigned ts$(0)).
 _SPEC_LABELS = {
-    "haende": ("mies", "laecherlich"),  # ts 2 -> 1, tg 2 -> 1
-    "messer": ("mies", "maessig"),  # ts 3 -> 1, tg 5 -> 2
-    "knueppel": ("ganz gut", "laecherlich"),  # ts 4 -> 2, tg 3 -> 1
-    "schlagkette": ("ganz gut", "maessig"),  # ts 4 -> 2, tg 4 -> 2
-    "wurfsterne": ("mies", "maessig"),  # ts 2 -> 1, tg 7 -> 2
+    "haende": ("mies", "lächerlich"),  # ts 2 -> 1, tg 2 -> 1
+    "messer": ("mies", "mäßig"),  # ts 3 -> 1, tg 5 -> 2
+    "knueppel": ("ganz gut", "lächerlich"),  # ts 4 -> 2, tg 3 -> 1
+    "schlagkette": ("ganz gut", "mäßig"),  # ts 4 -> 2, tg 4 -> 2
+    "wurfsterne": ("mies", "mäßig"),  # ts 2 -> 1, tg 7 -> 2
     "revolver": ("ganz gut", "schlimm!"),  # ts 5 -> 2, tg 10 -> 3
     "gewehr": ("ganz gut", "brutal"),  # ts 5 -> 2, tg 12 -> 4
     "maschinenpistole": ("todsicher", "brutal"),  # ts 6 -> 3, tg 15 -> 4
@@ -722,13 +722,13 @@ def test_every_weapon_s_spec_sheet_prints_the_source_labels():
         # ``"{home}{down}{down}{down}"tab(8)"{blk}preis:"wp(x)"$"``, then each label line
         # one row further down (its ``{down}``) at column 8.
         assert rows == [
-            f"waffe: {weapon['name']}",
+            f"Waffe: {weapon['name']}",
             "",
-            f"        preis: {weapon['price']} $",
+            f"        Preis: {weapon['price']} $",
             "",
-            f"        treffgenauigkeit: {accuracy}",
+            f"        Treffgenauigkeit: {accuracy}",
             "",
-            f"        wirkung: {effect}",
+            f"        Wirkung: {effect}",
         ], weapon["name"]
 
 
@@ -736,7 +736,7 @@ def test_an_accuracy_below_two_prints_the_empty_ts_label():
     """``int(ts/2)`` = 0 indexes ``ts$(0)``, which :125 never assigns: the C64 prints
     nothing after the colon."""
     rows = _spec_screen({"name": "x", "price": 1, "ts": 1, "tg": 2})
-    assert rows[4] == "        treffgenauigkeit: "
+    assert rows[4] == "        Treffgenauigkeit: "
 
 
 # --------------------------------------------------------------------------- #

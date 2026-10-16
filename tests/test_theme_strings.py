@@ -15,6 +15,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from tests.text_fold import fixture_text, flat, tree_text  # noqa: E402
+
 _THEME_DIR = (
     Path(__file__).resolve().parents[1]
     / "data"
@@ -210,4 +212,59 @@ def test_the_pub_and_waf_screens_read_in_today_s_spelling():
             "'Kannst du meine Jungs im Schießen ausbilden? Sind einfach zu schlapp!'"
         ),
         "locations.waf.menu.leave": "'Danke, danke! Kein Bedarf. Bye!'",
+    }
+
+
+def _location_print_text() -> tuple[dict[str, str], dict[str, str]]:
+    """``({key: text}, {key: C64 text})`` of every key of the twelve location string
+    files other than the screen texts above (``title``, ``entry_prompt``, ``menu.*``):
+    the BASIC print strings, live and as the C64-text fixture froze them."""
+    current, fixture = flat(tree_text()), flat(fixture_text())
+    screen = set(_location_screen_text())
+    keys = [
+        key
+        for name, texts in fixture_text().items()
+        if name in {f"strings/{loc}.yaml" for loc in _LOCATION_TITLES}
+        for key in texts
+        if key not in screen
+    ]
+    return {key: current[key] for key in keys}, {key: fixture[key] for key in keys}
+
+
+def test_ae2_the_print_strings_restore_umlauts_only_where_german_spells_them():
+    """``faesser`` is ``Fässer`` (``{stock}`` before it, as :12022 prints it), and every
+    ``eue``/``aue`` of the C64 text (``neue``, ``bereuen``, ``lauert``) keeps its ``eu``
+    and ``au``: no ``ue`` there was an umlaut (AE2)."""
+    current, fixture = _location_print_text()
+    assert len(current) > 150
+    assert "{stock}Fässer für{price}$ pro Fass." in current["locations.pub.drink_offer"]
+    kept = [
+        (key, word)
+        for key, text in fixture.items()
+        for word in re.findall(r"\w*[ea]ue\w*", text.lower())
+    ]
+    assert {word for _, word in kept} >= {"neue", "bereuen", "lauert", "blauer"}
+    assert [(key, word) for key, word in kept if word not in current[key].lower()] == []
+    assert [key for key, text in current.items() if re.search("[ae]ü", text.lower())] == []
+
+
+#: ``{placeholder}`` with its field spec, as the resolver reads it.
+_FIELD_RE = re.compile(r"\{([^{}]*)\}")
+
+
+def test_the_print_strings_keep_every_placeholder_in_its_place():
+    """Each key's ``{placeholders}`` are its C64 text's, in order and with their specs;
+    the one new name is the recruit offer's sentence-start ``{Pronoun}`` (:12131,
+    :12135), where the C64 text had ``{pronoun}``."""
+    current, fixture = _location_print_text()
+    changed = {
+        key: (_FIELD_RE.findall(text), _FIELD_RE.findall(fixture[key]))
+        for key, text in current.items()
+        if _FIELD_RE.findall(text) != _FIELD_RE.findall(fixture[key])
+    }
+    assert changed == {
+        "locations.pub.recruit_offer": (
+            ["Pronoun", "name", "description", "Pronoun", "price", "pronoun"],
+            ["pronoun", "name", "description", "pronoun", "price", "pronoun"],
+        )
     }

@@ -7,3 +7,21 @@
 #   - {source: "tip", new: "Tipp", keys: [locations.pub.menu.tip]}
 reform:
   - {source: "TIP", new: "Tipp", keys: [locations.pub.menu.tip]}
+  - source: "wieviel"
+    new: "wie viel"
+    keys:
+      - locations.ble.counterfeit_reluctant
+      - locations.kdh.borrow_prompt
+      - locations.kdh.repay_prompt
+      - locations.kdh.capital_prompt
+      - locations.pol.thank_you
+      - locations.pub.sell_quantity_prompt
+  - source: "wieviele"
+    new: "wie viele"
+    keys: [locations.pol.chief_prompt, locations.pub.drink_quantity_prompt, locations.slw.months_prompt]
+  - {source: "zuviele", new: "zu viele", keys: [locations.aut.crowded]}
+  # The old rule wrote two letters where three met before a vowel (Schiffahrt); the
+  # reform keeps all three (Schifffahrt), so the C64's schiesstand is Schießstand.
+  - source: "(s)chiesstand"
+    new: "(S)chießstand"
+    keys: [locations.waf.venue_prompt, locations.waf.venue_range]

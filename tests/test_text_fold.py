@@ -22,6 +22,7 @@ from tests.helpers import LOCATION_DIALOGUE, read_research
 from tests.text_fold import (
     ASCII_ART,
     FIXTURE,
+    LISTS,
     ROOT,
     Respelling,
     expand,
@@ -37,6 +38,7 @@ from tests.text_fold import (
 from tools.text_side_by_side import side_by_side, show
 
 _CONFIG = ROOT / "data" / "game_configs" / "mafia_1920s"
+FIXTURE_DIR = ROOT / FIXTURE
 
 # The pub's recruit option and the sgl menu's fake-police option, as the disk files
 # (src/pub, src/sgl) hold them: location-dialogue.yaml, pub and sgl.
@@ -143,6 +145,25 @@ def test_ae5_a_changed_word_fails_naming_the_key():
     assert fold_failures({key: kept}, {key: source}, []) == []
 
 
+def test_a_fixed_author_typo_folds_back_only_with_its_entry():
+    """``Poliyei`` is ``Polizei`` in the new text: the fold check passes only because the
+    slip is on ``author_typos.yaml``, read like the reform list, and each entry there
+    says why it is a slip."""
+    key = "locations.sgl.police_waiting"
+    source = "vor dem laden erwartet dich die\npoliyei!"
+    new = "Vor dem Laden erwartet dich die Polizei!"
+    typo = Respelling("poliyei", "Polizei", (key,), "author_typos")
+    assert fold_failures({key: new}, {key: source}, [typo]) == []
+    assert fold_failures({key: new}, {key: source}, []) != []
+    entries = yaml.safe_load((FIXTURE_DIR / "author_typos.yaml").read_text(encoding="utf-8"))
+    assert entries["author_typos"]
+    assert all(entry["reason"].strip() for entry in entries["author_typos"])
+    assert {e.kind for e in respellings()} == set(LISTS)
+    assert (typo.source, typo.new, typo.keys) in {
+        (e.source, e.new, e.keys) for e in respellings() if e.kind == "author_typos"
+    }
+
+
 def test_a_key_gone_from_the_tree_fails():
     (failure,) = fold_failures({}, {"locations.aut.menu.buy": "WAGEN KAUFEN"}, [])
     assert failure == "locations.aut.menu.buy: in the fixture but gone from the tree"
@@ -235,8 +256,8 @@ _STRINGS = Path("data/game_configs/mafia_1920s/themes/classic/strings")
 def scratch(tmp_path: Path) -> Path:
     """A copy of the tree's text sources and the fixture, to change freely.
 
-    The copy's fixture is frozen again from the copy's own text, with empty reform and
-    hyphen lists, so the copy starts unchanged however far the normalization has got."""
+    The copy's fixture is frozen again from the copy's own text, with empty reform,
+    hyphen and typo lists, so the copy starts unchanged however far the normalization has got."""
     for part in (
         _STRINGS,
         Path("data/game_configs/mafia_1920s/entities"),
@@ -249,7 +270,7 @@ def scratch(tmp_path: Path) -> Path:
     for name, keys in tree_text(tmp_path).items():
         dumped = yaml.safe_dump(keys, allow_unicode=True, sort_keys=False, width=1_000_000)
         (tmp_path / FIXTURE / name).write_text(dumped, encoding="utf-8")
-    for kind in ("reform", "hyphen_joins"):
+    for kind in LISTS:
         (tmp_path / FIXTURE / f"{kind}.yaml").write_text(f"{kind}: []\n", encoding="utf-8")
     return tmp_path
 

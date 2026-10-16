@@ -18,7 +18,7 @@ locations:
       leave: "Wieder gehen"
 
     # --- buy (14006-14052) ---
-    showroom: "der verkaeufer zeigt dir eine auswahl\nder modelle. zum kauf die entsprechende\nnummerntaste (0=ende) druecken!"  # :14006-14008 `der verkaeufer zeigt dir eine auswahl`
+    showroom: "Der Verkäufer zeigt dir eine Auswahl der Modelle. Zum Kauf die entsprechende Nummerntaste (0=Ende) drücken!"  # :14006-14008 `der verkaeufer zeigt dir eine auswahl`
     # :14012 `print" {gry3}{rvon}        {blk}"` draws each model's picture box (a blank
     # row, then five reverse-video rows under its sprite); the box and the sprite are
     # presentation the client does not draw, as for the weapon sheet (waf.yaml).
@@ -29,17 +29,17 @@ locations:
     model_prompt: ""
     # :14035 `pokev+21,0:print"{clr}"` clears the models before the cash check (:1125's
     # refusal) and the trade-in offer; the client prints both under the models.
-    trade_in_offer: "man bietet dir{amount}$ fuer deine alte\nschaukel."  # :14046-14047 `man bietet dir`
-    confirm: "ok (j/n)?"                                                   # :1110 `ok (j/n)?`
-    sold: "der verkaeufer reicht dir schluessel\nund papiere."  # :14051-14052 `der verkaeufer reicht dir schluessel`
+    trade_in_offer: "Man bietet dir{amount}$ für deine alte Schaukel."  # :14046-14047 `man bietet dir`
+    confirm: "OK (j/n)?"                                                   # :1110 `ok (j/n)?`
+    sold: "Der Verkäufer reicht dir Schlüssel und Papiere."  # :14051-14052 `der verkaeufer reicht dir schluessel`
 
     # --- steal (14100-14131) ---
-    crowded: "es sind zuviele leute hier!"  # :14100 `es sind zuviele leute hier!`
-    steal_prompt: "wer soll den wagen aufbrechen:"  # :14101 `wer soll den wagen aufbrechen:`
+    crowded: "Es sind zu viele Leute hier!"  # :14100 `es sind zuviele leute hier!`
+    steal_prompt: "Wer soll den Wagen aufbrechen:"  # :14101 `wer soll den wagen aufbrechen:`
     # :14115-14116 `yeah!{$a0}die karre ist offen!`; {$a0} is a shifted space, shown blank.
-    stolen: "yeah! die karre ist offen! du machst\ndich damit aus dem staub."
+    stolen: "Yeah! Die Karre ist offen! Du machst dich damit aus dem Staub."
     # :14115-14117 `"{left} und musst lei- ` goes back over the full stop and fills the
     # row to column 39.
-    stolen_old_car_left: "yeah! die karre ist offen! du machst\ndich damit aus dem staub und musst lei-\nder deinen alten wagen stehen lassen."
-    caught: "leider erwischt dich der besitzer der\nkarre!"  # :14120 `leider erwischt dich der besitzer der`
-    owner_killed: "nach dem mord an dem besitzer musst du\nverschwinden und den wagen stehen\nlassen!"  # :14130-14131 `nach dem mord an dem besitzer musst du`
+    stolen_old_car_left: "Yeah! Die Karre ist offen! Du machst dich damit aus dem Staub und musst leider deinen alten Wagen stehen lassen."
+    caught: "Leider erwischt dich der Besitzer der Karre!"  # :14120 `leider erwischt dich der besitzer der`
+    owner_killed: "Nach dem Mord an dem Besitzer musst du verschwinden und den Wagen stehen lassen!"  # :14130-14131 `nach dem mord an dem besitzer musst du`

@@ -90,19 +90,19 @@ def test_the_sub_runs_reach_every_sub_string():
 def test_the_classic_theme_prints_each_sub_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.sub.ticket": ({"price": 50}, "ein u-bahn-ticket kostet dich\n50 $."),
-        "locations.sub.confirm": ({}, "ok (j/n)?"),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
-        "locations.sub.thief_prompt": ({}, "welchen spieler setzt du als dieb ein:"),
-        "locations.sub.stealing": ({}, "du stiehlst..."),
-        "locations.sub.caught": ({}, "...nichts! denn du wirst erwischt!"),
-        "locations.sub.loot_handbag": ({}, "...eine handtasche - nichts wertvolles!"),
-        "locations.sub.loot_camera": ({}, "...'nen fotoapparat! er bringt 50 $."),
-        "locations.sub.loot_pearls": ({}, "...eine falsche perlenkette!"),
-        "locations.sub.loot_watch": ({}, "...eine armbanduhr fuer 100 $!"),
-        "locations.sub.loot_wallet": ({}, "...'ne brieftasche mit 500 $!"),
-        "locations.sub.loot_diamond": ({}, "...einen diamanten! der ist 800 $ wert!"),
-        "locations.sub.loot_manual": ({}, "...eine anleitung -der safeknacker- ??!"),
+        "locations.sub.ticket": ({"price": 50}, "Ein U-Bahn-Ticket kostet dich 50 $."),
+        "locations.sub.confirm": ({}, "OK (j/n)?"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
+        "locations.sub.thief_prompt": ({}, "Welchen Spieler setzt du als Dieb ein:"),
+        "locations.sub.stealing": ({}, "Du stiehlst..."),
+        "locations.sub.caught": ({}, "...nichts! Denn du wirst erwischt!"),
+        "locations.sub.loot_handbag": ({}, "...eine Handtasche - nichts Wertvolles!"),
+        "locations.sub.loot_camera": ({}, "...'nen Fotoapparat! Er bringt 50 $."),
+        "locations.sub.loot_pearls": ({}, "...eine falsche Perlenkette!"),
+        "locations.sub.loot_watch": ({}, "...eine Armbanduhr für 100 $!"),
+        "locations.sub.loot_wallet": ({}, "...'ne Brieftasche mit 500 $!"),
+        "locations.sub.loot_diamond": ({}, "...einen Diamanten! Der ist 800 $ wert!"),
+        "locations.sub.loot_manual": ({}, "...eine Anleitung -Der Safeknacker- ??!"),
         "turn.picker.prompt": ({}, "nummer:"),
     }
     for key, (params, text) in cases.items():

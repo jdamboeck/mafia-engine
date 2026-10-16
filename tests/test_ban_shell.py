@@ -98,36 +98,30 @@ def test_the_ban_runs_reach_every_ban_string_and_the_borrowed_screen():
 def test_the_classic_theme_prints_each_ban_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.ban.rank_too_low": ({"rank": "kleiner fisch"}, "werde erst 'kleiner fisch'!"),
-        "locations.ban.alone": ({}, "du brauchst einen begleiter!"),
-        "locations.ban.guards": (
-            {},
-            "leider hast du die drei wachmaenner am\neingang uebersehen...",
-        ),
-        "locations.ban.loot": (
-            {"p": 5234},
-            "du hast es geschafft! deine beute\nbetraegt 5234 $!",
-        ),
-        "locations.ban.safe_untrained": ({}, "du musst noch trainieren!"),
-        "locations.ban.safe_who": ({}, "wer soll den kasten knacken:"),
+        "locations.ban.rank_too_low": ({"rank": "kleiner fisch"}, "Werde erst 'kleiner fisch'!"),
+        "locations.ban.alone": ({}, "Du brauchst einen Begleiter!"),
+        "locations.ban.guards": ({}, "Leider hast du die drei Wachmänner am Eingang übersehen..."),
+        "locations.ban.loot": ({"p": 5234}, "Du hast es geschafft! Deine Beute beträgt 5234 $!"),
+        "locations.ban.safe_untrained": ({}, "Du musst noch trainieren!"),
+        "locations.ban.safe_who": ({}, "Wer soll den Kasten knacken:"),
         "locations.ban.safe_stethoscope": (
             {},
-            "'hhm. mal sehen. ich versuch's mit dem\nstethoskop...' (drehen der coderaeder"
-            "\nmit f1, f3 und f5!)",
+            "'Hhm. Mal sehen. Ich versuch's mit dem Stethoskop...' (Drehen der Coderäder mit"
+            " F1, F3 und F5!)",
         ),
         "locations.ban.safe_dials": ({"d1": 1, "d2": 2, "d3": 3}, "1  2  3"),
-        "locations.ban.safe_turn": ({}, "f1, f3, f5:"),
-        "locations.ban.safe_f1": ({}, "f1"),
-        "locations.ban.safe_f3": ({}, "f3"),
-        "locations.ban.safe_f5": ({}, "f5"),
+        "locations.ban.safe_turn": ({}, "F1, F3, F5:"),
+        "locations.ban.safe_f1": ({}, "F1"),
+        "locations.ban.safe_f3": ({}, "F3"),
+        "locations.ban.safe_f5": ({}, "F5"),
         "locations.ban.safe_click": ({"d1": 1, "d2": 2, "d3": 4}, "1  2  4   *klick*"),
         "locations.ban.safe_slip": ({"d1": 0, "d2": 2, "d3": 4}, "0  2  4"),
         "locations.ban.safe_failed": (
             {},
-            "'teufel...! da ist was schiefgegangen!\nes kommt jemand!'",
+            "'Teufel...! Da ist was schiefgegangen! Es kommt jemand!'",
         ),
         # :20004 jumps into the shop's trap: its screen is the shop's.
-        "locations.sgl.police_waiting": ({}, "vor dem laden erwartet dich die\npoliyei!"),
+        "locations.sgl.police_waiting": ({}, "Vor dem Laden erwartet dich die Polizei!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key

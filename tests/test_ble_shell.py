@@ -96,18 +96,18 @@ def test_the_ble_runs_reach_every_ble_string():
 def test_the_classic_theme_prints_each_ble_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.ble.passport_for_one": ({}, "gut, mein sohn. fuer einen pass"),
-        "locations.ble.passport_for_many": ({"count": 3}, "gut, mein sohn. fuer 3 paesse"),
+        "locations.ble.passport_for_one": ({}, "Gut, mein Sohn. Für einen Pass"),
+        "locations.ble.passport_for_many": ({"count": 3}, "Gut, mein Sohn. Für 3 Pässe"),
         "locations.ble.passport_price": ({"price": 3000}, "macht das 3000 $."),
-        "locations.ble.confirm": ({}, "ok (j/n)?"),
-        "locations.ble.passport_done": ({}, "hier, noch druckfrisch, he, he!"),
-        "locations.ble.counterfeit_reluctant": ({}, "nng...hoechst ungern! wieviel dollar"),
+        "locations.ble.confirm": ({}, "OK (j/n)?"),
+        "locations.ble.passport_done": ({}, "Hier, noch druckfrisch, he, he!"),
+        "locations.ble.counterfeit_reluctant": ({}, "Nng...höchst ungern! Wie viel Dollar"),
         "locations.ble.counterfeit_prompt": ({}, "willst du anlegen (0-5000)"),
         "locations.ble.counterfeit_offer": (
             {"amount": 1234},
-            "ich gebe dir 1234 $ blueten dafuer.",
+            "Ich gebe dir 1234 $ Blüten dafür.",
         ),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key

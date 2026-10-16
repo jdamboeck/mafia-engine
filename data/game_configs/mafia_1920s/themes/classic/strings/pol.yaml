@@ -20,25 +20,25 @@ locations:
       leave: "Lieber gar nichts tun"
 
     # --- the chief bribe (21010-21030) ---
-    chief_offer: "aha! fuer einen monat untaetigkeit"              # :21010 `aha! fuer einen monat untaetigkeit`
-    chief_prompt: "nehme ich 1000 $. wieviele monate:"            # :21011 `nehme ich 1000 $. wieviele monate:`
-    chief_broke: "sie sind leider nich fluessig!"                 # :21015 `sie sind leider nich fluessig!`
-    chief_done: "danke sehr! nehmen sie den hinter-\nausgang!"    # :21025-21030 `danke sehr! nehmen sie den hinter-`
+    chief_offer: "Aha! Für einen Monat Untätigkeit"              # :21010 `aha! fuer einen monat untaetigkeit`
+    chief_prompt: "nehme ich 1000 $. Wie viele Monate:"            # :21011 `nehme ich 1000 $. wieviele monate:`
+    chief_broke: "Sie sind leider nich flüssig!"                 # :21015 `sie sind leider nich fluessig!`
+    chief_done: "Danke sehr! Nehmen Sie den Hinterausgang!"    # :21025-21030 `danke sehr! nehmen sie den hinter-`
 
     # --- freeing an inmate (21100-21255) ---
-    nobody_jailed: "es ist niemand inhaftiert."                   # :21110 `es ist niemand inhaftiert.`
+    nobody_jailed: "Es ist niemand inhaftiert."                   # :21110 `es ist niemand inhaftiert.`
     free_entry: "{index:mid$} {name}"                                  # :21116 `mid$(str$(i),2)" "sp$(g(i))`
     free_entry_phantom: "{index:mid$} irgendjemanden"                  # :21105, :21116 `irgendjemanden`
     # :21115 `wen willst du befreien:`, printed above the list; here the prompt of
     # :21120's `getx$`, under it.
-    free_prompt: "wen willst du befreien:"
-    free_price: "du brauchst{price}$, um die waerter zu\nbestechen."   # :21130-21131 `$, um die waerter zu`
-    confirm: "ok (j/n)?"                                          # :1110 `ok (j/n)?`
-    freed: "du konntest den gefangenen befreien!"                 # :21200 `du konntest den gefangenen befreien!`
-    phantom_leaves: "er bedankt sich und verschwindet..."         # :21205 `er bedankt sich und verschwindet...`
+    free_prompt: "Wen willst du befreien:"
+    free_price: "Du brauchst{price}$, um die Wärter zu bestechen."   # :21130-21131 `$, um die waerter zu`
+    confirm: "OK (j/n)?"                                          # :1110 `ok (j/n)?`
+    freed: "Du konntest den Gefangenen befreien!"                 # :21200 `du konntest den gefangenen befreien!`
+    phantom_leaves: "Er bedankt sich und verschwindet..."         # :21205 `er bedankt sich und verschwindet...`
     # :21250-21252 `knast befreit worden. wieviel zahlst du`, addressed to the freed
     # player; :21252's `inputx$` then prints "?".
-    thank_you: "{name}!\ndu bist von {rescuer} aus dem\nknast befreit worden. wieviel zahlst du\nihm zum dank (0 -{cash:str$}):"
+    thank_you: "{name}! Du bist von {rescuer} aus dem Knast befreit worden. Wie viel zahlst du ihm zum Dank (0 -{cash:str$}):"
     thank_you_prompt: "?"
     # :21253 `ify>ka(x)ory<0thenprint"{up}{up}";:goto21252`: an answer below 0 asks the
     # prompt again.
