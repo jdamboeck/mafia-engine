@@ -21,6 +21,11 @@ the gate through uv instead: `uv run --python 3.14 --with-editable '.[dev]'
 --isolated make check` (and again with `--python 3.11`, CI's other version). The research
 knowledge base is a sibling checkout at `../research/` — handlers port from the
 BASIC line blocks it cites; confirm it is present before starting a handler unit.
+The tests do not read `../research/` for their sources: they read the vendored copy in
+`tests/fixtures/research/` (`mf-prg.bas` and `location-dialogue.yaml`, at their research
+paths), so CI runs every research-dependent test, and a skip for want of research fails
+the run. After a change to one of those research files, recopy it into
+`tests/fixtures/research/`, or `tests/test_research_fixtures.py` fails on the drift.
 
 ## Execution model — one orchestrator, one subagent at a time
 

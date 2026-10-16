@@ -1,8 +1,10 @@
-"""Save / load: append-only event store + snapshot round-trip.
+"""Save / load: checkpoint snapshot + RNG log round-trip, and replay of a supplied effect log.
 
-A game is ``initial seed + setup + ordered effect/RNG log`` (docs/design/engine-architecture.md
-§ Save/replay). This module persists exactly that and reconstructs a ``GameState`` from it,
-purely additively — it changes nothing in the frozen ``engine.state``/``engine.interactions``/
+A save is a checkpoint (docs/design/engine-architecture.md § Save/replay): the state snapshot
+taken at the turn menu or the map prompt, plus the complete RNG draw history, the seed and the
+config it was written under. The terminal writes an empty effect log; :func:`replay` folds an
+effect log a caller supplies over the snapshot. Event-sourced replay of a whole game is future
+work. This module reconstructs a ``GameState`` from a save purely additively — it changes nothing in the frozen ``engine.state``/``engine.interactions``/
 ``engine.effects`` contracts and imports nothing from ``server``/``clients``.
 
 Store shape (append-only JSONL, one JSON object per line)
@@ -16,7 +18,7 @@ Store shape (append-only JSONL, one JSON object per line)
   (binding replay-semantics note in docs/plans/2026-07-13-001-refactor-state-event-foundation-plan.md).
 
 Replay = restore the snapshot, then ``commit`` the ordered effects. RNG draws are carried in
-the log so a replay does not re-roll. A save holds committed state only: generators are not
+the log so a load re-draws them and the game goes on with the same stream. A save holds committed state only: generators are not
 serializable and none lives in ``GameState``, so an action in progress is not saved.
 
 Serialization is **type-tagged**: each effect is written as ``{"_type": "<tag>", ...}``

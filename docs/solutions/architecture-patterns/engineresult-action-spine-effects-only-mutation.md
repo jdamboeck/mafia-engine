@@ -107,9 +107,12 @@ handler that mutates directly fails the suite (proven by a rigged-handler test i
 
 ## Why This Matters
 
-- **Replay integrity:** the committed effects stream doubles as the save/replay log
-  (`initial seed + setup + ordered effects = game`). One hidden in-place mutation makes
-  replay diverge from live play.
+- **Replay integrity:** an action's committed effects, folded over the prior state,
+  must reproduce the new state; `run_pure` and `engine.persistence.replay` rely on it.
+  One hidden in-place mutation makes them diverge from live play. *(Updated 2026-10-16:
+  saves are checkpoints, a state snapshot plus the RNG draw history taken at the turn
+  menu or map prompt, not an effect log; event-sourced replay of a whole game,
+  `initial seed + setup + ordered effects = game`, is future work.)*
 - **Atomic cancel:** a player backing out of a multi-prompt interaction must leave zero
   trace; buffer-then-commit makes that hold by construction.
 - **Protocol surface:** the interaction protocol is the future network/agent protocol —

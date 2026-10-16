@@ -161,11 +161,13 @@ An interaction answered by someone other than the active player names that playe
 
 A config registers three kinds of thing when its package is imported:
 
-- **Effects.** A frozen dataclass with an `apply(state) -> state` method, registered under a tag by a decorator. Re-registering a tag replaces the old entry, so a config reload is safe.
+- **Effects.** A frozen dataclass with an `apply(state) -> state` method, registered under a tag by a decorator. Re-registering a tag replaces the old entry, so reloading the same config is safe.
 - **State.** A schema of names, types and defaults for the per-player and the global value maps. The engine freezes the maps, saves them, and fills a declared default for a missing key on load. An unknown key is refused.
 - **Guard variables.** A name and a resolver `(state, ln)`. The engine's guard DSL resolves only registered names. It resolves none on its own.
 
 The loaded config returns all three registries, as it returns `handlers`. Save loading and replay take them. The engine never imports a config effect or names a config key.
+
+The registries are process-wide, so one config is live per process. Loading a different config replaces what the first one registered, and a handle to the replaced config raises `StaleConfigError` when it saves, loads, replays, builds a turn runner or runs an owned action. Reloading the same config revives its handles, and a refused load restores the registries. Per-config registries, so that several configs can run side by side, wait for the server (#178). See `engine-architecture.md`, "Events vs effects".
 
 ## House rules
 
@@ -200,8 +202,8 @@ Key conventions:
 The config schema covers:
 
 - `config.yaml`: `engine_api`, config id, default theme, setup parameters, win-condition knobs;
-- locations: keys, options, guards, handler ids, simple consequences;
-- map: 40×25 city grid, door placements, tenancy, special cells;
+- locations: keys, options, guards, handler ids, simple consequences; a positional menu of more than 9 options is refused at load, since its options are picked by the keys 1 to 9;
+- map: 40×25 city grid, door placements, tenancy, special cells; a map of other dimensions is refused at load;
 - weapons: price, accuracy `ts`, damage `tg`, sound `ws`, range category;
 - vehicles: price, speed, and display metadata;
 - gangsters: names and stats such as energy, `kraft`, intelligence, brutality, weapon; the declared stat names are the only names a stat effect accepts;
@@ -211,6 +213,8 @@ The config schema covers:
 - themes: string templates, assets, sounds, renderer metadata.
 
 `engine/types/` holds abstract contracts only for what the engine itself reads, such as a weapon's `range` in combat. Fields only the game reads, such as per-weapon stat minimums, are declared and validated by the config. Game data lives under `data/game_configs/<game>/`.
+
+Content is read once, when the config package is imported: the entity tables (ranks, vehicles, weapons, gangsters), the combat backdrops, `config.yaml`, the encounters and the door table become module constants then, and a malformed file is refused at load. A running game never reads a content file again. Every load re-executes the package, so an edit to a content file reaches a game only through a new load.
 
 ## Allowed config imports
 
@@ -239,6 +243,7 @@ mafia/
 ├── engine/              # pure Python simulation, generic framework only
 │   ├── state/
 │   ├── rng.py
+│   ├── protocol.py
 │   ├── interactions.py
 │   ├── effects.py
 │   ├── conditions.py

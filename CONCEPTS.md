@@ -8,7 +8,7 @@ Shared domain vocabulary for this project — entities, named processes, and sta
 A primitive, typed record of one state mutation — the only way game state ever changes.
 *Avoid:* mutation, state change (as nouns for the record)
 
-Effects are pure data. They are buffered during an action and applied atomically at the end (folded in order over the frozen state graph, each producing a new state); a cancelled action discards its buffer and leaves state untouched. The ordered stream of committed effects, together with logged RNG draws, is the replay record — replaying it reconstructs a game deterministically.
+Effects are pure data. They are buffered during an action and applied atomically at the end (folded in order over the frozen state graph, each producing a new state); a cancelled action discards its buffer and leaves state untouched, though the RNG draws it consumed stay drawn. Each action returns its committed effects in order, and folding them over the prior state reproduces the new one. A save does not store them: it is a checkpoint, a state snapshot plus the complete RNG draw history, taken at the turn menu or the map prompt. Event-sourced replay of a whole game from its effect log is future work.
 
 ### Semantic Event
 An audit/UI record of what happened or was attempted during an action — never applied to state and never part of the replay record.
@@ -35,7 +35,12 @@ A failed Guard is a normal outcome, not an error: the option is denied (or exclu
 ### Frozen State Graph
 The game state as a whole: a tree of immutable records where no field can be written after construction and every collection it holds is read-only.
 
-Immutability is structural, not conventional — an attempted write fails where it is written rather than corrupting a later save. Applying an Effect therefore never modifies state in place; it rebuilds the affected records and returns a new graph, with untouched branches shared rather than copied. Freezing the records alone is not enough: a frozen record can still hand out a mutable collection, so read-only collections are established when state is *built*, at every construction site (new game, effect application, and load). This is what makes the replay guarantee enforceable rather than merely documented — with no way to mutate state outside an Effect, the effect log necessarily accounts for every change.
+Immutability is structural, not conventional — an attempted write fails where it is written rather than corrupting a later save. Applying an Effect therefore never modifies state in place; it rebuilds the affected records and returns a new graph, with untouched branches shared rather than copied. Freezing the records alone is not enough: a frozen record can still hand out a mutable collection, so read-only collections are established when state is *built*, at every construction site (new game, effect application, and load). This is what makes the effects-only guarantee enforceable rather than merely documented — with no way to mutate state outside an Effect, an action's committed effects necessarily account for every change it made.
+
+### Live Config
+The one game config whose package last filled the engine's process-wide registries (handlers, effects, consequences, sub-states, guard variables, stat names).
+
+Loading a different config replaces the live one; a handle to the replaced config raises `StaleConfigError` when it saves, loads, replays, builds a turn runner or runs an owned action. Reloading the same config makes its handles live again, and a refused load leaves the live config as it was. Content is read once per load, when the config package is imported.
 
 ## Turn processing
 
