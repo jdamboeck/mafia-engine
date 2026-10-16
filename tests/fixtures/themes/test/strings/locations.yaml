@@ -1,0 +1,6 @@
+# The test theme's location keys: it renames one location's title (the kredit-hai's,
+# :3025) and leaves every other location key to classic, so two sessions on classic
+# and on this theme word the same screen differently.
+locations:
+  kdh:
+    title: "GELDVERLEIHER"
