@@ -15,6 +15,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 from engine.config_loader import load_game_config
 from engine.effects import EFFECTS, commit, effect_tag
 from engine.persistence import load_game, replay, save_game
@@ -64,8 +66,13 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
     to the same state as committing it live."""
     loaded = load_game_config(_CONFIG_DIR)
     fx = loaded.module.effects
+    # The intent arm of c64_float_score: ExactScoreCut applies only there.
     state = loaded.new_game(
-        seed=7, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+        seed=7,
+        end_year=1930,
+        score_weight=1.0,
+        players=[("alcapone", "the outfit")],
+        house_rules={"c64_float_score": "intent"},
     )
     log = [
         fx.ScoreAndRank(amount=2.0, rank_divisor=11.1),
@@ -93,6 +100,7 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
         fx.WinFlagSet(flag="x5"),
         fx.WeaponBuyScore(),
         fx.WeaponBuyScore(downgrade=True),
+        fx.ExactScoreCut(),
     ]
     assert {type(e).__name__ for e in log} == set(_config_effect_classes()), (
         "the round-trip log must hold one of every config effect"
@@ -107,3 +115,14 @@ def test_a_save_holding_config_effects_round_trips(tmp_path: Path):
     assert save.effect_log == log
     assert [effect_tag(e) for e in save.effect_log] == [type(e).__name__ for e in log]
     assert replay(save, registries) == commit(state, log).state
+
+
+def test_the_exact_score_cut_refuses_a_faithful_game():
+    """On the faithful arm the exact score is the unused default, so cutting it would
+    reset the score: the effect raises instead."""
+    loaded = load_game_config(_CONFIG_DIR)
+    state = loaded.new_game(
+        seed=7, end_year=1930, score_weight=1.0, players=[("alcapone", "the outfit")]
+    )
+    with pytest.raises(ValueError, match="intent"):
+        commit(state, [loaded.module.effects.ExactScoreCut()])

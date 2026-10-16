@@ -16,9 +16,8 @@ the value maps ``state_schema.yaml`` declares, never in an engine class.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass, replace
-from decimal import Decimal
+from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, ROUND_FLOOR, Context, Decimal, Inexact, Rounded
 
 from engine.c64_numbers import c64_add_product, c64_int_divide, c64_val
 from engine.effects import (
@@ -38,8 +37,10 @@ try:
         business,
         contraband,
         debt,
+        exact_score,
         mark_hired,
         rented_months,
+        set_exact_score,
         set_tenant,
         wanted,
         write,
@@ -52,8 +53,10 @@ except ImportError:  # loaded bare (config dir on sys.path), as setup.py allows
         business,
         contraband,
         debt,
+        exact_score,
         mark_hired,
         rented_months,
+        set_exact_score,
         set_tenant,
         wanted,
         write,
@@ -61,6 +64,8 @@ except ImportError:  # loaded bare (config dir on sys.path), as setup.py allows
 
 __all__ = [
     "C64_FLOAT_SCORE",
+    "SCORE_WEIGHT_TEXT",
+    "ExactScoreCut",
     "BarrelChange",
     "BribeMonthsChange",
     "DebtChange",
@@ -88,6 +93,14 @@ __all__ = [
 #: House rule: the score (:1160) sums in C64 float (faithful) or exact decimals.
 C64_FLOAT_SCORE = "c64_float_score"
 
+#: ``formula_params`` key of the ``x8`` score weight as typed (``:175``), beside its
+#: float under ``score_mult``. The intent arm of :data:`C64_FLOAT_SCORE` reads it.
+SCORE_WEIGHT_TEXT = "score_mult_text"
+
+#: The intent arm's arithmetic: wide enough that a sum or product of the score, an
+#: award and a typed weight is exact, and a rounded one raises instead of drifting.
+_EXACT = Context(prec=MAX_PREC, Emax=MAX_EMAX, Emin=MIN_EMIN, traps=[Inexact, Rounded])
+
 
 @register_effect(consequence="score_and_rank")
 @dataclass(frozen=True)
@@ -107,9 +120,12 @@ class ScoreAndRank:
     the C64's (:func:`~engine.c64_numbers.c64_add_product`, its 5-byte floats), and the
     rank divides by the parsed literal (:func:`~engine.c64_numbers.c64_val`) and floors
     the unrounded quotient (:func:`~engine.c64_numbers.c64_int_divide`), so a score of
-    55.5 is rank 5 as on the C64. Intent: both are exact decimals of the score, award,
-    weight and divisor as written (their shortest ``repr``), and 55.5 is rank 6. The
-    stored score is a float either way.
+    55.5 is rank 5 as on the C64. Intent: the score is the exact decimal
+    :func:`~.state.exact_score`, the weight its typed text
+    (``formula_params[SCORE_WEIGHT_TEXT]``) and the award and divisor the decimals
+    they are written as (their shortest ``repr``); the sum, clamp and rank are exact,
+    55.5 is rank 6, and ``gf`` is the float of the exact sum
+    (:func:`~.state.set_exact_score`).
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -120,17 +136,22 @@ class ScoreAndRank:
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
         p = state.players[idx]
-        score_mult = state.config.formula_params["score_mult"]
         # :1160 `gf(sp)=gf(sp)+(x*x8)`, then `gf(sp)>100` / :1161 `gf(sp)<0` clamp it.
         # :1165 `nr(sp)=int(gf(sp)/11.1)+1`, from the CLAMPED gf; the divisor is config data.
         if intent(state, C64_FLOAT_SCORE):
-            total = _decimal(p.gf) + _decimal(self.amount) * _decimal(score_mult)
-            gf = max(0.0, min(100.0, float(total)))
-            rank = math.floor(_decimal(gf) / _decimal(self.rank_divisor)) + 1
+            raw = _EXACT.add(
+                exact_score(p), _EXACT.multiply(_decimal(self.amount), _weight_text(state))
+            )
+            score = max(Decimal(0), min(Decimal(100), raw))
+            # int() is floor; the clamped score is not negative, so divide_int's
+            # truncation is the floor.
+            rank = int(_EXACT.divide_int(score, _decimal(self.rank_divisor))) + 1
+            state = set_exact_score(state, score, player=idx)
         else:
+            score_mult = state.config.formula_params["score_mult"]
             gf = max(0.0, min(100.0, c64_add_product(p.gf, self.amount, score_mult)))
             rank = c64_int_divide(gf, c64_val(repr(float(self.rank_divisor)))) + 1
-        state = update_player(state, player=idx, gf=gf)
+            state = update_player(state, player=idx, gf=gf)
         return set_player_value(state, "nr", rank, player=idx)
 
 
@@ -153,7 +174,9 @@ class WeaponBuyScore:
     in FMULT, and the subtraction is FADD of the negated operand (FSUB, ``$B850``, flips
     the accumulator's sign), so the line is ``gf + x8*1`` or ``gf + x8*(-2)`` in
     :func:`~engine.c64_numbers.c64_add_product`; ``tests/fixtures/c64_float/shop_cases.bas``
-    holds it to VICE. Intent: the exact decimal sum of the score and weight as written.
+    holds it to VICE. Intent: the exact decimal sum of :func:`~.state.exact_score` and
+    the typed weight (``formula_params[SCORE_WEIGHT_TEXT]``), and the guard reads that
+    exact score; ``gf`` is its float.
     """
 
     SCHEMA_VERSION = SCHEMA_VERSION
@@ -162,22 +185,53 @@ class WeaponBuyScore:
 
     def apply(self, state: GameState) -> GameState:
         idx = target_index(state, self.player)
-        gf = state.players[idx].gf
-        x8 = state.config.formula_params["score_mult"]
+        steps = -2 if self.downgrade else 1
         # :13073 `x8*2*(gf(sp)>0)` / :13065, :13072 `-x8*1*(gf(sp)<100)`: true is -1.
+        if intent(state, C64_FLOAT_SCORE):
+            score = exact_score(state.players[idx])
+            if not (score > 0 if self.downgrade else score < 100):
+                return state
+            total = _EXACT.add(score, _EXACT.multiply(Decimal(steps), _weight_text(state)))
+            return set_exact_score(state, total, player=idx)
+        gf = state.players[idx].gf
         if not (gf > 0 if self.downgrade else gf < 100):
             return state
-        steps = -2 if self.downgrade else 1
-        if intent(state, C64_FLOAT_SCORE):
-            total = float(_decimal(gf) + steps * _decimal(x8))
-        else:
-            total = c64_add_product(gf, x8, steps)
-        return update_player(state, player=idx, gf=total)
+        x8 = state.config.formula_params["score_mult"]
+        return update_player(state, player=idx, gf=c64_add_product(gf, x8, steps))
+
+
+@register_effect()
+@dataclass(frozen=True)
+class ExactScoreCut:
+    """``:1013`` ``gf(sp)=int(gf(sp)*100)/100`` under :data:`C64_FLOAT_SCORE`'s intent.
+
+    The exact score (:func:`~.state.exact_score`) floored to whole cents (BASIC ``int``
+    is floor, so a negative score goes toward -inf), and ``gf`` its float. The faithful
+    cut is the C64's, :func:`..handlers.turn.truncated_score` through ``SetScore``.
+    """
+
+    SCHEMA_VERSION = SCHEMA_VERSION
+    player: int | None = None
+
+    def apply(self, state: GameState) -> GameState:
+        # Only the intent arm keeps an exact score; on the faithful arm it is the
+        # default "0", so cutting it would reset ``gf``. A misapplied cut is a bug.
+        if not intent(state, C64_FLOAT_SCORE):
+            raise ValueError(f"{type(self).__name__} applies only under {C64_FLOAT_SCORE}'s intent")
+        idx = target_index(state, self.player)
+        score = exact_score(state.players[idx])
+        cut = score.quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+        return set_exact_score(state, cut, player=idx)
 
 
 def _decimal(value: float) -> Decimal:
     """``value`` as the short decimal it was written as (its ``repr``), exactly."""
     return Decimal(repr(value))
+
+
+def _weight_text(state: GameState) -> Decimal:
+    """The ``x8`` score weight as the decimal typed (``formula_params[SCORE_WEIGHT_TEXT]``)."""
+    return Decimal(state.config.formula_params[SCORE_WEIGHT_TEXT])
 
 
 @register_effect()

@@ -566,11 +566,16 @@ def test_the_shop_score_follows_the_c64_float_score_rule():
     # Faithful: x8=.1 on 0.2 adds in the C64's 5-byte float (`c64_add`); intent: 0.3.
     from engine.c64_numbers import c64_add
 
+    from tests.helpers import with_exact_score
+
     def bought(setting):
         st = _state(ln=2, ka=1000, gf=0.2, score_mult=0.1)
-        st = dataclasses.replace(
-            st, config=dataclasses.replace(st.config, house_rules={"c64_float_score": setting})
-        )
+        if setting == "intent":
+            st = with_exact_score(st, "0.1", {0: "0.2"})
+        else:
+            st = dataclasses.replace(
+                st, config=dataclasses.replace(st.config, house_rules={"c64_float_score": setting})
+            )
         answers = {PromptInt: iter([1]), PICK: iter([1])}
         return _by_type(HANDLERS["waf.buy"], st, _StubRng(), answers).state.players[0].gf
 

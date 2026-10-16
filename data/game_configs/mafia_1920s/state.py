@@ -27,12 +27,13 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, ClassVar, TypeVar
 
 from engine.conditions import register_guard_variable
 from engine.config_loader import STATE_SCHEMA_FILE, load_state_schema
-from engine.effects import set_global_value, set_player_value, target_index
+from engine.effects import set_global_value, set_player_value, target_index, update_player
 from engine.state import GameState, Player
 
 __all__ = [
@@ -45,6 +46,7 @@ __all__ = [
     "business",
     "contraband",
     "debt",
+    "exact_score",
     "gang_name",
     "hired_ids",
     "job",
@@ -53,6 +55,7 @@ __all__ = [
     "read",
     "rented_months",
     "safe_skill",
+    "set_exact_score",
     "set_tenant",
     "tenant",
     "tenancy_values",
@@ -219,6 +222,29 @@ def gang_name(player: Player) -> str:
 def next_rank(player: Player) -> int:
     """``nr(sp)``: the pending rank :class:`~.effects.ScoreAndRank` recomputes (``:1165``)."""
     return _player_value(player, "nr")
+
+
+#: The exact score's key (``exact_score``): a decimal held as its text.
+_EXACT_SCORE = "exact_score"
+
+
+def exact_score(player: Player) -> Decimal:
+    """The score as an exact decimal, under the ``c64_float_score`` house rule's intent.
+
+    There it is the score's one source: :func:`set_exact_score` writes it and derives
+    ``Player.gf`` from it, so the two cannot disagree. A faithful game never writes it.
+    """
+    return Decimal(_player_value(player, _EXACT_SCORE))
+
+
+def set_exact_score(state: GameState, score: Decimal, *, player: int | None = None) -> GameState:
+    """Return ``state`` with the target player's exact score ``score`` and ``gf`` its float.
+
+    The only writer of :func:`exact_score`: ``gf`` is derived here, at every write.
+    """
+    idx = target_index(state, player)
+    state = set_player_value(state, _EXACT_SCORE, str(score), player=idx)
+    return update_player(state, player=idx, gf=float(score))
 
 
 def tip_target(player: Player) -> int:

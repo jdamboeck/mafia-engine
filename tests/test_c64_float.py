@@ -321,18 +321,33 @@ X8_TEXTS = [
 ]
 
 
-def _score_state(gf: float, weight: float, setting: str):
+def _score_state(gf: float | str, weight: float | str, setting: str):
+    """One player scoring ``gf`` at weight ``weight``. Under intent both are the exact
+    decimals they are written as (a float's ``repr``), the score held as the exact
+    value and ``gf`` its float, as setup and the intent arm leave them."""
     from engine.state import Clock, Config, GameState, Player
 
     from data.game_configs.mafia_1920s.gangster import Gangster
+    from tests.helpers import with_exact_score
 
-    return GameState(
-        players=(Player(name="p0", gf=gf, roster=(Gangster(name="g0"),)),),
+    text = {k: v if isinstance(v, str) else repr(v) for k, v in (("gf", gf), ("x8", weight))}
+    state = GameState(
+        players=(Player(name="p0", gf=float(gf), roster=(Gangster(name="g0"),)),),
         clock=Clock(active_player=0),
         config=Config(
-            formula_params={"score_mult": weight}, house_rules={"c64_float_score": setting}
+            formula_params={"score_mult": float(weight)},
+            house_rules={"c64_float_score": setting},
         ),
     )
+    if setting == "intent":
+        state = with_exact_score(state, text["x8"], {0: text["gf"]})
+    return state
+
+
+def _exact_of(state):
+    import data.game_configs.mafia_1920s.state as game
+
+    return game.exact_score(state.players[0])
 
 
 def _award(gf: float, x: int, weight: float, setting: str) -> tuple[float, int]:
@@ -369,31 +384,37 @@ def test_faithful_sums_match_every_captured_series(i: int):
 
 @pytest.mark.parametrize("i", range(1, 12))
 def test_intent_sums_are_the_exact_decimal_sums(i: int):
-    """AE4: under intent each step is the exact decimal sum, capped, floored and cut."""
+    """AE4: under intent each step is the exact decimal sum, capped, floored and cut;
+    the exact score is that sum and ``gf`` its float."""
     from decimal import ROUND_FLOOR, Decimal
 
-    weight = float(X8_TEXTS[i - 1])
+    from data.game_configs.mafia_1920s.effects import ExactScoreCut, ScoreAndRank
+    from engine.effects import apply
+
     expected = Decimal(0)
-    gf = 0.0
+    state = _score_state("0", X8_TEXTS[i - 1], "intent")
     for x in STEPS:
         expected = min(max(expected + int(x) * Decimal(X8_TEXTS[i - 1]), Decimal(0)), Decimal(100))
-        gf, _ = _award(gf, int(x), weight, "intent")
-        assert gf == float(expected)
-        gf = truncated_score(gf, decimal=True)
+        state = apply(state, ScoreAndRank(amount=int(x), rank_divisor=11.1))
+        assert (_exact_of(state), state.players[0].gf) == (expected, float(expected))
+        state = apply(state, ExactScoreCut())
         expected = expected.quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
-        assert gf == float(expected)
+        assert (_exact_of(state), state.players[0].gf) == (expected, float(expected))
 
 
 def test_the_settings_part_where_the_capture_says():
     """Series 3 (x8=.3): both settings reach 1.8 at step 3 (the C64's sum lies above it,
     so :1013 keeps it); at step 4 the C64's 2.1 lies below and is cut to 2.09 (``S3-4``),
     where the exact decimal keeps 2.1."""
+    from data.game_configs.mafia_1920s.effects import ExactScoreCut, ScoreAndRank
+    from engine.effects import apply
+
     faithful = [ROWS[f"S3-{n}"].t_str for n in range(1, 25)]
-    intent_gf, intent = 0.0, []
+    state, intent = _score_state("0", X8_TEXTS[2], "intent"), []
     for x in STEPS:
-        intent_gf, _ = _award(intent_gf, int(x), 0.3, "intent")
-        intent_gf = truncated_score(intent_gf, decimal=True)
-        intent.append(c64_str(intent_gf))
+        state = apply(state, ScoreAndRank(amount=int(x), rank_divisor=11.1))
+        state = apply(state, ExactScoreCut())
+        intent.append(c64_str(state.players[0].gf))
     assert faithful[:3] == intent[:3] == [" .3", " .9", " 1.8"]
     assert (faithful[3], intent[3]) == (" 2.09", " 2.1")
 
@@ -646,31 +667,37 @@ def test_intent_shop_series_are_the_exact_decimal_sums(i: int):
     """AE5: under intent each step is the exact decimal sum, guarded and unclamped."""
     from decimal import Decimal
 
+    from data.game_configs.mafia_1920s.effects import WeaponBuyScore
+    from engine.effects import apply
+
     start, weight, letters = SHOP_SERIES[i - 1]
     expected, step = Decimal(start), Decimal(weight)
-    gf = float(start)
+    state = _score_state(start, weight, "intent")
     for letter in letters:
         if letter == "u" and expected < 100:
             expected += step
         elif letter == "d" and expected > 0:
             expected -= 2 * step
-        gf = _shop_step(gf, float(weight), letter == "d", "intent")
-        assert gf == float(expected)
+        state = apply(state, WeaponBuyScore(downgrade=letter == "d"))
+        assert (_exact_of(state), state.players[0].gf) == (expected, float(expected))
 
 
 def test_the_shop_settings_part_where_the_capture_says():
     """Doubles miss the C64 along the series, and the exact decimal parts from it."""
+    from data.game_configs.mafia_1920s.effects import WeaponBuyScore
+    from engine.effects import apply
+
     missed_by_doubles = 0
     parted = 0
     for i, (start, weight, letters) in enumerate(SHOP_SERIES, 1):
-        double, intent_gf = float(start), float(start)
+        double, state = float(start), _score_state(start, weight, "intent")
         for n, letter in enumerate(letters, 1):
             if letter == "u":
                 double = double + float(weight) if double < 100 else double
             else:
                 double = double - 2 * float(weight) if double > 0 else double
-            intent_gf = _shop_step(intent_gf, float(weight), letter == "d", "intent")
+            state = apply(state, WeaponBuyScore(downgrade=letter == "d"))
             missed_by_doubles += c64_bytes(double) != SHOP[f"T{i}-{n}"]
-            parted += not _same(c64_bytes(intent_gf), SHOP[f"T{i}-{n}"])
+            parted += not _same(c64_bytes(state.players[0].gf), SHOP[f"T{i}-{n}"])
     assert missed_by_doubles >= 50
     assert parted >= 50

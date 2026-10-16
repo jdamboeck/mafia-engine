@@ -83,3 +83,119 @@ def test_score_and_rank_explicit_player_targeting():
     out = apply(state, ScoreAndRank(amount=5, rank_divisor=11.1, player=1))
     assert out.players[1].gf == 25.0
     assert out.players[0].gf == 50.0  # active untouched
+
+
+# --------------------------------------------------------------------------- #
+# The exact score under the c64_float_score house rule's intent arm (R15)      #
+# --------------------------------------------------------------------------- #
+#: A typed weight with no exact binary fraction and more digits than a double keeps
+#: after a round trip through ``float`` of the running sum.
+_THIRD = "0.3333333333333333"
+_NAMES = [("alcapone", "outfit"), ("bugsy", "syndikat")]
+
+
+def _intent_game(weight: str = _THIRD, players=_NAMES):
+    from data.game_configs.mafia_1920s.setup import new_game
+
+    return new_game(
+        seed=1,
+        end_year=1930,
+        score_weight=weight,
+        players=players,
+        house_rules={"c64_float_score": "intent"},
+    )
+
+
+def _awards(state, amounts, player: int):
+    for x in amounts:
+        state = apply(state, ScoreAndRank(amount=x, rank_divisor=11.1, player=player))
+    return state
+
+
+def _exact(player):
+    """The exact score the value map holds, as a ``Decimal`` (``None`` if it holds none)."""
+    from decimal import Decimal
+
+    text = player.values.get("exact_score")
+    return None if text is None else Decimal(text)
+
+
+def _derived(player) -> bool:
+    exact = _exact(player)
+    return exact is not None and player.gf == float(exact)
+
+
+def test_intent_split_awards_score_and_rank_as_one_award():
+    """R15: 4+2 awards and one award of 6 at weight 1/3 are the same exact score, 6w,
+    and so the same score and rank. Summing through ``float`` between the awards lands
+    the split on 2.0 and the single award on 1.9999999999999998."""
+    from decimal import Decimal
+
+    split = _awards(_intent_game(), [4, 2], player=0)
+    whole = _awards(_intent_game(), [6], player=0)
+    a, b = split.players[0], whole.players[0]
+    assert a.gf == b.gf
+    assert game.next_rank(a) == game.next_rank(b)
+    assert _exact(a) == _exact(b)
+    assert _exact(a) == 6 * Decimal(_THIRD)
+
+
+def test_intent_split_awards_rank_alike_at_year_end():
+    """R15 at ``:40105-40106``: two players with equal exact scores share the win."""
+    from engine.game_end import run_year_end
+
+    state = _awards(_awards(_intent_game(), [4, 2], player=0), [6], player=1)
+    seen = []
+    run_year_end(state, input_source=lambda i: seen.append(i))
+    assert [m.params["name"] for m in seen if m.key == "game_end.tie_name"] == [
+        "alcapone",
+        "bugsy",
+    ]
+
+
+def test_intent_year_end_ranks_by_the_exact_score_not_its_float():
+    """Two exact scores with the same float: the higher exact score wins alone."""
+    from dataclasses import replace
+
+    from engine.game_end import run_year_end
+
+    state = _intent_game()
+    low, high = "0.3", "0.30000000000000001"  # float() makes both 0.3
+    players = tuple(
+        replace(p, gf=0.3, values={**p.values, "exact_score": exact})
+        for p, exact in zip(state.players, (low, high))
+    )
+    seen = []
+    run_year_end(replace(state, players=players), input_source=lambda i: seen.append(i))
+    assert [m.params["name"] for m in seen if m.key == "game_end.winner"] == ["bugsy"]
+
+
+def test_intent_reads_the_weight_as_typed():
+    """The typed weight's text, not its float: 3 * 0.33333333333333333 is
+    0.99999999999999999, where the float's repr gives 0.9999999999999999."""
+    from decimal import Decimal
+
+    weight = "0.33333333333333333"
+    out = _awards(_intent_game(weight), [3], player=0)
+    assert _exact(out.players[0]) == 3 * Decimal(weight)
+
+
+def test_intent_gf_is_the_float_of_the_exact_score_after_every_write():
+    """Every intent-arm write -- the award (:1160), the shop's steps (:13065/:13072,
+    :13073) and the turn's cut (:1013) -- leaves ``gf`` the float of the exact score."""
+    from data.game_configs.mafia_1920s.effects import WeaponBuyScore
+    from engine.interactions import run
+    from engine.locations import HANDLERS
+    from engine.turns import SCORE_TRUNCATION_HOOK_KEY
+
+    state = _intent_game()
+    steps = [
+        lambda s: apply(s, ScoreAndRank(amount=7, rank_divisor=11.1)),
+        lambda s: apply(s, WeaponBuyScore()),
+        lambda s: apply(s, WeaponBuyScore(downgrade=True)),
+        lambda s: run(HANDLERS[SCORE_TRUNCATION_HOOK_KEY], lambda i: None, state=s).state,
+        lambda s: apply(s, ScoreAndRank(amount=-1, rank_divisor=11.1)),
+    ]
+    for n, step in enumerate(steps):
+        state = step(state)
+        assert _derived(state.players[0]), (n, state.players[0].gf, _exact(state.players[0]))

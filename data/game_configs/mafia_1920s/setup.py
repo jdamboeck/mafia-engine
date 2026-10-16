@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
+from decimal import Decimal
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -45,7 +46,7 @@ from engine.turns import KEY_WAIT_SCREEN
 
 try:
     from .combat_rules import build_rules, enemy_attrs, equipper
-    from .effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
+    from .effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT, DebtClear, ScoreAndRank
     from .gangster import GANGSTER_ATTR_NAMES, Gangster
     from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
     from .house_rules import load_house_rules, number_prompt, switchable
@@ -53,7 +54,7 @@ try:
     from .state import gang_name as _gang_name
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from combat_rules import build_rules, enemy_attrs, equipper
-    from effects import C64_FLOAT_SCORE, DebtClear, ScoreAndRank
+    from effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT, DebtClear, ScoreAndRank
     from gangster import GANGSTER_ATTR_NAMES, Gangster
     from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
     from house_rules import load_house_rules, number_prompt, switchable
@@ -841,6 +842,15 @@ def score_weight_text(weight: float | str) -> str:
     return repr(weight)
 
 
+def _exact_weight_text(text: str) -> str:
+    """The typed ``x8`` weight as its exact decimal, in one spelling per value.
+
+    ``"1"``, ``"1.0"`` and ``" 1e0"`` are the same weight, so they store the same text
+    (``"1"``); every digit typed is kept (``"0.33333333333333333"`` is not its float).
+    """
+    return format(Decimal(text.strip()).normalize(), "f")
+
+
 def parse_score_weight(text: str, *, c64: bool) -> float | None:
     """``:175`` ``x8=val(x$)`` for a clean number; ``None`` for other text (asked again).
 
@@ -1039,9 +1049,8 @@ def _build_state(record: SetupRecord, cfg: Mapping, cfg_dir: Path) -> GameState:
     check_players([(p.name, p.gang_name) for p in record.players], ranges)
     chosen_rules = _house_rules_map(cfg_dir, record.house_rules)
     # :175 x8=val(x$): the C64 parser's value (faithful c64_float_score) or float's.
-    score_weight = parse_score_weight(
-        score_weight_text(record.score_weight), c64=chosen_rules.get(C64_FLOAT_SCORE) != INTENT
-    )
+    weight_text = score_weight_text(record.score_weight)
+    score_weight = parse_score_weight(weight_text, c64=chosen_rules.get(C64_FLOAT_SCORE) != INTENT)
     if score_weight is None:  # unreachable: check_score_weight took it under both readings
         raise ValueError(f"score_weight is no number: {record.score_weight!r}")
     # House rule intelligence_or_30: faithful stores the roll OR 30, intent the roll.
@@ -1092,8 +1101,13 @@ def _build_state(record: SetupRecord, cfg: Mapping, cfg_dir: Path) -> GameState:
     )
     config = Config(
         # Passed as plain YAML dicts: Config deep-freezes them on construction. The
-        # x8 score weight is a setup input, so it joins the static params here.
-        formula_params={**cfg["formula_params"], "score_mult": score_weight},
+        # x8 score weight is a setup input, so it joins the static params here: its
+        # value, and its text for the c64_float_score house rule's exact intent arm.
+        formula_params={
+            **cfg["formula_params"],
+            "score_mult": score_weight,
+            SCORE_WEIGHT_TEXT: _exact_weight_text(weight_text),
+        },
         house_rules=chosen_rules,
     )
 

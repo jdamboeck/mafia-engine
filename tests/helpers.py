@@ -48,7 +48,8 @@ from dataclasses import replace
 import pytest
 
 from data.game_configs.mafia_1920s.combat_rules import build_rules, equipper
-from data.game_configs.mafia_1920s.state import tenancy_values, values_of
+from data.game_configs.mafia_1920s.effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT
+from data.game_configs.mafia_1920s.state import set_exact_score, tenancy_values, values_of
 from engine.combat import CombatFight
 from engine.effects import commit, effect_tag
 from engine.interactions import Acknowledge, ShowMessage, run
@@ -321,6 +322,31 @@ def with_tenancy(state, tenancy=None, *, ln: int | None = None, owner: int | Non
 def with_config(state, **field_changes):
     """Return ``state`` with ``config`` field-updated (frozen-graph test setup idiom)."""
     return dataclasses.replace(state, config=dataclasses.replace(state.config, **field_changes))
+
+
+def with_exact_score(state, weight: str, scores=None):
+    """Return ``state`` under the ``c64_float_score`` house rule's intent arm.
+
+    ``weight`` is the ``x8`` weight as typed: it becomes both ``formula_params`` keys,
+    as setup writes them. ``scores`` maps player indices to exact scores (text or
+    ``Decimal``); unnamed players keep the exact score they hold. Each one's ``gf`` is
+    derived, as the intent arm derives it.
+    """
+    from decimal import Decimal
+
+    config = state.config
+    state = with_config(
+        state,
+        formula_params={
+            **config.formula_params,
+            "score_mult": float(weight),
+            SCORE_WEIGHT_TEXT: weight,
+        },
+        house_rules={**config.house_rules, C64_FLOAT_SCORE: "intent"},
+    )
+    for idx, score in (scores or {}).items():
+        state = set_exact_score(state, Decimal(score), player=idx)
+    return state
 
 
 def _shape(value):

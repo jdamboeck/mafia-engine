@@ -2555,6 +2555,8 @@ class TestTurnPhases:
         from data.game_configs.mafia_1920s.setup import score_and_rank
         from engine.effects import commit
 
+        from tests.helpers import with_exact_score
+
         state = new_state(42, [("alcapone", "the outfit"), ("moran", "north side")])
         state = replace(
             state,
@@ -2569,6 +2571,8 @@ class TestTurnPhases:
         awards = [score_and_rank(3, params)] * 12 + [
             replace(score_and_rank(9, params), player=1)
         ] * 4
+        if setting == "intent":
+            state = with_exact_score(state, "0.7")
         state = commit(state, awards).state
         if setting == "faithful":
             assert state.players[0].gf != state.players[1].gf, "no float drift: vacuous"

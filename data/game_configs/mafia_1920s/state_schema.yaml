@@ -14,6 +14,10 @@
 player:
   gang_name: {type: str, default: ""}      # the gang's name, entered at setup
   nr: {type: int, default: 1}              # nr(sp) pending rank, :1165 (committed to ra at :4030)
+  # The score as an exact decimal, under the c64_float_score house rule's intent arm
+  # only: there it is the score's one source, and Player.gf is its float. Faithful
+  # games keep the C64's score in gf and leave this at its default.
+  exact_score: {type: str, default: "0"}
 
   # Loan-shark debt: kr(sp) balance and kz(sp) grace counter (:15030, :4305).
   # Renamed from kr to avoid the collision with the gangster stat kraft.
