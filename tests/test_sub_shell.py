@@ -18,6 +18,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_sub import _EXITS, _FREE, _NO_MANUAL, _run, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -118,17 +119,16 @@ def test_every_loot_item_in_the_config_has_its_string():
 
 
 def test_sub_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (sub), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.sub.entry_prompt") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (sub), the 40-column wrap padding included."""
+    assert fixture_value("locations.sub.entry_prompt") == (
         "DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM..."
     )
-    assert _get(data, "locations.sub.menu.platform") == (
+    assert fixture_value("locations.sub.menu.platform") == (
         "LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN"
     )
-    assert _get(data, "locations.sub.menu.train") == "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
-    assert _get(data, "locations.sub.menu.leave") == "ZURUECK ANS TAGESLICHT"
+    assert fixture_value("locations.sub.menu.train") == "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
+    assert fixture_value("locations.sub.menu.leave") == "ZURUECK ANS TAGESLICHT"
 
 
 def test_the_sub_doors_open_the_sub_shell_one_per_tile():

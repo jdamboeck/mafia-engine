@@ -1,0 +1,22 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/combat.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"combat.begins": "der kampf beginnt..."
+"combat.side_names": "{name1}{tab(20)}{name2}"
+"combat.cpu_label": "{tab(20)}spieler{fighter}"
+"combat.player_label_side1": "spieler{fighter}"
+"combat.player_label_side2": "{tab(20)}spieler{fighter}"
+"combat.unknown_action": "?"
+"combat.illegal_move": "(das geht nicht)"
+"combat.miss": "verfehlt!"
+"combat.hit_player_down": "treffer! spieler{index}ist am ende!"
+"combat.hit_enemy_down": "der gegner ist tot!"
+"combat.hit": "treffer! energie -{damage:mid$}!"
+"combat.winner_banner": "sieger: {name}!!!"
+"combat.losses_heading": "verluste der spieler:"
+"combat.losses_line": "{name}:{count}"
+"combat.panel_stats": "e{vitality:mid$0>2} k{kraft:mid$0>2} i{intelligenz:mid$0>2} b{brutalitaet:mid$0>2}"
+"combat.panel_weapon": "w:{weapon}"
+"combat.action_prompt": "deine aktion:"
+"combat.key_legend": "[wasd] bewegen  [f]+[wasd] schiessen  [p] aussetzen  'surrender' aufgeben"
+"combat.observe_prompt": "gegner am zug -- [enter] weiter"

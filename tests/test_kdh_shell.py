@@ -29,6 +29,7 @@ from tests.helpers import (
     scripted,
 )
 from tests.test_kdh import _EXITS, _OWN, _player, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -135,23 +136,26 @@ def test_the_kdh_runs_reach_every_kdh_string():
 
 
 def test_kdh_strings_verbatim():
-    """As :15010-15306 print them: no quote marks around the narration."""
-    data = yaml.safe_load(_KDH_STRINGS.read_text(encoding="utf-8"))
+    """The C64-text fixture's text, as :15010-15306 print it: no quote marks around the
+    narration."""
     assert (
-        _get(data, "locations.kdh.pay_old_debts_first") == "zahle erstmal deine alten schulden ab!"
+        fixture_value("locations.kdh.pay_old_debts_first")
+        == "zahle erstmal deine alten schulden ab!"
     )
-    assert _get(data, "locations.kdh.borrow_grace_notice") == (
+    assert fixture_value("locations.kdh.borrow_grace_notice") == (
         "du hast 6 monate zeit, die schulden zurueck zu zahlen!"
     )
-    assert _get(data, "locations.kdh.repay_full") == "du hast die schulden zurueckgezahlt!"
-    assert _get(data, "locations.kdh.already_own_a_shop") == "du hast schon ein kreditgeschaeft!"
+    assert fixture_value("locations.kdh.repay_full") == "du hast die schulden zurueckgezahlt!"
+    assert fixture_value("locations.kdh.already_own_a_shop") == "du hast schon ein kreditgeschaeft!"
     assert (
-        _get(data, "locations.kdh.pay_own_debts_first") == "zahle erstmal deine eigenen schulden!"
+        fixture_value("locations.kdh.pay_own_debts_first")
+        == "zahle erstmal deine eigenen schulden!"
     )
-    assert _get(data, "locations.kdh.bought") == "der laden gehoert nun dir!"
-    assert _get(data, "locations.kdh.not_your_shop") == "dieser laden gehoert dir nicht!"
+    assert fixture_value("locations.kdh.bought") == "der laden gehoert nun dir!"
+    assert fixture_value("locations.kdh.not_your_shop") == "dieser laden gehoert dir nicht!"
     assert (
-        _get(data, "locations.kdh.debts_paid_on_time") == "alle schuldner haben puenktlich gezahlt!"
+        fixture_value("locations.kdh.debts_paid_on_time")
+        == "alle schuldner haben puenktlich gezahlt!"
     )
 
 

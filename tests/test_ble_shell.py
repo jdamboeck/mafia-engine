@@ -25,6 +25,7 @@ from tests.helpers import (
     scripted,
 )
 from tests.test_ble import _EXITS, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -113,19 +114,18 @@ def test_the_classic_theme_prints_each_ble_line_as_the_source():
 
 
 def test_ble_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (ble), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.ble.entry_prompt") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (ble), the 40-column wrap padding included."""
+    assert fixture_value("locations.ble.entry_prompt") == (
         "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
     )
-    assert _get(data, "locations.ble.menu.passport") == (
+    assert fixture_value("locations.ble.menu.passport") == (
         "'YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'"
     )
-    assert _get(data, "locations.ble.menu.counterfeit") == (
+    assert fixture_value("locations.ble.menu.counterfeit") == (
         "'DRUCKST DU NOCH BLUETEN? WIE WAERS,    WENN DU MIR EIN PAAR VERKAUFST?'"
     )
-    assert _get(data, "locations.ble.menu.leave") == (
+    assert fixture_value("locations.ble.menu.leave") == (
         "'DANKE, EDDIE, VIELLEICHT BEIM NAECHS-  TEN MAL. BYE!'"
     )
 

@@ -338,15 +338,16 @@ _TIP_LINES = {
 
 
 def test_the_tip_texts_are_the_research_corpus_word_for_word():
-    """The classic theme's five tip texts are ``location-dialogue.yaml``'s responses
-    of the pub's tip option at the tip's lines, their printed lines joined by one space (the
-    theme's own line breaks are the client's wrap), and a word the 40-column
-    screen hyphenates across two lines kept whole. Nothing else is fixed up: the
+    """The C64-text fixture's five tip texts (``tests/fixtures/c64_text``) are
+    ``location-dialogue.yaml``'s responses of the pub's tip option at the tip's lines,
+    their printed lines joined by one space (the theme's own line breaks are the
+    client's wrap), and a word the 40-column screen hyphenates across two lines kept
+    whole. Nothing else is fixed up: the
     geldtransport's doubled "wagen wagen" (``:12241-12242``) is the source's."""
     import yaml
 
-    from engine.strings import Resolver
     from tests.helpers import LOCATION_DIALOGUE, read_research
+    from tests.text_fold import fixture_value
 
     data = yaml.safe_load(read_research(LOCATION_DIALOGUE))
     (pub,) = [loc for loc in data["location_dialogue"]["locations"] if loc["key"] == "pub"]
@@ -356,11 +357,10 @@ def test_the_tip_texts_are_the_research_corpus_word_for_word():
     for response in tip["responses"]:
         line = int(response["source"].rsplit(":", 1)[1])
         printed.setdefault(line, []).append(response["text"])
-    resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
 
     for key, lines in _TIP_LINES.items():
         corpus = " ".join(text for line in lines for text in printed[line])
         # :12251 ends "umge-" and :12252 goes on "legt": the hyphen is the 40-column
         # line's, and the theme keeps the word whole.
         corpus = corpus.replace("- ", "")
-        assert resolver.resolve(key) == corpus, key
+        assert fixture_value(key) == corpus, key

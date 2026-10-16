@@ -1,0 +1,16 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/sph.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"locations.sph.title": "SPIELHOELLE"
+"locations.sph.entry_prompt": "'NA FREUND, WIE WAER'S MIT 'NEM SPIEL-  CHEN? KARTENSPIELE? ROULETTE? WAS?'"
+"locations.sph.menu.play": "'OK, CHEF, WAS KANNST DU MIR            EMPFEHLEN?'"
+"locations.sph.menu.leave": "'NEIN, NEIN! ICH SPIELE NUR MAU-MAU!'"
+"locations.sph.game_menu": "waehle, mein freund:"
+"locations.sph.poker": "1 - poker"
+"locations.sph.blackjack": "2 - black jack"
+"locations.sph.roulette": "3 - roulette"
+"locations.sph.game_prompt": "was soll's sein:"
+"locations.sph.wager_prompt": "du hast{cash}$. dein einsatz:"
+"locations.sph.at_the_table": "du begibst dich an den spieltisch..."
+"locations.sph.won": "du hast{amount}$ gewonnen!"
+"locations.sph.lost": "leider verloren!"

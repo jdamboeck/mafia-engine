@@ -19,6 +19,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_bhf import _EXITS, _run, _state, _won_fight
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -122,13 +123,13 @@ def test_the_classic_theme_prints_each_bhf_line_as_the_source():
 
 
 def test_bhf_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (bhf)."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.bhf.entry_prompt") == "DU BIST IM BAHNHOF VON CHICKAGO."
-    assert _get(data, "locations.bhf.menu.pub") == "BAHNHOFSKNEIPE AUFSUCHEN"
-    assert _get(data, "locations.bhf.menu.pickpocket") == "TASCHENDIEBSTAHL"
-    assert _get(data, "locations.bhf.menu.mail_train") == "POSTZUG UEBERFALLEN"
-    assert _get(data, "locations.bhf.menu.leave") == "NICHTS WIE WEG"
+    """The C64-text fixture's menu and entry text, byte for byte from
+    location-dialogue.yaml (bhf)."""
+    assert fixture_value("locations.bhf.entry_prompt") == "DU BIST IM BAHNHOF VON CHICKAGO."
+    assert fixture_value("locations.bhf.menu.pub") == "BAHNHOFSKNEIPE AUFSUCHEN"
+    assert fixture_value("locations.bhf.menu.pickpocket") == "TASCHENDIEBSTAHL"
+    assert fixture_value("locations.bhf.menu.mail_train") == "POSTZUG UEBERFALLEN"
+    assert fixture_value("locations.bhf.menu.leave") == "NICHTS WIE WEG"
 
 
 def test_the_bhf_door_opens_the_bhf_shell():

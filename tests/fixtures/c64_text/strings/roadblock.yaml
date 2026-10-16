@@ -1,0 +1,9 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/roadblock.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"roadblock.title": "strassensperre!!!"
+"roadblock.papers": "ausweiskontrolle! der polizist verlangt\ndeine papiere!"
+"roadblock.nothing": "er hat nichts zu beanstanden."
+"roadblock.counterfeit": "dein blueten-schwindel ist aufgeflogen!"
+"roadblock.alcohol": "der kerl hat deine alkoholfaesser ent-\ndeckt! es ist aus..."
+"roadblock.wanted_poster": "er hat einen steckbrief von dir!"

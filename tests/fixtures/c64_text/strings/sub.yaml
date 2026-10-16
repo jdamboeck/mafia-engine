@@ -1,0 +1,20 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/sub.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"locations.sub.title": "SUBWAY-STATION (U-BAHN)"
+"locations.sub.entry_prompt": "DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM..."
+"locations.sub.menu.platform": "LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN"
+"locations.sub.menu.train": "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
+"locations.sub.menu.leave": "ZURUECK ANS TAGESLICHT"
+"locations.sub.ticket": "ein u-bahn-ticket kostet dich\n{price:mid$} $."
+"locations.sub.confirm": "ok (j/n)?"
+"locations.sub.thief_prompt": "welchen spieler setzt du als dieb ein:"
+"locations.sub.stealing": "du stiehlst..."
+"locations.sub.caught": "...nichts! denn du wirst erwischt!"
+"locations.sub.loot_handbag": "...eine handtasche - nichts wertvolles!"
+"locations.sub.loot_camera": "...'nen fotoapparat! er bringt 50 $."
+"locations.sub.loot_pearls": "...eine falsche perlenkette!"
+"locations.sub.loot_watch": "...eine armbanduhr fuer 100 $!"
+"locations.sub.loot_wallet": "...'ne brieftasche mit 500 $!"
+"locations.sub.loot_diamond": "...einen diamanten! der ist 800 $ wert!"
+"locations.sub.loot_manual": "...eine anleitung -der safeknacker- ??!"

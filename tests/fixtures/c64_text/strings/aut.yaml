@@ -1,0 +1,20 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/aut.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"locations.aut.title": "AUTOMOBIL-HAENDLER"
+"locations.aut.entry_prompt": "EIN UMFANGREICHES SORTIMENT DER         FLOTTESTEN SCHLITTEN."
+"locations.aut.menu.buy": "WAGEN KAUFEN"
+"locations.aut.menu.steal": "AUTO 'ORGANISIEREN'"
+"locations.aut.menu.leave": "WIEDER GEHEN"
+"locations.aut.showroom": "der verkaeufer zeigt dir eine auswahl\nder modelle. zum kauf die entsprechende\nnummerntaste (0=ende) druecken!"
+"locations.aut.model": "{number:mid$} {name}\n{price}$"
+"locations.aut.model_prompt": ""
+"locations.aut.trade_in_offer": "man bietet dir{amount}$ fuer deine alte\nschaukel."
+"locations.aut.confirm": "ok (j/n)?"
+"locations.aut.sold": "der verkaeufer reicht dir schluessel\nund papiere."
+"locations.aut.crowded": "es sind zuviele leute hier!"
+"locations.aut.steal_prompt": "wer soll den wagen aufbrechen:"
+"locations.aut.stolen": "yeah! die karre ist offen! du machst\ndich damit aus dem staub."
+"locations.aut.stolen_old_car_left": "yeah! die karre ist offen! du machst\ndich damit aus dem staub und musst lei-\nder deinen alten wagen stehen lassen."
+"locations.aut.caught": "leider erwischt dich der besitzer der\nkarre!"
+"locations.aut.owner_killed": "nach dem mord an dem besitzer musst du\nverschwinden und den wagen stehen\nlassen!"

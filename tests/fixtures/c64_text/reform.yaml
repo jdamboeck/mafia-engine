@@ -1,0 +1,8 @@
+# The words the 1996/2006 spelling reform changed, as opposed to case or umlauts
+# (R3, KTD-3): each entry is the C64 text's form (`source`), the new text's form
+# (`new`) and the fixture keys it applies to. The fold maps `new` back to `source`
+# at those keys, as a whole word (tests/text_fold.py); an entry no key uses fails
+# tests/test_text_fold.py, as an unused citation allowance does.
+#
+#   - {source: "tip", new: "Tipp", keys: [locations.pub.menu.tip]}
+reform: []

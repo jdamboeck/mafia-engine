@@ -19,6 +19,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_pol import _EXITS, _run, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -116,20 +117,19 @@ def test_the_classic_theme_prints_each_pol_line_as_the_source():
 
 
 def test_pol_strings_verbatim():
-    """The menu byte for byte from the SEQ file src/pol (location-dialogue.yaml, pol),
-    the 40-column wrap padding included, "@" read as ","."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.pol.entry_prompt") == (
+    """The C64-text fixture's menu, byte for byte from the SEQ file src/pol
+    (location-dialogue.yaml, pol), the 40-column wrap padding included, "@" read as ","."""
+    assert fixture_value("locations.pol.entry_prompt") == (
         "'WAS HABEN SIE HIER ZU SUCHEN? MACHEN   SIE, DASS SIE RAUS KOMMEN!'"
     )
-    assert _get(data, "locations.pol.menu.surrender") == (
+    assert fixture_value("locations.pol.menu.surrender") == (
         "'ICH BIN EIN GESUCHTER GANGSTER! ICH    MOECHTE MICH STELLEN.'"
     )
-    assert _get(data, "locations.pol.menu.bribe") == "POLIZEICHEF BESTECHEN"
-    assert _get(data, "locations.pol.menu.free") == (
+    assert fixture_value("locations.pol.menu.bribe") == "POLIZEICHEF BESTECHEN"
+    assert fixture_value("locations.pol.menu.free") == (
         "VERSUCHEN, INHAFTIERTEN GANGSTER ZU     BEFREIEN"
     )
-    assert _get(data, "locations.pol.menu.leave") == "LIEBER GAR NICHTS TUN"
+    assert fixture_value("locations.pol.menu.leave") == "LIEBER GAR NICHTS TUN"
 
 
 def test_the_pol_door_opens_the_pol_shell_and_is_the_configured_door_cell():

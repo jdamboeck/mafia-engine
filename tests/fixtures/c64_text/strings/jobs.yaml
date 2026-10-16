@@ -1,0 +1,17 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/jobs.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"job.shift_header": "{name}: job als\n"
+"job.shift_bouncer_title": " rausschmeisser "
+"job.shift_bouncer_wait": "du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen..."
+"job.shift_bouncer_quiet": "heute gab es nichts!"
+"job.shift_bouncer_trouble": "ein bursche faengt an, zu randalieren! tu etwas!"
+"job.shift_croupier_title": " croupier "
+"job.shift_croupier_intro": "du musst als\ncroupier natuerlich falschspielen.\nwelche tricks willst du anwenden:"
+"job.shift_croupier_tricks": "1 trickspiegel\n2 gezinkte karten\n3 bremse am roulette"
+"job.shift_croupier_caught": "ein kunde hat deine tricks durchschaut und zieht ein messer!"
+"job.shift_croupier_bonus": "du machst gewinne und erhaeltst einen bonus von{amount}$."
+"job.shift_killer_title": " killer "
+"job.shift_killer_intro": "du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse..."
+"job.shift_failed": "du hast deinen auftrag nicht erledigt!"
+"job.shift_completed": "du hast deinen job erledigt und erhaeltst deinen lohn. es sind{pay}$!"

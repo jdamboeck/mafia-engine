@@ -19,6 +19,7 @@ from engine.interactions import CANCEL
 from engine.locations import load_location
 from tests.helpers import StubRng, assert_captured_keys_resolve, location_strings
 from tests.test_sph import _sph_exit
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -88,11 +89,10 @@ def test_sph_shell_menu_strings_present():
 
 
 def test_sph_strings_verbatim():
-    data = yaml.safe_load(_SPH_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.sph.game_menu") == "waehle, mein freund:"
-    assert _get(data, "locations.sph.poker") == "1 - poker"
-    assert _get(data, "locations.sph.blackjack") == "2 - black jack"
-    assert _get(data, "locations.sph.roulette") == "3 - roulette"
-    assert _get(data, "locations.sph.at_the_table") == "du begibst dich an den spieltisch..."
-    assert _get(data, "locations.sph.won") == "du hast{amount}$ gewonnen!"
-    assert _get(data, "locations.sph.lost") == "leider verloren!"
+    assert fixture_value("locations.sph.game_menu") == "waehle, mein freund:"
+    assert fixture_value("locations.sph.poker") == "1 - poker"
+    assert fixture_value("locations.sph.blackjack") == "2 - black jack"
+    assert fixture_value("locations.sph.roulette") == "3 - roulette"
+    assert fixture_value("locations.sph.at_the_table") == "du begibst dich an den spieltisch..."
+    assert fixture_value("locations.sph.won") == "du hast{amount}$ gewonnen!"
+    assert fixture_value("locations.sph.lost") == "leider verloren!"

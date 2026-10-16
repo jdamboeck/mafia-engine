@@ -1,0 +1,9 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/game_end.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"game_end.standings_header": "spielstand {year:mid$}-{month:mid$}\n\nspieler:        kapital: punkte:"
+"game_end.standings_row": "{name}{tab(15)}{cash}${tab(26)}{score}"
+"game_end.winner": "{name} hat gewonnen!\ndu warst von allen der brutalste,\ngemeinste und schlaueste!"
+"game_end.tie_header": "diesmal haben mehrere die gleichen\npunkte:"
+"game_end.tie_name": "{name}"
+"game_end.tie_footer": "alle waren gleich fiese gangster!"

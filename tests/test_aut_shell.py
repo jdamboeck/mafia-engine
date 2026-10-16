@@ -18,6 +18,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_aut import _EXITS, _run, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -138,15 +139,14 @@ def test_the_classic_theme_prints_each_aut_line_as_the_source():
 
 
 def test_aut_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (aut), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.aut.entry_prompt") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (aut), the 40-column wrap padding included."""
+    assert fixture_value("locations.aut.entry_prompt") == (
         "EIN UMFANGREICHES SORTIMENT DER         FLOTTESTEN SCHLITTEN."
     )
-    assert _get(data, "locations.aut.menu.buy") == "WAGEN KAUFEN"
-    assert _get(data, "locations.aut.menu.steal") == "AUTO 'ORGANISIEREN'"
-    assert _get(data, "locations.aut.menu.leave") == "WIEDER GEHEN"
+    assert fixture_value("locations.aut.menu.buy") == "WAGEN KAUFEN"
+    assert fixture_value("locations.aut.menu.steal") == "AUTO 'ORGANISIEREN'"
+    assert fixture_value("locations.aut.menu.leave") == "WIEDER GEHEN"
 
 
 def test_the_aut_doors_open_the_aut_shell_one_per_tile():

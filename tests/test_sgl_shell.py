@@ -29,6 +29,7 @@ from tests.test_sgl import (
     _state,
     _won_jack_fight,
 )
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -171,23 +172,22 @@ def test_the_classic_theme_prints_each_sgl_line_as_the_source():
 
 
 def test_sgl_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (sgl), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.sgl.entry_prompt") == "'TAG, MISTER. WAS DARF'S DENN SEIN?'"
-    assert _get(data, "locations.sgl.menu.threat") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (sgl), the 40-column wrap padding included."""
+    assert fixture_value("locations.sgl.entry_prompt") == "'TAG, MISTER. WAS DARF'S DENN SEIN?'"
+    assert fixture_value("locations.sgl.menu.threat") == (
         "'DEN ZASTER HER, ABER SCHNELL! SONST    GEHT DER BOELLER HIER LOS!'"
     )
-    assert _get(data, "locations.sgl.menu.sob_story") == (
+    assert fixture_value("locations.sgl.menu.sob_story") == (
         "'BITTE, BITTE EIN PAAR DOLLARS FUER     MEINE KRANKE MA! SIE IST SOOOO ARM!'"
     )
-    assert _get(data, "locations.sgl.menu.protection") == (
+    assert fixture_value("locations.sgl.menu.protection") == (
         "'WIR SCHUETZEN DICH FUER EINE KLEINE    SPENDE VOR DEN BOESEN GANGSTERN!'"
     )
-    assert _get(data, "locations.sgl.menu.fake_police") == (
+    assert fixture_value("locations.sgl.menu.fake_police") == (
         "'POLIZEI! IN IHRER KASSE IST FALSCH-    GELD VERSTECKT, DAS IST KONFISZIERT!'"
     )
-    assert _get(data, "locations.sgl.menu.leave") == "HEUTE MAL NICHT KASSIEREN"
+    assert fixture_value("locations.sgl.menu.leave") == "HEUTE MAL NICHT KASSIEREN"
 
 
 def test_the_sgl_doors_open_the_sgl_shell_one_per_tile():

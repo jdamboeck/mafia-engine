@@ -146,9 +146,12 @@ def test_every_location_title_resolves_from_the_theme():
 
 
 def test_the_location_titles_are_the_research_titles():
-    """The table above is the research's, title by title, for every location it has."""
+    """The C64-text fixture's titles (``tests/fixtures/c64_text``) are the research's,
+    title by title, for every location it has."""
     from tests.helpers import LOCATION_DIALOGUE, read_research
+    from tests.text_fold import fixture_value
 
     data = yaml.safe_load(read_research(LOCATION_DIALOGUE))
     research = {loc["key"]: loc["title"] for loc in data["location_dialogue"]["locations"]}
-    assert research == _LOCATION_TITLES
+    assert research == {key: fixture_value(f"locations.{key}.title") for key in research}
+    assert set(research) == set(_LOCATION_TITLES)

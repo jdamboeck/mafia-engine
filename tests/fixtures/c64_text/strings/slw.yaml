@@ -1,0 +1,14 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/slw.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"locations.slw.title": "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)"
+"locations.slw.entry_prompt": "'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'"
+"locations.slw.menu.rent": "'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'"
+"locations.slw.menu.pay_rent": "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
+"locations.slw.menu.leave": "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
+"locations.slw.no_room": "'nichts mehr frei!'"
+"locations.slw.rent_quote": "'gut. pro monat kostet das{price}$ miete.'"
+"locations.slw.months_prompt": "wieviele monate willst du mieten"
+"locations.slw.success": "'guten tag, der herr!'"
+"locations.slw.not_resident": "du wohnst hier nicht!"
+"system.not_enough_money": "du hast zu wenig kies!"

@@ -1,0 +1,8 @@
+# The words the C64 split with a hyphen at its 40-column line break, joined in the
+# new text (R4, KTD-3): each entry is the C64 text's form (`source`, wrap padding
+# and all; it is compared folded), the joined form (`new`) and the fixture keys it
+# applies to. The fold maps `new` back to `source` at those keys, as a whole word
+# (tests/text_fold.py); an entry no key uses fails tests/test_text_fold.py.
+#
+#   - {source: "FALSCH-    GELD", new: "Falschgeld", keys: [locations.sgl.menu.fake_police]}
+hyphen_joins: []

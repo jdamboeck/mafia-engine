@@ -1,0 +1,14 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/upkeep.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"upkeep.turn_banner": "spieler {name}\nist an der reihe..."
+"upkeep.rank_promotion": "{gang_name}\n{name}.\n{score:mid$} p.\n{rank_name}"
+"upkeep.debt_warning": "du hast{amount}$ schulden. dir bleiben noch{months}monat(e), sie abzuzahlen!"
+"upkeep.debt_collectors_intro": "der kredithai hetzt seine eintreiber auf dich..."
+"upkeep.debt_seized": "die kerle nehmen dein ganzes geld mit und verschwinden..."
+"upkeep.arms_deal_lost": "die waffenhaendler, denen du 5000 $ anvertraut hast, wurden geschnappt!"
+"upkeep.arms_deal_won": "dein kapital hat im waffenhandel gearbeitet. du erhaelts{amount}$ zurueck!"
+"upkeep.shop_income_quiet": "in deinem kreditinstitut herrscht flaute."
+"upkeep.shop_income_earned": "dein kreditgeschaeft floriert und du machst{amount}$ einnahmen."
+"upkeep.rent_late": "du hast deine miete nicht puenktlich\n\ngezahlt. man hat dir moebel im wert von\n{tab(39)}{amount:str$.1}\n{amount:mid$} $ gepfaendet!"
+"upkeep.rent_evicted": "deine wohnung wird dir gekuendigt!\ndeine gangster suchen sich einen anderen boss..."
