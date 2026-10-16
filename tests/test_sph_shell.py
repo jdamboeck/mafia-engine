@@ -13,12 +13,12 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 # Load the config by path so "sph" registers before the shell resolves its handler id.
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SPH_SHELL = _CONFIG_DIR / "content" / "locations" / "sph.yaml"
 _SPH_STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "sph.yaml"
 
@@ -40,7 +40,7 @@ def test_sph_shell_loads_and_resolves_handler():
     assert "leave" in ids
     play = next(o for o in loc.options if o.id == "play")
     # The shell resolved the "sph" handler to the registered callable.
-    assert play.handler is HANDLERS["sph"]
+    assert play.handler is _CONFIG.handlers["sph"]
 
 
 def test_sph_strings_resolve_for_every_key_the_handler_emits():

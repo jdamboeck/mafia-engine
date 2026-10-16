@@ -13,12 +13,12 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 from engine.strings import Resolver
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "bhf.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "bhf.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -40,9 +40,9 @@ def test_bhf_shell_resolves_its_handlers_and_a_guardless_leave():
     assert loc.key == "bhf"
     assert [o.id for o in loc.options] == ["pub", "pickpocket", "mail_train", "leave"]
     by_id = {o.id: o for o in loc.options}
-    assert by_id["pub"].handler is HANDLERS["bhf.pub"]
-    assert by_id["pickpocket"].handler is HANDLERS["bhf.pickpocket"]
-    assert by_id["mail_train"].handler is HANDLERS["bhf.mail_train"]
+    assert by_id["pub"].handler is _CONFIG.handlers["bhf.pub"]
+    assert by_id["pickpocket"].handler is _CONFIG.handlers["bhf.pickpocket"]
+    assert by_id["mail_train"].handler is _CONFIG.handlers["bhf.mail_train"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"

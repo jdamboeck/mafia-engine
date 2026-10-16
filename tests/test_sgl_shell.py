@@ -13,12 +13,12 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 from engine.strings import Resolver
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "sgl.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "sgl.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -42,7 +42,7 @@ def test_sgl_shell_resolves_four_handlers_and_a_guardless_leave():
     assert [o.id for o in loc.options] == [*_OPTIONS, "leave"]
     by_id = {o.id: o for o in loc.options}
     for opt_id in _OPTIONS:
-        assert by_id[opt_id].handler is HANDLERS[f"sgl.{opt_id}"]
+        assert by_id[opt_id].handler is _CONFIG.handlers[f"sgl.{opt_id}"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"

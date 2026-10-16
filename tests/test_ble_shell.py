@@ -12,12 +12,12 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 from engine.strings import Resolver
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "ble.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "ble.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -39,8 +39,8 @@ def test_ble_shell_resolves_both_handlers_and_a_guardless_leave():
     assert loc.key == "ble"
     assert [o.id for o in loc.options] == ["passport", "counterfeit", "leave"]
     by_id = {o.id: o for o in loc.options}
-    assert by_id["passport"].handler is HANDLERS["ble.passport"]
-    assert by_id["counterfeit"].handler is HANDLERS["ble.counterfeit"]
+    assert by_id["passport"].handler is _CONFIG.handlers["ble.passport"]
+    assert by_id["counterfeit"].handler is _CONFIG.handlers["ble.counterfeit"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"

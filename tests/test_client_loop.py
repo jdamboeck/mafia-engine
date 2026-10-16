@@ -2667,7 +2667,6 @@ class TestWhoseTurnLine:
     def _play_with_upkeep_asking(self, monkeypatch, player):
         import clients.terminal.session as session_module
         from engine.interactions import PromptInt
-        from engine.locations import HANDLERS
         from engine.upkeep import UPKEEP_HANDLER_KEY
 
         def asking_upkeep(ctx):
@@ -2678,7 +2677,7 @@ class TestWhoseTurnLine:
 
         def load_then_swap(config_dir):
             cfg = real_load(config_dir)
-            monkeypatch.setitem(HANDLERS, UPKEEP_HANDLER_KEY, asking_upkeep)
+            monkeypatch.setitem(cfg.handlers, UPKEEP_HANDLER_KEY, asking_upkeep)
             return cfg
 
         monkeypatch.setattr(session_module, "load_game_config", load_then_swap)

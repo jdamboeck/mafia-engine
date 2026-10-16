@@ -14,12 +14,12 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
 # Load the config by path so "kdh.*" handlers register before the shell resolves them.
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _KDH_SHELL = _CONFIG_DIR / "content" / "locations" / "kdh.yaml"
 _KDH_STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "kdh.yaml"
 
@@ -48,7 +48,7 @@ def test_kdh_shell_loads_and_resolves_all_five_handlers():
     }
     for opt_id, handler_id in expected_handlers.items():
         opt = next(o for o in loc.options if o.id == opt_id)
-        assert opt.handler is HANDLERS[handler_id]
+        assert opt.handler is _CONFIG.handlers[handler_id]
 
     leave = next(o for o in loc.options if o.id == "leave")
     assert leave.handler is None  # guardless leave via resolve/consequences, no handler

@@ -22,7 +22,7 @@ import pytest
 import yaml
 
 from engine import conditions, persistence
-from engine.conditions import GUARD_VARIABLES, build_context, evaluate
+from engine.conditions import build_context, evaluate
 from engine.config_loader import load_game_config
 from engine.locations import available_options, load_location
 from engine.state import GameState, ValueSpec
@@ -170,7 +170,7 @@ def test_the_guard_reads_whatever_the_config_registered(monkeypatch):
     """The engine resolves ``rank`` only through the registry: swap the resolver, and
     the same shell guard filters differently."""
     rank_4 = with_player(_new_game(), 0, rank=4)
-    monkeypatch.setitem(GUARD_VARIABLES, "rank", lambda state, ln: 9)
+    monkeypatch.setitem(_LOADED.guard_variables, "rank", lambda state, ln: 9)
     assert "recruit" in _option_ids(rank_4)
 
 

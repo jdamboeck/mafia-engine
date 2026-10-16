@@ -44,6 +44,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any, TypeAlias, overload
 
 from engine.actions import EngineResult, HandlerResult
+from engine.config_owner import ConfigOwner, check_owner
 
 if TYPE_CHECKING:  # typing only: keep engine.state out of this module's import graph
     from engine.state import GameState
@@ -652,11 +653,17 @@ class Ctx:
     of the Handler API — ``yield`` and named helpers — lives elsewhere). ``apply``
     buffers effects; the driver decides whether that buffer commits or is discarded.
     ``Ctx`` does not interpret effects (any object); :func:`engine.effects.apply` does.
+
+    ``owner`` is the config the action runs for (:func:`step`'s ``owner``), engine-side
+    only: a handler never reads it.
     """
 
-    def __init__(self, state: Any = None, rng: Any = None) -> None:
+    def __init__(
+        self, state: Any = None, rng: Any = None, *, owner: ConfigOwner | None = None
+    ) -> None:
         self._state = state
         self._rng = rng
+        self._owner = owner
         self._buffer: list = []
         self._events: list = []
 
@@ -697,6 +704,7 @@ def step(
     rng: Any = None,
     *,
     observe_ai: bool = False,
+    owner: ConfigOwner | None = None,
 ) -> Generator[Any, Any, EngineResult[Any]]:
     """The generator form of the driver: drive ``handler`` by yielding its interactions.
 
@@ -724,8 +732,16 @@ def step(
     Every interaction ``step`` yields names its player: one whose ``player`` is ``None``
     is yielded with the active player's index filled in (``state.clock.active_player``;
     with no state it stays ``None``).
+
+    ``owner`` is the config the action belongs to (the turn runner passes its
+    registries' owner). It is checked when the action starts, before the handler is
+    called: once another config has loaded, the sub-states, guard variables,
+    consequences and stat names the action would read are that config's, so ``step``
+    raises :class:`~engine.config_owner.StaleConfigError` instead. With no owner
+    (engine code, a test-only sub-state) nothing is checked.
     """
-    ctx = Ctx(state=state, rng=rng)
+    check_owner(owner)
+    ctx = Ctx(state=state, rng=rng, owner=owner)
     gen = handler(ctx)
     active = _active_player(state)
 

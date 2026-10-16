@@ -12,12 +12,12 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_config, load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 from engine.strings import Resolver
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "sub.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "sub.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -39,8 +39,8 @@ def test_sub_shell_resolves_both_handlers_and_a_guardless_leave():
     assert loc.key == "sub"
     assert [o.id for o in loc.options] == ["platform", "train", "leave"]
     by_id = {o.id: o for o in loc.options}
-    assert by_id["platform"].handler is HANDLERS["sub.platform"]
-    assert by_id["train"].handler is HANDLERS["sub.train"]
+    assert by_id["platform"].handler is _CONFIG.handlers["sub.platform"]
+    assert by_id["train"].handler is _CONFIG.handlers["sub.train"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"

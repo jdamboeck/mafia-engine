@@ -66,6 +66,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from engine.config_owner import ConfigOwner, check_owner
 from engine.effects import SCHEMA_VERSION, commit, effect_tag
 from engine.state import (
     Clock,
@@ -158,12 +159,19 @@ class Registries:
     ``content_version`` are the config's ``name`` and ``content_version`` from its
     ``config.yaml``, which a save's header records and a load checks. All come from
     :class:`~engine.config_loader.LoadedConfig` (``loaded.registries``).
+
+    ``owner`` is the config the handle was loaded as. :func:`save_game`,
+    :func:`load_game` and :func:`replay` refuse it with
+    :class:`~engine.config_owner.StaleConfigError` once another config has loaded,
+    because ``effects`` is the process-wide registry that config refilled. ``None``
+    (registries no load built) is not checked.
     """
 
     effects: Mapping[str, type]
     state_schema: StateSchema
     config_id: str
     content_version: int
+    owner: ConfigOwner | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -411,6 +419,7 @@ def save_game(
     anything is written: a mistyped or undeclared value raises
     :class:`~engine.state.StateSchemaError` and leaves the path as it was.
     """
+    check_owner(registries.owner)
     path = Path(path)
     _check_values(state, registries.state_schema)
     header = {
@@ -465,6 +474,7 @@ def load_game(path: str | Path, registries: Registries) -> SaveData:
     A record of another :data:`SCHEMA_VERSION` raises :class:`SchemaVersionError`, and
     a save written under another config id or content version :class:`SaveConfigError`.
     """
+    check_owner(registries.owner)
     path = Path(path)
     records = [
         json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
@@ -508,7 +518,11 @@ def replay(save: SaveData, registries: Registries) -> GameState:
     does not re-roll because the committed effects already encode every outcome. Each
     effect applies itself; ``registries`` is checked first, so a log holding an effect
     the loaded config does not register fails naming its tag rather than replaying it.
+    Registries of a config no longer live raise
+    :class:`~engine.config_owner.StaleConfigError` (as :func:`save_game` and
+    :func:`load_game` do).
     """
+    check_owner(registries.owner)
     for effect in save.effect_log:
         tag = effect_tag(effect)
         if tag is None or tag not in registries.effects:

@@ -20,13 +20,19 @@ The loaded config also exposes its world: its location shells (every
 (``content/map/city.yaml``), so the engine turn runner and every client find them on
 the :class:`LoadedConfig`, never by path.
 
+One config is live at a time. The registries a package fills are process-wide, so a
+load replaces what the previous config registered; a handle to that previous config
+then raises :class:`~engine.config_owner.StaleConfigError` when it saves, loads,
+replays or runs turns (:mod:`engine.config_owner`). Reloading the same directory
+makes its earlier handles live again. A load the package or its validation refuses
+puts every registry back as it was and leaves the live config unchanged.
+
 Layering: this module imports the config *dynamically, by path* — the ``engine/``
 package never statically imports anything under ``data/``.
 """
 
 from __future__ import annotations
 
-import hashlib
 import importlib.util
 import sys
 from dataclasses import dataclass
@@ -35,17 +41,21 @@ from typing import Any, Callable
 
 import yaml
 
+from engine import config_owner
 from engine.conditions import GUARD_VARIABLES
-from engine.effects import EFFECTS, STAT_NAMES
+from engine.config_owner import ConfigOwner, StaleConfigError
+from engine.effects import CONSEQUENCES, EFFECTS, STAT_NAMES
 from engine.locations import HANDLERS, Location, load_shells
 from engine.movement import City, load_city
 from engine.persistence import Registries
 from engine.state import StateSchema
+from engine.substates import SUBSTATES
 from engine.types import GameConfigSchema, validate_config
 
 __all__ = [
     "ENGINE_API",
     "LoadedConfig",
+    "StaleConfigError",
     "load_config",
     "load_game_config",
     "load_state_schema",
@@ -117,6 +127,14 @@ def _load_city_file(path: Path) -> City | None:
 class LoadedConfig:
     """A handle over a loaded game config.
 
+    The registries it names (``handlers``, ``effects``, ``guard_variables``,
+    ``stat_names``) are the engine's process-wide ones, which the config filled when
+    it loaded; ``owner`` records which config that was. Once another config loads,
+    the handle is stale: :attr:`registries`, and a turn runner built from them, raise
+    :class:`~engine.config_owner.StaleConfigError` where they enter the engine. Direct
+    lookups in ``handlers`` or ``effects`` are not checked. A ``dataclasses.replace``
+    of the handle keeps its owner.
+
     Attributes
     ----------
     config_dir:
@@ -128,8 +146,8 @@ class LoadedConfig:
     module:
         The imported config package module object.
     handlers:
-        The engine's :data:`~engine.locations.HANDLERS` registry, now populated by
-        the config's ``@register`` decorators (returned for convenient assertion).
+        The engine's :data:`~engine.locations.HANDLERS` registry, populated by the
+        config's ``@register`` decorators while this config is the live one.
     effects:
         The engine's :data:`~engine.effects.EFFECTS` registry: the generic engine
         effects plus the config's own, registered by its ``@register_effect``
@@ -151,6 +169,9 @@ class LoadedConfig:
         turn menu is ``menus["turn"]``.
     city:
         The config's city map (:data:`CITY_FILE`), or ``None`` when it has none.
+    owner:
+        The config this handle was loaded as (:class:`~engine.config_owner.ConfigOwner`);
+        ``None`` for a handle no load built, which nothing checks.
     """
 
     config_dir: Path
@@ -165,15 +186,17 @@ class LoadedConfig:
     shells: dict[str, Location]
     menus: dict[str, Location]
     city: City | None
+    owner: ConfigOwner | None = None
 
     @property
     def registries(self) -> Registries:
-        """What save loading and replay take (:func:`engine.persistence.load_game`)."""
+        """What save loading, replay and the turn runner take, carrying this handle's owner."""
         return Registries(
             effects=self.effects,
             state_schema=self.state_schema,
             config_id=self.config["name"],
             content_version=self.config["content_version"],
+            owner=self.owner,
         )
 
 
@@ -184,10 +207,50 @@ def _config_module_name(config_dir: Path) -> str:
     a name at different paths — exactly the "copy the directory" case this loader
     exists to support (``/a/mafia_1920s`` vs ``/b/mafia_1920s``): the second load
     would silently reuse the first's cached submodules and return the wrong config.
-    A path-derived digest makes each distinct config a distinct package.
+    A path-derived digest makes each distinct config a distinct package; it is also
+    the config's owner token (:class:`~engine.config_owner.ConfigOwner`).
     """
-    digest = hashlib.sha1(str(config_dir).encode()).hexdigest()[:8]
-    return f"_game_config_{config_dir.name}_{digest}"
+    return f"_game_config_{config_dir.name}_{ConfigOwner.for_dir(config_dir).token}"
+
+
+def _package_modules(module_name: str) -> dict[str, Any]:
+    """The ``sys.modules`` entries of the package ``module_name`` and its submodules."""
+    return {
+        n: m for n, m in sys.modules.items() if n == module_name or n.startswith(module_name + ".")
+    }
+
+
+class _Snapshot:
+    """The process-wide registries and one package's modules, as they were before a load.
+
+    :meth:`restore` puts them back in place (the same objects, refilled), so a held
+    reference sees the restored contents. ``STAT_NAMES`` is refilled in place by every
+    declaration, so its contents are what is kept.
+    """
+
+    _DICTS: tuple[dict[str, Any], ...] = (
+        HANDLERS,
+        EFFECTS,
+        CONSEQUENCES,
+        SUBSTATES,
+        GUARD_VARIABLES,
+    )
+
+    def __init__(self, module_name: str) -> None:
+        self._module_name = module_name
+        self._dicts = [dict(d) for d in self._DICTS]
+        self._stat_names = set(STAT_NAMES)
+        self._modules = _package_modules(module_name)
+
+    def restore(self) -> None:
+        for live, saved in zip(self._DICTS, self._dicts):
+            live.clear()
+            live.update(saved)
+        STAT_NAMES.clear()
+        STAT_NAMES.update(self._stat_names)
+        for name in _package_modules(self._module_name):
+            del sys.modules[name]
+        sys.modules.update(self._modules)
 
 
 def _import_config_package(config_dir: Path) -> Any:
@@ -245,6 +308,12 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
        callable, the imported module, the populated ``HANDLERS`` and ``EFFECTS``
        registries, the declared state schema (``state_schema.yaml``), the guard
        variable registry, the declared stat names, the location shells, the menus and the city.
+
+    Only a load that completes makes this config the live one (its handle's
+    ``owner``); every handle to the config live before it is stale from then on,
+    unless it is this same directory. If the package import or anything after it
+    raises, the registries and the package's modules are restored to what they were
+    and the live config does not change.
     """
     config_dir = Path(config_dir).resolve()
     if not config_dir.is_dir():
@@ -257,6 +326,18 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
             f"value maps in {STATE_SCHEMA_FILE} beside config.yaml"
         )
     state_schema = load_state_schema(config_dir / STATE_SCHEMA_FILE)
+    snapshot = _Snapshot(_config_module_name(config_dir))
+    try:
+        loaded = _load_package(config_dir, config, state_schema)
+    except BaseException:
+        snapshot.restore()
+        raise
+    config_owner._activate(loaded.owner)
+    return loaded
+
+
+def _load_package(config_dir: Path, config: dict, state_schema: StateSchema) -> LoadedConfig:
+    """Import the package at ``config_dir`` and build its handle (it may raise anywhere)."""
     module = _import_config_package(config_dir)
 
     new_game = getattr(module, "new_game", None)
@@ -278,4 +359,5 @@ def load_game_config(config_dir: str | Path) -> LoadedConfig:
         shells=load_shells(config_dir / LOCATIONS_DIR),
         menus=load_shells(config_dir / MENUS_DIR),
         city=_load_city_file(config_dir / CITY_FILE),
+        owner=ConfigOwner.for_dir(config_dir),
     )

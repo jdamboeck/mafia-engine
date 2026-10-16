@@ -13,12 +13,12 @@ from pathlib import Path
 import yaml
 
 from engine.config_loader import load_config, load_game_config
-from engine.locations import HANDLERS, load_location
+from engine.locations import load_location
 from engine.strings import Resolver
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
-load_game_config(_CONFIG_DIR)
+_CONFIG = load_game_config(_CONFIG_DIR)
 _SHELL = _CONFIG_DIR / "content" / "locations" / "pol.yaml"
 _STRINGS = _CONFIG_DIR / "themes" / "classic" / "strings" / "pol.yaml"
 _CITY = _CONFIG_DIR / "content" / "map" / "city.yaml"
@@ -40,9 +40,9 @@ def test_pol_shell_resolves_its_handlers_and_a_guardless_leave():
     assert loc.key == "pol"
     assert [o.id for o in loc.options] == ["surrender", "bribe", "free", "leave"]
     by_id = {o.id: o for o in loc.options}
-    assert by_id["surrender"].handler is HANDLERS["pol.surrender"]
-    assert by_id["bribe"].handler is HANDLERS["pol.bribe"]
-    assert by_id["free"].handler is HANDLERS["pol.free"]
+    assert by_id["surrender"].handler is _CONFIG.handlers["pol.surrender"]
+    assert by_id["bribe"].handler is _CONFIG.handlers["pol.bribe"]
+    assert by_id["free"].handler is _CONFIG.handlers["pol.free"]
     assert by_id["leave"].handler is None
     for opt in loc.options:
         assert opt.guard is None, f"{opt.id} carries a shell guard"

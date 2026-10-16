@@ -1,4 +1,4 @@
-"""Tests for the YAML location-shell loader + HANDLERS registry (U6, PART 2).
+"""Tests for the YAML location-shell loader + handler registry (U6, PART 2).
 
 Proof-first: written and observed RED (module missing) before
 ``engine/locations.py`` existed.
@@ -13,7 +13,6 @@ import pytest
 import yaml
 
 from engine.locations import (
-    HANDLERS,
     Location,
     Option,
     available_options,
@@ -73,7 +72,7 @@ def test_shell_parses_into_structured_objects():
 
 def test_handler_resolves_from_registry():
     loc = load_location(yaml.safe_load(SHELL))
-    assert loc.options[0].handler is HANDLERS["test.dummy"]
+    assert loc.options[0].handler is _dummy_handler
 
 
 def test_unregistered_handler_raises():

@@ -842,6 +842,8 @@ class TerminalSession:
         runner = TurnRunner(
             self.state,
             self.rng,
+            handlers=self.cfg.handlers,
+            registries=self.cfg.registries,
             city=self.cfg.city,
             shells=self.cfg.shells,
             turn_menu=self.cfg.menus.get("turn"),
