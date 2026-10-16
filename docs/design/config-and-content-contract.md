@@ -78,7 +78,7 @@ The engine refuses or adapts configs whose targeted API it cannot satisfy. Bump 
 - guard/consequence formats and the guard-variable registration contract;
 - turn hook keys.
 
-Version 2 is the engine/config seam. Version 1 had game effects and game state inside `engine/`. The bump is taken once, together with the save format's `SCHEMA_VERSION` (`engine-architecture.md`, "Save/replay at interaction boundaries"). Later additions ride on version 2: a new game effect or a new declared state key is a config change, not an API change. The save format later took a bump of its own, to 3, for a new save shape; `engine_api` stayed at 2.
+Version 2 is the engine/config seam. Version 1 had game effects and game state inside `engine/`. The bump is taken once, together with the save format's `SCHEMA_VERSION` (`engine-architecture.md`, "Save/replay at interaction boundaries"). Later additions ride on version 2: a new game effect or a new declared state key is a config change, not an API change. The save format later took a bump of its own, to 3, for a new save shape; `engine_api` stayed at 2. The load refusals added since (a city that is not 40×25, a menu with an option past the ninth and no key of its own) reject only configs that could not run, and a config weapon now owes the engine fewer fields (`name`, `range`), so every config that loaded before still loads: no breaking change, no bump.
 
 ## YAML location shell format
 

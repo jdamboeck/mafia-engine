@@ -180,6 +180,16 @@ def test_intent_reads_the_weight_as_typed():
     assert _exact(out.players[0]) == 3 * Decimal(weight)
 
 
+def test_a_weight_longer_than_28_digits_is_stored_as_typed():
+    """``Decimal``'s default context holds 28 digits: normalizing ``0.1999...9`` (33
+    digits) under it stores ``0.2``, a weight above the one typed."""
+    from data.game_configs.mafia_1920s.score_weight import _exact_weight_text
+
+    weight = "0.199999999999999999999999999999999"
+    assert _exact_weight_text(weight) == weight
+    assert _exact_weight_text(" 1.50000000000000000000000000000000000 ") == "1.5"
+
+
 def test_intent_gf_is_the_float_of_the_exact_score_after_every_write():
     """Every intent-arm write -- the award (:1160), the shop's steps (:13065/:13072,
     :13073) and the turn's cut (:1013) -- leaves ``gf`` the float of the exact score."""

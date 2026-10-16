@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
-from decimal import Decimal
+from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, Context, Decimal
 
 from engine.c64_numbers import c64_val
 
@@ -65,9 +65,11 @@ def _exact_weight_text(text: str) -> str:
     """The typed ``x8`` weight as its exact decimal, in one spelling per value.
 
     ``"1"``, ``"1.0"`` and ``" 1e0"`` are the same weight, so they store the same text
-    (``"1"``); every digit typed is kept (``"0.33333333333333333"`` is not its float).
+    (``"1"``); every digit typed is kept (``"0.33333333333333333"`` is not its float,
+    and a weight longer than ``Decimal``'s default 28 digits is not rounded to them).
     """
-    return format(Decimal(text.strip()).normalize(), "f")
+    exact = Context(prec=MAX_PREC, Emax=MAX_EMAX, Emin=MIN_EMIN)
+    return format(Decimal(text.strip()).normalize(exact), "f")
 
 
 def parse_score_weight(text: str, *, c64: bool) -> float | None:

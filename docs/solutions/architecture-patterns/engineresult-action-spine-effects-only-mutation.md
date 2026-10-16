@@ -43,7 +43,7 @@ pattern and — just as important — its deliberate quirks, so a future contrib
 
 **1. Every engine action returns a frozen `EngineResult` — and callers must adopt its
 state.** `EngineResult(state, events, effects, status, payload, error)` is defined at
-`engine/actions.py:49`; `status` is the `EngineStatus` literal. The compose contract:
+`engine/actions.py`; `status` is the `EngineStatus` literal. The compose contract:
 
 ```python
 result = try_move(state, city, RIGHT)
@@ -56,7 +56,7 @@ Never keep using the pre-call `state` after a mutating action — the move/rent/
 lives only in `result.state`.
 
 **2. Effects are the only mutations; `commit()` is the only applier.** Effect dataclasses
-live in `engine/effects.py`; `commit(state, effects)` (`engine/effects.py:393`)
+live in `engine/effects.py`; `commit(state, effects)` (`engine/effects.py`)
 folds every effect through the private `_apply` and returns `CommitResult(state, effects)`
 with the committed effects in order — the replay record. Single-effect `apply()` stays pure
 the same way. No engine code assigns to game state outside `_apply`.
@@ -69,15 +69,14 @@ defend against. A direct write now raises at the offending line rather than sile
 corrupting the next save.
 
 **3. Semantic events are audit/UI records — never applied, never replayed.** The catalog
-in `engine/events.py` (e.g. `MoveBlocked` at `engine/events.py:84`, `OptionDenied` at
-`engine/events.py:104`) imports no state machinery. **Replay vocabulary = effects +
+in `engine/events.py` (e.g. `MoveBlocked` and `OptionDenied`) imports no state machinery. **Replay vocabulary = effects +
 logged RNG draws**; events may exist with zero effects (a blocked move mutates nothing
-but still emits `MoveBlocked`). The future save/load unit (U12, issue #12) builds on
-this split — do not let events leak into the replay log.
+but still emits `MoveBlocked`). Save/load builds on this split: a save is a checkpoint
+(the state snapshot plus the RNG history), and events never enter it.
 
 **4. Handlers buffer; the driver commits or discards atomically.** Handlers call
-`ctx.apply(effect)` (`engine/interactions.py:155`) and `ctx.record(event)`
-(`engine/interactions.py:163`) — never mutate `ctx.state` directly. On clean completion
+`ctx.apply(effect)` (`engine/interactions.py`, `Ctx.apply`) and `ctx.record(event)`
+(`engine/interactions.py`, `Ctx.record`) — never mutate `ctx.state` directly. On clean completion
 the driver commits the effect buffer and surfaces the events; on cancel it discards
 **both** buffers and returns the original state object with `status="cancelled"`.
 
@@ -89,17 +88,17 @@ def rent(ctx):                          # a handler
 ```
 
 **5. `run_option()` is the single location-option dispatcher**
-(`engine/actions.py:88`): unknown option id raises `ValueError`; guard denial returns
+(`engine/actions.py`): unknown option id raises `ValueError`; guard denial returns
 `status="blocked"` with an `OptionDenied` event, a `DeniedResult` payload
-(`engine/actions.py:74` — guard debug data lives here, never on the event), zero effects,
+(`engine/actions.py` — guard debug data lives here, never on the event), zero effects,
 and the unchanged input state; consequence options convert strictly via
-`effects_from_dicts` (`engine/consequences.py:114`, delegating per-item to
-`effect_from_dict` at `engine/consequences.py:69`; `ValueError` on unknown type /
+`effects_from_dicts` (`engine/consequences.py`, delegating per-item to
+`effect_from_dict`; `ValueError` on unknown type /
 missing / extra fields) and commit; handler options delegate to `engine.interactions.run()` with the generic
 lifecycle events appended by `run_option`, never by bare `run()`.
 
 **6. Purity is enforced structurally, not by convention.** Route handler tests through
-`run_pure` (`tests/helpers.py:35`): it snapshots the input, runs the handler,
+`run_pure` (`tests/helpers.py`): it snapshots the input, runs the handler,
 independently replays `result.effects` onto the snapshot via `commit()`, and asserts the
 input was never mutated **and** the returned state is fully explained by the effects. A
 handler that mutates directly fails the suite (proven by a rigged-handler test in
@@ -134,7 +133,7 @@ saying so at the cited line):
 
 | Looks wrong | Actually deliberate |
 |---|---|
-| `SetPosition` (`engine/effects.py:110`) and `Teleport` (`engine/effects.py:142`) are byte-identical | Two names so the effects stream records *why* the player moved (ordinary movement vs forced relocation). Do not merge. |
+| `SetPosition` and `Teleport` (`engine/effects.py`) are byte-identical | Two names so the effects stream records *why* the player moved (ordinary movement vs forced relocation). Do not merge. |
 | `LocationActionRejected` (`engine/events.py:126`) is defined and tested but emitted nowhere | Handler rejection paths (e.g. slw.rent insufficient cash) return `status="completed"` with no machine-readable marker — the do-not-guess rule; the wiring point is documented in `run_option`'s else branch. |
 | `advance_turn` (`engine/movement.py`) is pure and returns `(state, game_over)` | **Changed 2026-07-18** (immutable-state-graph refactor). It was previously the one in-place mutator outside the effect funnel — a known asymmetry — and the frozen graph forced it onto the functional path. Callers MUST adopt the returned state; the terminal turn loop was discarding it. |
 | Bugs raise instead of returning `EngineResult(error=...)` | `status="error"`/`error` are reserved for *future recoverable runtime errors*; config/programmer bugs must raise (`engine/actions.py` module docstring). |

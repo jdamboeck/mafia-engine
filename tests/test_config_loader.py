@@ -226,6 +226,35 @@ def test_a_replaced_handle_refuses_a_turn_runner_and_an_owned_step(tmp_path):
         next(step(handler, b.new_game(), owner=b.owner))
 
 
+def test_an_action_another_load_overtook_at_a_prompt_commits_nothing(tmp_path, monkeypatch):
+    """A's action suspends at a prompt; B loads; the action, resumed, neither looks up
+    B's sub-state nor commits against B -- it raises naming A's config."""
+    a_dir = _counter_copy(tmp_path / "a")
+    a = load_game_config(a_dir)
+
+    def child(ctx, params):
+        return (yield Confirm("probe.confirm"))
+
+    monkeypatch.setitem(SUBSTATES, "probe.owned", child)
+
+    def to_substate(ctx):
+        yield Confirm("probe.first")
+        return (yield LoadSubState("probe.owned"))
+
+    def to_commit(ctx):
+        ctx.apply(a.module.CounterBump(amount=3))
+        yield Confirm("probe.first")
+
+    for handler in (to_substate, to_commit):
+        load_game_config(a_dir)
+        driver = step(handler, a.new_game(), owner=a.owner)
+        assert isinstance(next(driver), Confirm)
+        load_game_config(_counter_copy(tmp_path / f"b_{handler.__name__}"))
+        with pytest.raises(StaleConfigError) as raised:
+            driver.send(True)
+        assert str(a_dir) in str(raised.value)
+
+
 def test_a_step_with_no_owner_is_not_checked(tmp_path, monkeypatch):
     """Engine code run with no config (a test-only sub-state) carries no owner, so it
     runs even while the config a handle names is not the live one."""

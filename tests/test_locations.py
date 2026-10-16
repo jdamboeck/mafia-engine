@@ -153,6 +153,24 @@ def test_a_keyed_menu_of_10_options_loads():
     assert len(load_location(_shell(10, keyed=True)).options) == 10
 
 
+def test_a_mixed_shell_caps_its_positional_options_too():
+    # One keyed option does not lift the cap: an unkeyed tenth option is still "10".
+    shell = _shell(10)
+    shell["options"][0]["key"] = "x"
+    with pytest.raises(ValueError, match=r"opt9"):
+        load_location(shell)
+    shell["options"][9]["key"] = "y"
+    assert len(load_location(shell).options) == 10
+
+
+def test_a_key_that_is_another_options_position_is_refused():
+    # Option 2's own key "1" is option 1's positional key: one key, two options.
+    shell = _shell(2)
+    shell["options"][1]["key"] = "1"
+    with pytest.raises(ValueError, match=r"two options one key"):
+        load_location(shell)
+
+
 def test_every_mafia_shell_and_menu_loads():
     from pathlib import Path
 

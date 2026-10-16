@@ -74,7 +74,7 @@ from engine.persistence import (
     save_game,
 )
 from engine.rng import Rng
-from engine.state import GameState
+from engine.state import GameState, StateSchemaError
 from engine.strings import Resolver
 from engine.turns import (
     JOB_SHIFT_SCREEN,
@@ -1127,8 +1127,9 @@ class TerminalSession:
         # A map-turn save -- the snapshot is authoritative, so
         # the effect log is empty; the RNG log lets a load resume the
         # stream mid-way. Overwrites without asking.
-        # A failed save (missing directory, full disk, no permission)
-        # must never end the game: say so and keep playing.
+        # A failed save (missing directory, full disk, no permission) or a save
+        # the engine refuses (a state its schema does not allow) must never end
+        # the game: say so and keep playing.
         assert self.state is not None, "state is set by setup or load before any turn"
         try:
             save_game(
@@ -1139,8 +1140,8 @@ class TerminalSession:
                 rng_log=self.rng.log,
                 seed=self.seed,
             )
-        except OSError as exc:
-            reason = exc.strerror or str(exc)
+        except (OSError, StateSchemaError) as exc:
+            reason = getattr(exc, "strerror", None) or str(exc)
             self.note = self.resolver.resolve("session.save_failed", {"reason": reason})
         else:
             self.note = self.resolver.resolve("session.saved", {"path": self.save_path})

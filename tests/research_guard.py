@@ -4,7 +4,7 @@ The research-dependent tests read the vendored copy under ``tests/fixtures/resea
 (:func:`tests.helpers.research_file`), so CI runs them without ``../research/``. A test
 that still skips with :data:`tests.helpers.RESEARCH_MISSING` means a reader bypasses the
 vendored copy or a vendored file is gone, and a skip stays green on the summary line.
-:class:`ResearchGuard` collects those skips, lists them, and turns the run's exit status
+:class:`ResearchGuard` collects those skips, a test's or a whole module's at collection, lists them, and turns the run's exit status
 to "tests failed", so the gap cannot pass as a skip (R24, AE7). Every other skip is left
 alone.
 
@@ -22,7 +22,7 @@ import pytest
 from tests.helpers import RESEARCH_MISSING
 
 
-def _reason(report: pytest.TestReport) -> str:
+def _reason(report: pytest.TestReport | pytest.CollectReport) -> str:
     longrepr = report.longrepr
     return str(longrepr[2]) if isinstance(longrepr, tuple) else str(longrepr)
 
@@ -33,9 +33,16 @@ class ResearchGuard:
     def __init__(self) -> None:
         self.skips: list[str] = []
 
-    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+    def _note(self, report: pytest.TestReport | pytest.CollectReport) -> None:
         if report.skipped and RESEARCH_MISSING in _reason(report):
             self.skips.append(f"{report.nodeid}: {_reason(report)}")
+
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        self._note(report)
+
+    def pytest_collectreport(self, report: pytest.CollectReport) -> None:
+        """A module that skips as it is collected (a module-level research read)."""
+        self._note(report)
 
     def pytest_terminal_summary(self, terminalreporter: Any) -> None:
         if self.skips:

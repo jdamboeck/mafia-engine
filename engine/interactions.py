@@ -130,7 +130,8 @@ class Ctx:
     ``Ctx`` does not interpret effects (any object); :func:`engine.effects.apply` does.
 
     ``owner`` is the config the action runs for (:func:`step`'s ``owner``), engine-side
-    only: a handler never reads it.
+    only: a handler never reads it. The driver checks it again where a suspended action
+    reaches the config's registries -- a sub-state's lookup and the commit.
     """
 
     def __init__(
@@ -212,8 +213,10 @@ def step(
     registries' owner). It is checked when the action starts, before the handler is
     called: once another config has loaded, the sub-states, guard variables,
     consequences and stat names the action would read are that config's, so ``step``
-    raises :class:`~engine.config_owner.StaleConfigError` instead. With no owner
-    (engine code, a test-only sub-state) nothing is checked.
+    raises :class:`~engine.config_owner.StaleConfigError` instead. The action can
+    suspend at a prompt, so it is checked again before each nested sub-state is looked
+    up and before the commit: an action another load overtook commits nothing. With no
+    owner (engine code, a test-only sub-state) nothing is checked.
     """
     check_owner(owner)
     ctx = Ctx(state=state, rng=rng, owner=owner)
@@ -271,6 +274,7 @@ def step(
         # module never imports engine.effects at module load — engine.effects imports
         # GameState from engine.state, so a top-level import would risk a cycle; the lazy
         # local import keeps engine.effects free of any dependency on this module.
+        check_owner(ctx._owner)
         buffer = list(ctx._buffer)
         if state is None:
             # No state to commit against: the buffered items pass through as the effect
@@ -525,6 +529,7 @@ def _run_substate(load: "LoadSubState", ctx: "Ctx") -> Generator[Any, Any, Any]:
     """
     from engine.substates import SUBSTATES
 
+    check_owner(ctx._owner)
     factory = SUBSTATES.get(load.kind)
     if factory is None:
         raise ValueError(f"unknown sub-state kind {load.kind!r}; registered: {sorted(SUBSTATES)}")

@@ -2346,6 +2346,20 @@ class TestSaveAndLoad:
         assert combat == json_safe(CombatState())
         assert combat["sides"] == [[], []] and combat["dir_memory"] == {}
 
+    def test_a_refused_save_is_a_note_and_play_goes_on(self, monkeypatch, tmp_path):
+        """A save the engine refuses (here, a state its schema does not allow) shows
+        ``session.save_failed`` and the map asks again; the game does not end."""
+        from engine.state import StateSchemaError
+
+        def refuse(*args, **kwargs):
+            raise StateSchemaError("players[0].rank: not a declared value")
+
+        monkeypatch.setattr("clients.terminal.session.save_game", refuse)
+        save = tmp_path / "s.jsonl"
+        out, _ = _run_session(monkeypatch, _new_game_lines(["p", "q"]), save=str(save), **self._NEW)
+        assert "speichern fehlgeschlagen: players[0].rank: not a declared value" in out
+        assert not save.exists()
+
     def test_second_save_overwrites_with_the_later_position(self, monkeypatch, tmp_path):
         from engine.persistence import load_game
 

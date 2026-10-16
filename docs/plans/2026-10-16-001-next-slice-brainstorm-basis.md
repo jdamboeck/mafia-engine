@@ -61,6 +61,26 @@ The whole game plays in the terminal client for 1–4 hot-seat players. Since th
 - #158 A10: lazy-import cycles among actions, interactions, fight loop and recording.
 - #177: comment and docstring volume (about 46% of non-blank lines).
 
+## Left by the Engine Contracts slice's code review
+
+The review of the slice's branch fixed what it found broken (a refused save ends the game; a
+suspended action commits against a config loaded meanwhile; a research skip at collection
+passes; a long score weight is rounded; a mixed menu's tenth unkeyed option). These it left:
+
+- A load does not clear the registrations of the config live before it, so a second config
+  still finds the first one's handlers, effects and sub-states under names it does not define
+  itself. The handle check stops the old config's handles, not a lookup through the new one.
+- The stale-config check is opt-in: `TurnRunner`, `step` and `step_option` given no registries
+  or owner run against whatever config is live. Only the terminal passes them; a server
+  driver (#178) must too.
+- `tests/conftest.py` restores the registries by hand, a second copy of the loader's
+  `_Snapshot`.
+- The pub, waf and slw shell tests still name their theme keys by hand; the other shell
+  tests resolve the keys captured from behavioral runs.
+- `play()` unpacks `PlayOptions` into ten locals, and `setup.py` is still over 1000 lines.
+- Session bootstrap lives only in the terminal client, `PlayOptions` mixes game inputs with
+  presentation, and load errors are worded for the terminal; all three are #178's to settle.
+
 ## Fidelity items carried from the 2026-10-12-002 basis
 
 **Menus and keys (U1)**

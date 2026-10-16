@@ -127,3 +127,27 @@ def test_another_skip_leaves_the_run_green(pytester: pytest.Pytester) -> None:
     result.assert_outcomes(passed=1, skipped=2)
     assert result.ret == pytest.ExitCode.OK
     assert "research skips fail the run" not in result.stdout.str()
+
+
+def test_a_module_that_skips_at_collection_turns_the_run_red(pytester: pytest.Pytester) -> None:
+    """A module-level research read skips the whole module while it is collected; the
+    guard sees that collection skip as it sees a test's."""
+    pytester.makepyfile(
+        test_module_skip=f"""
+import pytest
+pytest.skip("{RESEARCH_MISSING}: /nowhere/mf-prg.bas is not present", allow_module_level=True)
+
+def test_never_collected():
+    pass
+""",
+        test_other="def test_passes():\n    pass\n",
+    )
+    result = pytester.runpytest_inprocess("-p", "tests.research_guard", *_QUIET)
+    result.assert_outcomes(passed=1, skipped=1)
+    assert result.ret == pytest.ExitCode.TESTS_FAILED
+    result.stdout.fnmatch_lines(["*research skips fail the run*", "test_module_skip.py: *"])
+
+
+def test_the_real_suite_registers_the_guard(pytestconfig: pytest.Config) -> None:
+    """The guard is only as good as its registration: this run, the real suite's, has it."""
+    assert pytestconfig.pluginmanager.has_plugin("research-guard")
