@@ -19,7 +19,7 @@ branch: refactor/string-normalization
 - **Execution profile:** `docs/AGENTS.md`: one orchestrator, one subagent per unit, serial in Unit Index order. The orchestrator owns commits, the authoritative `make check` (through uv on 3.14 and 3.11), the board (one GitHub issue per unit, created before U1) and the review gate: for every text unit it publishes the unit's side-by-side as a private page and commits only after the user approves it. Work lands on `refactor/string-normalization`, off `main`.
 - **Stop conditions:** a behavioral test changes its outcome rather than a quoted string (stop and report); a string cannot be normalized without changing its words (record it for the user's decision instead of guessing); the user rejects a side-by-side (apply the corrections, re-publish, wait again).
 - **Open blockers:** none.
-- **Product Contract preservation:** changed: R11 — narrowed to docs that describe current behavior; research dossiers and landed plans keep quoting the C64 text (confirmed at plan time). R4, R5, R8 — clarified at document review: an authored `\n` row stays, the rent-seizure rows join the kept layouts, location names are the title keys and gangster descriptions are covered (user-approved). Outstanding Questions resolved into Key Technical Decisions.
+- **Product Contract preservation:** changed: R11 — narrowed to docs that describe current behavior; research dossiers and landed plans keep quoting the C64 text (confirmed at plan time). R4, R6 and Key Decisions — user decisions during U3: in-text row breaks become spaces, and clear author typos are fixed on a named list. R4, R5, R8 — clarified at document review: an authored `\n` row stays, the rent-seizure rows join the kept layouts, location names are the title keys and gangster descriptions are covered (user-approved). Outstanding Questions resolved into Key Technical Decisions.
 
 ---
 
@@ -42,8 +42,9 @@ These were limits of the machine, not the author's spelling. A player today read
 - **Rewrite classic in place.** Classic becomes the normalized text; there is no second, verbatim theme. The verbatim C64 text survives in `../research/`, the vendored research copy, the per-line source comments in the string files, and a frozen fixture of today's text. Considered: a new default theme over a verbatim classic, or a new optional theme.
 - **Umlauts and ß are restored.** The transliteration was the same machine limit as the case. A pair is restored only where German spells the umlaut (`fuer` → `für`, but `Feuer` and `neue` stay).
 - **Today's spelling rules.** Current Duden: `dass`, `Tipp`, `wie viele`, `muss`. Considered: the 1986 rules (`daß`, `Tip`), or case and umlauts only.
+- **The author's clear typos are fixed.** A slip that is plainly not the intended word (`Poliyei`, `erhälst`, a doubled word, a missing preposition) is corrected, each on a named author-typo list the fold check reads (user decision during U3).
 - **Words and tone stay the author's.** Colloquial forms (`nich'`, `'ne`, `sowas`, `Zaster`), word choice, grammar and punctuation that is the author's style are kept. The pass is a spelling pass, not an edit.
-- **Padding becomes one space; text flows.** The C64's line shape is not kept: no explicit line breaks are added and the client does not wrap at 40. A word the C64 hyphenated at its line break is joined (`Falschgeld`). A line break the author wrote (a `\n` row of a multi-line print) stays a row; only the padding goes. Considered: the client word-wrapping at 40, or a `\n` wherever the C64 broke the line.
+- **Padding becomes one space; text flows.** The C64's line shape is not kept: no explicit line breaks are added and the client does not wrap at 40. A word the C64 hyphenated at its line break is joined (`Falschgeld`). A line break inside running text (a `\n` row of a multi-line print) also becomes a space, so the text flows; only a break that lays out a list, a table or columns stays (user decision during U3, superseding "an authored row stays"). Considered: the client word-wrapping at 40, or a `\n` wherever the C64 broke the line.
 - **A fold check replaces "verbatim".** A normalized string must still be its source string once case is folded, ä/ö/ü/ß are written back as ae/oe/ue/ss, runs of spaces are collapsed, a joined wrap hyphen is split again, and each spelling-reform change on a named list is undone. That keeps the words tied to the source while the spelling changes.
 
 ### Requirements
@@ -53,9 +54,9 @@ These were limits of the machine, not the author's spelling. A player today read
 - R1. Every German string the game shows follows current German Groß-/Kleinschreibung, with nouns, sentence starts and the polite *Sie* forms capitalized.
 - R2. ä, ö, ü and ß replace ae, oe, ue and ss wherever German spells them, and nowhere else.
 - R3. Spelling follows the current Duden; each word changed for the 1996/2006 reform rather than for case or umlauts is on one named list with its source form.
-- R4. A run of spaces that only padded a line to the C64's 40-column wrap becomes one space; an authored `\n` row break stays.
+- R4. A run of spaces that only padded a line to the C64's 40-column wrap becomes one space, and so does a `\n` row break inside running text; a break that lays out a list, a table or columns stays (R5).
 - R5. Spacing that lays out columns or aligns output is kept: the year-end standings header, the safe's digit display, the rent seizure's rows and `{tab(39)}` sign, fightlab's aligned debug lines, the art boxes' borders, and any other column layout found during the pass.
-- R6. No string changes its words, word order, tone, punctuation style or `{placeholders}` beyond R1–R4 and the R3 list.
+- R6. No string changes its words, word order, tone, punctuation style or `{placeholders}` beyond R1–R4, the R3 list and the author-typo list.
 
 **Coverage**
 
