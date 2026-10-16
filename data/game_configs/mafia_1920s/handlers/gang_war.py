@@ -105,8 +105,8 @@ from ..effects import BarrelChange, Jail, MarkSet, VehicleSet
 from ..house_rules import intent
 from ..setup import (
     KEY_WAIT,
+    VEHICLES,
     load_encounter,
-    load_vehicles,
     run_encounter,
     run_gang_fight,
     score_and_rank,
@@ -292,7 +292,7 @@ def gang_war(ctx):
     # :27026-27028 the winner's screen.
     lines = [("gang_war.plunder", {"name": winner.name, "amount": p})]
     winner_vehicle, loser_vehicle = winner.vehicle, loser.vehicle
-    vehicles = load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
+    vehicles = VEHICLES
     if loser_vehicle:  # :27028 iftm(b)=0goto27035
         offer = ("gang_war.vehicle_offer", {"vehicle": vehicles[loser_vehicle]["name"]})
         # :27030-27031 the winner answers (:1115 j/n).

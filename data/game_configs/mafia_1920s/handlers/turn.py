@@ -47,7 +47,6 @@ the jail skip and the early win yield (display-only screens).
 from __future__ import annotations
 
 import math
-from pathlib import Path
 
 from engine.c64_numbers import c64_divide, c64_float
 from engine.effects import SetScore
@@ -65,7 +64,7 @@ from engine.turns import (
 )
 
 from ..effects import C64_FLOAT_SCORE, ExactScoreCut, Jail, PendingRankReset
-from ..setup import gangster_line, load_ranks, load_vehicles, load_weapons
+from ..setup import RANKS, VEHICLES, WEAPONS, gangster_line
 from ..state import contraband, job, next_rank, rented_months, wanted
 
 __all__ = [
@@ -85,8 +84,6 @@ __all__ = [
     "OVERVIEW_SCREEN",
     "GANG_SCREEN",
 ]
-
-_CONFIG_DIR = Path(__file__).resolve().parents[1]
 
 
 def truncated_score(gf: float) -> float:
@@ -149,7 +146,7 @@ def movement_points(ctx):
     active = ctx.state.players[ctx.state.clock.active_player]
     if next_rank(active) != active.rank:  # :1012 nr(sp)=ra(sp)
         ctx.apply(PendingRankReset())
-    return load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")[active.vehicle]["tr"]
+    return VEHICLES[active.vehicle]["tr"]
 
 
 @register(JOB_HOOK_KEY)
@@ -233,8 +230,8 @@ def overview_lines(state) -> list[tuple[str, dict]]:
     ``:1208``'s free-memory line is a debug switch (``peek(53247)=1``) and not shown.
     """
     active = state.players[state.clock.active_player]
-    ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
-    vehicles = load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
+    ranks = RANKS
+    vehicles = VEHICLES
     held = contraband(active)
     lines: list[tuple[str, dict]] = [
         ("turn.overview.title", {"name": active.name}),  # :1200
@@ -266,9 +263,8 @@ def gang_lines(state) -> list[tuple[str, dict]]:
     if not active.roster:  # :1230 ifgz(sp)=0thenprint"{down}keine!"
         lines.append(("turn.overview.no_gang", {}))
         return lines
-    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
     for member in active.roster:
-        lines.append(("turn.overview.gangster", gangster_line(member, weapons)))
+        lines.append(("turn.overview.gangster", gangster_line(member, WEAPONS)))
     return lines
 
 

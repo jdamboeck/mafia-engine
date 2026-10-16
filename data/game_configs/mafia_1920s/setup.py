@@ -25,6 +25,7 @@ handler imports ``fnm`` from HERE (its own config), not from the engine.
 
 from __future__ import annotations
 
+import copy
 import math
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
@@ -49,7 +50,7 @@ try:
     from .effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT, DebtClear, ScoreAndRank
     from .gangster import GANGSTER_ATTR_NAMES, Gangster
     from .house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from .house_rules import load_house_rules, number_prompt, switchable
+    from .house_rules import CATALOGUE, load_house_rules, number_prompt, switchable
     from .state import SCHEMA
     from .state import gang_name as _gang_name
 except ImportError:  # loaded bare (config dir on sys.path), not as a package
@@ -57,7 +58,7 @@ except ImportError:  # loaded bare (config dir on sys.path), not as a package
     from effects import C64_FLOAT_SCORE, SCORE_WEIGHT_TEXT, DebtClear, ScoreAndRank
     from gangster import GANGSTER_ATTR_NAMES, Gangster
     from house_rules import CATALOGUE_FILE as HOUSE_RULES_FILE
-    from house_rules import load_house_rules, number_prompt, switchable
+    from house_rules import CATALOGUE, load_house_rules, number_prompt, switchable
     from state import SCHEMA
     from state import gang_name as _gang_name
 from engine.types import ConfigValidationError, validate_rank, validate_vehicle, validate_weapon
@@ -82,6 +83,13 @@ __all__ = [
     "load_gangster_candidates",
     "load_combat_backdrop",
     "weapon_stats_by_id",
+    "CONFIG",
+    "VEHICLES",
+    "RANKS",
+    "WEAPONS",
+    "WEAPON_STATS",
+    "GANGSTER_CANDIDATES",
+    "BACKDROPS",
     "load_encounter",
     "EnemySpec",
     "Encounter",
@@ -219,8 +227,38 @@ def weapon_stats_by_id(path: str | Path) -> dict[int, tuple[int, int, int]]:
     them: the engine holds no weapon taxonomy of its own, so a weapon's reach — and
     with it whether the AI treats it as melee — has to arrive from the config.
     """
-    weapons = load_weapons(path)
+    return _weapon_stats(load_weapons(path))
+
+
+def _weapon_stats(weapons: Sequence[Mapping]) -> dict[int, tuple[int, int, int]]:
     return {i: (w["ts"], w["tg"], w["range"]) for i, w in enumerate(weapons)}
+
+
+# --- this config's content, read once per load -----------------------------
+#
+# The package executes again on every ``load_game_config``, so these are read once per
+# load: an edit to a content file reaches a game through a new load, and a malformed
+# file is refused at load. The handlers read these, never the files. The ``load_*``
+# functions above stay for an explicit other path (a copy of the config).
+
+#: This config's ``config.yaml``.
+CONFIG = load_config(_DEFAULT_CONFIG)
+_VEHICLES_PATH = (_CONFIG_DIR / CONFIG["entities"]["vehicles"]).resolve()
+#: The vehicle table (:func:`load_vehicles`).
+VEHICLES = load_vehicles(_VEHICLES_PATH)
+#: The rank names (:func:`load_ranks`).
+RANKS = load_ranks(_CONFIG_DIR / CONFIG["entities"]["ranks"])
+#: The weapon table (:func:`load_weapons`).
+WEAPONS = load_weapons(_CONFIG_DIR / CONFIG["entities"]["weapons"])
+#: The weapon id -> ``(ts, tg, range)`` table (:func:`weapon_stats_by_id`).
+WEAPON_STATS = _weapon_stats(WEAPONS)
+#: The recruit candidates (:func:`load_gangster_candidates`).
+GANGSTER_CANDIDATES = load_gangster_candidates(_CONFIG_DIR / "entities" / "gangsters.yaml")
+#: Every combat backdrop under ``content/combat`` by its name (``kf$``), e.g. ``"ks"``.
+BACKDROPS = {
+    path.stem: load_combat_backdrop(path)
+    for path in sorted((_CONFIG_DIR / "content" / "combat").glob("*.yaml"))
+}
 
 
 # --- encounter declarations -------------------------------------------------
@@ -496,10 +534,8 @@ def run_encounter(
         active.roster if roster is None else roster,
         build_rules(ctx.state.config.house_rules),
         enemy_attrs=enemy_attrs(params),
-        grid=load_combat_backdrop(
-            _CONFIG_DIR / "content" / "combat" / f"{grid or encounter.grid}.yaml"
-        ),
-        equip=equipper(weapon_stats_by_id(_CONFIG_DIR / "entities" / "weapons.yaml")),
+        grid=BACKDROPS[grid or encounter.grid],
+        equip=equipper(WEAPON_STATS),
         # Side 1's gang is its owner's: its energy is written back to them.
         owner=ctx.state.clock.active_player if owner is None else owner,
     )
@@ -552,8 +588,7 @@ def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
     The outcome screen (``:30500-30515``) names the gangs, ``bn$(ks(i))``.
     """
     players = ctx.state.players
-    weapons_path = _CONFIG_DIR / "entities" / "weapons.yaml"
-    equip = equipper(weapon_stats_by_id(weapons_path))
+    equip = equipper(WEAPON_STATS)
     defending = players[defender].roster
     attacking = players[attacker].roster
     side1 = build_player_side(defending, owner=defender)
@@ -571,7 +606,7 @@ def run_gang_fight(ctx, *, defender: int, attacker: int, grid: str):
     )
     scenario = Scenario(
         sides=sides,
-        grid=load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / f"{grid}.yaml"),
+        grid=BACKDROPS[grid],
         rules=build_rules(ctx.state.config.house_rules),
         # :30020 seeds the direction memory for a CPU side only (ks(2)=0): none here.
         dir_memory={},
@@ -670,7 +705,7 @@ def pick_gangster(ctx, *, cancellable: bool):
     roster = ctx.state.players[ctx.state.clock.active_player].roster
     if not roster:  # :1130
         return None
-    weapons = load_weapons(_CONFIG_DIR / "entities" / "weapons.yaml")
+    weapons = WEAPONS
     for number, member in enumerate(roster, start=1):  # :1135-1140
         yield ShowMessage(
             "turn.picker.gangster", {"index": number, **gangster_line(member, weapons)}
@@ -785,8 +820,14 @@ INTELLIGENCE_OR_30 = "intelligence_or_30"
 
 
 def _house_rules_map(cfg_dir: Path, choices: Mapping[str, str]) -> dict[str, str]:
-    """Every switch of the catalogue in ``cfg_dir`` at faithful, then ``choices``."""
-    rules = switchable(load_house_rules(cfg_dir / HOUSE_RULES_FILE))
+    """Every switch of the catalogue in ``cfg_dir`` at faithful, then ``choices``.
+
+    This config's own directory takes the catalogue read at import; another reads its file.
+    """
+    catalogue = (
+        CATALOGUE if cfg_dir == _CONFIG_DIR else load_house_rules(cfg_dir / HOUSE_RULES_FILE)
+    )
+    rules = switchable(catalogue)
     chosen = {rule.id: FAITHFUL for rule in rules}
     for rule_id, setting in choices.items():
         if rule_id not in chosen:
@@ -1015,9 +1056,13 @@ def new_game(
         another setting, raises ``ValueError``. The full map lands on
         ``state.config.house_rules``.
     config_path:
-        Which ``config.yaml`` to assemble from.
+        Which ``config.yaml`` to assemble from. This config's own (the default) is the
+        one read at import; another path is read now, with the files beside it.
     """
-    cfg = load_config(config_path)
+    if Path(config_path).resolve() == _DEFAULT_CONFIG:
+        cfg = copy.deepcopy(CONFIG)
+    else:
+        cfg = load_config(config_path)
     cfg_dir = Path(config_path).resolve().parent
     setup = cfg["setup"]
     if record is None:
@@ -1057,7 +1102,8 @@ def _build_state(record: SetupRecord, cfg: Mapping, cfg_dir: Path) -> GameState:
     intelligence_as_rolled = chosen_rules.get(INTELLIGENCE_OR_30) == INTENT
 
     # --- entity tables -----------------------------------------------------
-    vehicles = load_vehicles(cfg_dir / cfg["entities"]["vehicles"])
+    vehicles_path = (cfg_dir / cfg["entities"]["vehicles"]).resolve()
+    vehicles = VEHICLES if vehicles_path == _VEHICLES_PATH else load_vehicles(vehicles_path)
     start_vehicle = setup["start_vehicle"]
     start_ms = vehicles[start_vehicle]["tr"]  # ms = tr(vehicle); on foot tr(0)=25
 

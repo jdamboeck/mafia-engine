@@ -50,7 +50,6 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from engine.config_loader import load_config
 from engine.interactions import Acknowledge, Heading, PromptText, RollFrame, ShowMessage
 from engine.locations import register
 from engine.state import FAITHFUL, INTENT
@@ -58,6 +57,7 @@ from engine.turns import SETUP_HANDLER_KEY
 
 from ..house_rules import CATALOGUE, CHANGE_KEY, switchable
 from ..setup import (
+    CONFIG,
     SetupPlayer,
     SetupRecord,
     _house_rules_map,
@@ -93,7 +93,7 @@ def setup(
     house_rules: Mapping[str, str] | None = None,
 ):
     """The new-game setup, asking only what was not pre-filled; returns a SetupRecord."""
-    cfg = load_config(_CONFIG_DIR / "config.yaml")
+    cfg = CONFIG
     ranges = cfg["input_ranges"]
     # A pre-fill is checked as new_game checks it, before anything is asked.
     if end_year is not None:

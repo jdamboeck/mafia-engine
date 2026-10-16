@@ -40,7 +40,6 @@ Handler API: touches only ``ctx.state`` (read-only), ``ctx.rng``, ``yield``,
 
 from __future__ import annotations
 
-from functools import cache
 from pathlib import Path
 
 import yaml
@@ -58,13 +57,21 @@ __all__ = ["door_cells", "pickpocket", "sub_platform", "sub_train"]
 _CONFIG_DIR = Path(__file__).resolve().parents[1]
 
 
-@cache
+def _read_door_cells() -> dict[tuple[int, int], int]:
+    raw = yaml.safe_load((_CONFIG_DIR / "content" / "map" / "city.yaml").read_text("utf-8"))
+    return {(door["la"], door["ln"]): door["cell"] for door in raw["doors"]}
+
+
+#: The door table, read once when the config loads.
+_DOOR_CELLS = _read_door_cells()
+
+
 def door_cells() -> dict[tuple[int, int], int]:
     """The city's door table (``content/map/city.yaml``), keyed by ``(la, ln)``: the
     cell a step onto a location tile reached, for the stale ``p`` capture reads (``:2030``
-    ``p=br+po(sp)+x``). Shared with the bank's safe-crack (``:20142``)."""
-    raw = yaml.safe_load((_CONFIG_DIR / "content" / "map" / "city.yaml").read_text("utf-8"))
-    return {(door["la"], door["ln"]): door["cell"] for door in raw["doors"]}
+    ``p=br+po(sp)+x``). Shared with the bank's safe-crack (``:20142``). Read once when
+    the config loads."""
+    return _DOOR_CELLS
 
 
 @register("sub.platform")

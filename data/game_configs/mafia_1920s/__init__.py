@@ -27,8 +27,6 @@ travel together; the engine is untouched (docs/design/product-and-scope.md and d
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from . import state  # noqa: F401 — registers the config's guard variables on import
 from . import effects  # noqa: F401 — registers the config's own effects on import
 from . import handlers  # noqa: F401 — registers the config's handlers on import
@@ -38,8 +36,8 @@ from .gangster import Gangster
 from .combat_rules import build_rules, equipper
 from .setup import fnm, load_ranks, load_vehicles, load_weapons, new_game, score_weight_accepted
 
-# Refuse a bad weapon table at config load (a ConfigValidationError out of the import).
-load_weapons(Path(__file__).resolve().parent / "entities" / "weapons.yaml")
+# A bad content file is refused at config load: ``setup`` reads and validates every
+# entity table, the backdrops and ``config.yaml`` into its constants on import.
 
 __all__ = [
     "new_game",

@@ -60,8 +60,6 @@ Read from the active player's ``last_location`` field, exactly as ``slw``/``waf`
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from engine.effects import MoneyChange, MsChange, RosterAppend
 from ..effects import BarrelChange, GangsterMarkHired, JobSet, TipClear, TipSet
 from engine.interactions import Confirm, PromptInt, ShowMessage
@@ -70,9 +68,7 @@ from ..gangster import Gangster
 from ..house_rules import ANY_NUMBER, C64_INPUT_NEGATIVES, intent, number_prompt
 from ..state import contraband, hired_ids, tenant
 
-from ..setup import KEY_WAIT, load_gangster_candidates, load_ranks, load_vehicles, score_and_rank
-
-_CONFIG_DIR = Path(__file__).resolve().parents[1]
+from ..setup import GANGSTER_CANDIDATES, KEY_WAIT, RANKS, VEHICLES, score_and_rank
 
 __all__ = ["pub_drink", "pub_recruit", "pub_tip", "pub_job"]
 
@@ -144,17 +140,13 @@ _JOB_OFFER_TEXT_KEYS = {
 
 
 def _vehicles():
-    """Load this config's vehicle table via the config's own loader.
-
-    Mirrors ``waf.py``'s ``_weapons()`` pattern: read relative to this module's config
-    directory, fresh per call (the config is frozen per game, so this is harmless).
-    """
-    return load_vehicles(_CONFIG_DIR / "entities" / "vehicles.yaml")
+    """This config's vehicle table, read once when the config loaded (``setup.VEHICLES``)."""
+    return VEHICLES
 
 
 def _gangster_candidates():
-    """Load the 30 recruit candidates. Same fresh-per-call pattern as ``_vehicles()``."""
-    return load_gangster_candidates(_CONFIG_DIR / "entities" / "gangsters.yaml")
+    """The 30 recruit candidates, read once when the config loaded."""
+    return GANGSTER_CANDIDATES
 
 
 # --------------------------------------------------------------------------- #
@@ -383,8 +375,7 @@ def pub_recruit(ctx):
 
     # :12100-12102 — rank guard; :12101 prints the rank's name, ``ra$(ra(sp))``.
     if active.rank <= 4:
-        ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
-        yield ShowMessage("locations.pub.rank_too_low", {"rank": ranks[active.rank - 1]})
+        yield ShowMessage("locations.pub.rank_too_low", {"rank": RANKS[active.rank - 1]})
         yield KEY_WAIT  # :12102 ...:goto1100
         return []
 
@@ -523,8 +514,7 @@ def pub_job(ctx):
     # :12300 — rank guard, INVERTED vs. recruit's (rank <= 3 gets the offer); :12301
     # prints the rank's name, ``ra$(ra(sp))``.
     if active.rank > _JOB_MAX_RANK:
-        ranks = load_ranks(_CONFIG_DIR / "entities" / "ranks.yaml")
-        yield ShowMessage("locations.pub.job_rank_too_high", {"rank": ranks[active.rank - 1]})
+        yield ShowMessage("locations.pub.job_rank_too_high", {"rank": RANKS[active.rank - 1]})
         yield KEY_WAIT  # :12301 ...:goto1100
         return []
 

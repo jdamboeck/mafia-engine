@@ -61,7 +61,7 @@ from engine.substates import register_substate
 
 from ..effects import WeaponBuyScore
 from ..house_rules import number_prompt
-from ..setup import KEY_WAIT, load_weapons, pick_gangster, score_and_rank
+from ..setup import KEY_WAIT, WEAPONS, pick_gangster, score_and_rank
 
 __all__ = ["waf_buy", "waf_train", "weapon_spec"]
 
@@ -76,15 +76,9 @@ _STAT_GATES = (
 
 
 def _weapons():
-    """Load this config's weapon table via the config's own loader.
-
-    Reads the table relative to this module's config directory (mirrors how setup loads
-    it) — the config is frozen per game, so a fresh read per action is harmless.
-    """
-    from pathlib import Path
-
-    cfg_dir = Path(__file__).resolve().parents[1]
-    return load_weapons(cfg_dir / "entities" / "weapons.yaml")
+    """This config's weapon table, read and validated once when the config loaded
+    (``setup.WEAPONS``)."""
+    return WEAPONS
 
 
 # --------------------------------------------------------------------------- #
