@@ -1,5 +1,7 @@
-# Recruitable gangster candidate table — verbatim from the original game's 30
-# `gan1`-`gan30` SEQ files (../research/research-data/pass-1/gan-extraction.yaml).
+# Recruitable gangster candidate table — from the original game's 30 `gan1`-`gan30`
+# SEQ files (../research/research-data/pass-1/gan-extraction.yaml). Names and
+# descriptions are the source's words in today's German spelling, each folding back
+# to the C64 text in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # ENTITY-NAME/stat data owned by the game config, not engine display text:
 # names/descriptions are the recruitable-gangster identities in the 1920s Mafia
@@ -9,17 +11,17 @@
 #
 # Fields per entry (read order at mf-prg.bas:12125 `input#1,gn$:input#1,gw` and
 # :12126 `input#1,ge$:input#1,p:...:input#1,x$`):
-#   name        — gn$, gangster name (German, verbatim)
+#   name        — gn$, gangster name (German)
 #   weapon      — gw, weapon index 0..8 (matches entities/weapons.yaml)
 #   kraft       — first 2 digits of ge$ (kk)
 #   intelligenz — next 2 digits of ge$ (ii)
 #   brutalitaet — last 2 digits of ge$ (bb)
 #   price       — p + 1000 (mf-prg.bas:12126's `p=p+1000` vorschuss surcharge) —
 #                 already-final hire price, 2000-5500$ across the table
-#   description — x$, the recruitment flavour text (verbatim, printed at :12131)
+#   description — x$, the recruitment flavour text (printed at :12131)
 #   female      — true for the 4 candidates the source's `fnwe(x)` predicate
 #                 treats as female (pronoun "sie" instead of "er", :12130) —
-#                 BLOODY MARY (4), JOSEFINE (14), DOROTHY (27), MA BAKER (30)
+#                 Bloody Mary (4), Josefine (14), Dorothy (27), Ma Baker (30)
 #
 # Energy is NOT a per-candidate field: every recruited gangster starts at energy
 # 5 regardless of candidate (mf-prg.bas:12165's `"05"+ge$` prepend) — the handler
@@ -76,7 +78,7 @@ gangsters:
   - {name: "Jim",                   weapon: 0, kraft: 70, intelligenz: 5,  brutalitaet: 5,  price: 2900, female: false,
      description: "Ein Farmer, der seinen Beruf an den Nagel gehängt hat"}
   - {name: "Macky Messer",          weapon: 1, kraft: 35, intelligenz: 40, brutalitaet: 60, price: 3500, female: false,
-     description: "Ein geheimnisvoller Typ"}  # verbatim source typo (gan-extraction.yaml gan26; not "geheimnisvoller")
+     description: "Ein geheimnisvoller Typ"}  # the source's "geheinisvoller" (gan-extraction.yaml gan26), fixed: author_typos.yaml
   - {name: "Dorothy",               weapon: 1, kraft: 30, intelligenz: 60, brutalitaet: 30, price: 3100, female: true,
      description: "Eine große, verschlagen wirkende Frau"}
   - {name: "Prediger Samuel",       weapon: 0, kraft: 55, intelligenz: 60, brutalitaet: 10, price: 3300, female: false,

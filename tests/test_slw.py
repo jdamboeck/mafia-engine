@@ -249,7 +249,7 @@ def test_player_zero_pays_rent_on_their_own_room():
 
 
 # --------------------------------------------------------------------------- #
-# Strings: the classic theme's slw strings load verbatim                      #
+# Strings: the classic theme's slw strings load, in today's spelling         #
 # --------------------------------------------------------------------------- #
 def test_strings_load_verbatim():
     data = yaml.safe_load(_SLW_STRINGS.read_text(encoding="utf-8"))

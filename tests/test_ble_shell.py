@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_ble.py``'s exits) resolve in the classic theme with the params they carry
-and reach every ble string, and the text is verbatim from the research corpus
+and reach every ble string, and the C64-text fixture is verbatim from the research corpus
 (location-dialogue.yaml, ble).
 """
 

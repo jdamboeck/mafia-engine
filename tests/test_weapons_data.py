@@ -1,7 +1,8 @@
 """Tests for the weapon entity table + ``load_weapons`` loader (U2).
 
-Ports the 9-record weapon DATA table verbatim from ``mf-prg.bas:50100-50115``
-(field order ``name, price, ts, tg, ws`` per ``:121``) plus the per-weapon
+Ports the 9-record weapon DATA table from ``mf-prg.bas:50100-50115`` (field order
+``name, price, ts, tg, ws`` per ``:121``; the numbers exact, the names in today's
+German spelling) plus the per-weapon
 stat-requirement metadata DERIVED from the buy-guard lines ``13050-13060``:
 
 - intelligenz >= 40 for weapon index > 5        (``13050``: ``in<40 and x>5``)

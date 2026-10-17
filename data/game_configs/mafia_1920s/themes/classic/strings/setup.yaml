@@ -1,7 +1,7 @@
 # setup (new-game prompts and the eigenschaften screen) — classic-theme strings.
 #
 # DATA, not code: the setup handler (handlers/new_game.py) emits these KEYS and the
-# theme resolves them. The source's text is ported verbatim from mf-prg.bas:170, :175,
+# theme resolves them. The source's words are ported, in today's spelling, from mf-prg.bas:170, :175,
 # :205, :210, :215 and :300-316 (the research text corpus's `text`, without the
 # leading space or the {clr}/{down} cursor codes, as for every key here); numbers
 # print per _format.yaml (c64). The accepted ranges are NOT read from this text --

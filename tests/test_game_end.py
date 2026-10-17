@@ -170,7 +170,7 @@ def test_runners_require_a_registered_handler(runner):
         runner(object(), handlers={})
 
 
-# --- resolved text (verbatim German, classic theme) --------------------------------
+# --- resolved text (the source's German in today's spelling, classic theme) ------
 
 
 def _resolved(msgs):
@@ -179,6 +179,7 @@ def _resolved(msgs):
 
 
 def test_resolved_winner_screen_is_verbatim(mafia_module):
+    """The winner screen's resolved text: the source's words in today's spelling."""
     _, msgs = _collect(run_year_end, _state(mafia_module, [42, 37], cash=[5000, 6000]))
     text = _resolved(msgs)
     assert "Spielstand 1925-1" in text
@@ -192,6 +193,7 @@ def test_resolved_winner_screen_is_verbatim(mafia_module):
 
 
 def test_resolved_tie_screen_is_verbatim(mafia_module):
+    """The tie screen's resolved text: the source's words in today's spelling."""
     _, msgs = _collect(run_year_end, _state(mafia_module, [50, 50, 20]))
     text = _resolved(msgs)
     assert "Diesmal haben mehrere die gleichen Punkte:\nalcapone\nbugsy\n" in text

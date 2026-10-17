@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_ban.py``) resolve in the classic theme and reach every ban string,
-and the text is verbatim from the research corpus (location-dialogue.yaml, ban, with
+and the C64-text fixture is verbatim from the research corpus (location-dialogue.yaml, ban, with
 its 40-column wrap padding; the corpus misses :20003 and :20009, which are the
 listing's).
 """

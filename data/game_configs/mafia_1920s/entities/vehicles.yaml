@@ -1,11 +1,13 @@
-# Vehicle table — verbatim from the original game (mf-prg.bas:50300-50305).
+# Vehicle table — from the original game (mf-prg.bas:50300-50305); the names in today's
+# German spelling, each folding back to the C64 text in tests/fixtures/c64_text/
+# (tests/test_text_fold.py).
 #
 # Each entry is ENTITY-NAME/stat data owned by the game config, not
 # engine display text: the German names are the vehicle identities in the
 # 1920s Mafia world.
 #
 # Fields per entry:
-#   name  — vehicle name (German, verbatim)
+#   name  — vehicle name (German, in today's spelling)
 #   tank  — alcohol/fuel capacity
 #   tr    — travel range == a fresh player's movement points (ms) for that
 #           vehicle. On foot (index 0) tr=25, so a new on-foot player has ms=25.

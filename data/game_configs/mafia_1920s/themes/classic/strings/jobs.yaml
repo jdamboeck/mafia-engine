@@ -1,4 +1,6 @@
-# job shifts — classic-theme strings (VERBATIM German).
+# job shifts — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: engine emits KEYS (job.shift_*), the theme resolves them.
 # Ports the shift-flow narration (mf-prg.bas:25000-25560, research-data/pass-1/

@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_aut.py``) resolve in the classic theme and reach every aut string,
-and the text is verbatim from the research corpus (location-dialogue.yaml, aut).
+and the C64-text fixture is verbatim from the research corpus (location-dialogue.yaml, aut).
 """
 
 from __future__ import annotations

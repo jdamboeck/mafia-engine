@@ -21,10 +21,10 @@ The game is played from a checkout of this repository, installed in place as abo
 
 A new game starts with the original's setup screens:
 
-1. The year the game ends (`spielende`, 1928-1978) and the score weight (`punktewertigkeit`, 0.1-2).
+1. The year the game ends (`Spielende`, 1928-1978) and the score weight (`Punktewertigkeit`, 0.1-2).
 2. The house rules: Enter plays every quirk of the original as it was; `h` lists them, so you can switch each one to how it was probably meant.
-3. The number of players (`spieleranzahl`, 1-4).
-4. For each player in turn: their name and their gang's name (1-13 characters each), then the `eigenschaften` screen. Kraft, intelligenz and brutalitaet each cycle through values until you press a key, and the value on screen is the one you keep. Energie (5) and your starting cash follow.
+3. The number of players (`Spieleranzahl`, 1-4).
+4. For each player in turn: their name and their gang's name (1-13 characters each), then the `Eigenschaften` screen. Kraft, Intelligenz and Brutalität each cycle through values until you press a key, and the value on screen is the one you keep. Energie (5) and your starting cash follow.
 
 The clock starts in January 1925. Players take turns at the same keyboard. When the end year arrives, the player with the most points wins.
 
@@ -43,7 +43,7 @@ The clock starts in January 1925. Players take turns at the same keyboard. When 
 
 Useful flags (`python -m clients.terminal --help` lists them all):
 
-- `--player NAME:GANG`, repeatable up to 4 times: the game skips the player count and name questions. Each player still rolls their stats on the eigenschaften screen.
+- `--player NAME:GANG`, repeatable up to 4 times: the game skips the player count and name questions. Each player still rolls their stats on the Eigenschaften screen.
 - `--end-year 1930 --score-weight 1` to skip those two setup questions.
 - `--load PATH` to resume a saved game; `--save PATH` to choose where `P` saves (default: the `--load` file, else `mafia-save.jsonl`).
 - `--seed N` for a reproducible new game. Stat rolls you stop by hand depend on your timing; with piped input every roll stops on its first value, so a scripted game with a seed always starts the same.
@@ -54,7 +54,7 @@ To debug fights on their own, see the fight lab: [clients/terminal/FIGHTLAB.md](
 
 ### What works today
 
-- The original's setup: end year, score weight, 1-4 players with names and gang names, and the eigenschaften screen where each player stops their own stat rolls. Optional house rules switch the original's quirks to their intended behavior, among them the C64's float arithmetic in the score and the negative numbers the C64 accepts at some prompts.
+- The original's setup: end year, score weight, 1-4 players with names and gang names, and the Eigenschaften screen where each player stops their own stat rolls. Optional house rules switch the original's quirks to their intended behavior, among them the C64's float arithmetic in the score and the negative numbers the C64 accepts at some prompts.
 - The city map with movement points per vehicle and hot-seat turn rotation.
 - All 12 locations: the motel (`slw`), pub (`pub`), weapon shop (`waf`), car dealer (`aut`), loan shark (`kdh`), casino (`sph`), the shop to squeeze for protection money (`sgl`), subway (`sub`), railway station (`bhf`), bank and post office (`ban`), police headquarters (`pol`) and the counterfeiter (`ble`), with jobs and turn-start upkeep (rent, debt collectors, promotions).
 - Crime and the police: roadblocks and wanted posters, arrest, the trial with its lawyer, bribing the police chief or the guards, jail and the prison brawl.

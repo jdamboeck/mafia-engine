@@ -393,7 +393,7 @@ def test_pub_recruit_offered_whatever_the_rank_and_gang_size():
 
 
 # --------------------------------------------------------------------------- #
-# Strings: the pub denial string loads verbatim.                              #
+# Strings: the pub denial string loads, in today's spelling.                  #
 # --------------------------------------------------------------------------- #
 def test_pub_strings_load_verbatim():
     data = yaml.safe_load(_PUB_STRINGS.read_text(encoding="utf-8"))
@@ -409,7 +409,7 @@ def test_pub_strings_load_verbatim():
     assert get("locations.pub.entry_prompt") == (
         "'Eh, Amigo, willst du 'ne Milch? Oder suchst du was anderes?'"
     )
-    # Rank-too-low recruit refusal (mf-prg.bas:12101-12102), verbatim.
+    # Rank-too-low recruit refusal (mf-prg.bas:12101-12102), in today's spelling.
     assert get("locations.pub.rank_too_low") == (
         "Als {rank} kannst du noch keine eigenen Leute haben!"
     )

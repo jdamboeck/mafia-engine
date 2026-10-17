@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_pol.py``) resolve in the classic theme and reach every pol string,
-and the text is verbatim from the research (the SEQ menu src/pol, via
+and the C64-text fixture is verbatim from the research (the SEQ menu src/pol, via
 location-dialogue.yaml; the handler lines from the listing).
 """
 

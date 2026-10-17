@@ -1,8 +1,10 @@
-# ban (Bank/Postamt) — classic-theme strings (VERBATIM German).
+# ban (Bank/Postamt) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: handlers/ban.py emits these KEYS and the theme resolves them. The menu
-# is the SEQ file src/ban (research-data/pass-2/location-dialogue.yaml, ban), with its
-# 40-column wrap padding; the rest is mf-prg.bas:20003-20142, printed as the listing
+# is the SEQ file src/ban (research-data/pass-2/location-dialogue.yaml, ban), its
+# 40-column wrap padding closed to one space; the rest is mf-prg.bas:20003-20142, printed as the listing
 # prints it (the corpus misses :20003 and :20009). A number the source prints between
 # strings is a bare placeholder: the c64 number style prints the spaces C64 PRINT puts
 # around it (_format.yaml); a string variable (ra$(3)) prints with no space. A screen that
@@ -11,7 +13,7 @@
 locations:
   ban:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
+    # above the description (location-dialogue.yaml's title, in today's spelling).
     title: "Bank/Postamt"
     entry_prompt: "'Guten Tag, mein Herr! Was ist Ihr Begehr?'"
     menu:

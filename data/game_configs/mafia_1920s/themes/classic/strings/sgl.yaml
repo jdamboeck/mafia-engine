@@ -1,8 +1,10 @@
-# sgl (Einfacher Laden, the protection racket) — classic-theme strings (VERBATIM German).
+# sgl (Einfacher Laden, the protection racket) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: handlers/sgl.py emits these KEYS and the theme resolves them. The menu
-# is the SEQ file src/sgl (research-data/pass-2/location-dialogue.yaml, sgl), with its
-# 40-column wrap padding; the rest is mf-prg.bas:17005-17592, printed as the listing
+# is the SEQ file src/sgl (research-data/pass-2/location-dialogue.yaml, sgl), its
+# 40-column wrap padding closed to one space; the rest is mf-prg.bas:17005-17592, printed as the listing
 # prints it (the corpus misses :17006, :17008-17009 and :17016). A number the source
 # prints between strings is a bare placeholder: the c64 number style prints the spaces
 # C64 PRINT puts around it (_format.yaml). A screen that ends in :1100's "taste druecken!"
@@ -10,7 +12,7 @@
 locations:
   sgl:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
+    # above the description (location-dialogue.yaml's title, in today's spelling).
     title: "Einfacher Laden (wie geschaffen zum Schutzgeld eintreiben!)"
     entry_prompt: "'Tag, Mister. Was darf's denn sein?'"
     menu:
@@ -39,7 +41,7 @@ locations:
     reply_sob: "'Deine arme Ma (schnief)! Gib ihr die{p}$ hier!'"        # :17515 `'deine arme ma (schnief)! gib ihr die`
     reply_enough: "'Ich habe{p}Dollar, reicht das?'"                       # :17520 `dollar, reicht das?'`
     reply_forged: "'Verdammt! Wer hat mir nur Blüten für{p}$ angedreht...?'"   # :17525-17526 `'verdammt! wer hat mir nur blueten`
-    reply_small: "'Ich habe leider nur{p}$!'"                                 # :17530 `'ich habe leider nur` (no closing quote)
+    reply_small: "'Ich habe leider nur{p}$!'"                                 # :17530 `'ich habe leider nur` (closing quote added: author_typos.yaml)
     # :17555 `getx$:ifx$<"1"orx$>"3"goto17555` reads the pick of the three below.
     after_menu: "Was machst du:"                                             # :17550 `was machst du:`
     after_take: "1 Angebotenes Geld nehmen"                                  # :17550 `1 angebotenes geld nehmen`

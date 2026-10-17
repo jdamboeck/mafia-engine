@@ -1,8 +1,10 @@
-# pub (Kneipe) — classic-theme strings (VERBATIM German).
+# pub (Kneipe) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: the engine emits KEYS (e.g. "locations.pub.rank_too_low")
 # and the theme resolves them to these strings. Ported from the research
-# (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:12000-12335) — verbatim.
+# (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:12000-12335).
 #
 # rank_too_low: the pub recruit refusal when ra(sp)<=4. In the original this is a
 # two-line print (mf-prg.bas:12101-12102):
@@ -13,7 +15,7 @@
 locations:
   pub:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
+    # above the description (location-dialogue.yaml's title, in today's spelling).
     title: "Pub/Bar (ein zwielichtiges Lokal)"
     entry_prompt: "'Eh, Amigo, willst du 'ne Milch? Oder suchst du was anderes?'"
     menu:

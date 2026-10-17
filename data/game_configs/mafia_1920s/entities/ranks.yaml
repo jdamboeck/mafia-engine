@@ -1,4 +1,5 @@
-# Rank names — verbatim from the original game (mf-prg.bas:50200-50210).
+# Rank names — the original game's (mf-prg.bas:50200-50210), in today's German spelling;
+# each folds back to the C64 text in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # ENTITY-NAME data owned by the config, not engine display text.
 #
