@@ -350,7 +350,7 @@ class TestRenderCombatMessage:
         msg = {"hit": True, "damage": 7, "target_side": 2, "target_index": 0, "downed": False}
         resolver = Resolver.from_config("data/game_configs/mafia_1920s")
         render_combat_message(_payload(message=msg), resolver, buf, _COLORS)
-        assert "treffer! energie -7!" in buf.getvalue()
+        assert "Treffer! Energie -7!" in buf.getvalue()
 
     def test_no_message_writes_nothing(self) -> None:
         buf = _out()
@@ -393,8 +393,8 @@ class TestReverseVideo:
         payload = _payload(active_side=2, active_fighter=3, names=[])
         render_combat_labels(payload, _classic(), buf, _COLORS, _CLASSIC_REVERSE)
         row = buf.getvalue().rstrip("\n")
-        assert _ANSI_CODE.sub("", row) == " " * 20 + "spieler 3 "
-        assert _reversed(row) == ["spieler 3 "]
+        assert _ANSI_CODE.sub("", row) == " " * 20 + "Spieler 3 "
+        assert _reversed(row) == ["Spieler 3 "]
         assert _ANSI_CODE.sub("", row[: row.index("\033[7m")]) == " " * 20
 
     def test_an_observe_frame_shows_no_human_label(self) -> None:
@@ -406,14 +406,14 @@ class TestReverseVideo:
         )
         render_combat_labels(payload, _classic(), buf, _COLORS, _CLASSIC_REVERSE)
         row = buf.getvalue().rstrip("\n")
-        assert _ANSI_CODE.sub("", row) == " " * 20 + "spieler 1 "
-        assert _reversed(row) == ["spieler 1 "]
+        assert _ANSI_CODE.sub("", row) == " " * 20 + "Spieler 1 "
+        assert _reversed(row) == ["Spieler 1 "]
 
     def test_without_the_list_the_labels_are_plain(self) -> None:
         buf = _out()
         render_combat_labels(_payload(cpu_fighter=2, names=[]), _classic(), buf, _COLORS)
         row = buf.getvalue().rstrip("\n")
-        assert _ANSI_CODE.sub("", row) == "spieler 1           spieler 2 "
+        assert _ANSI_CODE.sub("", row) == "Spieler 1           Spieler 2 "
         assert "\033[7m" not in row
 
     def test_the_banner_is_reverse_only_when_listed(self) -> None:
@@ -422,7 +422,7 @@ class TestReverseVideo:
             _payload(message="begins"), _classic(), listed, _COLORS, _CLASSIC_REVERSE
         )
         render_combat_message(_payload(message="begins"), _classic(), plain, _COLORS)
-        assert _reversed(listed.getvalue()) == ["der kampf beginnt..."]
+        assert _reversed(listed.getvalue()) == ["Der Kampf beginnt..."]
         assert "\033[7m" not in plain.getvalue()
 
     def test_the_location_title_is_reverse_only_when_listed(self) -> None:

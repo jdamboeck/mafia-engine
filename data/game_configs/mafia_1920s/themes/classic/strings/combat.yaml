@@ -8,7 +8,7 @@
 combat:
   # :30025 print"{rvon}der kampf beginnt..." -- the first screen's message (the engine's
   # `begins` key), shown once before the first activation.
-  begins: "der kampf beginnt..."  # :30025 `der kampf beginnt...`
+  begins: "Der Kampf beginnt..."  # :30025 `der kampf beginnt...`
 
   # :30015 poke211,-20*(i=2):poke214,16:syscs:printbn$(ks(i)) -- each side's name
   # under the board, side 1's at column 0 and side 2's at column 20; it stays all fight.
@@ -16,42 +16,42 @@ combat:
 
   # :30400 poke211,20:poke214,18:syscs:print"{rvon}spieler"f -- the last CPU fighter's
   # number at column 20 (PRINT's sign space and trailing space around it).
-  cpu_label: "{tab(20)}spieler{fighter}"  # :30400 `print"{rvon}spieler"f`
+  cpu_label: "{tab(20)}Spieler{fighter}"  # :30400 `print"{rvon}spieler"f`
 
   # :30115 x=-20*(s=2):poke211,x:poke214,18:syscs:print"{rvon}spieler   {left}{left}{left}"f
   # -- on each of the human's activations, the active fighter's number on the CPU
   # label's row: column 0 for side 1, column 20 for side 2. (The three spaces and
   # {left}s blank an older, longer number; the port draws the row afresh.)
-  player_label_side1: "spieler{fighter}"  # :30115 `print"{rvon}spieler   {left}{left}{left}"f`
-  player_label_side2: "{tab(20)}spieler{fighter}"  # :30115 `x=-20*(s=2):poke211,x`
+  player_label_side1: "Spieler{fighter}"  # :30115 `print"{rvon}spieler   {left}{left}{left}"f`
+  player_label_side2: "{tab(20)}Spieler{fighter}"  # :30115 `x=-20*(s=2):poke211,x`
 
   # 30125/30139: unrecognized key falls back to the GET wait -- re-prompt, no text
   # printed by the original at that exact point; the client still needs SOME line.
   unknown_action: "?"
 
   # 30145: illegal move target (occupied/scenery/out of bounds) -- re-prompt.
-  illegal_move: "(das geht nicht)"
+  illegal_move: "(Das geht nicht)"
 
   # :30235 "{rvon}verfehlt!" -- the shot missed.
-  miss: "verfehlt!"
+  miss: "Verfehlt!"
 
   # :30305 "treffer! spieler <i> ist am ende!" -- a player-side fighter is knocked out.
-  hit_player_down: "treffer! spieler{index}ist am ende!"
+  hit_player_down: "Treffer! Spieler{index}ist am Ende!"
 
   # :30300 "der gegner ist tot!" -- an enemy/NPC fighter is knocked out.
-  hit_enemy_down: "der gegner ist tot!"
+  hit_enemy_down: "Der Gegner ist tot!"
 
   # :30350 "treffer! energie -"mid$(str$(y),2)"!" -- a hit that does not knock the
   # target down, with the damage y it did.
-  hit: "treffer! energie -{damage:mid$}!"
+  hit: "Treffer! Energie -{damage:mid$}!"
 
   # :30500 `print"{clr}{down}{gry3}{rvon} sieger: "bn$(ks(s))"!!! "` -- the winner banner.
   # {name} = winning side's name.
-  winner_banner: "sieger: {name}!!!"
+  winner_banner: "Sieger: {name}!!!"
 
   # 30510/30515: "verluste der spieler:" heading + bn$(ks(i))":"v(i) per side
   # (the count PRINTs with its sign space: "<gang>: <n> ").
-  losses_heading: "verluste der spieler:"
+  losses_heading: "Verluste der Spieler:"
   losses_line: "{name}:{count}"
   # :30520 `print:goto1100`: a blank row, then the outcome screen's key wait, which the
   # client prints (the fight's KEY_WAIT).
@@ -66,13 +66,13 @@ combat:
   panel_weapon: "w:{weapon}"
 
   # Action prompt shown above the key legend.
-  action_prompt: "deine aktion:"
+  action_prompt: "Deine Aktion:"
 
   # Key legend -- presentation-only (key bindings are presentation, not
   # ported source text), shown once per activation above the input line.
-  key_legend: "[wasd] bewegen  [f]+[wasd] schiessen  [p] aussetzen  'surrender' aufgeben"
+  key_legend: "[wasd] bewegen  [f]+[wasd] schießen  [p] aussetzen  'surrender' aufgeben"
 
   # Opt-in observation frame (--watch-ai) -- presentation-only: the original
   # narrates nothing between CPU activations (mf-prg.bas:30110), so this line exists
   # only for a viewer who opted in. Shown under the board after each CPU activation.
-  observe_prompt: "gegner am zug -- [enter] weiter"
+  observe_prompt: "Gegner am Zug -- [enter] weiter"

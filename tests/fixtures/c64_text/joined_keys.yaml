@@ -61,3 +61,8 @@ joined_keys:
       - turn.overview.gangster
       - turn.picker.gangster
       - "entities.weapons.*.name"
+  - where: >-
+      gang_war.py :27030-27031: the vehicle offer's sentence runs on into its confirm
+      prompt on the next row ("Willst du auch noch den {vehicle}" / "mitnehmen (j/n) ?"),
+      so the prompt opens in lower case
+    keys: [gang_war.vehicle_offer, gang_war.vehicle_confirm]

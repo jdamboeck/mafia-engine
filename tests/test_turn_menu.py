@@ -258,8 +258,8 @@ def test_a_save_at_the_menu_resumes_to_the_menu_with_the_same_movement_points(
 
     resumed, (state, _rng) = _play_returning(monkeypatch, ["2", "q"], load=str(save))
     screens = resumed.split(CLEAR)[1:]
-    assert "ist an der reihe" not in resumed, "upkeep ran again on resume"
-    assert "was willst du tun:" in screens[0], "the resumed game did not open at the menu"
+    assert "ist an der Reihe" not in resumed, "upkeep ran again on resume"
+    assert "Was willst du tun:" in screens[0], "the resumed game did not open at the menu"
     assert "║" in screens[1], "walking from the resumed menu did not open the map"
     assert state.players[0].ms == ms, "the resumed turn did not keep its movement points"
 
@@ -275,7 +275,7 @@ def test_the_map_exit_key_returns_to_the_menu_in_the_client(monkeypatch):
     )
     screens = output.split(CLEAR)
     assert "║" in screens[-2], "the map was not shown"
-    assert "was willst du tun:" in screens[-1], "the exit key did not return to the menu"
+    assert "Was willst du tun:" in screens[-1], "the exit key did not return to the menu"
 
 
 # --------------------------------------------------------------------------- #
@@ -312,23 +312,23 @@ def test_the_overview_shows_the_players_state_and_both_marks(monkeypatch, tmp_pa
 
     # :1015-1017 the menu's head: name, gang, cash and the date.
     assert "alcapone - the outfit" in menu
-    assert "kapital: 6543" in menu and "jahr:1925-4" in menu
+    assert "Kapital: 6543" in menu and "Jahr:1925-4" in menu
     # :1200-1225
-    assert "uebersicht fuer alcapone:" in summary
-    assert "punkte:  12.5 " in summary  # :1209 "punkte: "gf(sp): its space and PRINT's
-    assert "rang: schlaeger" in summary
-    assert "transportmittel: fuesse  17 s" in summary  # :1215 " "ms"s"
-    assert "alkohol: 3 faesser" in summary
-    assert "gegenstaende: papiere,falschgeld" in summary  # :1221-1222, ag$ at :50600
-    assert "schmiergelder: 2 mon." in summary
-    assert "bezahlte miete: 4 mon." in summary
+    assert "Übersicht für alcapone:" in summary
+    assert "Punkte:  12.5 " in summary  # :1209 "punkte: "gf(sp): its space and PRINT's
+    assert "Rang: schlaeger" in summary
+    assert "Transportmittel: fuesse  17 s" in summary  # :1215 " "ms"s"
+    assert "Alkohol: 3 Fässer" in summary
+    assert "Gegenstände: Papiere,Falschgeld" in summary  # :1221-1222, ag$ at :50600
+    assert "Schmiergelder: 2 Mon." in summary
+    assert "Bezahlte Miete: 4 Mon." in summary
     # :1230-1240, :1300-1320
-    assert "gangster:" in gang
+    assert "Gangster:" in gang
     assert boss.name in gang and "bugs" in gang
     assert "e05 k41 i07 b12" in gang
     assert "w:revolver" in gang
     # :1045 back to the menu, nothing spent.
-    assert "was willst du tun:" in screens[5]
+    assert "Was willst du tun:" in screens[5]
 
 
 def test_the_overview_shows_no_items_line_without_marks():

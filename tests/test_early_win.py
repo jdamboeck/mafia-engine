@@ -242,9 +242,9 @@ def test_play_shows_the_victory_screen_then_the_ranking_and_ends(monkeypatch, tm
         play(PlayOptions(load=str(save)))
     output = out.getvalue()
 
-    victory_at = output.index("chef der unterwelt")
+    victory_at = output.index("Chef der Unterwelt")
     result_at = output.index("moran hat gewonnen!")
     assert victory_at < result_at
     assert output.index(CLEAR, victory_at) < result_at, "the ranking is not its own screen"
-    assert "spielstand 1925-1" in output[victory_at:]
-    assert "was willst du tun" not in output, "the turn menu opened"
+    assert "Spielstand 1925-1" in output[victory_at:]
+    assert "Was willst du tun" not in output, "the turn menu opened"

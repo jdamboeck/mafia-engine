@@ -105,10 +105,10 @@ def test_play_seeded_resolves_to_a_winner_with_a_losses_block():
 
     text = out.getvalue()
     # A real losses block with the REAL side names (NOT the "side {i}" placeholder).
-    assert "verluste der spieler" in text
+    assert "Verluste der Spieler" in text
     assert "hero: 1" in text  # the passive hero went down
     assert "schuldner: 0" in text
-    assert "sieger: schuldner" in text  # winner banner, real name
+    assert "Sieger: schuldner" in text  # winner banner, real name
 
 
 # --------------------------------------------------------------------------- #

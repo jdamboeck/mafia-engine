@@ -16,10 +16,12 @@ reform:
       - locations.kdh.capital_prompt
       - locations.pol.thank_you
       - locations.pub.sell_quantity_prompt
+      - police.lawyer_prompt
   - source: "wieviele"
     new: "wie viele"
     keys: [locations.pol.chief_prompt, locations.pub.drink_quantity_prompt, locations.slw.months_prompt]
   - {source: "zuviele", new: "zu viele", keys: [locations.aut.crowded]}
+  - {source: "zuwenig", new: "zu wenig", keys: [win_flows.transport_too_few]}
   # The old rule wrote two letters where three met before a vowel (Schiffahrt); the
   # reform keeps all three (Schifffahrt), so the C64's schiesstand is Schießstand.
   - source: "(s)chiesstand"

@@ -798,11 +798,11 @@ class TestJobShiftThroughClient:
         # The job-shift screen rendered (its own header), not a second map draw
         # between the two turn_over screens.
         assert "job" in output
-        # :25000's header (the player's name, "job als") and :25015's job name reach
+        # :25000's header (the player's name, "Job als") and :25015's job name reach
         # the player before the shift's narration (:25020).
-        opened = output.index(": job als")
-        assert output.index("rausschmeisser", opened) < output.index("du wartest", opened)
-        assert "deine aktion:" in output  # the combat-screen action prompt (U7 wire)
+        opened = output.index(": Job als")
+        assert output.index("Rausschmeißer", opened) < output.index("Du wartest", opened)
+        assert "Deine Aktion:" in output  # the combat-screen action prompt (U7 wire)
         # No third "move: W/A/S/D" prompt appears between the two turn-over screens
         # -- the employed turn never reached the map loop at all.
         turn_over_positions = [i for i in range(len(output)) if output.startswith("turn_over", i)]
@@ -852,7 +852,7 @@ class TestJobShiftThroughClient:
         assert game.job(result1.state.players[0]) == Job(type=2, pending_pay=1200, months_left=1)
         assert result1.state.players[0].ka == 1372
         # :25110-25111 the tricks are shown (the port's old "welchen trick" prompt is gone)
-        assert "3 bremse am roulette" in out1.getvalue()
+        assert "3 Bremse am Roulette" in out1.getvalue()
         assert "welchen trick" not in out1.getvalue()
 
         # Shift 2: trick 1, seed=1 again -> success again, months_left hits 0 ->
@@ -1238,7 +1238,7 @@ class TestKdhLocationThroughClient:
         result = run_option(shell, "collect", state, ln=1, input_source=inp, rng=Rng(5))
         assert result.status == "completed"
         rendered = out.getvalue()
-        assert "deine aktion:" in rendered  # the combat-screen action prompt (U7 wire)
+        assert "Deine Aktion:" in rendered  # the combat-screen action prompt (U7 wire)
         # The fighter panel (:1300-1320's stat line) rendered, i.e. combat ran.
         assert re.search(r"e\d\d k\d\d i\d\d b\d\d", rendered)
         # A surrender loses -- no loot, no state change beyond the fight itself
@@ -1934,7 +1934,7 @@ class TestDebtDefaultThroughClient:
         # screen's own action prompt (rendered per activation) proves the client-side
         # combat protocol ran, not just the engine-side branch.
         rendered = out.getvalue()
-        assert "deine aktion:" in rendered
+        assert "Deine Aktion:" in rendered
         assert "aufgeben" in rendered
 
         # Lost -> :4365-4370: all cash seized, debt and counter wiped.
@@ -2080,17 +2080,17 @@ class TestRoundStandingsAndEnding:
         keys = burn_turn_keys(7, self._TWO, turns=2)
         output, _ = run_play_returning(monkeypatch, seed=7, stdin_keys=keys, players=self._TWO)
 
-        assert output.count("spielstand") == 1, "standings must show once per round"
+        assert output.count("Spielstand") == 1, "standings must show once per round"
         turn_overs = [i for i in range(len(output)) if output.startswith("turn_over", i)]
         assert len(turn_overs) == 2, "the script must reach both players' turn-overs"
-        standings_at = output.index("spielstand")
+        standings_at = output.index("Spielstand")
         assert standings_at > turn_overs[1], (
             "the standings appeared before the second player's turn-over (not a wrap)"
         )
         # KTD-2: the round just played (1925-01, month unpadded + 1-based, :4501),
         # not the advanced clock (1925-2).
-        assert "spielstand 1925-1\n" in output
-        assert "spielstand 1925-2" not in output
+        assert "Spielstand 1925-1\n" in output
+        assert "Spielstand 1925-2" not in output
         # One row per player, in player order.
         assert output.index("alcapone", standings_at) < output.index("moran", standings_at)
 
@@ -2111,12 +2111,12 @@ class TestRoundStandingsAndEnding:
         assert upkeeps == 36, f"{upkeeps} upkeep screens, expected 36"
         winner_at = output.rindex("alcapone hat gewonnen!")
         tail = output[winner_at:]
-        for later in ("turn_over", "upkeep", "spielstand", "bye."):
+        for later in ("turn_over", "upkeep", "Spielstand", "bye."):
             assert later not in tail, f"{later!r} rendered after the result"
         # :1010 standings on the wrap, then :40100's own gosub4500 = twice for the
         # last round (1927-12), both showing the post-/pre-advance dates per KTD-2.
-        assert "spielstand 1927-12\n" in output
-        assert "spielstand 1928-1\n" in output
+        assert "Spielstand 1927-12\n" in output
+        assert "Spielstand 1928-1\n" in output
         state, rng = ret
         assert state.clock.year == 1928 and state.clock.month == 0
         assert isinstance(rng, Rng)
@@ -2136,9 +2136,9 @@ class TestRoundStandingsAndEnding:
         # [..., turn-over ack, standings ack, upkeep ack, walk] -> stop before the
         # standings ack.
         output, ret = run_play_returning(monkeypatch, seed=42, stdin_keys=keys[:-3])
-        assert "spielstand 1925-1\n" in output
-        assert output.rstrip().endswith("bye.") or "bye." in output[output.index("spielstand") :]
-        assert "upkeep" not in output[output.index("spielstand") :], (
+        assert "Spielstand 1925-1\n" in output
+        assert output.rstrip().endswith("bye.") or "bye." in output[output.index("Spielstand") :]
+        assert "upkeep" not in output[output.index("Spielstand") :], (
             "EOF at the standings must end the session, not start the next turn"
         )
         state, _ = ret
@@ -2321,12 +2321,12 @@ class TestSaveAndLoad:
         new_out, _ = _run_session(
             monkeypatch, _new_game_lines([step, "p", "q"]), save=str(save), **self._NEW
         )
-        assert "ist an der reihe" in new_out, "a new game's upkeep banner is the contrast"
+        assert "ist an der Reihe" in new_out, "a new game's upkeep banner is the contrast"
 
         out, (state, _rng) = _run_session(monkeypatch, ["q"], load=str(save))
         first_screen = out.split(CLEAR)[1]
         assert "║" in first_screen and "move: W/A/S/D" in first_screen, "not the map first"
-        assert "ist an der reihe" not in out, "the upkeep banner was printed"
+        assert "ist an der Reihe" not in out, "the upkeep banner was printed"
         assert "  upkeep  " not in out
         assert "spielende" not in out.lower() and "punktewertigkeit" not in out.lower()
         assert state == load_game(save, _REGISTRIES).state
@@ -2355,7 +2355,7 @@ class TestSaveAndLoad:
         monkeypatch.setattr("clients.terminal.session.save_game", refuse)
         save = tmp_path / "s.jsonl"
         out, _ = _run_session(monkeypatch, _new_game_lines(["p", "q"]), save=str(save), **self._NEW)
-        assert "speichern fehlgeschlagen: players[0].rank: not a declared value" in out
+        assert "Speichern fehlgeschlagen: players[0].rank: not a declared value" in out
         assert not save.exists()
 
     def test_second_save_overwrites_with_the_later_position(self, monkeypatch, tmp_path):
@@ -2412,7 +2412,7 @@ class TestSaveAndLoad:
         out, (state, _rng) = _run_session(
             monkeypatch, _new_game_lines(["p", step, "q"]), save=str(save), **self._NEW
         )
-        assert "speichern fehlgeschlagen" in out
+        assert "Speichern fehlgeschlagen" in out
         assert "Traceback" not in out
         assert state.players[0].po == cell, "the move after the failed save never played"
         assert "bye." in out
@@ -2500,7 +2500,7 @@ class TestTurnPhases:
         screens = output.split(CLEAR)[1:]
         assert len(screens) == 1, "the session showed more than the map"
         assert "║" in screens[0] and "move: W/A/S/D" in screens[0], "the screen is not the map"
-        assert "ist an der reihe" not in output, "the upkeep banner was printed"
+        assert "ist an der Reihe" not in output, "the upkeep banner was printed"
         assert state == new_state(42)
         assert "bye.\n" in output
 
@@ -2510,8 +2510,8 @@ class TestTurnPhases:
             monkeypatch, tmp_path, new_state(42), "next_player", ["x", "x", "q"]
         )
         assert (state.clock.month, state.clock.active_player) == (1, 0), "not a round wrap"
-        assert "spielstand 1925-1\n" in output
-        assert "spielstand 1925-2" not in output
+        assert "Spielstand 1925-1\n" in output
+        assert "Spielstand 1925-2" not in output
 
     # :1013 `gf(sp)=int(gf(sp)*100)/100`, placed after :1011's upkeep and :1012's job
     # dispatch, before the free turn. Player 1 is the one the rotation reaches.
@@ -2557,7 +2557,7 @@ class TestTurnPhases:
             monkeypatch, tmp_path, state, "next_player", ["x", MENU_WALK_KEY, "q"]
         )
         before_map = output.split("move: W/A/S/D")[0]
-        assert "ist an der reihe" in before_map, "not the upkeep screen"
+        assert "ist an der Reihe" in before_map, "not the upkeep screen"
         assert "north side\nmoran.\n" not in output, "a promotion screen without a promotion"
 
     def test_upkeep_prints_the_promotion_once_and_keeps_it_on_screen(self, monkeypatch, tmp_path):
@@ -2576,15 +2576,15 @@ class TestTurnPhases:
         before_map = output.split("move: W/A/S/D")[0]
         poster = "north side\nmoran.\n25 p."
         assert before_map.count(poster) == 1, "the promotion printed more than once"
-        assert before_map.count("ist an der reihe") == 1, "the banner printed more than once"
+        assert before_map.count("ist an der Reihe") == 1, "the banner printed more than once"
         from engine.strings import Resolver
 
         press = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve("client.press_any_key")
-        upkeep_screen = before_map[before_map.index("ist an der reihe") :]
+        upkeep_screen = before_map[before_map.index("ist an der Reihe") :]
         upkeep_screen = upkeep_screen[: upkeep_screen.index(press)]
         assert CLEAR not in upkeep_screen, "a screen clear wiped upkeep's messages"
         assert poster in upkeep_screen
-        assert "1000 $ schulden" in upkeep_screen, "the debt warning is not on the upkeep screen"
+        assert "1000 $ Schulden" in upkeep_screen, "the debt warning is not on the upkeep screen"
 
     def test_an_employed_players_turn_skips_the_truncation(self, monkeypatch, tmp_path):
         from data.game_configs.mafia_1920s.state import Job
@@ -2596,7 +2596,7 @@ class TestTurnPhases:
             monkeypatch, tmp_path, state, "next_player", ["x", "1", "q"], seed=1
         )
 
-        assert "3 bremse am roulette" in output, "the job shift did not run"
+        assert "3 Bremse am Roulette" in output, "the job shift did not run"
         assert "move: W/A/S/D" not in output, "the employed player reached the map"
         assert game.job(state.players[1]).months_left == 1, "the shift did not complete"
         assert state.players[1].gf == 25.199999
@@ -2655,7 +2655,7 @@ class TestTurnPhases:
             monkeypatch, tmp_path, state, "turn_start", [MENU_WALK_KEY] + keys
         )
 
-        assert ("diesmal haben mehrere die gleichen" in output) is tie, "tie or not"
+        assert ("Diesmal haben mehrere die gleichen" in output) is tie, "tie or not"
         assert ("hat gewonnen!" in output) is not tie
         assert (state.players[0].gf, state.players[1].gf) == scores
 
@@ -2696,7 +2696,7 @@ class TestC64NumbersOnScreen:
 
         output = self._play_one_turn(monkeypatch, tmp_path, state)
 
-        upkeep_at = output.index("spieler moran\nist an der reihe")
+        upkeep_at = output.index("Spieler moran\nist an der Reihe")
         screen = output[upkeep_at:]
         assert f"moran.\n{shown}\n" in screen, "the rank screen did not show the score"
         assert f"\n{gf!r} p." not in output, "the score printed as Python's str"
@@ -2713,7 +2713,7 @@ class TestC64NumbersOnScreen:
 
         output = self._play_one_turn(monkeypatch, tmp_path, state)
 
-        standings = output[output.index("spielstand 1925-1\n") :]
+        standings = output[output.index("Spielstand 1925-1\n") :]
         rows = {line.split()[0]: line for line in standings.splitlines()[:6] if "$" in line}
         assert re.search(r"^alcapone {7} 5500 \$ {5}22 (?![.\d])", rows["alcapone"]), rows
         assert re.search(r"^moran {10} 7000 \$ {4}-\.9 (?!\d)", rows["moran"]), rows
@@ -2734,7 +2734,7 @@ class TestWhoseTurnLine:
     """
 
     _TWO = [("alcapone", "the outfit"), ("moran", "north side")]
-    _WHOSE_TURN = "spieler moran\nist an der reihe..."
+    _WHOSE_TURN = "Spieler moran\nist an der Reihe..."
 
     def _play_with_upkeep_asking(self, monkeypatch, player):
         import clients.terminal.session as session_module
@@ -2791,7 +2791,7 @@ class TestWhoseTurnLine:
         prompt_at = output.index("Wie viele Monate willst du mieten")
         # The upkeep banner comes after the upkeep's prompt, so nothing before it names a
         # player.
-        assert "ist an der reihe" not in output[:prompt_at], "a whose-turn line was printed"
+        assert "ist an der Reihe" not in output[:prompt_at], "a whose-turn line was printed"
 
 
 # --------------------------------------------------------------------------- #
@@ -2829,16 +2829,16 @@ class TestOneKeyNumberMenus:
         key with nothing printed after the tricks."""
         output, _ = self._croupier(monkeypatch, tmp_path, ["1", "", "q"])
         lines = [line.strip() for line in output.splitlines()]
-        intro = lines.index("du musst als")
-        assert lines[intro : intro + 6] == [
-            "du musst als",
-            "croupier natuerlich falschspielen.",
-            "welche tricks willst du anwenden:",
-            "1 trickspiegel",
-            "2 gezinkte karten",
-            "3 bremse am roulette",
+        intro = lines.index(
+            "Du musst als Croupier natürlich falschspielen. Welche Tricks willst du anwenden:"
+        )
+        assert lines[intro : intro + 4] == [
+            "Du musst als Croupier natürlich falschspielen. Welche Tricks willst du anwenden:",
+            "1 Trickspiegel",
+            "2 Gezinkte Karten",
+            "3 Bremse am Roulette",
         ]
-        assert "du machst gewinne" in lines[intro + 6], "something came between tricks and key"
+        assert "Du machst Gewinne" in lines[intro + 4], "something came between tricks and key"
         assert "welchen trick" not in output
 
     def test_the_croupier_picks_gezinkte_karten_on_one_key(self, monkeypatch, tmp_path):
@@ -2847,8 +2847,8 @@ class TestOneKeyNumberMenus:
         differs from trick 1's (372 $ at seed 1, as the lifecycle test pins): 445 $ is
         past trick 1's 300..399."""
         output, (state, _rng) = self._croupier(monkeypatch, tmp_path, ["21", "", "q"])
-        assert output.count("1 trickspiegel") == 1, "the tricks were asked again"
-        assert "bonus von 445 $" in output, "not the bonus trick 2 draws at seed 1"
+        assert output.count("1 Trickspiegel") == 1, "the tricks were asked again"
+        assert "Bonus von 445 $" in output, "not the bonus trick 2 draws at seed 1"
         assert state.players[1].ka == 7000 + 445
         assert game.job(state.players[1]).months_left == 1
 
@@ -2859,19 +2859,19 @@ class TestOneKeyNumberMenus:
         as an answer; the loop waits for the next key with nothing printed, and ``2``
         then picks gezinkte karten (seed 1's trick-2 bonus, 445 $)."""
         output, (state, _rng) = self._croupier(monkeypatch, tmp_path, ["4", "x", "2", "", "q"])
-        assert output.count("1 trickspiegel") == 1, "the tricks were printed again"
+        assert output.count("1 Trickspiegel") == 1, "the tricks were printed again"
         lines = [line.strip() for line in output.splitlines()]
-        tricks_end = lines.index("3 bremse am roulette")
-        assert "bonus von 445 $" in lines[tricks_end + 1], "something came between tricks and key"
+        tricks_end = lines.index("3 Bremse am Roulette")
+        assert "Bonus von 445 $" in lines[tricks_end + 1], "something came between tricks and key"
         assert state.players[1].ka == 7000 + 445
 
     def test_end_of_input_while_waiting_for_a_trick_ends_the_session(self, monkeypatch, tmp_path):
         """End of input in the ignored-key loop ends the session (``_resume_at`` runs
         under a deadline, so a loop that took EOF for an ignored key fails)."""
         output, (state, _rng) = self._croupier(monkeypatch, tmp_path, ["4"])
-        assert output.count("1 trickspiegel") == 1
+        assert output.count("1 Trickspiegel") == 1
         assert "bye." in output
-        assert "du machst gewinne" not in output and "durchschaut" not in output
+        assert "Du machst Gewinne" not in output and "durchschaut" not in output
         assert game.job(state.players[1]).months_left == 2, "the shift was played"
 
     @staticmethod
@@ -2945,13 +2945,13 @@ class TestOneKeyNumberMenus:
     def test_the_gang_war_takes_the_opponent_on_one_key(self, monkeypatch, tmp_path):
         """``:27015 getx$``: ``21`` is the key 2, moran, and the duel starts."""
         output, _ = self._gang_war(monkeypatch, tmp_path, ["21"])
-        assert output.count("mit wem willst du dich anlegen:") == 1, "the opponent was asked again"
-        assert "deine aktion:" in output, "no duel board was drawn"
+        assert output.count("Mit wem willst du dich anlegen:") == 1, "the opponent was asked again"
+        assert "Deine Aktion:" in output, "no duel board was drawn"
 
     def test_return_leaves_the_gang_war(self, monkeypatch, tmp_path):
         """``:27016 us=val(x$):ifus=0thenreturn``: RETURN leaves; the menu comes back."""
         output, _ = self._gang_war(monkeypatch, tmp_path, ["", "q"])
-        assert output.count("mit wem willst du dich anlegen:") == 1, "RETURN was asked again"
-        after = output.split("mit wem willst du dich anlegen:")[1]
-        assert "deine aktion:" not in after, "RETURN started a duel"
-        assert "3 - bandenkrieg" in after, "the turn menu did not come back"
+        assert output.count("Mit wem willst du dich anlegen:") == 1, "RETURN was asked again"
+        after = output.split("Mit wem willst du dich anlegen:")[1]
+        assert "Deine Aktion:" not in after, "RETURN started a duel"
+        assert "3 - Bandenkrieg" in after, "the turn menu did not come back"

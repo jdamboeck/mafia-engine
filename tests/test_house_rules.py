@@ -75,7 +75,7 @@ _FIXTURE_STRINGS = {
     }
 }
 
-_OFFER = "house rules: Enter plays every rule as in the original"
+_OFFER = "House rules: Enter plays every rule as in the original"
 
 
 def _write_yaml(path: Path, data) -> None:

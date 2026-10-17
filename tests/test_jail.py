@@ -257,5 +257,5 @@ def test_the_client_shows_the_jail_screen(monkeypatch, tmp_path: Path):
         monkeypatch, tmp_path, state, NEXT_PLAYER, ["x", "x", "x", "x", "x", "q"]
     )
 
-    assert "du sitzt im knast. 2 monat(e) hast\ndu noch vor dir..." in output
+    assert "Du sitzt im Knast. 2 Monat(e) hast du noch vor dir..." in output
     assert game.wanted(end.players[1]).jail_months == 1

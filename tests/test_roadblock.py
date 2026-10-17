@@ -338,7 +338,7 @@ def test_a_seeded_client_run_shows_a_roadblock_screen(monkeypatch, tmp_path: Pat
     state = _walking(ms=21)
     output, (end, _rng) = _resume_at(monkeypatch, tmp_path, state, WALKING, [keys[_DIR], "x", "q"])
 
-    assert "strassensperre!!!" in output
-    assert "ausweiskontrolle! der polizist verlangt\ndeine papiere!" in output
-    assert "er hat nichts zu beanstanden." in output
+    assert "Straßensperre!!!" in output
+    assert "Ausweiskontrolle! Der Polizist verlangt deine Papiere!" in output
+    assert "Er hat nichts zu beanstanden." in output
     assert end.players[0].ms == 15

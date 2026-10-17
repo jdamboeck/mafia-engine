@@ -268,3 +268,90 @@ def test_the_print_strings_keep_every_placeholder_in_its_place():
             ["pronoun", "name", "description", "pronoun", "price", "pronoun"],
         )
     }
+
+
+#: The game-flow string files (U4 of the string normalization): the turn, upkeep,
+#: setup, ending, combat, police, gang war, roadblock, win-flow, job, house-rule and
+#: session strings, and the client's German line.
+_GAME_FLOW_FILES = {
+    f"strings/{name}.yaml"
+    for name in (
+        "turn",
+        "upkeep",
+        "setup",
+        "game_end",
+        "combat",
+        "police",
+        "gang_war",
+        "roadblock",
+        "win_flows",
+        "jobs",
+        "house_rules",
+        "session",
+        "_format",
+        "client",
+    )
+}
+
+
+def _game_flow_text() -> tuple[dict[str, str], dict[str, str]]:
+    """``({key: text}, {key: C64 text})`` of every key of the game-flow string files."""
+    current, fixture = flat(tree_text()), flat(fixture_text())
+    keys = [
+        key for name, texts in fixture_text().items() if name in _GAME_FLOW_FILES for key in texts
+    ]
+    return {key: current[key] for key in keys}, {key: fixture[key] for key in keys}
+
+
+def test_ae4_the_standings_header_keeps_its_columns():
+    """:4505 ``print"{down}spieler:        kapital: punkte:"``: the header reads in
+    today's spelling with each label at the column the C64 text puts it (AE4), so the
+    :4510 rows' ``tab(15)`` and ``tab(26)`` still line up under it."""
+    from engine.strings import Resolver
+
+    header = Resolver.from_directory(_THEME_DIR).resolve(
+        "game_end.standings_header", {"year": 1925, "month": 1}
+    )
+    rows = header.split("\n")
+    assert rows == ["Spielstand 1925-1", "", "Spieler:        Kapital: Punkte:"]
+    c64_row = flat(fixture_text())["game_end.standings_header"].split("\n")[2]
+    assert c64_row == "spieler:        kapital: punkte:"
+    for label in ("Spieler:", "Kapital:", "Punkte:"):
+        assert rows[2].index(label) == c64_row.index(label.lower()), label
+    assert len(rows[2]) == len(c64_row)
+
+
+def test_the_game_flow_strings_keep_every_placeholder_in_its_place():
+    """Each game-flow key's ``{placeholders}`` are its C64 text's, in order and with
+    their specs (``{tab(39)}``, ``{amount:str$.1}``, ``{year:mid$}``...)."""
+    current, fixture = _game_flow_text()
+    assert len(current) > 150
+    assert {
+        key: (_FIELD_RE.findall(text), _FIELD_RE.findall(fixture[key]))
+        for key, text in current.items()
+        if _FIELD_RE.findall(text) != _FIELD_RE.findall(fixture[key])
+    } == {}
+
+
+def test_the_game_flow_strings_break_a_row_only_for_a_layout():
+    """A row break inside running text became a space; the breaks left lay out a screen:
+    the rent seizure's C64 rows and its column-39 sign (:4610-4620), the standings header
+    (:4500-4505), the gangster panel's three rows (:1300-1320), the turn banner's two
+    centred rows (:4005-4006, and the whose-turn line worded as it), the promotion
+    poster (:4200-4220), the victory stand-in, the croupier's trick list (:25110-25111),
+    the job header's blank row (:25000), the police capture's two unpunctuated rows
+    (:26042-26043), and the client's own turn-over summary."""
+    current, _fixture = _game_flow_text()
+    assert {key for key, text in current.items() if "\n" in text} == {
+        "upkeep.rent_late",
+        "game_end.standings_header",
+        "turn.overview.gangster",
+        "turn.picker.gangster",
+        "upkeep.turn_banner",
+        "session.whose_turn",
+        "upkeep.rank_promotion",
+        "turn.victory",
+        "job.shift_croupier_tricks",
+        "job.shift_header",
+        "client.turn_over.summary",
+    }

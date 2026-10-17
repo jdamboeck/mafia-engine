@@ -412,30 +412,30 @@ _SOURCE_TEXTS = [
     (
         "job.shift_bouncer_wait",
         {},
-        "du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen...",
+        "Du wartest auf ein Zeichen deines Chefs, einen ungebetenen Gast zu entfernen...",
     ),
-    ("job.shift_bouncer_quiet", {}, "heute gab es nichts!"),
-    ("job.shift_bouncer_trouble", {}, "ein bursche faengt an, zu randalieren! tu etwas!"),
+    ("job.shift_bouncer_quiet", {}, "Heute gab es nichts!"),
+    ("job.shift_bouncer_trouble", {}, "Ein Bursche fängt an, zu randalieren! Tu etwas!"),
     (
         "job.shift_croupier_caught",
         {},
-        "ein kunde hat deine tricks durchschaut und zieht ein messer!",
+        "Ein Kunde hat deine Tricks durchschaut und zieht ein Messer!",
     ),
     (
         "job.shift_croupier_bonus",
         {"amount": 450},
-        "du machst gewinne und erhaeltst einen bonus von 450 $.",
+        "Du machst Gewinne und erhältst einen Bonus von 450 $.",
     ),
     (
         "job.shift_killer_intro",
         {},
-        "du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse...",
+        "Du hast den Typ auf dem Foto gefunden und lockst ihn in eine Seitenstraße...",
     ),
-    ("job.shift_failed", {}, "du hast deinen auftrag nicht erledigt!"),
+    ("job.shift_failed", {}, "Du hast deinen Auftrag nicht erledigt!"),
     (
         "job.shift_completed",
         {"pay": 2500},
-        "du hast deinen job erledigt und erhaeltst deinen lohn. es sind 2500 $!",
+        "Du hast deinen Job erledigt und erhältst deinen Lohn. Es sind 2500 $!",
     ),
     # --- loan shark, :15010-15321 ---
     ("locations.kdh.pay_old_debts_first", {}, "Zahle erstmal deine alten Schulden ab!"),

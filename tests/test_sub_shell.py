@@ -103,7 +103,7 @@ def test_the_classic_theme_prints_each_sub_line_as_the_source():
         "locations.sub.loot_wallet": ({}, "...'ne Brieftasche mit 500 $!"),
         "locations.sub.loot_diamond": ({}, "...einen Diamanten! Der ist 800 $ wert!"),
         "locations.sub.loot_manual": ({}, "...eine Anleitung -Der Safeknacker- ??!"),
-        "turn.picker.prompt": ({}, "nummer:"),
+        "turn.picker.prompt": ({}, "Nummer:"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key

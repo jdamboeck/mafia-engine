@@ -181,19 +181,19 @@ def _resolved(msgs):
 def test_resolved_winner_screen_is_verbatim(mafia_module):
     _, msgs = _collect(run_year_end, _state(mafia_module, [42, 37], cash=[5000, 6000]))
     text = _resolved(msgs)
-    assert "spielstand 1925-1" in text
-    assert "spieler:        kapital: punkte:" in text
+    assert "Spielstand 1925-1" in text
+    assert "Spieler:        Kapital: Punkte:" in text
     # :4510 sp$(i);tab(15);ka(i)"$";tab(26);gf(i): the tabs and PRINT's spacing.
     assert "\nalcapone        5000 $     42 \n" in text
     assert "alcapone hat gewonnen!" in text
-    assert "du warst von allen der brutalste," in text
-    assert "gemeinste und schlaueste!" in text
-    assert "diesmal haben mehrere" not in text
+    assert "Du warst von allen der Brutalste," in text
+    assert "Gemeinste und Schlaueste!" in text
+    assert "Diesmal haben mehrere" not in text
 
 
 def test_resolved_tie_screen_is_verbatim(mafia_module):
     _, msgs = _collect(run_year_end, _state(mafia_module, [50, 50, 20]))
     text = _resolved(msgs)
-    assert "diesmal haben mehrere die gleichen\npunkte:\nalcapone\nbugsy\n" in text
-    assert text.endswith("alle waren gleich fiese gangster!")
+    assert "Diesmal haben mehrere die gleichen Punkte:\nalcapone\nbugsy\n" in text
+    assert text.endswith("Alle waren gleich fiese Gangster!")
     assert "hat gewonnen!" not in text

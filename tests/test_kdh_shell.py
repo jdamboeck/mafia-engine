@@ -187,7 +187,7 @@ def test_kdh_upkeep_shop_income_strings_present():
     not kdh's own — checked here since it is this unit's income slot, not U3/U8's."""
     upkeep_strings = _CONFIG_DIR / "themes" / "classic" / "strings" / "upkeep.yaml"
     data = yaml.safe_load(upkeep_strings.read_text(encoding="utf-8"))
-    assert _get(data, "upkeep.shop_income_quiet") == "in deinem kreditinstitut herrscht flaute."
+    assert _get(data, "upkeep.shop_income_quiet") == "In deinem Kreditinstitut herrscht Flaute."
     assert "{amount}" in _get(data, "upkeep.shop_income_earned")
 
 

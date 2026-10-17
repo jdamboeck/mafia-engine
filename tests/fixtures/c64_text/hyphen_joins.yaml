@@ -17,6 +17,10 @@ hyphen_joins:
   - {source: "grab-\nstein", new: "Grabstein", keys: [locations.sgl.owner_arms]}
   - {source: "army-hand-\n\ngranaten", new: "Army-Handgranaten", keys: [locations.waf.grenades_in]}
   - {source: "schiess-stand", new: "Schießstand", keys: [locations.waf.range_enter]}
+  - {source: "mit-\ngefangener", new: "Mitgefangener", keys: [gang_war.inmate_offer]}
+  - {source: "auf-\nmischen", new: "aufmischen", keys: [gang_war.inmate_offer]}
+  - {source: "er-\nbeutest", new: "erbeutest", keys: [gang_war.plunder]}
+  - {source: "ent-\ndeckt", new: "entdeckt", keys: [roadblock.alcohol]}
   # A row the C64 began with a printed number: the number's sign space (_format.yaml)
   # is the space between the rows, so the joined text has none of its own.
   - {source: "habe\n{stock}faesser", new: "habe{stock}Fässer", keys: [locations.pub.drink_offer]}

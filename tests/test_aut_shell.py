@@ -132,7 +132,7 @@ def test_the_classic_theme_prints_each_aut_line_as_the_source():
             },
             "2 luigi\ne09 k12 i30 b05\nw:revolver",
         ),
-        "turn.picker.prompt": ({}, "nummer:"),
+        "turn.picker.prompt": ({}, "Nummer:"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key

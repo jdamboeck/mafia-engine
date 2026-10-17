@@ -557,7 +557,7 @@ def _result_screen(output: str) -> str:
 
 
 _WINNER = "hat gewonnen!"
-_TIE = "diesmal haben mehrere"
+_TIE = "Diesmal haben mehrere"
 #: sph's at-the-table line: shown once per hand that is actually dealt (16026).
 _DEALT = "du begibst dich an den spieltisch"
 
@@ -590,15 +590,15 @@ class TestClientSmokeSetupToEnding:
         assert low.count(_DEALT) == 2, "the casino visits never reached the table"
         assert low.count("$ gewonnen!") + low.count("leider verloren!") == 2
         # 36 round wraps each show the :1010 standings, and the year-end shows its own.
-        # (Counted by the header's date: the save note says "spielstand" too.)
-        assert len(re.findall(r"spielstand \d{4}-\d+\n", out)) == 37
+        # (Counted by the header's date: the save note says "Spielstand" too.)
+        assert len(re.findall(r"Spielstand \d{4}-\d+\n", out)) == 37
         result_at = max(out.rfind(_WINNER), out.rfind(_TIE))
         assert result_at > 0, "neither a winner nor the tie text was shown"
-        assert out.rindex("spielstand 1928-1\n") < result_at, "standings must precede the result"
+        assert out.rindex("Spielstand 1928-1\n") < result_at, "standings must precede the result"
         screen = _result_screen(out)
-        assert "spielstand 1928-1\n" in screen
+        assert "Spielstand 1928-1\n" in screen
         tail = out[result_at:]
-        for later in ("turn_over", "upkeep", "spielstand", "bye."):
+        for later in ("turn_over", "upkeep", "Spielstand", "bye."):
             assert later not in tail, f"{later!r} rendered after the result"
         # The result matches the final scores it shows (AE1/AE2): the sole top scorer
         # wins, or every tied top scorer is listed under the shared-victory text.
@@ -609,7 +609,7 @@ class TestClientSmokeSetupToEnding:
         if len(leaders) == 1:
             assert f"{leaders[0]} hat gewonnen!" in screen and _TIE not in screen
         else:
-            assert "punkte:\n" + "\n".join(leaders) + "\n" in screen
+            assert "Punkte:\n" + "\n".join(leaders) + "\n" in screen
             assert _WINNER not in screen
 
     def test_reloaded_half_ends_exactly_like_the_uninterrupted_run(self, smoke_run_a, tmp_path):

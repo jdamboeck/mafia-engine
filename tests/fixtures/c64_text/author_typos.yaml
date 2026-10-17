@@ -28,3 +28,11 @@ author_typos:
     new: "nur{p}$!'"
     keys: [locations.sgl.reply_small]
     reason: "the reply's missing closing quote, which every other reply has"
+  - source: "erhaelts"
+    new: "erhältst"
+    keys: [upkeep.arms_deal_won]
+    reason: "the du-form's last two letters swapped: erhältst, as job.shift_croupier_bonus spells it"
+  - source: "dich du"
+    new: "dich, du"
+    keys: [police.flight_failed]
+    reason: "the comma between the two clauses the C64 printed on separate rows"

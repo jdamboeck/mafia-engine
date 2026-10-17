@@ -222,6 +222,17 @@ def test_confirm_returns_false_for_n():
     assert seen == [False]
 
 
+@pytest.mark.parametrize(
+    ("answer", "taken"), [("j", True), ("J", True), ("n", False), ("N", False)]
+)
+def test_a_confirm_prompt_takes_its_key_letters_in_either_case(answer, taken):
+    """:1110 ``print"ok (j/n)?"`` reads ``OK (j/n)?`` in today's spelling; the key read
+    lowercases its input, so ``j`` and ``J`` both say yes and ``n`` and ``N`` no."""
+    inp, out = _eof_client(f"{answer}\n")
+    assert inp(Confirm("police.confirm")) is taken
+    assert out.getvalue().startswith("OK (j/n)?\n")
+
+
 def test_prompt_choice_returns_zero_index():
     # the menu's number 1 is option 0
     inp, out = _client(["1"])
@@ -360,8 +371,8 @@ def test_the_map_loop_adopts_the_moved_state_and_renders_it(monkeypatch):
 # then "punktewertigkeit (0.1 - 2):" (:175, re-asks via :176), right after the  #
 # title. play() prompts only for a value its caller did not supply (KTD-4).     #
 # --------------------------------------------------------------------------- #
-_END_YEAR_PROMPT = "spielende (1928-1978):"
-_SCORE_WEIGHT_PROMPT = "punktewertigkeit (0.1 - 2):"
+_END_YEAR_PROMPT = "Spielende (1928-1978):"
+_SCORE_WEIGHT_PROMPT = "Punktewertigkeit (0.1 - 2):"
 
 
 def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, **play_kwargs):
@@ -916,8 +927,8 @@ class TestWatchAi:
         text = self._shift_fight_output(monkeypatch, [])
         boards = text.split(_resolver().resolve("combat.key_legend"))[:-1]
         assert len(boards) >= 2, "the fight never reached a second activation"
-        assert "der kampf beginnt..." in boards[0]
-        assert all("der kampf beginnt..." not in board for board in boards[1:])
+        assert "Der Kampf beginnt..." in boards[0]
+        assert all("Der Kampf beginnt..." not in board for board in boards[1:])
         # :25035-25042: seed 5's bouncer shift draws one of the three brawlers.
         brawlers = ("wurstfinger-fred", "affenface-alf", "der schlachter")
         rows = {f"{SOLO[0][1]:<20}{name}" for name in brawlers}
@@ -932,10 +943,10 @@ class TestWatchAi:
         boards = [
             _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
         ]
-        label = "spieler 1 "
+        label = "Spieler 1 "
         assert all(row[20:] != label for row in boards[0])
         for board in boards[1:]:
-            assert any(row.startswith("spieler") and row[20:] == label for row in board), board
+            assert any(row.startswith("Spieler") and row[20:] == label for row in board), board
 
     def test_the_human_s_label_shows_its_fighter_at_column_0(self, monkeypatch):
         """:30115 ``x=-20*(s=2):poke211,x:poke214,18:syscs:print"{rvon}spieler
@@ -948,9 +959,9 @@ class TestWatchAi:
         ]
         assert len(boards) >= 2, "the fight never reached a second activation"
         # The bouncer fights alone: side 1's only fighter acts on every human board.
-        assert "spieler 1 " in boards[0], boards[0]
+        assert "Spieler 1 " in boards[0], boards[0]
         for board in boards[1:]:
-            assert "spieler 1           spieler 1 " in board, board
+            assert "Spieler 1           Spieler 1 " in board, board
 
     @staticmethod
     def _reversed(row: str) -> list[str]:
@@ -968,9 +979,9 @@ class TestWatchAi:
         assert len(boards) >= 2, "the fight never reached a second activation"
         return {
             "title": next(r for r in rows if _plain(r) == f" {title}: "),
-            "job": next(r for r in rows if _plain(r).strip() == "rausschmeisser"),
-            "banner": next(r for r in boards[0] if "der kampf beginnt..." in _plain(r)),
-            "labels": next(r for r in boards[1] if _plain(r).startswith("spieler")),
+            "job": next(r for r in rows if _plain(r).strip() == "Rausschmeißer"),
+            "banner": next(r for r in boards[0] if "Der Kampf beginnt..." in _plain(r)),
+            "labels": next(r for r in boards[1] if _plain(r).startswith("Spieler")),
         }
 
     def test_the_source_s_rvon_texts_are_drawn_in_reverse_video(self, monkeypatch):
@@ -982,10 +993,10 @@ class TestWatchAi:
         rows = self._rvon_rows(self._shift_fight_output(monkeypatch, []))
         title = _resolver().resolve("locations.pub.title")
         assert self._reversed(rows["title"]) == [f" {title}: "]
-        assert self._reversed(rows["job"]) == [" rausschmeisser "]
-        assert self._reversed(rows["banner"]) == ["der kampf beginnt..."]
-        assert _plain(rows["labels"]) == "spieler 1           spieler 1 "
-        assert self._reversed(rows["labels"]) == ["spieler 1 ", "spieler 1 "]
+        assert self._reversed(rows["job"]) == [" Rausschmeißer "]
+        assert self._reversed(rows["banner"]) == ["Der Kampf beginnt..."]
+        assert _plain(rows["labels"]) == "Spieler 1           Spieler 1 "
+        assert self._reversed(rows["labels"]) == ["Spieler 1 ", "Spieler 1 "]
 
     def test_a_theme_without_the_reverse_list_draws_them_plain(self, monkeypatch):
         """``tests/fixtures/themes/test`` has no ``renderer/reverse.yaml``."""
@@ -1285,8 +1296,8 @@ class TestThemeSelection:
 # :290-292) and runs each player's eigenschaften screen (:300-316). The setup   #
 # handler asks; the client only draws it.                                       #
 # --------------------------------------------------------------------------- #
-_COUNT_PROMPT = "spieleranzahl:"
-_EIGENSCHAFTEN = "eigenschaften:"
+_COUNT_PROMPT = "Spieleranzahl:"
+_EIGENSCHAFTEN = "Eigenschaften:"
 #: The flags that pre-fill the end year and the score weight (the players stay asked).
 _SETUP_FLAGS = ["--end-year", "1930", "--score-weight", "1"]
 
@@ -1379,7 +1390,7 @@ class TestMultiplayerSetup:
         # The stats line without its energie (upkeep has raised that by the overview).
         stats_line = overview.split("\n")[1].split(" ", 1)[1]
         assert stats_line in re.sub(r"\033\[[0-9;?]*[A-Za-z]", "", text)
-        for cash, player in zip(re.findall(r"kapital: *(\d+) *\$", text), loaded.state.players):
+        for cash, player in zip(re.findall(r"Kapital: *(\d+) *\$", text), loaded.state.players):
             assert int(cash) == player.ka
 
     def test_same_seed_same_starting_stats_as_new_game(self, monkeypatch, tmp_path):
@@ -1424,7 +1435,7 @@ class TestMultiplayerSetup:
         for start in [m.start() for m in re.finditer(_EIGENSCHAFTEN, text)]:
             screen = text[start : text.index(press, start)]
             assert CLEAR not in screen, "the eigenschaften screen was cleared before its key"
-            for line in ("kraft:", "intelligenz:", "brutalitaet:", "energie:", "kapital:"):
+            for line in ("Kraft:", "Intelligenz:", "Brutalität:", "Energie:", "Kapital:"):
                 assert line in screen
 
     def test_a_bad_count_and_a_long_name_are_asked_again(self, monkeypatch, tmp_path):
@@ -1790,7 +1801,7 @@ def test_enter_at_a_one_key_prompt_without_a_blank_is_ignored_without_a_reprint(
     inp, out = _eof_client("\n²\n2\n")
     run(handler, inp, state=None, rng=None)
     assert seen == [2]
-    assert out.getvalue().count("1 trickspiegel") == 1
+    assert out.getvalue().count("1 Trickspiegel") == 1
 
 
 @pytest.mark.parametrize("text", ["{a: 1}\n", "[1]\n", "- ok\n- 2\n"])

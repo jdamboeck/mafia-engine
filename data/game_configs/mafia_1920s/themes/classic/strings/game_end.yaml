@@ -6,16 +6,16 @@
 game_end:
   # :4500-4501 "spielstand" + int(ja) "-" 1+int((ja-x)*12) (unpadded, as mid$(str$(..),2)
   # prints it), then :4505's column header.
-  standings_header: "spielstand {year:mid$}-{month:mid$}\n\nspieler:        kapital: punkte:"
+  standings_header: "Spielstand {year:mid$}-{month:mid$}\n\nSpieler:        Kapital: Punkte:"
 
   # :4510 sp$(i);tab(15);ka(i)"$";tab(26);gf(i) — one row per player; the tabs line
   # the values up under the column header above.
   standings_row: "{name}{tab(15)}{cash}${tab(26)}{score}"
 
   # :40115-40117 — sole winner.
-  winner: "{name} hat gewonnen!\ndu warst von allen der brutalste,\ngemeinste und schlaueste!"
+  winner: "{name} hat gewonnen! Du warst von allen der Brutalste, Gemeinste und Schlaueste!"
 
   # :40150 — shared victory header, :40155 one line per tied player, :40160 closing line.
-  tie_header: "diesmal haben mehrere die gleichen\npunkte:"
+  tie_header: "Diesmal haben mehrere die gleichen Punkte:"
   tie_name: "{name}"
-  tie_footer: "alle waren gleich fiese gangster!"
+  tie_footer: "Alle waren gleich fiese Gangster!"

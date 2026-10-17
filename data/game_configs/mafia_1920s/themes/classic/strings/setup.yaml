@@ -9,29 +9,29 @@
 # printed bounds). setup.house_rules.* is the port's own step, in the port's words.
 setup:
   # :170 -- the year the game ends (x9); re-asked via :172 when out of range.
-  end_year_prompt: "spielende (1928-1978):"
+  end_year_prompt: "Spielende (1928-1978):"
   # :175 -- the score weight (x8, gf += x*x8); re-asked via :176 when out of range.
-  score_weight_prompt: "punktewertigkeit (0.1 - 2):"
+  score_weight_prompt: "Punktewertigkeit (0.1 - 2):"
   # :205 -- the player count (sz); re-asked via :206 when below 1 or above 4.
-  player_count_prompt: "spieleranzahl:"
+  player_count_prompt: "Spieleranzahl:"
   # :210 print" name spieler"i"{left}:" -- i prints as " 1 " and {left} steps back
   # over its trailing space, so ":" follows the digit: str$(i), " 1".
-  player_name_prompt: "name spieler{number:str$}:"
+  player_name_prompt: "Name Spieler{number:str$}:"
   # :215 -- the gang name (bn$).
-  gang_name_prompt: "bandenname:"
+  gang_name_prompt: "Bandenname:"
   # Both names are read under their prompt by :290 `inputx$` (:210/:215 `gosub290`).
   # :300 -- the eigenschaften screen's title (its Heading and closing Acknowledge).
-  eigenschaften: "eigenschaften:"
+  eigenschaften: "Eigenschaften:"
   # :310-312, one frame of each roll: :350 print"   {left}{left}{left}"x; prints the
   # drawn value after the label as PRINT prints a number (" 25 ").
   roll:
-    kraft: "kraft:{value}"
-    intelligenz: "intelligenz:{value}"
-    brutalitaet: "brutalitaet:{value}"
+    kraft: "Kraft:{value}"
+    intelligenz: "Intelligenz:{value}"
+    brutalitaet: "Brutalität:{value}"
   # :313 print"{down}energie: 5" -- the fixed start energy; str$(5) is " 5".
-  energie: "energie:{energy:str$}"
+  energie: "Energie:{energy:str$}"
   # :316 print"{down}kapital:";ka(i)"$" -- " 6500 $".
-  kapital: "kapital:{cash}$"
+  kapital: "Kapital:{cash}$"
 
   # The house-rules step (the port's own, not the source's), after the score weight.
   # Shown only when the catalogue offers a switch. {key} is the config's change key
@@ -40,10 +40,10 @@ setup:
   # one entry per rule ({setting} from setting.<setting>, {description} from the
   # theme's house_rules.<id>), then prompt.
   house_rules:
-    offer: "house rules: Enter plays every rule as in the original, {key} changes them:"
-    title: "house rules -- each quirk of the original, played faithfully or as intended:"
+    offer: "House rules: Enter plays every rule as in the original, {key} changes them:"
+    title: "House rules -- each quirk of the original, played faithfully or as intended:"
     entry: "{number:raw}. [{setting}] {description}"
     setting:
       faithful: "faithful"
       intent: "intent"
-    prompt: "a number switches that rule, Enter starts the game:"
+    prompt: "A number switches that rule, Enter starts the game:"
