@@ -474,8 +474,8 @@ class TestLocationScreen:
         output, _ = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, seconds=20)
         assert output.count("Du wohnst hier nicht!") == 1, "2 did not run the second option"
         # 0 is not the first option (rent, :10020's quote), 4 is not the last (leave).
-        assert "pro monat kostet das" not in output
-        assert "nichts mehr frei" not in output
+        assert "Pro Monat kostet das" not in output
+        assert "Nichts mehr frei" not in output
 
     def test_q_at_the_menu_ends_the_session(self, monkeypatch):
         """``q`` leaves the game from the menu: the keys after it pick nothing (``1`` would
@@ -483,7 +483,7 @@ class TestLocationScreen:
         keys = [*self._slw_walk(), "", "q", "1", "", ""]
         output, _ = run_play_returning(monkeypatch, seed=42, stdin_keys=keys, seconds=20)
         assert "Schlupfwinkel (Motel, Mietskaserne)" in output
-        assert "pro monat kostet das" not in output, "the menu went on after q"
+        assert "Pro Monat kostet das" not in output, "the menu went on after q"
         assert "Du wohnst hier nicht!" not in output, "the menu went on after q"
 
     def test_eof_at_the_menu_ends_the_session(self, monkeypatch):
@@ -2929,7 +2929,7 @@ class TestOneKeyNumberMenus:
         state, key = self._at_pol_with_moran_jailed()
         # step in, the art splash, "free" (3), RETURN, then "leave" (4) at the menu
         output, _ = _resume_at(monkeypatch, tmp_path, state, "walking", [key, "", "3", "", "4"])
-        assert "um die waerter zu" not in output, "RETURN picked an inmate"
+        assert "um die Wärter zu" not in output, "RETURN picked an inmate"
         assert output.count("Wen willst du befreien:") == 1, "RETURN was asked again"
         after = output.split("Wen willst du befreien:")[1]
         assert "move: W/A/S/D" in after, "the menu's leave did not follow RETURN"

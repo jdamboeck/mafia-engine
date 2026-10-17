@@ -361,7 +361,7 @@ class TestQuitVocabulary:
         output, _ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + [""] + quit_keys)
         assert "Mau-Mau" in output, "the walk never reached sph's location menu"
         # Nothing between the menu and the quit: no option was picked.
-        assert "waehle, mein freund" not in output
+        assert "Wähle, mein Freund" not in output
         assert output.endswith("bye.\n" + CURSOR_SHOW)
         assert output.count("bye.") == 1
 

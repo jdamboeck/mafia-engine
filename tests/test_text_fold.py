@@ -11,6 +11,7 @@ unused-entry rule, NFC, and the side-by-side tool (``tools/text_side_by_side.py`
 
 from __future__ import annotations
 
+import re
 import shutil
 import unicodedata
 from pathlib import Path
@@ -54,7 +55,7 @@ _SGL_FAKE_POLICE = "'POLIZEI! IN IHRER KASSE IST FALSCH-    GELD VERSTECKT, DAS 
 
 def test_every_fixture_key_folds_to_the_tree_s_text():
     """Every key of the fixture is still in the tree, and its text folds to the
-    fixture's, with the reform list and the hyphen joins applied at their keys."""
+    fixture's, with each named respelling list applied at its keys."""
     current, fixture = flat(tree_text()), flat(fixture_text())
     assert fold_failures(current, fixture, respellings()) == []
 
@@ -66,8 +67,39 @@ def test_the_fixture_covers_every_text_source():
     assert len(flat(fixture_text())) == sum(len(keys) for keys in fixture_text().values())
 
 
-def test_no_reform_or_hyphen_entry_is_unused():
+def test_no_respelling_entry_is_unused():
     assert unused_entries(flat(tree_text()), respellings()) == []
+
+
+#: The text keys the tree has and the frozen C64 text lacks, each with why: new text
+#: the pass added, which the fold cannot hold to a source. Any other tree-only key is
+#: text that skipped both the fold check and the side-by-side.
+_TREE_ONLY = {
+    "client.title.prompt": "the moved title prompt; ascii_art.title_prompt folds it",
+    "entities.pronouns.female.mid": "the recruit offer's pronoun (U3), test_pub_recruit",
+    "entities.pronouns.female.start": "the recruit offer's pronoun (U3), test_pub_recruit",
+    "entities.pronouns.male.mid": "the recruit offer's pronoun (U3), test_pub_recruit",
+    "entities.pronouns.male.start": "the recruit offer's pronoun (U3), test_pub_recruit",
+}
+
+
+def test_the_tree_holds_no_text_key_the_fixture_lacks():
+    """A key only the tree has is held to no source, so each one is named here."""
+    assert set(flat(tree_text())) - set(flat(fixture_text())) == set(_TREE_ONLY)
+
+
+def _without(chars: str, text: str) -> str:
+    return re.sub(f"[{chars}]", "", fold(text))
+
+
+def test_a_join_or_letter_spacing_entry_changes_only_hyphens_and_spaces():
+    """A hyphen join only closes a hyphen and the space after it, and a letter-spaced
+    entry only respaces letters; neither may carry a changed word past the fold."""
+    for entry in respellings():
+        if entry.kind == "hyphen_joins":
+            assert _without(r"\-\s", entry.source) == _without(r"\-\s", entry.new), entry
+        elif entry.kind == "letter_spaced":
+            assert _without(r"\s", entry.source) == _without(r"\s", entry.new), entry
 
 
 def test_every_joined_key_group_names_fixture_keys():
@@ -101,8 +133,8 @@ def test_every_string_in_the_theme_and_content_files_is_nfc():
 
 def test_a_decomposed_umlaut_is_not_nfc():
     """The NFC check above can fail: ``u`` + combining diaeresis is not NFC."""
-    assert not unicodedata.is_normalized("NFC", "für")
-    assert unicodedata.is_normalized("NFC", "für")
+    assert not unicodedata.is_normalized("NFC", "fu\u0308r")  # u + combining diaeresis
+    assert unicodedata.is_normalized("NFC", "f\u00fcr")  # the one-code-point ü
 
 
 # --------------------------------------------------------------------------- #
@@ -314,6 +346,18 @@ def _edit(path: Path, old: str, new: str) -> None:
 def test_the_tool_lists_no_change_on_an_unchanged_tree(scratch: Path):
     assert "No changes" in side_by_side(scratch)
     assert " 0 whose fold differs." in side_by_side(ROOT)
+
+
+def test_the_tool_lists_a_key_the_c64_text_lacks(scratch: Path):
+    """A key only the tree has folds to nothing, so the report names it for review."""
+    _edit(
+        scratch / _STRINGS / "aut.yaml",
+        '"Wagen kaufen"',
+        '"Wagen kaufen"\n      lease: "Wagen leasen"',
+    )
+    report = side_by_side(scratch)
+    assert "## New keys (no C64 text to fold to)" in report
+    assert "- `locations.aut.menu.lease` — `Wagen leasen`" in report
 
 
 def test_the_tool_lists_exactly_the_changed_key(scratch: Path):

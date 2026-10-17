@@ -234,7 +234,8 @@ def fixture_value(key: str, root: Path = ROOT) -> str:
 
 
 def respellings(root: Path = ROOT) -> list[Respelling]:
-    """The reform list, the hyphen joins and the author typos, as one list of entries."""
+    """The named respelling lists (:data:`LISTS`: reform, hyphen joins, author typos,
+    letter-spaced), as one list of entries."""
     out: list[Respelling] = []
     for kind in LISTS:
         data = yaml.safe_load((root / FIXTURE / f"{kind}.yaml").read_text(encoding="utf-8"))

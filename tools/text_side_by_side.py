@@ -99,7 +99,12 @@ def side_by_side(root: Path = _ROOT) -> str:
 
     count = sum(len(keys) for keys in changed.values())
     mismatches = sum(not folds(key) for keys in changed.values() for key in keys)
+    added = sorted(set(now) - set(then))
     out = ["# Text side by side", ""]
+    if added:
+        out += ["## New keys (no C64 text to fold to)", ""]
+        out += [f"- `{key}` — {show(now[key])}" for key in added]
+        out.append("")
     if not count:
         out += ["No changes: every key's text is its C64-text fixture's.", ""]
         return "\n".join(out)
