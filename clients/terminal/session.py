@@ -771,7 +771,7 @@ class TerminalSession:
         out = self.out
         # Title screen; it waits for a key (:154 `getx$:ifx$=""goto154`).
         out.write(CLEAR)
-        out.write(title_screen(self.colors))
+        out.write(title_screen(self.colors, self.text("client.title.prompt")))
         out.flush()
         _read_line_visible(sys.stdin, out)
 

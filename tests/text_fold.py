@@ -7,12 +7,15 @@ pass, keyed as it is in the tree; a string still has the source's words when its
 :func:`fold` equals its fixture text's fold.
 
 The fold lowercases, writes ä/ö/ü/ß back as ae/oe/ue/ss and collapses each whitespace
-run to one space. Three named lists in the fixture undo what that cannot: a spelling
+run to one space. Four named lists in the fixture undo what that cannot: a spelling
 the 1996/2006 reform changed (``reform.yaml``: ``tip`` → ``Tipp``), a word the C64 split
 with a hyphen at its line break (``hyphen_joins.yaml``: ``falsch- geld`` →
-``Falschgeld``) and an author's clear slip, corrected (``author_typos.yaml``:
-``poliyei`` → ``Polizei``). Each entry names the keys it applies to and maps the new
-form back to the source form there, so a changed word still fails.
+``Falschgeld``), an author's clear slip, corrected (``author_typos.yaml``:
+``poliyei`` → ``Polizei``) and an umlaut restored in a heading spelled with a space
+between its letters, where the C64 text's two letters ``A E`` became the one letter
+``Ä`` (``letter_spaced.yaml``: ``h a e n d l e r`` → ``H Ä N D L E R``). Each entry
+names the keys it applies to and maps the new form back to the source form there, so a
+changed word still fails.
 
 The fold is many-to-one: it catches a changed word, not a wrong umlaut or a wrong
 capital. The side-by-side review (``tools/text_side_by_side.py``) is the gate for those.
@@ -54,23 +57,27 @@ _YAML_SOURCES = (
     ("scenarios", _CONFIG / "content" / "scenarios", "scenarios", "name"),
 )
 
-#: The client's German display literals: the title prompt, the tagline and the
-#: location-art lines, read from the module's source (not imported, so a scratch tree
-#: is read as it is on disk).
+#: The client's German display literals: the tagline and the location-art lines, read
+#: from the module's source (not imported, so a scratch tree is read as it is on disk).
+#: The title prompt under the art is the theme's ``client.title.prompt``, indented by
+#: the module's ``_TITLE_PROMPT_INDENT``; it is frozen with the art text, as the line
+#: the title screen prints.
 ASCII_ART = Path("clients") / "terminal" / "ascii_art.py"
 _ASCII_ART_FIXTURE = "client/ascii_art.yaml"
+_CLIENT_STRINGS = _CONFIG / "themes" / "classic" / "strings" / "client.yaml"
 
 _UMLAUTS = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
 _WHITESPACE = re.compile(r"\s+")
 _LETTER = re.compile(r"[A-Za-zÄÖÜäöüß]")
 
 #: The fixture's named respelling lists, each ``<name>.yaml`` holding a ``<name>:`` list.
-LISTS = ("reform", "hyphen_joins", "author_typos")
+LISTS = ("reform", "hyphen_joins", "author_typos", "letter_spaced")
 
 
 @dataclass(frozen=True)
 class Respelling:
-    """One named respelling: a reform spelling, a joined wrap hyphen or a fixed typo.
+    """One named respelling: a reform spelling, a joined wrap hyphen, a fixed typo or a
+    letter-spaced umlaut.
 
     ``source`` is the form the C64 text has, ``new`` the form the new text has, and
     ``keys`` the fixture keys it applies to. Both forms are compared folded.
@@ -155,29 +162,20 @@ def _literal(tree: ast.Module, name: str) -> Any:
     raise LookupError(f"{ASCII_ART}: no {name} assignment")
 
 
-def _title_prompt(tree: ast.Module) -> str:
-    """The string ``title_screen`` appends under the title art."""
-    for node in tree.body:
-        if isinstance(node, ast.FunctionDef) and node.name == "title_screen":
-            for call in ast.walk(node):
-                if (
-                    isinstance(call, ast.Call)
-                    and isinstance(call.func, ast.Attribute)
-                    and call.func.attr == "append"
-                    and call.args
-                    and isinstance(call.args[0], ast.Constant)
-                    and isinstance(call.args[0].value, str)
-                ):
-                    return call.args[0].value
-    raise LookupError(f"{ASCII_ART}: title_screen appends no string literal")
+def _title_prompt(tree: ast.Module, root: Path) -> str:
+    """The line ``title_screen`` prints under the title art: the module's
+    ``_TITLE_PROMPT_INDENT``, then the theme's ``client.title.prompt``."""
+    client = yaml.safe_load((root / _CLIENT_STRINGS).read_text(encoding="utf-8"))["client"]
+    return _literal(tree, "_TITLE_PROMPT_INDENT") + client["title"]["prompt"]
 
 
-def ascii_art_text(path: Path) -> dict[str, str]:
-    """The art module's display text: ``ascii_art.title_prompt``, each title line with a
-    letter in it (``ascii_art.title.<line>``: the tagline), and each location-art line
-    with a letter in it (``ascii_art.location.<location>.<line>``: headings, captions)."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    out = {"ascii_art.title_prompt": _title_prompt(tree)}
+def ascii_art_text(root: Path = ROOT) -> dict[str, str]:
+    """The title screen's and the location art's display text in the tree at ``root``:
+    ``ascii_art.title_prompt`` (the prompt line), each title line with a letter in it
+    (``ascii_art.title.<line>``: the tagline), and each location-art line with a letter
+    in it (``ascii_art.location.<location>.<line>``: headings, captions)."""
+    tree = ast.parse((root / ASCII_ART).read_text(encoding="utf-8"))
+    out = {"ascii_art.title_prompt": _title_prompt(tree, root)}
     for index, line in enumerate(_literal(tree, "_TITLE")):
         if _LETTER.search(line):
             out[f"ascii_art.title.{index}"] = line
@@ -196,7 +194,7 @@ def tree_text(root: Path = ROOT) -> dict[str, dict[str, str]]:
             text = _yaml_text(path, prefix, which)
             if text:
                 out[f"{subdir}/{path.name}"] = text
-    out[_ASCII_ART_FIXTURE] = ascii_art_text(root / ASCII_ART)
+    out[_ASCII_ART_FIXTURE] = ascii_art_text(root)
     return out
 
 

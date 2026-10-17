@@ -125,8 +125,9 @@ class TestSmokeAsciiArt:
         assert "_____" in combined or "M" in combined
 
     def test_title_screen_has_prompt(self):
-        screen = title_screen(Colors(load_palette(), ColorSupport.TRUECOLOR))
-        assert "Druecke ENTER" in screen
+        prompt = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve("client.title.prompt")
+        screen = title_screen(Colors(load_palette(), ColorSupport.TRUECOLOR), prompt)
+        assert "Drücke ENTER" in screen
         assert len(screen.split("\n")) > 5
 
     def test_location_art_slw(self):

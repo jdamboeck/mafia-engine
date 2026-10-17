@@ -1062,6 +1062,29 @@ class TestClientTextComesFromTheTheme:
         # Keys the theme leaves alone still come from classic.
         assert "press any key..." in text
 
+    def test_the_title_screen_prints_the_theme_s_prompt(self, monkeypatch):
+        """The prompt under the title art is ``client.title.prompt``, indented by the
+        client: classic's, or the --theme's when it rewords it."""
+        argv = [*_SOLO_ARGS, "--end-year", "1930", "--score-weight", "1"]
+        classic = self._main(monkeypatch, argv, [*NEW_GAME_ACKS, "q"])
+        themed = self._main(
+            monkeypatch, ["--theme", str(self._TEST_THEME), *argv], [*NEW_GAME_ACKS, "q"]
+        )
+        assert "\n   Drücke ENTER zum Starten." in classic
+        assert "\n   Los geht's mit ENTER." in themed
+        assert "zum Starten" not in themed
+
+    def test_the_client_source_holds_no_title_prompt_literal(self):
+        """No module of the terminal client spells the title prompt, in the C64's
+        spelling or today's: its words are the theme's."""
+        sources = sorted((Path(__file__).resolve().parents[1] / "clients").rglob("*.py"))
+        assert any(path.name == "ascii_art.py" for path in sources)
+        assert [
+            path.name
+            for path in sources
+            if re.search(r"Dr(ue|ü)cke|zum Starten", path.read_text(encoding="utf-8"))
+        ] == []
+
     def test_a_theme_path_changes_the_turn_over_labels(self, monkeypatch):
         from tests.test_client_loop import burn_turn_keys
 

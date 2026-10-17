@@ -542,3 +542,42 @@ class TestFighterPanelIsAttributeAgnostic:
         # intelligenz rides in attrs (it survives round-trips) but the original's
         # panel never showed it, so the theme does not list it.
         assert "intelligenz" not in buf.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# The location art keeps its box: a restored umlaut is padded back (R5)        #
+# --------------------------------------------------------------------------- #
+class TestArtBoxBorders:
+    """The art's headings and captions were rewritten in today's spelling; an umlaut
+    restored there shortens its line, and the line pads the cells back before its
+    closing border. Each line's frame (``|``, ``#``, ``+`` left of its first letter and
+    right of its last) sits where it sat in the C64-text fixture."""
+
+    @staticmethod
+    def _frame(line: str) -> dict[int, str]:
+        letters = [i for i, char in enumerate(line) if char.isalpha()]
+        return {
+            i: char
+            for i, char in enumerate(line)
+            if char in "|#+" and (i < letters[0] or i > letters[-1])
+        }
+
+    def test_every_art_line_keeps_its_border_columns(self):
+        from clients.terminal.ascii_art import location_art
+        from tests.text_fold import fixture_text
+
+        fixture = fixture_text()["client/ascii_art.yaml"]
+        checked = closed = 0
+        for key, old in fixture.items():
+            if not key.startswith("ascii_art.location."):
+                continue
+            _, _, location, index = key.split(".")
+            art = location_art(location)
+            assert art is not None, location
+            new = art[int(index)]
+            assert self._frame(new) == self._frame(old), (key, old, new)
+            if old.endswith("|"):
+                assert len(new) == len(old), (key, old, new)
+                closed += 1
+            checked += 1
+        assert checked == 43 and closed == 32

@@ -280,6 +280,74 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
     assert "result: hit, damage=3, downed=False" in text
 
 
+def test_debug_dump_keeps_its_arrow_columns():
+    """The string normalization collapsed padding runs, not alignment: the ``--debug``
+    block's ``->`` columns are its templates' (``fightlab.debug.*``). On the known shot
+    (activation 18) the hit check's three lines share one column; the damage roll's
+    lines sit where their templates' runs put them for this shot's labels."""
+    scenario = fightlab.load_scenario(_SCENARIO)
+    _result, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
+    event = next(e for e in recording.events if e.index == 18)
+    out = io.StringIO()
+    fightlab.render_shot_debug(
+        event,
+        weapon_names=fightlab._weapon_names(),
+        prev_snapshot=next(e for e in recording.events if e.index == 17).snapshot,
+        out=out,
+        rules=scenario.rules,
+    )
+    columns = [line.find(" -> ") for line in out.getvalue().splitlines() if line.startswith("    ")]
+    assert columns == [35, 35, 35, 34, 37, 35]
+
+
+#: The fightlab and CLI strings whose runs of spaces align output, each with its runs:
+#: the ``--debug`` block's ``->`` column, the target line's gap before ``energie`` and
+#: the divergence lines' colon. Every other fightlab or ``client.cli`` string holds
+#: single spaces only.
+_ALIGNMENT_RUNS = {
+    "fightlab.debug.hit_draw": [10],
+    "fightlab.debug.accuracy": [11],
+    "fightlab.debug.verdict": [3],
+    "fightlab.debug.damage_draw": [4],
+    "fightlab.debug.damage_attr": [9],
+    "fightlab.debug.damage_sum": [9],
+    "fightlab.debug.damage_only": [9],
+    "fightlab.debug.target": [2],
+    "fightlab.divergence.recorded": [2],
+}
+
+
+def test_no_fightlab_or_cli_string_holds_a_padding_run():
+    """Neither fightlab's strings nor the main client's ``client.cli`` help and errors
+    hold a C64-style padding run; the runs they have are the alignment listed above."""
+    import yaml
+
+    strings = _CONFIG_DIR / "themes" / "classic" / "strings"
+
+    def leaves(node, path):
+        if isinstance(node, dict):
+            for name, value in node.items():
+                yield from leaves(value, f"{path}.{name}")
+        else:
+            yield path, node
+
+    texts = dict(
+        leaves(
+            yaml.safe_load((strings / "fightlab.yaml").read_text(encoding="utf-8"))["fightlab"],
+            "fightlab",
+        )
+    )
+    cli = yaml.safe_load((strings / "client.yaml").read_text(encoding="utf-8"))["client"]["cli"]
+    texts.update(leaves(cli, "client.cli"))
+    assert len(texts) > 50 and "client.cli.help_player" in texts
+    runs = {
+        key: [len(run) for run in re.findall(r" {2,}", text)]
+        for key, text in texts.items()
+        if re.search(r" {2,}", text)
+    }
+    assert runs == _ALIGNMENT_RUNS
+
+
 def test_debug_dump_for_a_shot_that_reached_no_target_says_so_not_none():
     """A shot fired into empty space (no fighter in line) draws no range(ts), so the hit
     check never ran. The debug block must say "no hit check" rather than the misleading

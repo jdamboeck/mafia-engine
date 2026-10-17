@@ -12,6 +12,11 @@ client:
   # Acknowledgement line under the upkeep, turn-over and game-end screens.
   press_any_key: "press any key..."
 
+  # The title screen's prompt under the title art; the client indents it. German,
+  # like location.press_enter.
+  title:
+    prompt: "Drücke ENTER zum Starten."
+
   # Screen header names.
   header:
     upkeep: "upkeep"

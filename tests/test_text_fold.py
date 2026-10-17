@@ -18,6 +18,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from engine.strings import Resolver
 from tests.helpers import LOCATION_DIALOGUE, read_research
 from tests.text_fold import (
     ASCII_ART,
@@ -162,6 +163,35 @@ def test_a_fixed_author_typo_folds_back_only_with_its_entry():
     assert (typo.source, typo.new, typo.keys) in {
         (e.source, e.new, e.keys) for e in respellings() if e.kind == "author_typos"
     }
+
+
+def test_a_letter_spaced_umlaut_folds_back_only_with_its_entry():
+    """``H Ä N D L E R`` folds to ``h ae n d l e r``, the C64 heading to ``h a e n d l e
+    r``: the art heading passes only because it is on ``letter_spaced.yaml``."""
+    key = "ascii_art.location.aut.1"
+    source = "  |   A U T O M O B I L - H A E N D L E R    |"
+    new = "  |   A U T O M O B I L - H Ä N D L E R      |"
+    spaced = Respelling("H A E N D L E R", "H Ä N D L E R", (key,), "letter_spaced")
+    assert fold_failures({key: new}, {key: source}, [spaced]) == []
+    assert fold_failures({key: new}, {key: source}, []) != []
+    assert (spaced.source, spaced.new, spaced.keys) in {
+        (e.source, e.new, e.keys) for e in respellings() if e.kind == "letter_spaced"
+    }
+
+
+def test_the_fold_check_covers_the_title_prompt_the_tagline_and_the_art_captions():
+    """The title screen's prompt line (the client's indent and the theme's
+    ``client.title.prompt``), the tagline and every art line with a letter in it are
+    fixture keys, and each folds to its fixture text."""
+    current = tree_text()["client/ascii_art.yaml"]
+    fixture = fixture_text()["client/ascii_art.yaml"]
+    assert set(current) == set(fixture)
+    resolver = Resolver.from_config(_CONFIG, theme="classic")
+    assert current["ascii_art.title_prompt"] == "   " + resolver.resolve("client.title.prompt")
+    assert {"ascii_art.title_prompt", "ascii_art.title.12", "ascii_art.location.sph.13"} <= set(
+        fixture
+    )
+    assert fold_failures(current, fixture, respellings()) == []
 
 
 def test_a_key_gone_from_the_tree_fails():

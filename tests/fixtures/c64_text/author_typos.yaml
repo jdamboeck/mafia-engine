@@ -40,3 +40,7 @@ author_typos:
     new: "geheimnisvoller"
     keys: [entities.gangsters.25.description]
     reason: "the m of Geheimnis dropped"
+  - source: "H O L L E"
+    new: "H Ö L L E"
+    keys: [ascii_art.location.sph.1]
+    reason: "the art heading's Ö written as a bare O, not as the OE the C64 text writes for it: Spielhölle, as locations.sph.title spells it"
