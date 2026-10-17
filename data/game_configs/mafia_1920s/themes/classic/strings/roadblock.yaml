@@ -1,4 +1,6 @@
-# The map roadblock — classic-theme strings (VERBATIM German).
+# The map roadblock — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: handlers/roadblock.py emits these KEYS and the theme resolves them.
 # Ported from the research text corpus (research-data/pass-1/game-text.yaml, lines
@@ -6,14 +8,14 @@
 # the screen is the client's.
 roadblock:
   # :6000 print"{clr}{down}{rvon}{blk} strassensperre!!! "
-  title: "strassensperre!!!"
+  title: "Straßensperre!!!"
   # :6010 print"{down}ausweiskontrolle! der polizist verlangt":print"{down}deine papiere!"
-  papers: "ausweiskontrolle! der polizist verlangt\ndeine papiere!"
+  papers: "Ausweiskontrolle! Der Polizist verlangt deine Papiere!"
   # :6025 — a clean pass, or the passport.
-  nothing: "er hat nichts zu beanstanden."
+  nothing: "Er hat nichts zu beanstanden."
   # :6030 — counterfeit money.
-  counterfeit: "dein blueten-schwindel ist aufgeflogen!"
+  counterfeit: "Dein Blüten-Schwindel ist aufgeflogen!"
   # :6035-6036 — alcohol (the source breaks the word across its two lines).
-  alcohol: "der kerl hat deine alkoholfaesser ent-\ndeckt! es ist aus..."
+  alcohol: "Der Kerl hat deine Alkoholfässer entdeckt! Es ist aus..."
   # :6020 — a wanted poster.
-  wanted_poster: "er hat einen steckbrief von dir!"
+  wanted_poster: "Er hat einen Steckbrief von dir!"

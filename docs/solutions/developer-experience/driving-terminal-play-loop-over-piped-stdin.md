@@ -164,7 +164,7 @@ state, _rng = play(PlayOptions(seed=42, end_year=1930, score_weight=1.0, players
 output = out.getvalue()
 assert "turn_over" in output, "the walk never reached the turn-over screen"
 assert (state.clock.year, state.clock.month) == (1925, 0)   # no next turn began
-assert "spielstand" not in output                           # no round standings
+assert "Spielstand" not in output                           # no round standings
 ```
 
 The advancing key is the contrast: `["x"]` instead of `["q"]` returns a clock

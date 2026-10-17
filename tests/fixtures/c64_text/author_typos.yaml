@@ -1,0 +1,46 @@
+# The author's clear slips, corrected in the new text (R6, user decision during U3):
+# each entry is the C64 text's form (`source`), the corrected form (`new`), the
+# fixture keys it applies to and why it is a slip (`reason`). The fold maps `new`
+# back to `source` at those keys, as a whole word (tests/text_fold.py); an entry no
+# key uses fails tests/test_text_fold.py, as an unused reform entry does.
+author_typos:
+  - source: "poliyei"
+    new: "Polizei"
+    keys: [locations.sgl.police_waiting]
+    reason: "y for z: the key beside it on the German keyboard"
+  - source: "erhaelst"
+    new: "erhältst"
+    keys: [locations.pub.job_offer_killer]
+    reason: "erhalten's du-form keeps its t"
+  - source: "wagen wagen"
+    new: "Wagen"
+    keys: [locations.pub.tip_geldtransport]
+    reason: "a doubled word"
+  - source: "hatte er der tasche"
+    new: "hatte er in der Tasche"
+    keys: [locations.sgl.owner_dead]
+    reason: "the missing preposition"
+  - source: "zurueck zu zahlen"
+    new: "zurückzuzahlen"
+    keys: [locations.kdh.borrow_grace_notice]
+    reason: "zurückzahlen's zu-infinitive is one word"
+  - source: "nur{p}$!"
+    new: "nur{p}$!'"
+    keys: [locations.sgl.reply_small]
+    reason: "the reply's missing closing quote, which every other reply has"
+  - source: "erhaelts"
+    new: "erhältst"
+    keys: [upkeep.arms_deal_won]
+    reason: "the du-form's last two letters swapped: erhältst, as job.shift_croupier_bonus spells it"
+  - source: "dich du"
+    new: "dich, du"
+    keys: [police.flight_failed]
+    reason: "the comma between the two clauses the C64 printed on separate rows"
+  - source: "geheinisvoller"
+    new: "geheimnisvoller"
+    keys: [entities.gangsters.25.description]
+    reason: "the m of Geheimnis dropped"
+  - source: "H O L L E"
+    new: "H Ö L L E"
+    keys: [ascii_art.location.sph.1]
+    reason: "the art heading's Ö written as a bare O, not as the OE the C64 text writes for it: Spielhölle, as locations.sph.title spells it"

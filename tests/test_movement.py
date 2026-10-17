@@ -393,7 +393,7 @@ def test_pub_recruit_offered_whatever_the_rank_and_gang_size():
 
 
 # --------------------------------------------------------------------------- #
-# Strings: the pub denial string loads verbatim.                              #
+# Strings: the pub denial string loads, in today's spelling.                  #
 # --------------------------------------------------------------------------- #
 def test_pub_strings_load_verbatim():
     data = yaml.safe_load(_PUB_STRINGS.read_text(encoding="utf-8"))
@@ -407,14 +407,14 @@ def test_pub_strings_load_verbatim():
         return node
 
     assert get("locations.pub.entry_prompt") == (
-        "'EH, AMIGO, WILLST DU 'NE MILCH? ODER   SUCHST DU WAS ANDERES?'"
+        "'Eh, Amigo, willst du 'ne Milch? Oder suchst du was anderes?'"
     )
-    # Rank-too-low recruit refusal (mf-prg.bas:12101-12102), verbatim.
+    # Rank-too-low recruit refusal (mf-prg.bas:12101-12102), in today's spelling.
     assert get("locations.pub.rank_too_low") == (
-        "als {rank} kannst du noch keine eigenen leute haben!"
+        "Als {rank} kannst du noch keine eigenen Leute haben!"
     )
-    # Recruit menu option (mf-prg.bas:12100 option 2), verbatim from research —
-    # note the 4-space run before GANG and the trailing '...'. NOT paraphrased.
+    # Recruit menu option (mf-prg.bas:12100 option 2), the research's words in today's
+    # spelling — the wrap padding before Gang is one space; the trailing '...' stays.
     assert get("locations.pub.menu.recruit") == (
-        "'ICH SUCHE EIN PAAR JUNGS FUER MEINE    GANG. MAL SEHEN, WER DA IST...'"
+        "'Ich suche ein paar Jungs für meine Gang. Mal sehen, wer da ist...'"
     )

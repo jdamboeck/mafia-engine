@@ -1,0 +1,15 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/gang_war.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"gang_war.solo": "bei solo-spiel nicht moeglich!"
+"gang_war.too_early": "erst ab 4/1925 moeglich!"
+"gang_war.title": "bandenkrieg!"
+"gang_war.opponent": " {number:mid$} {gang_name} {cash}$  {bar:A<{gang_size:raw}}"
+"gang_war.opponent_prompt": "mit wem willst du dich anlegen:"
+"gang_war.plunder": "{name}, du findest beim pluendern\ndeines gegners{amount}$. ausserdem er-\nbeutest du den alkoholvorrat."
+"gang_war.vehicle_offer": "willst du auch noch den {vehicle}"
+"gang_war.vehicle_confirm": "mitnehmen (j/n) ?"
+"gang_war.inmate_offer": "{name} sitzt im knast. ein mit-\ngefangener will ihn fuer dich 'auf-\nmischen'. er verlangt {price:mid$} $."
+"gang_war.inmate_confirm": "ok (j/n)?"
+"gang_war.defend_yourself": "verteidige dich, {name}!"
+"gang_war.sentence_extended": "{name}! deine strafe wird wegen\ndieser schlaegerei um{months}monat(e)\nverlaengert!"

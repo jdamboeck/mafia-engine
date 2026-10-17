@@ -1,0 +1,27 @@
+# The words the C64 split with a hyphen at its 40-column line break, joined in the
+# new text (R4, KTD-3): each entry is the C64 text's form (`source`, wrap padding
+# and all; it is compared folded), the joined form (`new`) and the fixture keys it
+# applies to. The fold maps `new` back to `source` at those keys, as a whole word
+# (tests/text_fold.py); an entry no key uses fails tests/test_text_fold.py.
+#
+#   - {source: "FALSCH-    GELD", new: "Falschgeld", keys: [locations.sgl.menu.fake_police]}
+hyphen_joins:
+  - {source: "UM-      SEHEN", new: "umsehen", keys: [locations.ban.menu.safe]}
+  - {source: "NAECHS-  TEN", new: "nächsten", keys: [locations.ble.menu.leave]}
+  - {source: "SCHUL-  DEN", new: "Schulden", keys: [locations.kdh.menu.repay]}
+  - {source: "FALSCH-    GELD", new: "Falschgeld", keys: [locations.sgl.menu.fake_police]}
+  - {source: "SPIEL-  CHEN", new: "Spielchen", keys: [locations.sph.entry_prompt]}
+  - {source: "lei-\nder", new: "leider", keys: [locations.aut.stolen_old_car_left]}
+  - {source: "hinter-\nausgang", new: "Hinterausgang", keys: [locations.pol.chief_done]}
+  - {source: "interes-\nsieren", new: "interessieren", keys: [locations.sgl.jack_warning]}
+  - {source: "grab-\nstein", new: "Grabstein", keys: [locations.sgl.owner_arms]}
+  - {source: "army-hand-\n\ngranaten", new: "Army-Handgranaten", keys: [locations.waf.grenades_in]}
+  - {source: "schiess-stand", new: "Schießstand", keys: [locations.waf.range_enter]}
+  - {source: "mit-\ngefangener", new: "Mitgefangener", keys: [gang_war.inmate_offer]}
+  - {source: "auf-\nmischen", new: "aufmischen", keys: [gang_war.inmate_offer]}
+  - {source: "er-\nbeutest", new: "erbeutest", keys: [gang_war.plunder]}
+  - {source: "ent-\ndeckt", new: "entdeckt", keys: [roadblock.alcohol]}
+  # A row the C64 began with a printed number: the number's sign space (_format.yaml)
+  # is the space between the rows, so the joined text has none of its own.
+  - {source: "habe\n{stock}faesser", new: "habe{stock}Fässer", keys: [locations.pub.drink_offer]}
+  - {source: "die\n{p}$", new: "die{p}$", keys: [locations.sgl.reply_sob]}

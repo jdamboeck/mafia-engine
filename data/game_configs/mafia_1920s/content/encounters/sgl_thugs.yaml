@@ -10,5 +10,5 @@ enemies:
   count: 5              # gz(0)=5 — :17573
   weapon: 3             # w=3, schlagkette — :17573
   vitality: 20          # e=20 — :17573
-  name: schlaeger       # bn$(0)="schlaeger" — :17573
+  name: Schläger        # bn$(0)="schlaeger" — :17573
 grid: ksgl              # kf$="ksgl" — :17573

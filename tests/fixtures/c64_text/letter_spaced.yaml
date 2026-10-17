@@ -1,0 +1,13 @@
+# The umlauts restored in a heading spelled with a space between its letters (the
+# terminal client's art headings, `S C H E N K E`): the C64 text writes the umlaut as
+# two spaced letters (`H A E N D L E R`), the new text as one (`H Ä N D L E R`), so the
+# fold's `ä` -> `ae` gives `h ae n d l e r`, not the source's `h a e n d l e r`. Each
+# entry is the C64 text's form (`source`), the new form (`new`) and the fixture keys
+# it applies to; the fold maps `new` back to `source` at those keys, as a whole word
+# (tests/text_fold.py), and an entry no key uses fails tests/test_text_fold.py. The
+# heading loses two characters; the art line pads them back before its closing
+# border, so the box keeps its column (R5).
+letter_spaced:
+  - {source: "B L U E T E N", new: "B L Ü T E N", keys: [ascii_art.location.ble.1]}
+  - {source: "P R A E S I D I U M", new: "P R Ä S I D I U M", keys: [ascii_art.location.pol.1]}
+  - {source: "H A E N D L E R", new: "H Ä N D L E R", keys: [ascii_art.location.aut.1]}

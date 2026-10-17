@@ -1,27 +1,28 @@
-# slw (Schlupfwinkel / motel) — classic-theme strings (VERBATIM German).
+# slw (Schlupfwinkel / motel) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: the engine emits KEYS (e.g. "locations.slw.rent_quote")
-# and the theme resolves them to these strings. Ported byte-for-byte from the
+# and the theme resolves them to these strings. Ported from the
 # research (research-data/pass-2/location-dialogue.yaml, mf-prg.bas:10000-10105).
-# The double space in menu.rent ("UND  ICH") is intentional — it is in the
-# original. {price} is a template param the theme fills at render time.
+# {price} is a template param the theme fills at render time.
 locations:
   slw:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
-    title: "SCHLUPFWINKEL (MOTEL, MIETSKASERNE)"
-    entry_prompt: "'AH, EIN KUNDE! WAS WUENSCHT DER HERR?'"
+    # above the description (location-dialogue.yaml's title, in today's spelling).
+    title: "Schlupfwinkel (Motel, Mietskaserne)"
+    entry_prompt: "'Ah, ein Kunde! Was wünscht der Herr?'"
     menu:
-      rent: "'EINE UNTERKUNFT, ABER ZACK, ZACK! UND  ICH MOECHTE NICHT GESTOERT WERDEN!'"
-      pay_rent: "'ICH MOECHTE MEINE MIETE BEZAHLEN!'"
-      leave: "'ICH WUENSCHE NICHTS. SIE VIELLEICHT?'"
-    no_room: "'nichts mehr frei!'"  # :10010 `'nichts mehr frei!'`
-    rent_quote: "'gut. pro monat kostet das{price}$ miete.'"  # :10020 `'gut. pro monat kostet das`
-    months_prompt: "wieviele monate willst du mieten"  # :10025 `wieviele monate willst du mieten`
-    success: "'guten tag, der herr!'"  # :10045 `'guten tag, der herr!'`
-    not_resident: "du wohnst hier nicht!"  # :10100 `du wohnst hier nicht!`
+      rent: "'Eine Unterkunft, aber zack, zack! Und ich möchte nicht gestört werden!'"
+      pay_rent: "'Ich möchte meine Miete bezahlen!'"
+      leave: "'Ich wünsche nichts. Sie vielleicht?'"
+    no_room: "'Nichts mehr frei!'"  # :10010 `'nichts mehr frei!'`
+    rent_quote: "'Gut. Pro Monat kostet das{price}$ Miete.'"  # :10020 `'gut. pro monat kostet das`
+    months_prompt: "Wie viele Monate willst du mieten"  # :10025 `wieviele monate willst du mieten`
+    success: "'Guten Tag, der Herr!'"  # :10045 `'guten tag, der herr!'`
+    not_resident: "Du wohnst hier nicht!"  # :10100 `du wohnst hier nicht!`
 
 system:
   # :1125 print"{down}du hast zu wenig kies!":goto1100 -- every refusal for want of cash
   # (goto1125/gosub1125); the :1100 key wait after it is the client's.
-  not_enough_money: "du hast zu wenig kies!"
+  not_enough_money: "Du hast zu wenig Kies!"

@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_bhf.py``) resolve in the classic theme and reach every bhf string,
-and the text is verbatim from the research corpus (location-dialogue.yaml, bhf; the
+and the C64-text fixture is verbatim from the research corpus (location-dialogue.yaml, bhf; the
 corpus misses :19015 and :19016, which are the listing's).
 """
 
@@ -19,6 +19,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_bhf import _EXITS, _run, _state, _won_fight
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -100,35 +101,44 @@ def test_the_bhf_runs_reach_every_bhf_string_and_the_borrowed_screens(monkeypatc
 def test_the_classic_theme_prints_each_bhf_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.bhf.no_train": ({}, "kein postzug zu sehen..."),
-        "locations.bhf.too_few": ({}, "du hast zu wenig gangster!"),
+        "locations.bhf.no_train": ({}, "Kein Postzug zu sehen..."),
+        "locations.bhf.too_few": ({}, "Du hast zu wenig Gangster!"),
         "locations.bhf.storm": (
             {},
-            "du stuermst in den panzerwaggon und\n"
-            "beginnst gerade einzusacken, als du auf\n"
-            "drei nette herren aufmerksam wirst...",
+            "Du stürmst in den Panzerwaggon und beginnst gerade einzusacken, als du auf drei"
+            " nette Herren aufmerksam wirst...",
         ),
         # :19040 goto20050: the payout's screen is the bank's.
-        "locations.ban.loot": (
-            {"p": 8234},
-            "du hast es geschafft! deine beute\nbetraegt 8234 $!",
-        ),
+        "locations.ban.loot": ({"p": 8234}, "Du hast es geschafft! Deine Beute beträgt 8234 $!"),
         # :19050 jumps into the subway's body: its screens are the subway's.
-        "locations.sub.thief_prompt": ({}, "welchen spieler setzt du als dieb ein:"),
-        "locations.sub.loot_handbag": ({}, "...eine handtasche - nichts wertvolles!"),
+        "locations.sub.thief_prompt": ({}, "Welchen Spieler setzt du als Dieb ein:"),
+        "locations.sub.loot_handbag": ({}, "...eine Handtasche - nichts Wertvolles!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key
 
 
 def test_bhf_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (bhf)."""
+    """The C64-text fixture's menu and entry text, byte for byte from
+    location-dialogue.yaml (bhf)."""
+    assert fixture_value("locations.bhf.entry_prompt") == "DU BIST IM BAHNHOF VON CHICKAGO."
+    assert fixture_value("locations.bhf.menu.pub") == "BAHNHOFSKNEIPE AUFSUCHEN"
+    assert fixture_value("locations.bhf.menu.pickpocket") == "TASCHENDIEBSTAHL"
+    assert fixture_value("locations.bhf.menu.mail_train") == "POSTZUG UEBERFALLEN"
+    assert fixture_value("locations.bhf.menu.leave") == "NICHTS WIE WEG"
+
+
+def test_bhf_screen_text_in_today_s_spelling():
+    """The live classic theme's bhf title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
     data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.bhf.entry_prompt") == "DU BIST IM BAHNHOF VON CHICKAGO."
-    assert _get(data, "locations.bhf.menu.pub") == "BAHNHOFSKNEIPE AUFSUCHEN"
-    assert _get(data, "locations.bhf.menu.pickpocket") == "TASCHENDIEBSTAHL"
-    assert _get(data, "locations.bhf.menu.mail_train") == "POSTZUG UEBERFALLEN"
-    assert _get(data, "locations.bhf.menu.leave") == "NICHTS WIE WEG"
+    assert _get(data, "locations.bhf.title") == "Railway-Station (Bahnhof)"
+    assert _get(data, "locations.bhf.entry_prompt") == "Du bist im Bahnhof von Chickago."
+    assert _get(data, "locations.bhf.menu.pub") == "Bahnhofskneipe aufsuchen"
+    assert _get(data, "locations.bhf.menu.pickpocket") == "Taschendiebstahl"
+    assert _get(data, "locations.bhf.menu.mail_train") == "Postzug überfallen"
+    assert _get(data, "locations.bhf.menu.leave") == "Nichts wie weg"
 
 
 def test_the_bhf_door_opens_the_bhf_shell():

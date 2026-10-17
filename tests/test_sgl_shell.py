@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_sgl.py``) resolve in the classic theme and reach every sgl string,
-and the text is verbatim from the research corpus (location-dialogue.yaml, sgl; the
+and the C64-text fixture is verbatim from the research corpus (location-dialogue.yaml, sgl; the
 lines the corpus misses, :17006, :17008-17009 and :17016, from the listing).
 """
 
@@ -29,6 +29,7 @@ from tests.test_sgl import (
     _state,
     _won_jack_fight,
 )
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -120,50 +121,50 @@ def test_the_sgl_runs_reach_every_sgl_string(monkeypatch):
 def test_the_classic_theme_prints_each_sgl_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.sgl.milksop": ({}, "'verschwinde, du milchgesicht!'"),
-        "locations.sgl.police_waiting": ({}, "vor dem laden erwartet dich die\npoliyei!"),
-        "locations.sgl.no_impression": ({}, "du schindest keinen eindruck..."),
-        "locations.sgl.calls_police": ({}, "der kerl ruft die polizei!!!"),
-        "locations.sgl.sob_refused": ({}, "'sorge doch selbst fuer deine alte!'"),
-        "locations.sgl.jack_warning": ({}, "'das wird aber narben-jack interes-\nsieren!'"),
-        "locations.sgl.jack_leaves": ({}, "jack verzieht sich erstmal aus diesem\ngebiet..."),
+        "locations.sgl.milksop": ({}, "'Verschwinde, du Milchgesicht!'"),
+        "locations.sgl.police_waiting": ({}, "Vor dem Laden erwartet dich die Polizei!"),
+        "locations.sgl.no_impression": ({}, "Du schindest keinen Eindruck..."),
+        "locations.sgl.calls_police": ({}, "Der Kerl ruft die Polizei!!!"),
+        "locations.sgl.sob_refused": ({}, "'Sorge doch selbst für deine Alte!'"),
+        "locations.sgl.jack_warning": ({}, "'Das wird aber Narben-Jack interessieren!'"),
+        "locations.sgl.jack_leaves": ({}, "Jack verzieht sich erstmal aus diesem Gebiet..."),
         "locations.sgl.fake_police_refused": (
             {},
-            "'ach, die alte bullen-masche! damit\nneppt ihr keinen mehr!'",
+            "'Ach, die alte Bullen-Masche! Damit neppt ihr keinen mehr!'",
         ),
         "locations.sgl.reply_pays": (
             {"p": 912},
-            "'i..i..ich z..zahle ja schon! hi..hier\nsind 912 $!'",
+            "'I..i..ich z..zahle ja schon! Hi..hier sind 912 $!'",
         ),
         "locations.sgl.reply_sob": (
             {"p": 312},
-            "'deine arme ma (schnief)! gib ihr die\n 312 $ hier!'",
+            "'Deine arme Ma (schnief)! Gib ihr die 312 $ hier!'",
         ),
-        "locations.sgl.reply_enough": ({"p": 850}, "'ich habe 850 dollar, reicht das?'"),
+        "locations.sgl.reply_enough": ({"p": 850}, "'Ich habe 850 Dollar, reicht das?'"),
         "locations.sgl.reply_forged": (
             {"p": 999},
-            "'verdammt! wer hat mir nur blueten\nfuer 999 $ angedreht...?'",
+            "'Verdammt! Wer hat mir nur Blüten für 999 $ angedreht...?'",
         ),
-        "locations.sgl.reply_small": ({"p": 150}, "'ich habe leider nur 150 $!"),
-        "locations.sgl.after_menu": ({}, "was machst du:"),
-        "locations.sgl.after_take": ({}, "1 angebotenes geld nehmen"),
-        "locations.sgl.after_demolish": ({}, "2 laden demolieren"),
-        "locations.sgl.after_kill": ({}, "3 besitzer fertigmachen"),
+        "locations.sgl.reply_small": ({"p": 150}, "'Ich habe leider nur 150 $!'"),
+        "locations.sgl.after_menu": ({}, "Was machst du:"),
+        "locations.sgl.after_take": ({}, "1 Angebotenes Geld nehmen"),
+        "locations.sgl.after_demolish": ({}, "2 Laden demolieren"),
+        "locations.sgl.after_kill": ({}, "3 Besitzer fertigmachen"),
         "locations.sgl.thugs_called": (
             {},
-            "'saubande! das werdet ihr buessen!'\n(der kerl winkt ein paar schlaeger\nheran!)",
+            "'Saubande! Das werdet ihr büßen!' (Der Kerl winkt ein paar Schläger heran!)",
         ),
         "locations.sgl.demolished": (
             {"p": 342},
-            "du hast kleinholz aus dem laden\ngemacht. in der kasse waren 342 $!",
+            "Du hast Kleinholz aus dem Laden gemacht. In der Kasse waren 342 $!",
         ),
         "locations.sgl.owner_arms": (
-            {"weapon": "maschinenpistole"},
-            "er verspricht dir einen schoenen grab-\nstein und laedt seine maschinenpistole!",
+            {"weapon": "Maschinenpistole"},
+            "Er verspricht dir einen schönen Grabstein und lädt seine Maschinenpistole!",
         ),
         "locations.sgl.owner_dead": (
             {"p": 250},
-            "der aufmuepfige kerl ist hin. 250 $\nhatte er der tasche!",
+            "Der aufmüpfige Kerl ist hin. 250 $ hatte er in der Tasche!",
         ),
     }
     for key, (params, text) in cases.items():
@@ -171,23 +172,46 @@ def test_the_classic_theme_prints_each_sgl_line_as_the_source():
 
 
 def test_sgl_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (sgl), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.sgl.entry_prompt") == "'TAG, MISTER. WAS DARF'S DENN SEIN?'"
-    assert _get(data, "locations.sgl.menu.threat") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (sgl), the 40-column wrap padding included."""
+    assert fixture_value("locations.sgl.entry_prompt") == "'TAG, MISTER. WAS DARF'S DENN SEIN?'"
+    assert fixture_value("locations.sgl.menu.threat") == (
         "'DEN ZASTER HER, ABER SCHNELL! SONST    GEHT DER BOELLER HIER LOS!'"
     )
-    assert _get(data, "locations.sgl.menu.sob_story") == (
+    assert fixture_value("locations.sgl.menu.sob_story") == (
         "'BITTE, BITTE EIN PAAR DOLLARS FUER     MEINE KRANKE MA! SIE IST SOOOO ARM!'"
     )
-    assert _get(data, "locations.sgl.menu.protection") == (
+    assert fixture_value("locations.sgl.menu.protection") == (
         "'WIR SCHUETZEN DICH FUER EINE KLEINE    SPENDE VOR DEN BOESEN GANGSTERN!'"
     )
-    assert _get(data, "locations.sgl.menu.fake_police") == (
+    assert fixture_value("locations.sgl.menu.fake_police") == (
         "'POLIZEI! IN IHRER KASSE IST FALSCH-    GELD VERSTECKT, DAS IST KONFISZIERT!'"
     )
-    assert _get(data, "locations.sgl.menu.leave") == "HEUTE MAL NICHT KASSIEREN"
+    assert fixture_value("locations.sgl.menu.leave") == "HEUTE MAL NICHT KASSIEREN"
+
+
+def test_sgl_screen_text_in_today_s_spelling():
+    """The live classic theme's sgl title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.sgl.title") == (
+        "Einfacher Laden (wie geschaffen zum Schutzgeld eintreiben!)"
+    )
+    assert _get(data, "locations.sgl.entry_prompt") == "'Tag, Mister. Was darf's denn sein?'"
+    assert _get(data, "locations.sgl.menu.threat") == (
+        "'Den Zaster her, aber schnell! Sonst geht der Böller hier los!'"
+    )
+    assert _get(data, "locations.sgl.menu.sob_story") == (
+        "'Bitte, bitte ein paar Dollars für meine kranke Ma! Sie ist soooo arm!'"
+    )
+    assert _get(data, "locations.sgl.menu.protection") == (
+        "'Wir schützen dich für eine kleine Spende vor den bösen Gangstern!'"
+    )
+    assert _get(data, "locations.sgl.menu.fake_police") == (
+        "'Polizei! In Ihrer Kasse ist Falschgeld versteckt, das ist konfisziert!'"
+    )
+    assert _get(data, "locations.sgl.menu.leave") == "Heute mal nicht kassieren"
 
 
 def test_the_sgl_doors_open_the_sgl_shell_one_per_tile():

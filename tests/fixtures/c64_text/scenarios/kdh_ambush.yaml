@@ -1,0 +1,4 @@
+# The C64 text of data/game_configs/mafia_1920s/content/scenarios/kdh_ambush.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"scenarios.kdh_ambush.player.0.name": "hero"

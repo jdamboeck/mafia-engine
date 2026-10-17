@@ -1,14 +1,14 @@
 # Session (save/load, whose turn) — classic-theme strings.
 #
 # NOT from the source: the 1986 original has no save feature, so this text is the
-# port's own (German, lower-case, to sit with the verbatim strings). The terminal
+# port's own (German, spelled like the source's strings around it). The terminal
 # client shows it in the map screen's note line after `p` saves, or
 # the failure reason when the save could not be written (the game goes on).
 session:
-  saved: "spielstand gespeichert: {path}"
-  save_failed: "speichern fehlgeschlagen: {reason}"
+  saved: "Spielstand gespeichert: {path}"
+  save_failed: "Speichern fehlgeschlagen: {reason}"
 
   # Whose turn: printed before a prompt that a player other than the active one answers
   # (e.g. a defender's side in a gang war). The port's own line, worded as the
   # original's turn banner (mf-prg.bas:4005-4006, upkeep.turn_banner).
-  whose_turn: "spieler {name}\nist an der reihe..."
+  whose_turn: "Spieler {name}\nist an der Reihe..."

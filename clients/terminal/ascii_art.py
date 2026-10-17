@@ -21,7 +21,7 @@ _TITLE = [
     "   | || |  | |  __/| |_| | |  | | |___| |___ ",
     "  |___|_|  |_|_|    \\___/|_|  |_|_____|_____|",
     "",
-    "   1926. Die Stadt schlaeft nicht.",
+    "   1926. Die Stadt schläft nicht.",
     "",
 ]
 
@@ -35,7 +35,7 @@ _LOCATION_ART: dict[str, list[str]] = {
         "  |   #  +--+  +==+  +--+  +==+  +--+  #  |",
         "  |   #  |..|  |  |  |..|  |  |  |..|  #  |",
         "  |   #  +--+  +==+  +--+  +==+  +--+  #  |",
-        "  |   #  Schlaefer · 3 Betten pro Raum   #  |",
+        "  |   #  Schläfer · 3 Betten pro Raum    #  |",
         "  |   ##############################  |",
         "  |                                          |",
         "  |   Hier gibts Ruhe... und Sicherheit.",
@@ -61,7 +61,7 @@ _LOCATION_ART: dict[str, list[str]] = {
     ],
     "sph": [
         "  +==========================================+",
-        "  |          S P I E L H O L L E             |",
+        "  |          S P I E L H Ö L L E             |",
         "  +==========================================+",
         "  +------------------------------------------+",
         "  |   ##############################  |",
@@ -73,7 +73,7 @@ _LOCATION_ART: dict[str, list[str]] = {
         "  |   #  +--------+ +--------+  #  |",
         "  |   ##############################  |",
         "  |                                          |",
-        "  |   Setzt eure Einsaetze!",
+        "  |   Setzt eure Einsätze!",
         "  +------------------------------------------+",
         "",
     ],
@@ -96,13 +96,13 @@ _LOCATION_ART: dict[str, list[str]] = {
     ],
     "ble": [
         "  +==========================================+",
-        "  |         B L U E T E N - E D D I E        |",
+        "  |         B L Ü T E N - E D D I E          |",
         "  +==========================================+",
         "  +------------------------------------------+",
         "  |   ##############################  |",
         "  |   #  +--------+   $ $ $ $ $ $   #  |",
         "  |   #  | PRESSE |   =========     #  |",
-        "  |   #  +--------+   Paesse  Druck #  |",
+        "  |   #  +--------+   Pässe  Druck  #  |",
         "  |   ##############################  |",
         "  |                                          |",
         "  |   Frisch gedruckt, he, he!",
@@ -111,7 +111,7 @@ _LOCATION_ART: dict[str, list[str]] = {
     ],
     "pol": [
         "  +==========================================+",
-        "  |    P O L I Z E I - P R A E S I D I U M   |",
+        "  |    P O L I Z E I - P R Ä S I D I U M     |",
         "  +==========================================+",
         "  +------------------------------------------+",
         "  |   ##############################  |",
@@ -126,7 +126,7 @@ _LOCATION_ART: dict[str, list[str]] = {
     ],
     "aut": [
         "  +==========================================+",
-        "  |   A U T O M O B I L - H A E N D L E R    |",
+        "  |   A U T O M O B I L - H Ä N D L E R      |",
         "  +==========================================+",
         "  +------------------------------------------+",
         "  |   ##############################  |",
@@ -215,10 +215,15 @@ def title_art(colors: Colors) -> list[str]:
     return [f"{red}{line}{w}" for line in _TITLE]
 
 
-def title_screen(colors: Colors) -> str:
-    """Full title screen: art + prompt."""
+#: The title prompt's indent under the art. The prompt's words are the theme's
+#: (``client.title.prompt``); the caller resolves them.
+_TITLE_PROMPT_INDENT = "   "
+
+
+def title_screen(colors: Colors, prompt: str) -> str:
+    """Full title screen: art + ``prompt``, the theme's resolved title prompt."""
     lines = title_art(colors)
-    lines.append("   Druecke ENTER zum Starten.")
+    lines.append(f"{_TITLE_PROMPT_INDENT}{prompt}")
     return "\n".join(lines)
 
 

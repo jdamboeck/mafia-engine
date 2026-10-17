@@ -1,0 +1,8 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/win_flows.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"win_flows.transport_title": "geldtransport-ueberfall"
+"win_flows.transport_too_few": "du hast zuwenig gangster!"
+"win_flows.transport_escort": "leider wird der geldtransport von einer\npolizeieskorte begleitet!"
+"win_flows.mayor_title": "mord!!!"
+"win_flows.mayor_reward": "fuer deine ruchlose tat bekommst du auch\nnoch 7000 $ und einen neuen pass!"

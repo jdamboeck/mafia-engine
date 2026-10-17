@@ -1,0 +1,6 @@
+# The C64 text of data/game_configs/mafia_1920s/content/encounters/job_bouncer.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"encounters.job_bouncer.variants.0.name": "wurstfinger-fred"
+"encounters.job_bouncer.variants.1.name": "affenface-alf"
+"encounters.job_bouncer.variants.2.name": "der schlachter"

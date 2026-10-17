@@ -1,4 +1,6 @@
-# job shifts — classic-theme strings (VERBATIM German).
+# job shifts — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: engine emits KEYS (job.shift_*), the theme resolves them.
 # Ports the shift-flow narration (mf-prg.bas:25000-25560, research-data/pass-1/
@@ -9,27 +11,27 @@ job:
   # :25000 print"{clr}{down}{rvon}{blk} "sp$(sp)":{$a0}job als ":print -- the name, the
   # colon, a shifted space, "job als"; then a blank row. Each job's name follows on its
   # own row, in reverse video between its framing spaces (renderer/reverse.yaml).
-  shift_header: "{name}: job als\n"  # :25000 `":{$a0}job als "`
+  shift_header: "{name}: Job als\n"  # :25000 `":{$a0}job als "`
 
   # --- bouncer/doorman shared flow (25015-25045) ---
-  shift_bouncer_title: " rausschmeisser "  # :25015 `{rvon} rausschmeisser `
-  shift_bouncer_wait: "du wartest auf ein zeichen deines chefs, einen ungebetenen gast zu entfernen..."  # :25020-25021 `du wartest auf ein zeichen deines chefs,`
-  shift_bouncer_quiet: "heute gab es nichts!"  # :25025 `heute gab es nichts!`
-  shift_bouncer_trouble: "ein bursche faengt an, zu randalieren! tu etwas!"  # :25030 `ein bursche faengt an, zu randalieren!`
+  shift_bouncer_title: " Rausschmeißer "  # :25015 `{rvon} rausschmeisser `
+  shift_bouncer_wait: "Du wartest auf ein Zeichen deines Chefs, einen ungebetenen Gast zu entfernen..."  # :25020-25021 `du wartest auf ein zeichen deines chefs,`
+  shift_bouncer_quiet: "Heute gab es nichts!"  # :25025 `heute gab es nichts!`
+  shift_bouncer_trouble: "Ein Bursche fängt an, zu randalieren! Tu etwas!"  # :25030 `ein bursche faengt an, zu randalieren!`
 
   # --- croupier flow (25100-25140) ---
-  shift_croupier_title: " croupier "  # :25100 `{rvon} croupier `
-  shift_croupier_intro: "du musst als\ncroupier natuerlich falschspielen.\nwelche tricks willst du anwenden:"  # :25105-25107 `croupier natuerlich falschspielen.`
+  shift_croupier_title: " Croupier "  # :25100 `{rvon} croupier `
+  shift_croupier_intro: "Du musst als Croupier natürlich falschspielen. Welche Tricks willst du anwenden:"  # :25105-25107 `croupier natuerlich falschspielen.`
   # The trick pick's text: :25115 `getx$:ifx$<"1"orx$>"3"goto25115` reads one key under
   # the tricks, with no prompt of its own.
-  shift_croupier_tricks: "1 trickspiegel\n2 gezinkte karten\n3 bremse am roulette"  # :25110-25111 `print"{down}2 gezinkte karten"`
-  shift_croupier_caught: "ein kunde hat deine tricks durchschaut und zieht ein messer!"  # :25130-25131 `ein kunde hat deine tricks durchschaut`
-  shift_croupier_bonus: "du machst gewinne und erhaeltst einen bonus von{amount}$."  # :25125-25126 `du machst gewinne und erhaeltst`
+  shift_croupier_tricks: "1 Trickspiegel\n2 Gezinkte Karten\n3 Bremse am Roulette"  # :25110-25111 `print"{down}2 gezinkte karten"`
+  shift_croupier_caught: "Ein Kunde hat deine Tricks durchschaut und zieht ein Messer!"  # :25130-25131 `ein kunde hat deine tricks durchschaut`
+  shift_croupier_bonus: "Du machst Gewinne und erhältst einen Bonus von{amount}$."  # :25125-25126 `du machst gewinne und erhaeltst`
 
   # --- killer flow (25200-25210) ---
-  shift_killer_title: " killer "  # :25200 `{rvon} killer `
-  shift_killer_intro: "du hast den typ auf dem foto gefunden und lockst ihn in eine seitenstrasse..."  # :25205-25206 `du hast den typ auf dem foto gefunden`
+  shift_killer_title: " Killer "  # :25200 `{rvon} killer `
+  shift_killer_intro: "Du hast den Typ auf dem Foto gefunden und lockst ihn in eine Seitenstraße..."  # :25205-25206 `du hast den typ auf dem foto gefunden`
 
   # --- common outcome resolution (25500-25560) ---
-  shift_failed: "du hast deinen auftrag nicht erledigt!"  # :25505-25506 `du hast deinen auftrag nicht`
-  shift_completed: "du hast deinen job erledigt und erhaeltst deinen lohn. es sind{pay}$!"  # :25555-25556 `du hast deinen job erledigt und er-`
+  shift_failed: "Du hast deinen Auftrag nicht erledigt!"  # :25505-25506 `du hast deinen auftrag nicht`
+  shift_completed: "Du hast deinen Job erledigt und erhältst deinen Lohn. Es sind{pay}$!"  # :25555-25556 `du hast deinen job erledigt und er-`

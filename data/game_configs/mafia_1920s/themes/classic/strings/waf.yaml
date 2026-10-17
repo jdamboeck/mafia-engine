@@ -1,67 +1,69 @@
-# waf (Waffengeschaeft / weapon shop) — classic-theme strings (VERBATIM German).
+# waf (Waffengeschaeft / weapon shop) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: the engine emits KEYS and the theme resolves them.
-# Ported byte-for-byte from the research (research-data/pass-2/location-dialogue.yaml
+# Ported from the research (research-data/pass-2/location-dialogue.yaml
 # + mf-prg.bas:13005-13175, 13500-13525). {name}/{price}/{amount} are template params.
 locations:
   waf:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
-    title: "WAFFENLADEN"
+    # above the description (location-dialogue.yaml's title, in today's spelling).
+    title: "Waffenladen"
     # Entry + shell menu (dialogue block, at the WAFFENLADEN door).
-    entry_prompt: "'TAG, MISTER. EIN PAAR GUTE HANDBOELLER  GEFAELLIG? SIND IM HINTERZIMMER...'"
+    entry_prompt: "'Tag, Mister. Ein paar gute Handböller gefällig? Sind im Hinterzimmer...'"
     menu:
-      buy: "'YEAH, MAL SEHEN, WAS DA IST.'"
-      train: "'KANNST DU MEINE JUNGS IM SCHIESSEN     AUSBILDEN? SIND EINFACH ZU SCHLAPP!'"
-      leave: "'DANKE, DANKE! KEIN BEDARF. BYE!'"
+      buy: "'Yeah, mal sehen, was da ist.'"
+      train: "'Kannst du meine Jungs im Schießen ausbilden? Sind einfach zu schlapp!'"
+      leave: "'Danke, danke! Kein Bedarf. Bye!'"
 
     # --- buy (13010-13091) ---
-    weapon_list: "ok, wir haben folgendes:\n"  # :13010 `ok, wir haben folgendes:`
+    weapon_list: "OK, wir haben Folgendes:\n"  # :13010 `ok, wir haben folgendes:`
     weapon_row: "{number:mid$} - {name}{price}$"  # :13015 `printmid$(str$(i),2)" - "wa$(i);wp(i)"$"`
-    weapon_prompt: "ihre wahl:"  # :13020 `ihre wahl:`
+    weapon_prompt: "Ihre Wahl:"  # :13020 `ihre wahl:`
     # :13021 `ifx<aorx>bthenprint"{up}{up}";:goto13020`: a number off the list asks again.
     # :13090-13091 break the word as they print it; :13091's `b=8:print:return` leaves a
     # blank row under the news.
-    grenades_in: "...brandheiss! eine ladung army-hand-\n\ngranaten ist gerade eingetroffen!\n"  # :13090 `brandheiss! eine ladung army-hand-`
-    gangster_prompt: "fuer welchen gangster:"  # :13035 `fuer welchen gangster:`
-    too_dumb: "zu wenig intelligenz!"  # :13050 `zu wenig intelligenz!`
-    too_weak: "zu wenig kraft!"  # :13055 `zu wenig kraft!`
-    not_brutal: "nicht brutal genug!"  # :13060 `nicht brutal genug!`
-    trade_in_offer: "der haendler bietet dir{amount}$ fuer deine alte waffe."  # :13070-13071 `der haendler bietet dir`
-    trade_in_confirm: "ok (j/n)?"         # :1110 `ok (j/n)?`
-    bought: "du hast nun die neue waffe!"  # :13080 `du hast nun die neue waffe!`
+    grenades_in: "...brandheiß! Eine Ladung Army-Handgranaten ist gerade eingetroffen!\n"  # :13090 `brandheiss! eine ladung army-hand-`
+    gangster_prompt: "Für welchen Gangster:"  # :13035 `fuer welchen gangster:`
+    too_dumb: "Zu wenig Intelligenz!"  # :13050 `zu wenig intelligenz!`
+    too_weak: "Zu wenig Kraft!"  # :13055 `zu wenig kraft!`
+    not_brutal: "Nicht brutal genug!"  # :13060 `nicht brutal genug!`
+    trade_in_offer: "Der Händler bietet dir{amount}$ für deine alte Waffe."  # :13070-13071 `der haendler bietet dir`
+    trade_in_confirm: "OK (j/n)?"         # :1110 `ok (j/n)?`
+    bought: "Du hast nun die neue Waffe!"  # :13080 `du hast nun die neue waffe!`
 
     # --- weapon spec sheet (13500-13525) ---
     # One template per source line. :13500 prints the name over the picture box,
     # :13510 the price at tab(8) three rows down ({home}{down}{down}{down}); the box
     # and the sprite are presentation the client does not draw, so the box's top row
     # stays blank. Each label line is printtab(8)"{down}...": tab(8), then down a row.
-    spec_sheet: "waffe: {name}\n\n{tab(8)}preis:{price}$"   # :13500, :13510
+    spec_sheet: "Waffe: {name}\n\n{tab(8)}Preis:{price}$"   # :13500, :13510
     # :13515 treffgenauigkeit: ts$(int(ts(x)/2)) — the handler composes the index.
     # ts$(1..3) are read at :125 from :50500; ts$(0) is never assigned, so it is "".
-    spec_accuracy_0: "\n{tab(8)}treffgenauigkeit: "
-    spec_accuracy_1: "\n{tab(8)}treffgenauigkeit: mies"
-    spec_accuracy_2: "\n{tab(8)}treffgenauigkeit: ganz gut"
-    spec_accuracy_3: "\n{tab(8)}treffgenauigkeit: todsicher"
+    spec_accuracy_0: "\n{tab(8)}Treffgenauigkeit: "
+    spec_accuracy_1: "\n{tab(8)}Treffgenauigkeit: mies"
+    spec_accuracy_2: "\n{tab(8)}Treffgenauigkeit: ganz gut"
+    spec_accuracy_3: "\n{tab(8)}Treffgenauigkeit: todsicher"
     # :13520 wirkung: tg$(int(tg(x)/4)+1) — tg$(1..5) read at :125 from :50500-50505.
-    spec_effect_1: "\n{tab(8)}wirkung: laecherlich"
-    spec_effect_2: "\n{tab(8)}wirkung: maessig"
-    spec_effect_3: "\n{tab(8)}wirkung: schlimm!"
-    spec_effect_4: "\n{tab(8)}wirkung: brutal"
-    spec_effect_5: "\n{tab(8)}wirkung: erschreckend!"
+    spec_effect_1: "\n{tab(8)}Wirkung: lächerlich"
+    spec_effect_2: "\n{tab(8)}Wirkung: mäßig"
+    spec_effect_3: "\n{tab(8)}Wirkung: schlimm!"
+    spec_effect_4: "\n{tab(8)}Wirkung: brutal"
+    spec_effect_5: "\n{tab(8)}Wirkung: erschreckend!"
     # :13525 `print"{down}{down} taste druecken!":poke198,0:wait198,1` ends the sheet
     # with its own key wait, which the client prints (the handler's KEY_WAIT).
 
     # --- train (13100-13175) ---
-    no_gangster: "leider hast du nicht einen gangster!"  # :13100 `leider hast du nicht einen gangster!`
-    train_prompt: "wen soll ich trainieren:"  # :13101 `wen soll ich trainieren:`
-    venue_prompt: "(s)chiesstand oder (t)rainingscamp ?"  # :13105 `(s)chiesstand oder (t)rainingscamp ?`
+    no_gangster: "Leider hast du nicht einen Gangster!"  # :13100 `leider hast du nicht einen gangster!`
+    train_prompt: "Wen soll ich trainieren:"  # :13101 `wen soll ich trainieren:`
+    venue_prompt: "(S)chießstand oder (T)rainingscamp ?"  # :13105 `(s)chiesstand oder (t)rainingscamp ?`
     # The venue choice: :13106 `getx$:ifx$<>"s"andx$<>"t"goto13106` reads its key.
-    venue_range: "(s)chiesstand"
-    venue_camp: "(t)rainingscamp"
-    range_cost: "das kostet dich{price}$. "  # :13110 `das kostet dich`
-    range_enter: "'dein gangster uebt an meinem schiess-stand...'"  # :13120-13121 `'dein gangster uebt an meinem schiess-`
-    confirm: "ok (j/n)?"                                 # :1110 `ok (j/n)?`
-    camp_cost: "das kostet dich{price}$. "  # :13150 `das kostet dich`
-    camp_enter: "{name} ist im trainingscamp..."  # :13165 `" ist im trainingscamp..."`
+    venue_range: "(S)chießstand"
+    venue_camp: "(T)rainingscamp"
+    range_cost: "Das kostet dich{price}$. "  # :13110 `das kostet dich`
+    range_enter: "'Dein Gangster übt an meinem Schießstand...'"  # :13120-13121 `'dein gangster uebt an meinem schiess-`
+    confirm: "OK (j/n)?"                                 # :1110 `ok (j/n)?`
+    camp_cost: "Das kostet dich{price}$. "  # :13150 `das kostet dich`
+    camp_enter: "{name} ist im Trainingscamp..."  # :13165 `" ist im trainingscamp..."`
     camp_done: "...da ist er wieder!"  # :13175 `...da ist er wieder!`

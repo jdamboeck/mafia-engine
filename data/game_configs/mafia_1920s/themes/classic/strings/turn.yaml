@@ -1,4 +1,6 @@
-# The turn menu and the overview — classic-theme strings (VERBATIM German).
+# The turn menu and the overview — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: the engine and the config emit KEYS; the theme resolves them. Ported
 # from research-data/pass-1/game-text.yaml (context main-loop) and mf-prg.bas:1015-1022,
@@ -11,50 +13,50 @@ turn:
     header: "{name} - {gang_name}"
     # :1016-1017 "kapital:"ka(sp);tab(25)"jahr:"int(ja)"-"month -- the year and the
     # month print through mid$(str$(..),2); {tab(25)} puts "jahr:" at column 25.
-    status: "kapital:{cash}{tab(25)}jahr:{year:mid$}-{month:mid$}"
+    status: "Kapital:{cash}{tab(25)}Jahr:{year:mid$}-{month:mid$}"
     # :1020
-    prompt: "was willst du tun:"
+    prompt: "Was willst du tun:"
     # :1020-1022, one per option of content/menus/turn.yaml.
     option:
-      overview: "1 - uebersicht"
-      walk: "2 - durch die stadt gehen"
-      gang_war: "3 - bandenkrieg"
-      next_player: "4 - naechster spieler"
+      overview: "1 - Übersicht"
+      walk: "2 - Durch die Stadt gehen"
+      gang_war: "3 - Bandenkrieg"
+      next_player: "4 - Nächster Spieler"
 
   # :1510-1515 print"{clr}{down}{gry3}du sitzt im knast."gs(sp)+1"monat(e) hast" /
   # print"{down}du noch vor dir..." -- {months} is gs(sp)+1, the months before :1500's
   # decrement; the :1100 "taste druecken!" pause is the client's.
-  jail: "du sitzt im knast.{months}monat(e) hast\ndu noch vor dir..."
+  jail: "Du sitzt im Knast.{months}Monat(e) hast du noch vor dir..."
 
   # :1011 syslh,"sieg-pic" -- the victory picture, shown before the ranking (:40000
   # falls into :40100). STAND-IN: the picture has no text in the source corpus
   # (research-data/pass-1/game-text.yaml has no sieg-pic string), so a text client
   # shows it as words: the player's name and the rank name ra$(10) the early win needs
   # (:50210 data "chef der unterwelt"). {name} is the player who triggered it.
-  victory: "{name}\nchef der unterwelt"
+  victory: "{name}\nChef der Unterwelt"
 
   overview:
     # :1200 print"{clr}{down}{rvon}uebersicht fuer "sp$(sp)":"
-    title: "uebersicht fuer {name}:"
+    title: "Übersicht für {name}:"
     # :1209 print"{down}{down}punkte: "gf(sp)
-    score: "punkte: {score}"
+    score: "Punkte: {score}"
     # :1210 print"{down}rang: "ra$(ra(sp))
-    rank: "rang: {rank_name}"
+    rank: "Rang: {rank_name}"
     # :1215 print"{down}transportmittel: "tm$(tm(sp))" "ms"s"
-    vehicle: "transportmittel: {vehicle} {movement}s"
+    vehicle: "Transportmittel: {vehicle} {movement}s"
     # :1219 print"{down}alkohol:"ta(sp)"faesser"
-    alcohol: "alkohol:{barrels}faesser"
+    alcohol: "Alkohol:{barrels}Fässer"
     # :1221-1222 "gegenstaende: " then ag$(i)"," for each mark held, the last comma
     # overwritten ("{left} "); ag$ = "papiere","falschgeld" (:50600).
-    items_papers: "gegenstaende: papiere"
-    items_counterfeit: "gegenstaende: falschgeld"
-    items_both: "gegenstaende: papiere,falschgeld"
+    items_papers: "Gegenstände: Papiere"
+    items_counterfeit: "Gegenstände: Falschgeld"
+    items_both: "Gegenstände: Papiere,Falschgeld"
     # :1225 print"{down}schmiergelder:"pl(sp)"mon.":print"{down}bezahlte miete:"um(sp)"mon."
-    bribes: "schmiergelder:{months}mon."
-    rent: "bezahlte miete:{months}mon."
+    bribes: "Schmiergelder:{months}Mon."
+    rent: "Bezahlte Miete:{months}Mon."
     # :1230 print"{clr}{down}gangster:":ifgz(sp)=0thenprint"{down}keine!"
-    gang_title: "gangster:"
-    no_gang: "keine!"
+    gang_title: "Gangster:"
+    no_gang: "Keine!"
     # :1300-1320 gn$(a,b); "e"left$(x$,2)" k"mid$(x$,3,2)" i"mid$(x$,5,2)" b"right$(x$,2);
     # "w:"wa$(gw(a,b)) -- ge$ holds each stat as two digits (:1385).
     # :1235 `gosub1300:poke198,0:wait198,1` prints each gangster so, then waits for a
@@ -69,4 +71,4 @@ turn:
     # prints it (turn.overview.gangster).
     gangster: "{index:mid$} {name}\ne{energie:mid$0>2} k{kraft:mid$0>2} i{intelligenz:mid$0>2} b{brutalitaet:mid$0>2}\nw:{weapon}"
     # :1145 input"{down}nummer:";y
-    prompt: "nummer:"
+    prompt: "Nummer:"

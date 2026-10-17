@@ -71,17 +71,17 @@ def _load(key: str):
 # weapon/vitality/name the OLD handler passed inline — the transcription being proven).
 _DIFFERENTIAL = [
     # kdh ambush (kdh.py): count 1, weapon 6, vitality 35, schuldner, grid ks.
-    ("kdh_ambush", 0, "ks", 1, 6, 35, "schuldner"),
+    ("kdh_ambush", 0, "ks", 1, 6, 35, "Schuldner"),
     # kdh collectors (upkeep.py): count 5, weapon 3, vitality 30, eintreiber, grid ks.
-    ("kdh_collectors", 0, "ks", 5, 3, 30, "eintreiber"),
+    ("kdh_collectors", 0, "ks", 5, 3, 30, "Eintreiber"),
     # job bouncer (jobs.py) — its three _BOUNCER_BRAWLERS variants, grid kp.
-    ("job_bouncer", 0, "kp", 1, 0, 30, "wurstfinger-fred"),
-    ("job_bouncer", 1, "kp", 1, 1, 20, "affenface-alf"),
-    ("job_bouncer", 2, "kp", 1, 3, 20, "der schlachter"),
+    ("job_bouncer", 0, "kp", 1, 0, 30, "Wurstfinger-Fred"),
+    ("job_bouncer", 1, "kp", 1, 1, 20, "Affenface-Alf"),
+    ("job_bouncer", 2, "kp", 1, 3, 20, "Der Schlachter"),
     # job croupier (jobs.py): _CROUPIER_OPPONENT — count 1, weapon 1, vitality 10.
-    ("job_croupier", 0, "kp", 1, 1, 10, "spieler"),
+    ("job_croupier", 0, "kp", 1, 1, 10, "Spieler"),
     # job killer (jobs.py): _KILLER_VICTIM — count 1, weapon 0, vitality 20.
-    ("job_killer", 0, "km", 1, 0, 20, "opfer"),
+    ("job_killer", 0, "km", 1, 0, 20, "Opfer"),
 ]
 
 
@@ -134,9 +134,9 @@ def test_bouncer_encounter_carries_all_three_variants_in_source_order():
     enc = _load("job_bouncer")
     assert len(enc.variants) == 3
     assert [(v.weapon, v.vitality, v.name) for v in enc.variants] == [
-        (0, 30, "wurstfinger-fred"),  # :25040
-        (1, 20, "affenface-alf"),  # :25041
-        (3, 20, "der schlachter"),  # :25042
+        (0, 30, "Wurstfinger-Fred"),  # :25040
+        (1, 20, "Affenface-Alf"),  # :25041
+        (3, 20, "Der Schlachter"),  # :25042
     ]
 
 

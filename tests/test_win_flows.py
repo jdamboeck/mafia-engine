@@ -290,7 +290,7 @@ def test_the_escort_is_the_source_fight():
     """``:23025 bn$(0)="eskorte":gz(0)=10:e=50:w=7:kf$="kgtp"``."""
     escort = load_encounter(CONFIG_DIR / "content" / "encounters" / "win_escort.yaml")
     (spec,) = escort.variants
-    assert (spec.name, spec.count, spec.vitality, spec.weapon) == ("eskorte", 10, 50, 7)
+    assert (spec.name, spec.count, spec.vitality, spec.weapon) == ("Eskorte", 10, 50, 7)
     assert escort.grid == "kgtp"
 
 
@@ -521,8 +521,8 @@ def test_a_seeded_client_run_shows_the_armed_cell_and_runs_the_transport(
     state = _walking(po=start, ms=21, tip=3, roster=(_G,))
     output, (end, _rng) = _resume_at(monkeypatch, tmp_path, state, WALKING, [keys[into], "x", "q"])
 
-    assert "geldtransport-ueberfall" in output
-    assert "du hast zuwenig gangster!" in output
+    assert "Geldtransport-Überfall" in output
+    assert "Du hast zu wenig Gangster!" in output
     maps = [frame for frame in output.split("╔") if "╚" in frame]
     assert "◌" in maps[0], "the armed cell is not drawn"
     assert "◌" not in maps[-1], "the disarmed cell is still drawn"

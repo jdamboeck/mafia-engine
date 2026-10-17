@@ -365,7 +365,7 @@ class TerminalInput:
         """Show a menu and relay the 0-based index of the option its answer names.
 
         The options are printed as their labels give them (the labels carry the
-        menu's own numbers, e.g. ``1 - poker``). Option ``i`` is answered by
+        menu's own numbers, e.g. ``1 - Poker``). Option ``i`` is answered by
         ``menu.answer_keys[i]`` or, without answer keys, by the number ``i + 1``.
 
         Read with one key (``READ_KEY``), a key that names no option is ignored and

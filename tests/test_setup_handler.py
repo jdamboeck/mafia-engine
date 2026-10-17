@@ -524,15 +524,15 @@ def test_every_key_the_handler_yields_resolves_in_the_classic_theme():
 @pytest.mark.parametrize(
     ("key", "params", "text"),
     [
-        ("setup.player_count_prompt", {}, "spieleranzahl:"),  # :205
-        ("setup.player_name_prompt", {"number": 2}, "name spieler 2:"),  # :210 "i"{left}:
-        ("setup.gang_name_prompt", {}, "bandenname:"),  # :215
-        ("setup.eigenschaften", {}, "eigenschaften:"),  # :300
-        ("setup.roll.kraft", {"value": 25}, "kraft: 25 "),  # :310 + :350 print x;
-        ("setup.roll.intelligenz", {"value": 10}, "intelligenz: 10 "),  # :311
-        ("setup.roll.brutalitaet", {"value": 50}, "brutalitaet: 50 "),  # :312
-        ("setup.energie", {"energy": 5}, "energie: 5"),  # :313
-        ("setup.kapital", {"cash": 6500}, "kapital: 6500 $"),  # :316
+        ("setup.player_count_prompt", {}, "Spieleranzahl:"),  # :205
+        ("setup.player_name_prompt", {"number": 2}, "Name Spieler 2:"),  # :210 "i"{left}:
+        ("setup.gang_name_prompt", {}, "Bandenname:"),  # :215
+        ("setup.eigenschaften", {}, "Eigenschaften:"),  # :300
+        ("setup.roll.kraft", {"value": 25}, "Kraft: 25 "),  # :310 + :350 print x;
+        ("setup.roll.intelligenz", {"value": 10}, "Intelligenz: 10 "),  # :311
+        ("setup.roll.brutalitaet", {"value": 50}, "Brutalität: 50 "),  # :312
+        ("setup.energie", {"energy": 5}, "Energie: 5"),  # :313
+        ("setup.kapital", {"cash": 6500}, "Kapital: 6500 $"),  # :316
     ],
 )
 def test_the_classic_theme_prints_the_screen_as_the_source(key, params, text):

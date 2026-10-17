@@ -9,5 +9,5 @@ enemies:
   count: 1              # gz(0)=1 — :14125
   weapon: 5             # w=5, revolver — :14125
   vitality: 30          # e=30 — :14125
-  name: wagenbesitzer   # bn$(0)="wagenbesitzer" — :14125
+  name: Wagenbesitzer   # bn$(0)="wagenbesitzer" — :14125
 grid: ks                # kf$="ks" — :14125

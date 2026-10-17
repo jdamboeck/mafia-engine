@@ -12,5 +12,5 @@ enemies:
   count: 5            # gz(0)=5 — mf-prg.bas:4355
   weapon: 3           # schlagkette — mf-prg.bas:4355
   vitality: 30        # e=30 — mf-prg.bas:4355
-  name: eintreiber
+  name: Eintreiber
 grid: ks

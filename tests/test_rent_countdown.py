@@ -37,6 +37,7 @@ from data.game_configs.mafia_1920s.state import Business
 from engine.strings import Resolver
 from engine.upkeep import UPKEEP_HANDLER_KEY, run_upkeep
 from tests.helpers import is_effect, StubRng, run_pure, with_tenancy
+from tests.text_fold import fold
 import data.game_configs.mafia_1920s.state as game
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
@@ -266,14 +267,14 @@ def test_rent_messages_resolve_to_the_source_text():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     late = resolver.resolve("upkeep.rent_late", {"amount": 237})
     # :4610-4620
-    assert "du hast deine miete nicht puenktlich" in late
-    assert "gezahlt. man hat dir moebel im wert von" in late
-    assert "237 $ gepfaendet!" in late
+    assert "Du hast deine Miete nicht pünktlich" in late
+    assert "gezahlt. Man hat dir Möbel im Wert von" in late
+    assert "237 $ gepfändet!" in late
     evicted = resolver.resolve("upkeep.rent_evicted", {})
     # :4650-4651
-    assert "deine wohnung wird dir gekuendigt!" in evicted
-    assert "deine gangster suchen sich einen anderen" in evicted
-    assert "boss..." in evicted
+    assert "Deine Wohnung wird dir gekündigt!" in evicted
+    assert "Deine Gangster suchen sich einen anderen" in evicted
+    assert "Boss..." in evicted
 
 
 #: :4610-4620 run on the C64 ROM: ``tests/fixtures/c64_rent_seizure/seizure_cases.bas``
@@ -308,15 +309,20 @@ def test_the_capture_holds_the_samples():
 def test_the_seizure_message_has_the_c64_s_rows(amount):
     """:4620 ``print"{down}{left}"p"$ gepfaendet!"``: the ``{left}`` at column 0 steps
     back to column 39 of the blank row, which takes ``p``'s sign position, so the amount
-    opens its own row at column 0 (``250 $ gepfaendet!``) under the blank one. The
-    message is the capture's rows 1-5 (row 0 is ``{clr}{down}``'s blank row), each row
-    filled out to the screen's 40 columns as the capture holds it."""
+    opens its own row at column 0 (``250 $ gepfändet!``) under the blank one. The
+    message is the capture's rows 1-5 (row 0 is ``{clr}{down}``'s blank row): each row
+    folds to the capture's row (the text is in today's spelling, the capture in the
+    C64's), and the sign row is the capture's to the column."""
     late = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve(
         "upkeep.rent_late", {"amount": amount}
     )
     rows = late.split("\n")
+    captured = _SEIZURE[amount][1:6]
+    assert len(rows) == len(captured)
     assert all(len(row) <= 40 for row in rows), rows
-    assert [row.ljust(40) for row in rows] == _SEIZURE[amount][1:6]
+    assert [fold(row.rstrip()) for row in rows] == [fold(row.rstrip()) for row in captured]
+    assert rows[3].ljust(40) == captured[3]
+    assert rows[1] == "" and rows[4].startswith(str(abs(amount)) + " $ ")
 
 
 def test_a_negative_seizure_shows_its_minus_at_column_39():
@@ -329,7 +335,9 @@ def test_a_negative_seizure_shows_its_minus_at_column_39():
     )
     rows = late.split("\n")
     assert rows[3] == screen[4] == " " * 39 + "-"
-    assert rows[4] == screen[5].rstrip() == "50 $ gepfaendet!"
+    assert screen[5].rstrip() == "50 $ gepfaendet!"
+    assert rows[4] == "50 $ gepfändet!"
+    assert fold(rows[4]) == fold(screen[5].rstrip())
 
 
 def test_run_upkeep_entry_point_applies_the_rent_slot():

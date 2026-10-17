@@ -254,15 +254,14 @@ def test_the_croupier_shows_the_three_tricks_and_reads_one_key():
     )
 
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
+    # :25105-25107, one row now: the C64's row breaks fell inside the running text.
     assert resolver.resolve("job.shift_croupier_intro").splitlines() == [
-        "du musst als",  # :25105
-        "croupier natuerlich falschspielen.",  # :25106
-        "welche tricks willst du anwenden:",  # :25107
+        "Du musst als Croupier natürlich falschspielen. Welche Tricks willst du anwenden:",
     ]
     assert resolver.resolve("job.shift_croupier_tricks").splitlines() == [
-        "1 trickspiegel",  # :25110
-        "2 gezinkte karten",  # :25110
-        "3 bremse am roulette",  # :25111
+        "1 Trickspiegel",  # :25110
+        "2 Gezinkte Karten",  # :25110
+        "3 Bremse am Roulette",  # :25111
     ]
     with pytest.raises(MissingKeyError):
         resolver.resolve("job.shift_croupier_pick")
@@ -553,13 +552,13 @@ def test_a_shift_fight_waits_before_it_starts_and_under_its_outcome():
     ("job_type", "draws", "answers", "title", "then"),
     [
         # :25015 print"{rvon} rausschmeisser ", then :25020's wait
-        (1, (0,), (), " rausschmeisser ", "bouncer_wait"),
+        (1, (0,), (), " Rausschmeißer ", "bouncer_wait"),
         # :25010 sends the doorman (3) to :25015 too
-        (3, (0,), (), " rausschmeisser ", "bouncer_wait"),
+        (3, (0,), (), " Rausschmeißer ", "bouncer_wait"),
         # :25100 print"{rvon} croupier ", then :25105's intro
-        (2, (1, 300), (1,), " croupier ", "croupier_intro"),
+        (2, (1, 300), (1,), " Croupier ", "croupier_intro"),
         # :25200 print"{rvon} killer ", then :25205's intro
-        (4, (), ("surrender",), " killer ", "killer_intro"),
+        (4, (), ("surrender",), " Killer ", "killer_intro"),
     ],
 )
 def test_the_shift_opens_on_the_player_s_name_and_the_job(job_type, draws, answers, title, then):
@@ -575,5 +574,5 @@ def test_the_shift_opens_on_the_player_s_name_and_the_job(job_type, draws, answe
     run_pure(HANDLERS["job.shift"], src, state=st, rng=_StubRng(*draws))
     shown = [x for x in src.seen if isinstance(x, ShowMessage)]
     rows = "\n".join(resolver.resolve(x.key, x.params) for x in shown[:2]).split("\n")
-    assert rows == ["p0: job als", "", title]
+    assert rows == ["p0: Job als", "", title]
     assert shown[2].key == f"job.shift_{then}"

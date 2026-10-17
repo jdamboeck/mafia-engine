@@ -1,4 +1,6 @@
-# bhf (Bahnhof, railway station) — classic-theme strings (VERBATIM German).
+# bhf (Bahnhof, railway station) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: handlers/bhf.py emits these KEYS and the theme resolves them. The menu
 # is the SEQ file src/bhf (research-data/pass-2/location-dialogue.yaml, bhf); the rest
@@ -11,18 +13,18 @@
 locations:
   bhf:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
-    title: "RAILWAY-STATION (BAHNHOF)"
-    entry_prompt: "DU BIST IM BAHNHOF VON CHICKAGO."
+    # above the description (location-dialogue.yaml's title, in today's spelling).
+    title: "Railway-Station (Bahnhof)"
+    entry_prompt: "Du bist im Bahnhof von Chickago."
     menu:
-      pub: "BAHNHOFSKNEIPE AUFSUCHEN"
-      pickpocket: "TASCHENDIEBSTAHL"
-      mail_train: "POSTZUG UEBERFALLEN"
-      leave: "NICHTS WIE WEG"
+      pub: "Bahnhofskneipe aufsuchen"
+      pickpocket: "Taschendiebstahl"
+      mail_train: "Postzug überfallen"
+      leave: "Nichts wie weg"
 
     # --- the mail train (19015-19040) ---
-    no_train: "kein postzug zu sehen..."                                   # :19015 `kein postzug zu sehen...`
-    too_few: "du hast zu wenig gangster!"                                  # :19016 `du hast zu wenig gangster!`
-    storm: "du stuermst in den panzerwaggon und\nbeginnst gerade einzusacken, als du auf\ndrei nette herren aufmerksam wirst..."  # :19025-19027 `beginnst gerade einzusacken, als du auf`
+    no_train: "Kein Postzug zu sehen..."                                   # :19015 `kein postzug zu sehen...`
+    too_few: "Du hast zu wenig Gangster!"                                  # :19016 `du hast zu wenig gangster!`
+    storm: "Du stürmst in den Panzerwaggon und beginnst gerade einzusacken, als du auf drei nette Herren aufmerksam wirst..."  # :19025-19027 `beginnst gerade einzusacken, als du auf`
 
     # The heist payout's screen (:19040 goto20050) is the bank's, strings/ban.yaml.

@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_ble.py``'s exits) resolve in the classic theme with the params they carry
-and reach every ble string, and the text is verbatim from the research corpus
+and reach every ble string, and the C64-text fixture is verbatim from the research corpus
 (location-dialogue.yaml, ble).
 """
 
@@ -25,6 +25,7 @@ from tests.helpers import (
     scripted,
 )
 from tests.test_ble import _EXITS, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -95,38 +96,57 @@ def test_the_ble_runs_reach_every_ble_string():
 def test_the_classic_theme_prints_each_ble_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.ble.passport_for_one": ({}, "gut, mein sohn. fuer einen pass"),
-        "locations.ble.passport_for_many": ({"count": 3}, "gut, mein sohn. fuer 3 paesse"),
+        "locations.ble.passport_for_one": ({}, "Gut, mein Sohn. Für einen Pass"),
+        "locations.ble.passport_for_many": ({"count": 3}, "Gut, mein Sohn. Für 3 Pässe"),
         "locations.ble.passport_price": ({"price": 3000}, "macht das 3000 $."),
-        "locations.ble.confirm": ({}, "ok (j/n)?"),
-        "locations.ble.passport_done": ({}, "hier, noch druckfrisch, he, he!"),
-        "locations.ble.counterfeit_reluctant": ({}, "nng...hoechst ungern! wieviel dollar"),
+        "locations.ble.confirm": ({}, "OK (j/n)?"),
+        "locations.ble.passport_done": ({}, "Hier, noch druckfrisch, he, he!"),
+        "locations.ble.counterfeit_reluctant": ({}, "Nng...höchst ungern! Wie viel Dollar"),
         "locations.ble.counterfeit_prompt": ({}, "willst du anlegen (0-5000)"),
         "locations.ble.counterfeit_offer": (
             {"amount": 1234},
-            "ich gebe dir 1234 $ blueten dafuer.",
+            "Ich gebe dir 1234 $ Blüten dafür.",
         ),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key
 
 
 def test_ble_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (ble), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.ble.entry_prompt") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (ble), the 40-column wrap padding included."""
+    assert fixture_value("locations.ble.entry_prompt") == (
         "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
     )
-    assert _get(data, "locations.ble.menu.passport") == (
+    assert fixture_value("locations.ble.menu.passport") == (
         "'YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'"
     )
-    assert _get(data, "locations.ble.menu.counterfeit") == (
+    assert fixture_value("locations.ble.menu.counterfeit") == (
         "'DRUCKST DU NOCH BLUETEN? WIE WAERS,    WENN DU MIR EIN PAAR VERKAUFST?'"
     )
-    assert _get(data, "locations.ble.menu.leave") == (
+    assert fixture_value("locations.ble.menu.leave") == (
         "'DANKE, EDDIE, VIELLEICHT BEIM NAECHS-  TEN MAL. BYE!'"
+    )
+
+
+def test_ble_screen_text_in_today_s_spelling():
+    """The live classic theme's ble title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.ble.title") == "Blüten-Eddie"
+    assert _get(data, "locations.ble.entry_prompt") == (
+        "'Na, mein Junge, wo drückt der Schuh? Kann ich dir helfen?'"
+    )
+    assert _get(data, "locations.ble.menu.passport") == (
+        "'Yeah, kannst du mir einen neuen Pass machen? Er muss gut sein, klar?'"
+    )
+    assert _get(data, "locations.ble.menu.counterfeit") == (
+        "'Druckst du noch Blüten? Wie wärs, wenn du mir ein paar verkaufst?'"
+    )
+    assert _get(data, "locations.ble.menu.leave") == (
+        "'Danke, Eddie, vielleicht beim nächsten Mal. Bye!'"
     )
 
 

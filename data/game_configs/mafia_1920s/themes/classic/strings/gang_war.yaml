@@ -1,4 +1,6 @@
-# The gang war (turn menu option 3) — classic-theme strings (VERBATIM German).
+# The gang war (turn menu option 3) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: handlers/gang_war.py emits these KEYS and the theme resolves them.
 # Ported from the research text corpus (research-data/pass-1/game-text.yaml, lines
@@ -8,12 +10,12 @@
 # the spaces C64 PRINT puts around it (_format.yaml).
 gang_war:
   # :27000 print"{clr}{down}bei solo-spiel nicht moeglich!":goto1100
-  solo: "bei solo-spiel nicht moeglich!"
+  solo: "Bei Solo-Spiel nicht möglich!"
   # :27001 print"{clr}{down}erst ab 4/1925 moeglich!":goto1100
-  too_early: "erst ab 4/1925 moeglich!"
+  too_early: "Erst ab 4/1925 möglich!"
   # :27005 print"{clr}{down}{down}{down}{down}"tab(13)"{wht}bandenkrieg!" (then :27006's
   # border flash, presentation)
-  title: "bandenkrieg!"
+  title: "Bandenkrieg!"
   # :27011-27012 print"{down} {rvon}"mid$(str$(i),2)"{rvof} "bn$(i)" "ka(i)"$  ";
   # printleft$("{rvon}AAAAAAAAAA",1+gz(i)) -- the player's number, the gang, its cash,
   # and one reverse "A" per gangster. {bar} is an empty field padded to {gang_size}
@@ -21,24 +23,24 @@ gang_war:
   opponent: " {number:mid$} {gang_name} {cash}$  {bar:A<{gang_size:raw}}"
   # :27015 getx$ prints nothing: the prompt under the list repeats :27007's line,
   # print"{down}{down}{down} mit wem willst du dich anlegen:"
-  opponent_prompt: "mit wem willst du dich anlegen:"
+  opponent_prompt: "Mit wem willst du dich anlegen:"
   # :27026-27028 print"{clr}{down}{wht}"sp$(a)", du findest beim pluendern"
   #              print"{down}deines gegners"p"$. ausserdem er-"
   #              print"{down}beutest du den alkoholvorrat."
-  plunder: "{name}, du findest beim pluendern\ndeines gegners{amount}$. ausserdem er-\nbeutest du den alkoholvorrat."
+  plunder: "{name}, du findest beim Plündern deines Gegners{amount}$. Außerdem erbeutest du den Alkoholvorrat."
   # :27030 print"{down}willst du auch noch den "tm$(tm(b))
-  vehicle_offer: "willst du auch noch den {vehicle}"
+  vehicle_offer: "Willst du auch noch den {vehicle}"
   # :27031 print"{down}mitnehmen (j/n) ?":gosub1115
   vehicle_confirm: "mitnehmen (j/n) ?"
   # The prison brawl (:27100-27141; the corpus has all of it).
   # :27100 print"{clr}{down}"sp$(us)" sitzt im knast. ein mit-"
   # :27105 print"{down}gefangener will ihn fuer dich 'auf-"
   # :27110 print"{down}mischen'. er verlangt 3000 $. ";:gosub1110
-  inmate_offer: "{name} sitzt im knast. ein mit-\ngefangener will ihn fuer dich 'auf-\nmischen'. er verlangt {price:mid$} $."
+  inmate_offer: "{name} sitzt im Knast. Ein Mitgefangener will ihn für dich 'aufmischen'. Er verlangt {price:mid$} $."
   # :1110 print"ok (j/n)?" -- on the same line as :27110's, after its "; ".
-  inmate_confirm: "ok (j/n)?"
+  inmate_confirm: "OK (j/n)?"
   # :27120 print"{down}verteidige dich, "sp$(us)"!":gosub1100
-  defend_yourself: "verteidige dich, {name}!"
+  defend_yourself: "Verteidige dich, {name}!"
   # :27140 print"{clr}{down}"sp$(us)"! deine strafe wird wegen"
   # :27141 print"{down}dieser schlaegerei um"x"monat(e)":print"{down}verlaengert!"
-  sentence_extended: "{name}! deine strafe wird wegen\ndieser schlaegerei um{months}monat(e)\nverlaengert!"
+  sentence_extended: "{name}! Deine Strafe wird wegen dieser Schlägerei um{months}Monat(e) verlängert!"

@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_sub.py``) resolve in the classic theme and reach every sub string,
-and the text is verbatim from the research corpus (location-dialogue.yaml, sub).
+and the C64-text fixture is verbatim from the research corpus (location-dialogue.yaml, sub).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_sub import _EXITS, _FREE, _NO_MANUAL, _run, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -89,20 +90,20 @@ def test_the_sub_runs_reach_every_sub_string():
 def test_the_classic_theme_prints_each_sub_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.sub.ticket": ({"price": 50}, "ein u-bahn-ticket kostet dich\n50 $."),
-        "locations.sub.confirm": ({}, "ok (j/n)?"),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
-        "locations.sub.thief_prompt": ({}, "welchen spieler setzt du als dieb ein:"),
-        "locations.sub.stealing": ({}, "du stiehlst..."),
-        "locations.sub.caught": ({}, "...nichts! denn du wirst erwischt!"),
-        "locations.sub.loot_handbag": ({}, "...eine handtasche - nichts wertvolles!"),
-        "locations.sub.loot_camera": ({}, "...'nen fotoapparat! er bringt 50 $."),
-        "locations.sub.loot_pearls": ({}, "...eine falsche perlenkette!"),
-        "locations.sub.loot_watch": ({}, "...eine armbanduhr fuer 100 $!"),
-        "locations.sub.loot_wallet": ({}, "...'ne brieftasche mit 500 $!"),
-        "locations.sub.loot_diamond": ({}, "...einen diamanten! der ist 800 $ wert!"),
-        "locations.sub.loot_manual": ({}, "...eine anleitung -der safeknacker- ??!"),
-        "turn.picker.prompt": ({}, "nummer:"),
+        "locations.sub.ticket": ({"price": 50}, "Ein U-Bahn-Ticket kostet dich 50 $."),
+        "locations.sub.confirm": ({}, "OK (j/n)?"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
+        "locations.sub.thief_prompt": ({}, "Welchen Spieler setzt du als Dieb ein:"),
+        "locations.sub.stealing": ({}, "Du stiehlst..."),
+        "locations.sub.caught": ({}, "...nichts! Denn du wirst erwischt!"),
+        "locations.sub.loot_handbag": ({}, "...eine Handtasche - nichts Wertvolles!"),
+        "locations.sub.loot_camera": ({}, "...'nen Fotoapparat! Er bringt 50 $."),
+        "locations.sub.loot_pearls": ({}, "...eine falsche Perlenkette!"),
+        "locations.sub.loot_watch": ({}, "...eine Armbanduhr für 100 $!"),
+        "locations.sub.loot_wallet": ({}, "...'ne Brieftasche mit 500 $!"),
+        "locations.sub.loot_diamond": ({}, "...einen Diamanten! Der ist 800 $ wert!"),
+        "locations.sub.loot_manual": ({}, "...eine Anleitung -Der Safeknacker- ??!"),
+        "turn.picker.prompt": ({}, "Nummer:"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key
@@ -118,17 +119,32 @@ def test_every_loot_item_in_the_config_has_its_string():
 
 
 def test_sub_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (sub), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.sub.entry_prompt") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (sub), the 40-column wrap padding included."""
+    assert fixture_value("locations.sub.entry_prompt") == (
         "DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM..."
     )
-    assert _get(data, "locations.sub.menu.platform") == (
+    assert fixture_value("locations.sub.menu.platform") == (
         "LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN"
     )
-    assert _get(data, "locations.sub.menu.train") == "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
-    assert _get(data, "locations.sub.menu.leave") == "ZURUECK ANS TAGESLICHT"
+    assert fixture_value("locations.sub.menu.train") == "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
+    assert fixture_value("locations.sub.menu.leave") == "ZURUECK ANS TAGESLICHT"
+
+
+def test_sub_screen_text_in_today_s_spelling():
+    """The live classic theme's sub title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.sub.title") == "Subway-Station (U-Bahn)"
+    assert _get(data, "locations.sub.entry_prompt") == (
+        "Du bist in einem großen U-Bahnhof. 'Ne Menge Leute treiben sich hier 'rum..."
+    )
+    assert _get(data, "locations.sub.menu.platform") == (
+        "Leuten auf dem Bahnsteig die Taschen erleichtern"
+    )
+    assert _get(data, "locations.sub.menu.train") == "In der Bahn die Tascheninhalte prüfen"
+    assert _get(data, "locations.sub.menu.leave") == "Zurück ans Tageslicht"
 
 
 def test_the_sub_doors_open_the_sub_shell_one_per_tile():

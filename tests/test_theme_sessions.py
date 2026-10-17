@@ -26,7 +26,7 @@ _TEST_THEME = Path(__file__).resolve().parent / "fixtures" / "themes" / "test"
 #: Keys both themes word differently: the kredit-hai's :3025 title, the map hint
 #: and the quit line (``tests/fixtures/themes/test/strings``).
 _CLASSIC = {
-    "locations.kdh.title": "KREDIT-HAI",
+    "locations.kdh.title": "Kredit-Hai",
     "client.map.hint": "move: W/A/S/D into a door to enter. M menu, P saves, Q quits.",
     "client.bye": "bye.",
 }
@@ -78,7 +78,7 @@ def test_resolving_in_one_session_leaves_the_other_unchanged(sessions):
     first = classic.text(title)
     for key in _FIXTURE:
         themed.text(key)
-    assert classic.text(title) == first == "KREDIT-HAI"
+    assert classic.text(title) == first == "Kredit-Hai"
     # And the other way round: classic resolving leaves the themed session's text.
     themed_first = themed.text(title)
     for key in _CLASSIC:

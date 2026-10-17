@@ -13,5 +13,5 @@ enemies:
   count: 1                # gz(0)=1 — :27125
   weapon: 3               # gw(0,1)=3, schlagkette — :27125
   vitality: 50            # ec(1)=50 — :27125
-  name: mr.bonebreaker    # bn$(0)="mr.bonebreaker" — :27125
+  name: Mr.Bonebreaker    # bn$(0)="mr.bonebreaker" — :27125
 grid: kg                  # kf$="kg" — :27130

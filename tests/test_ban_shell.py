@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_ban.py``) resolve in the classic theme and reach every ban string,
-and the text is verbatim from the research corpus (location-dialogue.yaml, ban, with
+and the C64-text fixture is verbatim from the research corpus (location-dialogue.yaml, ban, with
 its 40-column wrap padding; the corpus misses :20003 and :20009, which are the
 listing's).
 """
@@ -20,6 +20,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_ban import _EXITS, _LA, _SURRENDER, _SURRENDER_FIGHT, _run, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -97,55 +98,66 @@ def test_the_ban_runs_reach_every_ban_string_and_the_borrowed_screen():
 def test_the_classic_theme_prints_each_ban_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.ban.rank_too_low": ({"rank": "kleiner fisch"}, "werde erst 'kleiner fisch'!"),
-        "locations.ban.alone": ({}, "du brauchst einen begleiter!"),
-        "locations.ban.guards": (
-            {},
-            "leider hast du die drei wachmaenner am\neingang uebersehen...",
-        ),
-        "locations.ban.loot": (
-            {"p": 5234},
-            "du hast es geschafft! deine beute\nbetraegt 5234 $!",
-        ),
-        "locations.ban.safe_untrained": ({}, "du musst noch trainieren!"),
-        "locations.ban.safe_who": ({}, "wer soll den kasten knacken:"),
+        "locations.ban.rank_too_low": ({"rank": "Kleiner Fisch"}, "Werde erst 'Kleiner Fisch'!"),
+        "locations.ban.alone": ({}, "Du brauchst einen Begleiter!"),
+        "locations.ban.guards": ({}, "Leider hast du die drei Wachmänner am Eingang übersehen..."),
+        "locations.ban.loot": ({"p": 5234}, "Du hast es geschafft! Deine Beute beträgt 5234 $!"),
+        "locations.ban.safe_untrained": ({}, "Du musst noch trainieren!"),
+        "locations.ban.safe_who": ({}, "Wer soll den Kasten knacken:"),
         "locations.ban.safe_stethoscope": (
             {},
-            "'hhm. mal sehen. ich versuch's mit dem\nstethoskop...' (drehen der coderaeder"
-            "\nmit f1, f3 und f5!)",
+            "'Hhm. Mal sehen. Ich versuch's mit dem Stethoskop...' (Drehen der Coderäder mit"
+            " F1, F3 und F5!)",
         ),
         "locations.ban.safe_dials": ({"d1": 1, "d2": 2, "d3": 3}, "1  2  3"),
-        "locations.ban.safe_turn": ({}, "f1, f3, f5:"),
-        "locations.ban.safe_f1": ({}, "f1"),
-        "locations.ban.safe_f3": ({}, "f3"),
-        "locations.ban.safe_f5": ({}, "f5"),
+        "locations.ban.safe_turn": ({}, "F1, F3, F5:"),
+        "locations.ban.safe_f1": ({}, "F1"),
+        "locations.ban.safe_f3": ({}, "F3"),
+        "locations.ban.safe_f5": ({}, "F5"),
         "locations.ban.safe_click": ({"d1": 1, "d2": 2, "d3": 4}, "1  2  4   *klick*"),
         "locations.ban.safe_slip": ({"d1": 0, "d2": 2, "d3": 4}, "0  2  4"),
         "locations.ban.safe_failed": (
             {},
-            "'teufel...! da ist was schiefgegangen!\nes kommt jemand!'",
+            "'Teufel...! Da ist was schiefgegangen! Es kommt jemand!'",
         ),
         # :20004 jumps into the shop's trap: its screen is the shop's.
-        "locations.sgl.police_waiting": ({}, "vor dem laden erwartet dich die\npoliyei!"),
+        "locations.sgl.police_waiting": ({}, "Vor dem Laden erwartet dich die Polizei!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key
 
 
 def test_ban_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (ban), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.ban.entry_prompt") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (ban), the 40-column wrap padding included."""
+    assert fixture_value("locations.ban.entry_prompt") == (
         "'GUTEN TAG, MEIN HERR! WAS IST IHR      BEGEHR?'"
     )
-    assert _get(data, "locations.ban.menu.holdup") == (
+    assert fixture_value("locations.ban.menu.holdup") == (
         "'QUATSCH NICH' UND LANG DEN ZASTER      'RUEBER, ABER SCHNELL!'"
     )
-    assert _get(data, "locations.ban.menu.safe") == (
+    assert fixture_value("locations.ban.menu.safe") == (
         "UNAUFFAELLIG NACH ALARMANLAGEN UM-      SEHEN UND NACHTS EINBRECHEN"
     )
-    assert _get(data, "locations.ban.menu.leave") == "WIEDER GEHEN"
+    assert fixture_value("locations.ban.menu.leave") == "WIEDER GEHEN"
+
+
+def test_ban_screen_text_in_today_s_spelling():
+    """The live classic theme's ban title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.ban.title") == "Bank/Postamt"
+    assert _get(data, "locations.ban.entry_prompt") == (
+        "'Guten Tag, mein Herr! Was ist Ihr Begehr?'"
+    )
+    assert _get(data, "locations.ban.menu.holdup") == (
+        "'Quatsch nich' und lang den Zaster 'rüber, aber schnell!'"
+    )
+    assert _get(data, "locations.ban.menu.safe") == (
+        "Unauffällig nach Alarmanlagen umsehen und nachts einbrechen"
+    )
+    assert _get(data, "locations.ban.menu.leave") == "Wieder gehen"
 
 
 def test_the_ban_doors_open_the_ban_shell_one_per_tile():

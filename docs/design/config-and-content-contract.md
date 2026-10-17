@@ -185,7 +185,8 @@ The engine emits string keys and params; themes format display text.
 
 - No hardcoded display strings in `engine/`.
 - Handler branching logic may be Python, but displayed text is externalized.
-- Strings are parameterized templates, e.g. `pro monat kostet das {price}$ miete`.
+- Strings are parameterized templates, e.g. `Pro Monat kostet das{price}$ Miete.`.
+- The default theme (`classic`) holds the source's words in today's German spelling, not the C64's text byte for byte: `tests/test_text_fold.py` folds each string back to the C64 text frozen in `tests/fixtures/c64_text/`, so a changed word fails while a respelling passes.
 - Themes are runtime-swappable and deep-merge over the config default theme at key level.
 - Themes cannot change rules or outcomes.
 

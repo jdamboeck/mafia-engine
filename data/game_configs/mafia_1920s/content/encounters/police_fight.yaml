@@ -15,5 +15,5 @@ enemies:
   count: 5            # gz(0)=5+... — :26000
   weapon: 5           # revolver — :26010
   vitality: 20        # e=20+... — :26010
-  name: die polizei   # bn$(0)="die polizei" — :26000
+  name: Die Polizei   # bn$(0)="die polizei" — :26000
 grid: ks

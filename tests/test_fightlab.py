@@ -83,7 +83,7 @@ def test_scenario_file_enemy_side_equals_from_encounter():
     assert from_file.sides is not None and from_encounter.sides is not None
     assert from_file.sides[1] == from_encounter.sides[1]
     # And the player side is the invented fighter the file declares.
-    assert [f.name for f in from_file.sides[0]] == ["hero"]
+    assert [f.name for f in from_file.sides[0]] == ["Hero"]
     assert from_file.sides[0][0].weapon == 5
     assert from_file.sides[0][0].vitality == 20
 
@@ -105,10 +105,22 @@ def test_play_seeded_resolves_to_a_winner_with_a_losses_block():
 
     text = out.getvalue()
     # A real losses block with the REAL side names (NOT the "side {i}" placeholder).
-    assert "verluste der spieler" in text
-    assert "hero: 1" in text  # the passive hero went down
-    assert "schuldner: 0" in text
-    assert "sieger: schuldner" in text  # winner banner, real name
+    assert "Verluste der Spieler" in text
+    assert "Hero: 1" in text  # the passive hero went down
+    assert "Schuldner: 0" in text
+    assert "Sieger: Schuldner" in text  # winner banner, real name
+
+
+def test_the_seeded_ambush_keeps_its_outcome_with_the_weapon_names_in_today_s_spelling():
+    """The weapon and fighter names are display text only: the seeded kdh_ambush fight
+    (hero's revolver against the schuldner's gewehr, side 1 passing) still ends with the
+    schuldner the winner and the hero down, its panel naming the weapon ``Revolver``."""
+    out = io.StringIO()
+    result = fightlab.play(_SCENARIO, seed=42, stdin=io.StringIO("p\n" * 80), out=out)
+    assert (result.winner, tuple(result.losses)) == (2, (1, 0))
+    text = out.getvalue()
+    assert "w:Revolver" in text
+    assert "Sieger: Schuldner!!!" in text
 
 
 # --------------------------------------------------------------------------- #
@@ -252,7 +264,7 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
     text = out.getvalue()
 
     # The weapon line (ts/tg/range) — all off calc_inputs.
-    assert "weapon: revolver (ts=5, tg=10, range=15)" in text
+    assert "weapon: Revolver (ts=5, tg=10, range=15)" in text
     # The hit check: the draw with its BOUND, the accuracy attr value, the verdict.
     assert "draw = rng.range(ts=5)          -> 4" in text
     assert "accuracy attr (kraft)           -> 34" in text
@@ -262,10 +274,78 @@ def test_debug_dump_prints_every_seeded_roll_input_for_a_known_shot():
     assert "damage attr (brutalitaet)         -> 28" in text
     assert "(0 + 28) // 10 + 1 = 3" in text
     # The target line: real name (NOT "side {i}"), energie before -> after.
-    assert "schuldner" in text
+    assert "Schuldner" in text
     assert "energie 35 -> 32" in text
     # The result line.
     assert "result: hit, damage=3, downed=False" in text
+
+
+def test_debug_dump_keeps_its_arrow_columns():
+    """The string normalization collapsed padding runs, not alignment: the ``--debug``
+    block's ``->`` columns are its templates' (``fightlab.debug.*``). On the known shot
+    (activation 18) the hit check's three lines share one column; the damage roll's
+    lines sit where their templates' runs put them for this shot's labels."""
+    scenario = fightlab.load_scenario(_SCENARIO)
+    _result, recording = record_fight(scenario, {1: AiDriver(), 2: AiDriver()})
+    event = next(e for e in recording.events if e.index == 18)
+    out = io.StringIO()
+    fightlab.render_shot_debug(
+        event,
+        weapon_names=fightlab._weapon_names(),
+        prev_snapshot=next(e for e in recording.events if e.index == 17).snapshot,
+        out=out,
+        rules=scenario.rules,
+    )
+    columns = [line.find(" -> ") for line in out.getvalue().splitlines() if line.startswith("    ")]
+    assert columns == [35, 35, 35, 34, 37, 35]
+
+
+#: The fightlab and CLI strings whose runs of spaces align output, each with its runs:
+#: the ``--debug`` block's ``->`` column, the target line's gap before ``energie`` and
+#: the divergence lines' colon. Every other fightlab or ``client.cli`` string holds
+#: single spaces only.
+_ALIGNMENT_RUNS = {
+    "fightlab.debug.hit_draw": [10],
+    "fightlab.debug.accuracy": [11],
+    "fightlab.debug.verdict": [3],
+    "fightlab.debug.damage_draw": [4],
+    "fightlab.debug.damage_attr": [9],
+    "fightlab.debug.damage_sum": [9],
+    "fightlab.debug.damage_only": [9],
+    "fightlab.debug.target": [2],
+    "fightlab.divergence.recorded": [2],
+}
+
+
+def test_no_fightlab_or_cli_string_holds_a_padding_run():
+    """Neither fightlab's strings nor the main client's ``client.cli`` help and errors
+    hold a C64-style padding run; the runs they have are the alignment listed above."""
+    import yaml
+
+    strings = _CONFIG_DIR / "themes" / "classic" / "strings"
+
+    def leaves(node, path):
+        if isinstance(node, dict):
+            for name, value in node.items():
+                yield from leaves(value, f"{path}.{name}")
+        else:
+            yield path, node
+
+    texts = dict(
+        leaves(
+            yaml.safe_load((strings / "fightlab.yaml").read_text(encoding="utf-8"))["fightlab"],
+            "fightlab",
+        )
+    )
+    cli = yaml.safe_load((strings / "client.yaml").read_text(encoding="utf-8"))["client"]["cli"]
+    texts.update(leaves(cli, "client.cli"))
+    assert len(texts) > 50 and "client.cli.help_player" in texts
+    runs = {
+        key: [len(run) for run in re.findall(r" {2,}", text)]
+        for key, text in texts.items()
+        if re.search(r" {2,}", text)
+    }
+    assert runs == _ALIGNMENT_RUNS
 
 
 def test_debug_dump_for_a_shot_that_reached_no_target_says_so_not_none():

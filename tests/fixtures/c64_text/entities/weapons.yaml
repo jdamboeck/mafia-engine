@@ -1,0 +1,12 @@
+# The C64 text of data/game_configs/mafia_1920s/entities/weapons.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"entities.weapons.0.name": "haende"
+"entities.weapons.1.name": "messer"
+"entities.weapons.2.name": "knueppel"
+"entities.weapons.3.name": "schlagkette"
+"entities.weapons.4.name": "wurfsterne"
+"entities.weapons.5.name": "revolver"
+"entities.weapons.6.name": "gewehr"
+"entities.weapons.7.name": "maschinenpistole"
+"entities.weapons.8.name": "handgranaten"

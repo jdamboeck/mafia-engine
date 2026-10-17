@@ -128,7 +128,7 @@ def test_show_message_is_rendered_by_the_client_without_prompting():
 def test_show_message_with_params_substitutes():
     inp, out = _client([])
     render_message(_resolver(), ShowMessage("locations.slw.rent_quote", {"price": 500}), out)
-    assert "das 500 $ miete" in out.getvalue()  # :10020 "kostet das"p"$": PRINT's spacing
+    assert "das 500 $ Miete" in out.getvalue()  # :10020 "kostet das"p"$": PRINT's spacing
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +192,7 @@ def test_prompt_choice_resolves_option_keys_and_shows_plain_values_as_given():
 
     run(handler, inp, state=None, rng=None)
     lines = out.getvalue().splitlines()
-    assert lines[1:3] == ["1 - poker", "alcapone"]
+    assert lines[1:3] == ["1 - Poker", "alcapone"]
     assert "locations.sph.poker" not in out.getvalue()
 
 
@@ -220,6 +220,17 @@ def test_confirm_returns_false_for_n():
 
     run(handler, inp, state=None, rng=None)
     assert seen == [False]
+
+
+@pytest.mark.parametrize(
+    ("answer", "taken"), [("j", True), ("J", True), ("n", False), ("N", False)]
+)
+def test_a_confirm_prompt_takes_its_key_letters_in_either_case(answer, taken):
+    """:1110 ``print"ok (j/n)?"`` reads ``OK (j/n)?`` in today's spelling; the key read
+    lowercases its input, so ``j`` and ``J`` both say yes and ``n`` and ``N`` no."""
+    inp, out = _eof_client(f"{answer}\n")
+    assert inp(Confirm("police.confirm")) is taken
+    assert out.getvalue().startswith("OK (j/n)?\n")
 
 
 def test_prompt_choice_returns_zero_index():
@@ -360,8 +371,8 @@ def test_the_map_loop_adopts_the_moved_state_and_renders_it(monkeypatch):
 # then "punktewertigkeit (0.1 - 2):" (:175, re-asks via :176), right after the  #
 # title. play() prompts only for a value its caller did not supply (KTD-4).     #
 # --------------------------------------------------------------------------- #
-_END_YEAR_PROMPT = "spielende (1928-1978):"
-_SCORE_WEIGHT_PROMPT = "punktewertigkeit (0.1 - 2):"
+_END_YEAR_PROMPT = "Spielende (1928-1978):"
+_SCORE_WEIGHT_PROMPT = "Punktewertigkeit (0.1 - 2):"
 
 
 def _play_capturing_state(monkeypatch, stdin_text: str, seconds: float = 20.0, **play_kwargs):
@@ -916,10 +927,10 @@ class TestWatchAi:
         text = self._shift_fight_output(monkeypatch, [])
         boards = text.split(_resolver().resolve("combat.key_legend"))[:-1]
         assert len(boards) >= 2, "the fight never reached a second activation"
-        assert "der kampf beginnt..." in boards[0]
-        assert all("der kampf beginnt..." not in board for board in boards[1:])
+        assert "Der Kampf beginnt..." in boards[0]
+        assert all("Der Kampf beginnt..." not in board for board in boards[1:])
         # :25035-25042: seed 5's bouncer shift draws one of the three brawlers.
-        brawlers = ("wurstfinger-fred", "affenface-alf", "der schlachter")
+        brawlers = ("Wurstfinger-Fred", "Affenface-Alf", "Der Schlachter")
         rows = {f"{SOLO[0][1]:<20}{name}" for name in brawlers}
         for board in boards:
             assert rows & set(_plain(board).split("\n")), board
@@ -932,10 +943,10 @@ class TestWatchAi:
         boards = [
             _plain(b).split("\n") for b in text.split(_resolver().resolve("combat.key_legend"))[:-1]
         ]
-        label = "spieler 1 "
+        label = "Spieler 1 "
         assert all(row[20:] != label for row in boards[0])
         for board in boards[1:]:
-            assert any(row.startswith("spieler") and row[20:] == label for row in board), board
+            assert any(row.startswith("Spieler") and row[20:] == label for row in board), board
 
     def test_the_human_s_label_shows_its_fighter_at_column_0(self, monkeypatch):
         """:30115 ``x=-20*(s=2):poke211,x:poke214,18:syscs:print"{rvon}spieler
@@ -948,9 +959,9 @@ class TestWatchAi:
         ]
         assert len(boards) >= 2, "the fight never reached a second activation"
         # The bouncer fights alone: side 1's only fighter acts on every human board.
-        assert "spieler 1 " in boards[0], boards[0]
+        assert "Spieler 1 " in boards[0], boards[0]
         for board in boards[1:]:
-            assert "spieler 1           spieler 1 " in board, board
+            assert "Spieler 1           Spieler 1 " in board, board
 
     @staticmethod
     def _reversed(row: str) -> list[str]:
@@ -968,9 +979,9 @@ class TestWatchAi:
         assert len(boards) >= 2, "the fight never reached a second activation"
         return {
             "title": next(r for r in rows if _plain(r) == f" {title}: "),
-            "job": next(r for r in rows if _plain(r).strip() == "rausschmeisser"),
-            "banner": next(r for r in boards[0] if "der kampf beginnt..." in _plain(r)),
-            "labels": next(r for r in boards[1] if _plain(r).startswith("spieler")),
+            "job": next(r for r in rows if _plain(r).strip() == "Rausschmeißer"),
+            "banner": next(r for r in boards[0] if "Der Kampf beginnt..." in _plain(r)),
+            "labels": next(r for r in boards[1] if _plain(r).startswith("Spieler")),
         }
 
     def test_the_source_s_rvon_texts_are_drawn_in_reverse_video(self, monkeypatch):
@@ -982,10 +993,10 @@ class TestWatchAi:
         rows = self._rvon_rows(self._shift_fight_output(monkeypatch, []))
         title = _resolver().resolve("locations.pub.title")
         assert self._reversed(rows["title"]) == [f" {title}: "]
-        assert self._reversed(rows["job"]) == [" rausschmeisser "]
-        assert self._reversed(rows["banner"]) == ["der kampf beginnt..."]
-        assert _plain(rows["labels"]) == "spieler 1           spieler 1 "
-        assert self._reversed(rows["labels"]) == ["spieler 1 ", "spieler 1 "]
+        assert self._reversed(rows["job"]) == [" Rausschmeißer "]
+        assert self._reversed(rows["banner"]) == ["Der Kampf beginnt..."]
+        assert _plain(rows["labels"]) == "Spieler 1           Spieler 1 "
+        assert self._reversed(rows["labels"]) == ["Spieler 1 ", "Spieler 1 "]
 
     def test_a_theme_without_the_reverse_list_draws_them_plain(self, monkeypatch):
         """``tests/fixtures/themes/test`` has no ``renderer/reverse.yaml``."""
@@ -1050,6 +1061,29 @@ class TestClientTextComesFromTheTheme:
         assert "walk on." in text and "move: W/A/S/D" not in text
         # Keys the theme leaves alone still come from classic.
         assert "press any key..." in text
+
+    def test_the_title_screen_prints_the_theme_s_prompt(self, monkeypatch):
+        """The prompt under the title art is ``client.title.prompt``, indented by the
+        client: classic's, or the --theme's when it rewords it."""
+        argv = [*_SOLO_ARGS, "--end-year", "1930", "--score-weight", "1"]
+        classic = self._main(monkeypatch, argv, [*NEW_GAME_ACKS, "q"])
+        themed = self._main(
+            monkeypatch, ["--theme", str(self._TEST_THEME), *argv], [*NEW_GAME_ACKS, "q"]
+        )
+        assert "\n   Drücke ENTER zum Starten." in classic
+        assert "\n   Los geht's mit ENTER." in themed
+        assert "zum Starten" not in themed
+
+    def test_the_client_source_holds_no_title_prompt_literal(self):
+        """No module of the terminal client spells the title prompt, in the C64's
+        spelling or today's: its words are the theme's."""
+        sources = sorted((Path(__file__).resolve().parents[1] / "clients").rglob("*.py"))
+        assert any(path.name == "ascii_art.py" for path in sources)
+        assert [
+            path.name
+            for path in sources
+            if re.search(r"Dr(ue|ü)cke|zum Starten", path.read_text(encoding="utf-8"))
+        ] == []
 
     def test_a_theme_path_changes_the_turn_over_labels(self, monkeypatch):
         from tests.test_client_loop import burn_turn_keys
@@ -1285,8 +1319,8 @@ class TestThemeSelection:
 # :290-292) and runs each player's eigenschaften screen (:300-316). The setup   #
 # handler asks; the client only draws it.                                       #
 # --------------------------------------------------------------------------- #
-_COUNT_PROMPT = "spieleranzahl:"
-_EIGENSCHAFTEN = "eigenschaften:"
+_COUNT_PROMPT = "Spieleranzahl:"
+_EIGENSCHAFTEN = "Eigenschaften:"
 #: The flags that pre-fill the end year and the score weight (the players stay asked).
 _SETUP_FLAGS = ["--end-year", "1930", "--score-weight", "1"]
 
@@ -1379,7 +1413,7 @@ class TestMultiplayerSetup:
         # The stats line without its energie (upkeep has raised that by the overview).
         stats_line = overview.split("\n")[1].split(" ", 1)[1]
         assert stats_line in re.sub(r"\033\[[0-9;?]*[A-Za-z]", "", text)
-        for cash, player in zip(re.findall(r"kapital: *(\d+) *\$", text), loaded.state.players):
+        for cash, player in zip(re.findall(r"Kapital: *(\d+) *\$", text), loaded.state.players):
             assert int(cash) == player.ka
 
     def test_same_seed_same_starting_stats_as_new_game(self, monkeypatch, tmp_path):
@@ -1424,7 +1458,7 @@ class TestMultiplayerSetup:
         for start in [m.start() for m in re.finditer(_EIGENSCHAFTEN, text)]:
             screen = text[start : text.index(press, start)]
             assert CLEAR not in screen, "the eigenschaften screen was cleared before its key"
-            for line in ("kraft:", "intelligenz:", "brutalitaet:", "energie:", "kapital:"):
+            for line in ("Kraft:", "Intelligenz:", "Brutalität:", "Energie:", "Kapital:"):
                 assert line in screen
 
     def test_a_bad_count_and_a_long_name_are_asked_again(self, monkeypatch, tmp_path):
@@ -1554,7 +1588,7 @@ def test_a_line_menu_asks_again_for_a_number_that_names_no_option():
     menu = PromptChoice("locations.sph.game_menu", options=["a", "b", "c"])
     seen, text = _choose(menu, "0\n4\nx\n3\n")
     assert seen == [2]
-    assert text.count("waehle, mein freund:") == 4
+    assert text.count("Wähle, mein Freund:") == 4
 
 
 def test_a_cancellable_line_menu_relays_zero_as_cancel():
@@ -1571,7 +1605,7 @@ def test_a_key_menu_takes_the_first_key_of_a_piped_line_and_ignores_other_keys()
     menu = PromptChoice("locations.sgl.after_menu", options=["a", "b", "c"], read=READ_KEY)
     seen, text = _choose(menu, "0\n4\nq\n\n12\n")
     assert seen == [0]
-    assert text.count("was machst du:") == 1
+    assert text.count("Was machst du:") == 1
     assert "> " not in text, "a one-key menu shows no line prompt"
 
 
@@ -1790,7 +1824,7 @@ def test_enter_at_a_one_key_prompt_without_a_blank_is_ignored_without_a_reprint(
     inp, out = _eof_client("\n²\n2\n")
     run(handler, inp, state=None, rng=None)
     assert seen == [2]
-    assert out.getvalue().count("1 trickspiegel") == 1
+    assert out.getvalue().count("1 Trickspiegel") == 1
 
 
 @pytest.mark.parametrize("text", ["{a: 1}\n", "[1]\n", "- ok\n- 2\n"])

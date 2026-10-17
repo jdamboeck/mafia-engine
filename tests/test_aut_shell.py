@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_aut.py``) resolve in the classic theme and reach every aut string,
-and the text is verbatim from the research corpus (location-dialogue.yaml, aut).
+and the C64-text fixture is verbatim from the research corpus (location-dialogue.yaml, aut).
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_aut import _EXITS, _run, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -88,36 +89,36 @@ def test_the_classic_theme_prints_each_aut_line_as_the_source():
     cases = {
         "locations.aut.showroom": (
             {},
-            "der verkaeufer zeigt dir eine auswahl\nder modelle. zum kauf die entsprechende\n"
-            "nummerntaste (0=ende) druecken!",
+            "Der Verkäufer zeigt dir eine Auswahl der Modelle. Zum Kauf die entsprechende"
+            " Nummerntaste (0=Ende) drücken!",
         ),
         "locations.aut.model": (
-            {"number": 4, "name": "auburn mod.120", "price": 6000},
-            "4 auburn mod.120\n 6000 $",
+            {"number": 4, "name": "Auburn Mod.120", "price": 6000},
+            "4 Auburn Mod.120\n 6000 $",
         ),
         "locations.aut.model_prompt": ({}, ""),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
         "locations.aut.trade_in_offer": (
             {"amount": 2000},
-            "man bietet dir 2000 $ fuer deine alte\nschaukel.",
+            "Man bietet dir 2000 $ für deine alte Schaukel.",
         ),
-        "locations.aut.confirm": ({}, "ok (j/n)?"),
-        "locations.aut.sold": ({}, "der verkaeufer reicht dir schluessel\nund papiere."),
-        "locations.aut.crowded": ({}, "es sind zuviele leute hier!"),
-        "locations.aut.steal_prompt": ({}, "wer soll den wagen aufbrechen:"),
+        "locations.aut.confirm": ({}, "OK (j/n)?"),
+        "locations.aut.sold": ({}, "Der Verkäufer reicht dir Schlüssel und Papiere."),
+        "locations.aut.crowded": ({}, "Es sind zu viele Leute hier!"),
+        "locations.aut.steal_prompt": ({}, "Wer soll den Wagen aufbrechen:"),
         "locations.aut.stolen": (
             {},
-            "yeah! die karre ist offen! du machst\ndich damit aus dem staub.",
+            "Yeah! Die Karre ist offen! Du machst dich damit aus dem Staub.",
         ),
         "locations.aut.stolen_old_car_left": (
             {},
-            "yeah! die karre ist offen! du machst\ndich damit aus dem staub und musst lei-\n"
-            "der deinen alten wagen stehen lassen.",
+            "Yeah! Die Karre ist offen! Du machst dich damit aus dem Staub und musst leider"
+            " deinen alten Wagen stehen lassen.",
         ),
-        "locations.aut.caught": ({}, "leider erwischt dich der besitzer der\nkarre!"),
+        "locations.aut.caught": ({}, "Leider erwischt dich der Besitzer der Karre!"),
         "locations.aut.owner_killed": (
             {},
-            "nach dem mord an dem besitzer musst du\nverschwinden und den wagen stehen\nlassen!",
+            "Nach dem Mord an dem Besitzer musst du verschwinden und den Wagen stehen lassen!",
         ),
         "turn.picker.gangster": (
             {
@@ -127,26 +128,39 @@ def test_the_classic_theme_prints_each_aut_line_as_the_source():
                 "kraft": 12,
                 "intelligenz": 30,
                 "brutalitaet": 5,
-                "weapon": "revolver",
+                "weapon": "Revolver",
             },
-            "2 luigi\ne09 k12 i30 b05\nw:revolver",
+            "2 luigi\ne09 k12 i30 b05\nw:Revolver",
         ),
-        "turn.picker.prompt": ({}, "nummer:"),
+        "turn.picker.prompt": ({}, "Nummer:"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key
 
 
 def test_aut_strings_verbatim():
-    """Menu and entry text, byte for byte from location-dialogue.yaml (aut), the
-    40-column wrap padding included."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.aut.entry_prompt") == (
+    """The C64-text fixture\'s menu and entry text, byte for byte from
+    location-dialogue.yaml (aut), the 40-column wrap padding included."""
+    assert fixture_value("locations.aut.entry_prompt") == (
         "EIN UMFANGREICHES SORTIMENT DER         FLOTTESTEN SCHLITTEN."
     )
-    assert _get(data, "locations.aut.menu.buy") == "WAGEN KAUFEN"
-    assert _get(data, "locations.aut.menu.steal") == "AUTO 'ORGANISIEREN'"
-    assert _get(data, "locations.aut.menu.leave") == "WIEDER GEHEN"
+    assert fixture_value("locations.aut.menu.buy") == "WAGEN KAUFEN"
+    assert fixture_value("locations.aut.menu.steal") == "AUTO 'ORGANISIEREN'"
+    assert fixture_value("locations.aut.menu.leave") == "WIEDER GEHEN"
+
+
+def test_aut_screen_text_in_today_s_spelling():
+    """The live classic theme's aut title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.aut.title") == "Automobil-Händler"
+    assert _get(data, "locations.aut.entry_prompt") == (
+        "Ein umfangreiches Sortiment der flottesten Schlitten."
+    )
+    assert _get(data, "locations.aut.menu.buy") == "Wagen kaufen"
+    assert _get(data, "locations.aut.menu.steal") == "Auto 'organisieren'"
+    assert _get(data, "locations.aut.menu.leave") == "Wieder gehen"
 
 
 def test_the_aut_doors_open_the_aut_shell_one_per_tile():

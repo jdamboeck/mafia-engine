@@ -1,17 +1,19 @@
-# upkeep (turn-start flow) — classic-theme strings (VERBATIM German).
+# upkeep (turn-start flow) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: the engine emits KEYS (e.g. "upkeep.turn_banner") and the
-# theme resolves them to these strings. Ported byte-for-byte from the research
+# theme resolves them to these strings. Ported from the research
 # (research-data/pass-1/game-text.yaml lines ~4005-4006, ~4200-4220 +
 # mf-prg.bas:4000-4090). {name}/{gang_name}/{score}/{rank_name} are template params.
 upkeep:
   # Turn banner (4005-4006): "spieler <name>" / "ist an der reihe..."
-  turn_banner: "spieler {name}\nist an der reihe..."
+  turn_banner: "Spieler {name}\nist an der Reihe..."
 
   # Rank-promotion "wanted poster" screen (4200-4220): gang name, player name (with a
   # trailing "."), score ("<n> p."), then the rank name — each line was printed in
   # reverse video ({rvon}) on the original's poster backdrop; the terminal client
-  # renders that presentation, this key only carries the verbatim text content.
+  # renders that presentation, this key only carries the text.
   # :4200 `print"{rvon}"bn$(sp)` the gang name.
   # :4210 `print"{rvon}"sp$(sp)"."` the player's name.
   # :4220 `print"{rvon}"ra$(ra(sp))` the rank; its key wait is the upkeep screen's one
@@ -26,24 +28,24 @@ upkeep:
   # The grace warning (:4306,4308-4309) is one screen printed as three lines:
   #   "du hast <kr>$ schulden. dir bleiben" / "noch <kz+1> monat(e), sie" /
   #   "abzuzahlen!" — the source's line breaks fall mid-sentence purely because of
-  # the C64's 40-column screen, so the port keeps the wording verbatim while letting
+  # the C64's 40-column screen, so the port keeps the wording and lets
   # the sentence read as one. {months} is ALREADY kz+1 (the handler does that
   # arithmetic); {amount} is the outstanding balance kr(sp).
-  debt_warning: "du hast{amount}$ schulden. dir bleiben noch{months}monat(e), sie abzuzahlen!"
+  debt_warning: "Du hast{amount}$ Schulden. Dir bleiben noch{months}Monat(e), sie abzuzahlen!"
 
   # :4350 — the collectors are loosed (printed before the fight starts).
-  debt_collectors_intro: "der kredithai hetzt seine eintreiber auf dich..."
+  debt_collectors_intro: "Der Kredithai hetzt seine Eintreiber auf dich..."
 
   # :4365 — printed ONLY on a loss, immediately before :4370 zeroes cash + debt.
-  debt_seized: "die kerle nehmen dein ganzes geld mit und verschwinden..."
+  debt_seized: "Die Kerle nehmen dein ganzes Geld mit und verschwinden..."
 
   # Arms-deal upkeep slot (mf-prg.bas:31000-31051) — resolves a tip-4 stake.
-  arms_deal_lost: "die waffenhaendler, denen du 5000 $ anvertraut hast, wurden geschnappt!"
-  arms_deal_won: "dein kapital hat im waffenhandel gearbeitet. du erhaelts{amount}$ zurueck!"
+  arms_deal_lost: "Die Waffenhändler, denen du 5000 $ anvertraut hast, wurden geschnappt!"
+  arms_deal_won: "Dein Kapital hat im Waffenhandel gearbeitet. Du erhältst{amount}$ zurück!"
 
   # Shop-income upkeep slot (mf-prg.bas:4400-4420) — the kdh loan business.
-  shop_income_quiet: "in deinem kreditinstitut herrscht flaute."
-  shop_income_earned: "dein kreditgeschaeft floriert und du machst{amount}$ einnahmen."
+  shop_income_quiet: "In deinem Kreditinstitut herrscht Flaute."
+  shop_income_earned: "Dein Kreditgeschäft floriert und du machst{amount}$ Einnahmen."
 
   # Rent slot (mf-prg.bas:4600-4652) — the late-rent consequence once the prepaid
   # months (um) run out. Both screens end in :1100's "taste druecken!" pause, which
@@ -55,6 +57,6 @@ upkeep:
   # column 0 ("250 $ gepfaendet!"). {tab(39)}{amount:str$.1} is that blank row: the
   # sign position at column 39 (a space, or a negative fine's minus). {amount:mid$}
   # is the amount row: the digits without the sign, then PRINT's trailing space.
-  rent_late: "du hast deine miete nicht puenktlich\n\ngezahlt. man hat dir moebel im wert von\n{tab(39)}{amount:str$.1}\n{amount:mid$} $ gepfaendet!"
+  rent_late: "Du hast deine Miete nicht pünktlich\n\ngezahlt. Man hat dir Möbel im Wert von\n{tab(39)}{amount:str$.1}\n{amount:mid$} $ gepfändet!"
   # :4650-4651 — the eviction (no cash to seize); the gang walks out.
-  rent_evicted: "deine wohnung wird dir gekuendigt!\ndeine gangster suchen sich einen anderen boss..."
+  rent_evicted: "Deine Wohnung wird dir gekündigt! Deine Gangster suchen sich einen anderen Boss..."

@@ -10,7 +10,7 @@ enemies:
   count: 1
   weapon: 6           # gewehr — mf-prg.bas:15312
   vitality: 35        # e=35 — mf-prg.bas:15312
-  name: schuldner
+  name: Schuldner
 grid: ks
 on_win:
   - money: {roll: [500, 1499]}   # p=int(rnd(1)*1000)+500 — :15320

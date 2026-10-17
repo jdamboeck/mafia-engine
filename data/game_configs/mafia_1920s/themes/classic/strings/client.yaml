@@ -12,6 +12,11 @@ client:
   # Acknowledgement line under the upkeep, turn-over and game-end screens.
   press_any_key: "press any key..."
 
+  # The title screen's prompt under the title art; the client indents it. German,
+  # like location.press_enter.
+  title:
+    prompt: "Drücke ENTER zum Starten."
+
   # Screen header names.
   header:
     upkeep: "upkeep"
@@ -40,7 +45,7 @@ client:
     nothing_to_do: "(nothing to do here)"
     # Shown when the theme has no entry_prompt for the location.
     entry_fallback: "-- {location} --"
-    press_enter: "ENTER druecken..."
+    press_enter: "ENTER drücken..."
 
   # The turn-over summary for the player whose turn just ended.
   turn_over:

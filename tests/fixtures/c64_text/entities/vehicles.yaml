@@ -1,0 +1,9 @@
+# The C64 text of data/game_configs/mafia_1920s/entities/vehicles.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"entities.vehicles.0.name": "fuesse"
+"entities.vehicles.1.name": "talbot 90"
+"entities.vehicles.2.name": "chevy roadster"
+"entities.vehicles.3.name": "buick century"
+"entities.vehicles.4.name": "auburn mod.120"
+"entities.vehicles.5.name": "citroen t.a."

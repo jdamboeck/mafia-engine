@@ -3,6 +3,8 @@
 # renderer/palette.yaml recolours two colours the same way.
 client:
   bye: "ciao."
+  title:
+    prompt: "Los geht's mit ENTER."
   map:
     hint: "walk on."
   turn_over:

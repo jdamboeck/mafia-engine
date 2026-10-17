@@ -356,7 +356,7 @@ def test_win_changes_nothing_and_the_fight_recurs_next_turn():
         for m in source.messages()
         if m.key == "combat.losses_line"
     ]
-    assert losses == [(_GANG, 0), ("eintreiber", 5)]
+    assert losses == [(_GANG, 0), ("Eintreiber", 5)]
     assert "upkeep.debt_seized" not in source.message_keys()
 
     # Nothing was seized: cash, debt and the expired counter all survive untouched.
@@ -387,7 +387,7 @@ def test_the_fight_actually_re_fires_on_the_following_turn():
     second = run_upkeep(first.state, input_source=second_source, rng=StubRng())
     # Turn 2 fought again — and this time lost, so the seizure fired.
     assert "upkeep.debt_collectors_intro" in second_source.message_keys()
-    assert _winner_banners(second_source) == ["eintreiber"]
+    assert _winner_banners(second_source) == ["Eintreiber"]
     assert second.state.players[0].ka == 0
     assert game.debt(second.state.players[0]) == Debt(amount=0, months=0)
 

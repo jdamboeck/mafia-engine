@@ -1,0 +1,4 @@
+# The C64 text of data/game_configs/mafia_1920s/content/encounters/sgl_thugs.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"encounters.sgl_thugs.enemies.name": "schlaeger"

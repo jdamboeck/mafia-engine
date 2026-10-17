@@ -1,0 +1,6 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/session.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"session.saved": "spielstand gespeichert: {path}"
+"session.save_failed": "speichern fehlgeschlagen: {reason}"
+"session.whose_turn": "spieler {name}\nist an der reihe..."

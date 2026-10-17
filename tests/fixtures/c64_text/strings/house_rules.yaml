@@ -1,0 +1,12 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/house_rules.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"house_rules.intelligence_or_30": "first gangster's intelligence: 30, 31, 62 or 63 (the roll OR 30) / the roll shown at setup"
+"house_rules.shared_direction_memory": "fight AI vs AI: both sides' fighter N share one step memory / each fighter keeps its own"
+"house_rules.stale_bribe_price": "police chief's bribe: the arrest charges whatever amount was last used / the ordinary police bribe"
+"house_rules.flight_odds_by_seat": "fleeing the police: odds by seat number / odds by the player's vehicle"
+"house_rules.c64_input_negatives": "a negative count at the pub's buy and sell, the police chief's months, the motel's months and the casino's stake, and a sign set apart from its digits (- 3) at any number prompt: goes through / is asked again"
+"house_rules.chief_bribe_empty_answer": "police chief: an empty month count repeats the last map step / buys nothing"
+"house_rules.gang_war_score_to_the_attacker": "gang war: the attacker scores +3 even when he loses / the winner scores +3"
+"house_rules.prison_brawl_zeroes_the_attackers_boss": "prison brawl: a lost brawl zeroes the attacker's boss's energy / the beaten boss's"
+"house_rules.c64_float_score": "score: summed in C64 floating point / in exact decimals"

@@ -1,30 +1,32 @@
-# ble (Blueten-Eddie) — classic-theme strings (VERBATIM German).
+# ble (Blueten-Eddie) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: the engine emits KEYS and the theme resolves them. Ported from the
 # research (research-data/pass-2/location-dialogue.yaml, ble; mf-prg.bas:22000-22120).
-# The menu keeps the original's 40-column wrap padding. A number the source prints
-# between strings ("fuer"x"paesse") is a bare placeholder ("fuer{count}paesse"): the
+# The menu's 40-column wrap padding is one space. A number the source prints
+# between strings ("fuer"x"paesse") is a bare placeholder ("Für{count}Pässe"): the
 # c64 number style prints the spaces C64 PRINT puts around it.
 locations:
   ble:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
-    title: "BLUETEN-EDDIE"
-    entry_prompt: "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
+    # above the description (location-dialogue.yaml's title, in today's spelling).
+    title: "Blüten-Eddie"
+    entry_prompt: "'Na, mein Junge, wo drückt der Schuh? Kann ich dir helfen?'"
     menu:
-      passport: "'YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'"
-      counterfeit: "'DRUCKST DU NOCH BLUETEN? WIE WAERS,    WENN DU MIR EIN PAAR VERKAUFST?'"
-      leave: "'DANKE, EDDIE, VIELLEICHT BEIM NAECHS-  TEN MAL. BYE!'"
+      passport: "'Yeah, kannst du mir einen neuen Pass machen? Er muss gut sein, klar?'"
+      counterfeit: "'Druckst du noch Blüten? Wie wärs, wenn du mir ein paar verkaufst?'"
+      leave: "'Danke, Eddie, vielleicht beim nächsten Mal. Bye!'"
 
     # --- passport (22010-22020) ---
-    passport_for_one: "gut, mein sohn. fuer einen pass"        # :22010-22011 `gut, mein sohn.`
-    passport_for_many: "gut, mein sohn. fuer{count}paesse"   # :22010, :22012 `gut, mein sohn.`
+    passport_for_one: "Gut, mein Sohn. Für einen Pass"        # :22010-22011 `gut, mein sohn.`
+    passport_for_many: "Gut, mein Sohn. Für{count}Pässe"   # :22010, :22012 `gut, mein sohn.`
     passport_price: "macht das{price}$."                      # :22013 `macht das`
-    passport_done: "hier, noch druckfrisch, he, he!"           # :22015 `hier, noch druckfrisch, he, he!`
-    confirm: "ok (j/n)?"                                       # :1110 `ok (j/n)?`
+    passport_done: "Hier, noch druckfrisch, he, he!"           # :22015 `hier, noch druckfrisch, he, he!`
+    confirm: "OK (j/n)?"                                       # :1110 `ok (j/n)?`
 
     # --- counterfeit money (22100-22120) ---
-    counterfeit_reluctant: "nng...hoechst ungern! wieviel dollar"   # :22100 `nng...hoechst ungern! wieviel dollar`
+    counterfeit_reluctant: "Nng...höchst ungern! Wie viel Dollar"   # :22100 `nng...hoechst ungern! wieviel dollar`
     counterfeit_prompt: "willst du anlegen (0-5000)"                # :22105 `willst du anlegen (0-5000)`
     # :22106 `ifq>5000orq>ka(sp)thenprint"{up}{up}";:goto22105`: too much asks again.
-    counterfeit_offer: "ich gebe dir{amount}$ blueten dafuer."     # :22110 `$ blueten dafuer.`
+    counterfeit_offer: "Ich gebe dir{amount}$ Blüten dafür."     # :22110 `$ blueten dafuer.`

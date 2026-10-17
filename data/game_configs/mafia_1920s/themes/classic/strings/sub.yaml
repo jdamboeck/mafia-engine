@@ -1,33 +1,35 @@
-# sub (Subway-Station, U-Bahn) — classic-theme strings (VERBATIM German).
+# sub (Subway-Station, U-Bahn) — classic-theme strings.
+# The source's words in today's German spelling: each string folds back to the C64
+# text frozen in tests/fixtures/c64_text/ (tests/test_text_fold.py).
 #
 # DATA, not code: handlers/sub.py emits these KEYS and the theme resolves them. The menu
-# is the SEQ file src/sub (research-data/pass-2/location-dialogue.yaml, sub), with its
-# 40-column wrap padding; the rest is mf-prg.bas:18015-18052, printed as the listing
+# is the SEQ file src/sub (research-data/pass-2/location-dialogue.yaml, sub), its
+# 40-column wrap padding closed to one space; the rest is mf-prg.bas:18015-18052, printed as the listing
 # prints it. A screen that ends in :1100's "taste druecken!" pause gets it from the
 # client.
 locations:
   sub:
     # :3025 the title from the location's disk file, printed in reverse video
-    # above the description (verbatim from location-dialogue.yaml).
-    title: "SUBWAY-STATION (U-BAHN)"
-    entry_prompt: "DU BIST IN EINEM GROSSEN U-BAHNHOF. 'NE MENGE LEUTE TREIBEN SICH HIER 'RUM..."
+    # above the description (location-dialogue.yaml's title, in today's spelling).
+    title: "Subway-Station (U-Bahn)"
+    entry_prompt: "Du bist in einem großen U-Bahnhof. 'Ne Menge Leute treiben sich hier 'rum..."
     menu:
-      platform: "LEUTEN AUF DEM BAHNSTEIG DIE TASCHEN    ERLEICHTERN"
-      train: "IN DER BAHN DIE TASCHENINHALTE PRUEFEN"
-      leave: "ZURUECK ANS TAGESLICHT"
+      platform: "Leuten auf dem Bahnsteig die Taschen erleichtern"
+      train: "In der Bahn die Tascheninhalte prüfen"
+      leave: "Zurück ans Tageslicht"
 
     # --- the train's ticket (18015-18030) ---
-    ticket: "ein u-bahn-ticket kostet dich\n{price:mid$} $."                     # :18015-18020 `ein u-bahn-ticket kostet dich`
-    confirm: "ok (j/n)?"                                                   # :1110 `ok (j/n)?`
+    ticket: "Ein U-Bahn-Ticket kostet dich {price:mid$} $."                     # :18015-18020 `ein u-bahn-ticket kostet dich`
+    confirm: "OK (j/n)?"                                                   # :1110 `ok (j/n)?`
 
     # --- the pickpocketing (18035-18052) ---
-    thief_prompt: "welchen spieler setzt du als dieb ein:"                 # :18035 `welchen spieler setzt du als dieb ein:`
-    stealing: "du stiehlst..."                                             # :18039 `du stiehlst...`
-    caught: "...nichts! denn du wirst erwischt!"                           # :18042 `...nichts! denn du wirst erwischt!`
-    loot_handbag: "...eine handtasche - nichts wertvolles!"                # :18046
-    loot_camera: "...'nen fotoapparat! er bringt 50 $."                    # :18047
-    loot_pearls: "...eine falsche perlenkette!"                            # :18048
-    loot_watch: "...eine armbanduhr fuer 100 $!"                           # :18049
-    loot_wallet: "...'ne brieftasche mit 500 $!"                           # :18050
-    loot_diamond: "...einen diamanten! der ist 800 $ wert!"                # :18051
-    loot_manual: "...eine anleitung -der safeknacker- ??!"                 # :18052
+    thief_prompt: "Welchen Spieler setzt du als Dieb ein:"                 # :18035 `welchen spieler setzt du als dieb ein:`
+    stealing: "Du stiehlst..."                                             # :18039 `du stiehlst...`
+    caught: "...nichts! Denn du wirst erwischt!"                           # :18042 `...nichts! denn du wirst erwischt!`
+    loot_handbag: "...eine Handtasche - nichts Wertvolles!"                # :18046
+    loot_camera: "...'nen Fotoapparat! Er bringt 50 $."                    # :18047
+    loot_pearls: "...eine falsche Perlenkette!"                            # :18048
+    loot_watch: "...eine Armbanduhr für 100 $!"                           # :18049
+    loot_wallet: "...'ne Brieftasche mit 500 $!"                           # :18050
+    loot_diamond: "...einen Diamanten! Der ist 800 $ wert!"                # :18051
+    loot_manual: "...eine Anleitung -Der Safeknacker- ??!"                 # :18052

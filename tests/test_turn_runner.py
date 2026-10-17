@@ -475,7 +475,7 @@ def test_a_save_on_the_map_resumes_to_the_same_screen_without_upkeep(monkeypatch
 
     screens = resumed.split(CLEAR)[1:]
     assert len(screens) == 1, "the resumed game showed more than the map"
-    assert "ist an der reihe" not in resumed, "upkeep ran again on resume"
+    assert "ist an der Reihe" not in resumed, "upkeep ran again on resume"
     assert _map_without_note(screens[0], "move: W/A/S/D") == _map_without_note(saved_map, str(save))
 
 

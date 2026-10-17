@@ -124,8 +124,8 @@ With `--debug`, every shot prints a block like this (this is `play`; `watch --de
 prefixes it with `(replayed)`):
 
 ```
-=== activation 18 | side 1, fighter 1 (hero) -> shoot east ===
-  weapon: revolver (ts=5, tg=10, range=15)
+=== activation 18 | side 1, fighter 1 (Hero) -> shoot east ===
+  weapon: Revolver (ts=5, tg=10, range=15)
   hit check:
     draw = rng.range(ts=5)          -> 4
     accuracy attr (kraft)           -> 34
@@ -134,7 +134,7 @@ prefixes it with `(replayed)`):
     draw = rng.range(10*tg=100)    -> 0
     damage attr (brutalitaet)         -> 28
     (draw + attr) // 10 + 1         -> (0 + 28) // 10 + 1 = 3
-  target: side 2, fighter 1 (schuldner)  energie 35 -> 32
+  target: side 2, fighter 1 (Schuldner)  energie 35 -> 32
   result: hit, damage=3, downed=False
 ```
 
@@ -178,8 +178,8 @@ encounter: kdh_ambush   # the ENEMY side — reuses the in-game kdh_ambush encou
 seed: 42                # default RNG seed; --seed overrides it
 house_rules: {...}      # every house-rules switch, faithful or intent (required)
 player:                 # the PLAYER side — invented fighters (no roster needed)
-  - name: hero
-    weapon: 5           # revolver (id into entities/weapons.yaml)
+  - name: Hero
+    weapon: 5           # Revolver (id into entities/weapons.yaml)
     energie: 20
     kraft: 34
     brutalitaet: 28

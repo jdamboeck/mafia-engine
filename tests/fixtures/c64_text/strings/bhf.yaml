@@ -1,0 +1,12 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/bhf.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"locations.bhf.title": "RAILWAY-STATION (BAHNHOF)"
+"locations.bhf.entry_prompt": "DU BIST IM BAHNHOF VON CHICKAGO."
+"locations.bhf.menu.pub": "BAHNHOFSKNEIPE AUFSUCHEN"
+"locations.bhf.menu.pickpocket": "TASCHENDIEBSTAHL"
+"locations.bhf.menu.mail_train": "POSTZUG UEBERFALLEN"
+"locations.bhf.menu.leave": "NICHTS WIE WEG"
+"locations.bhf.no_train": "kein postzug zu sehen..."
+"locations.bhf.too_few": "du hast zu wenig gangster!"
+"locations.bhf.storm": "du stuermst in den panzerwaggon und\nbeginnst gerade einzusacken, als du auf\ndrei nette herren aufmerksam wirst..."

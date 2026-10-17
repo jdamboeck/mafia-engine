@@ -104,6 +104,7 @@ __all__ = [
     "load_weapons",
     "Weapon",
     "load_gangster_candidates",
+    "load_gangster_pronouns",
     "load_combat_backdrop",
     "weapon_stats_by_id",
     "CONFIG",
@@ -112,6 +113,7 @@ __all__ = [
     "WEAPONS",
     "WEAPON_STATS",
     "GANGSTER_CANDIDATES",
+    "GANGSTER_PRONOUNS",
     "BACKDROPS",
     "load_encounter",
     "EnemySpec",
@@ -260,6 +262,15 @@ def load_gangster_candidates(path: str | Path) -> list[dict]:
     return list(_load_yaml(path)["gangsters"])
 
 
+def load_gangster_pronouns(path: str | Path) -> dict[str, dict[str, str]]:
+    """Load the recruit offer's pronouns (``gangsters.yaml``'s ``pronouns``).
+
+    ``{"male" | "female": {"start": ..., "mid": ...}}``: the pronoun ``:12130`` picks
+    for a candidate (``y$``), as it reads where it opens a sentence and inside one.
+    """
+    return {gender: dict(forms) for gender, forms in _load_yaml(path)["pronouns"].items()}
+
+
 def load_combat_backdrop(path: str | Path) -> tuple[int, ...]:
     """Load a combat backdrop's linear wall/scenery code array.
 
@@ -313,6 +324,8 @@ WEAPONS = load_weapons(_CONFIG_DIR / CONFIG["entities"]["weapons"])
 WEAPON_STATS = _weapon_stats(WEAPONS)
 #: The recruit candidates (:func:`load_gangster_candidates`).
 GANGSTER_CANDIDATES = load_gangster_candidates(_CONFIG_DIR / "entities" / "gangsters.yaml")
+#: The recruit offer's pronouns by gender (:func:`load_gangster_pronouns`).
+GANGSTER_PRONOUNS = load_gangster_pronouns(_CONFIG_DIR / "entities" / "gangsters.yaml")
 #: Every combat backdrop under ``content/combat`` by its name (``kf$``), e.g. ``"ks"``.
 BACKDROPS = {
     path.stem: load_combat_backdrop(path)

@@ -1,0 +1,13 @@
+# The C64 text of data/game_configs/mafia_1920s/entities/ranks.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"entities.ranks.0": "anfaenger"
+"entities.ranks.1": "schlaeger"
+"entities.ranks.2": "kleiner fisch"
+"entities.ranks.3": "langfinger"
+"entities.ranks.4": "ganove"
+"entities.ranks.5": "mafiosi"
+"entities.ranks.6": "bullenschreck"
+"entities.ranks.7": "meuchelmoerder"
+"entities.ranks.8": "gangsterboss"
+"entities.ranks.9": "chef der unterwelt"

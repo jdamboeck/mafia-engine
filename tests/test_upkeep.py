@@ -166,7 +166,7 @@ def test_promotion_uses_the_configured_rank_name_table():
     import yaml
 
     ranks = yaml.safe_load((_CONFIG_DIR / "entities" / "ranks.yaml").read_text())["ranks"]
-    assert ranks[result.state.players[0].rank - 1] == "langfinger"
+    assert ranks[result.state.players[0].rank - 1] == "Langfinger"
 
 
 # --------------------------------------------------------------------------- #

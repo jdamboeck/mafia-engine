@@ -68,7 +68,14 @@ from ..gangster import Gangster
 from ..house_rules import ANY_NUMBER, C64_INPUT_NEGATIVES, intent, number_prompt
 from ..state import contraband, hired_ids, tenant
 
-from ..setup import GANGSTER_CANDIDATES, KEY_WAIT, RANKS, VEHICLES, score_and_rank
+from ..setup import (
+    GANGSTER_CANDIDATES,
+    GANGSTER_PRONOUNS,
+    KEY_WAIT,
+    RANKS,
+    VEHICLES,
+    score_and_rank,
+)
 
 __all__ = ["pub_drink", "pub_recruit", "pub_tip", "pub_job"]
 
@@ -423,7 +430,8 @@ def pub_recruit(ctx):
 
         candidate = candidates[candidate_id]
         female = candidate_id in _FEMALE_CANDIDATE_IDS
-        pronoun = "sie" if female else "er"
+        # :12130 y$: the content's pronoun, as it reads at a sentence start and inside one.
+        pronoun = GANGSTER_PRONOUNS["female" if female else "male"]
 
         # :12115-12121 — gendered intro.
         yield ShowMessage(
@@ -433,7 +441,8 @@ def pub_recruit(ctx):
         yield ShowMessage(
             "locations.pub.recruit_offer",
             {
-                "pronoun": pronoun,
+                "Pronoun": pronoun["start"],
+                "pronoun": pronoun["mid"],
                 "name": candidate["name"],
                 "description": candidate["description"],
                 "price": candidate["price"],

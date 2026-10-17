@@ -191,7 +191,7 @@ def test_a_sentences_score_loss_shows_the_demotion_screen_at_the_jailed_turn():
     seen, runner, _ = _drive(result.state, entry=TURN_OVER, stop=lambda s: bool(_jail_screens(s)))
 
     promotion = next(i for p, m, i in seen if getattr(i, "key", None) == "upkeep.rank_promotion")
-    assert (promotion.player, promotion.params["rank_name"]) == (0, "schlaeger")
+    assert (promotion.player, promotion.params["rank_name"]) == (0, "Schläger")
     assert _jail_screens(seen) == [(0, 1, 2)]
     jailed = runner.state.players[0]
     assert jailed.rank == 2
@@ -257,5 +257,5 @@ def test_the_client_shows_the_jail_screen(monkeypatch, tmp_path: Path):
         monkeypatch, tmp_path, state, NEXT_PLAYER, ["x", "x", "x", "x", "x", "q"]
     )
 
-    assert "du sitzt im knast. 2 monat(e) hast\ndu noch vor dir..." in output
+    assert "Du sitzt im Knast. 2 Monat(e) hast du noch vor dir..." in output
     assert game.wanted(end.players[1]).jail_months == 1

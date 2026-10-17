@@ -1,0 +1,23 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/pol.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"locations.pol.title": "POLIZEI-PRAESIDIUM"
+"locations.pol.entry_prompt": "'WAS HABEN SIE HIER ZU SUCHEN? MACHEN   SIE, DASS SIE RAUS KOMMEN!'"
+"locations.pol.menu.surrender": "'ICH BIN EIN GESUCHTER GANGSTER! ICH    MOECHTE MICH STELLEN.'"
+"locations.pol.menu.bribe": "POLIZEICHEF BESTECHEN"
+"locations.pol.menu.free": "VERSUCHEN, INHAFTIERTEN GANGSTER ZU     BEFREIEN"
+"locations.pol.menu.leave": "LIEBER GAR NICHTS TUN"
+"locations.pol.chief_offer": "aha! fuer einen monat untaetigkeit"
+"locations.pol.chief_prompt": "nehme ich 1000 $. wieviele monate:"
+"locations.pol.chief_broke": "sie sind leider nich fluessig!"
+"locations.pol.chief_done": "danke sehr! nehmen sie den hinter-\nausgang!"
+"locations.pol.nobody_jailed": "es ist niemand inhaftiert."
+"locations.pol.free_entry": "{index:mid$} {name}"
+"locations.pol.free_entry_phantom": "{index:mid$} irgendjemanden"
+"locations.pol.free_prompt": "wen willst du befreien:"
+"locations.pol.free_price": "du brauchst{price}$, um die waerter zu\nbestechen."
+"locations.pol.confirm": "ok (j/n)?"
+"locations.pol.freed": "du konntest den gefangenen befreien!"
+"locations.pol.phantom_leaves": "er bedankt sich und verschwindet..."
+"locations.pol.thank_you": "{name}!\ndu bist von {rescuer} aus dem\nknast befreit worden. wieviel zahlst du\nihm zum dank (0 -{cash:str$}):"
+"locations.pol.thank_you_prompt": "?"

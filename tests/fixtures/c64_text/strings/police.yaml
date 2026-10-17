@@ -1,0 +1,19 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/police.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"police.caught": "du bist von der polizei gefasst worden."
+"police.menu": "was nun:"
+"police.menu_bribe": "1 polizisten bestechen"
+"police.menu_flee": "2 fluchtversuch"
+"police.menu_surrender": "3 ergeben"
+"police.bribe_demand": "sie verlangen{price}$."
+"police.confirm": "ok (j/n)?"
+"police.let_go": "die bullen lassen dich gehen!"
+"police.escaped": "du bist gerade noch einmal entkommen!"
+"police.flight_failed": "die polizisten schnappen dich\ndu musst dich ergeben!"
+"police.trial": "deine gerichtsverhandlung..."
+"police.lawyer_offer": "willst du einen anwalt (j/n) ?"
+"police.lawyer_prompt": "wieviel legst du an (0-10000$)"
+"police.acquitted": "du wirst freigesprochen!"
+"police.lawyer_result": "dein anwalt boxt eine strafe von\nnur{months}monat(en) heraus."
+"police.sentenced": "du wanderst fuer{months}monat(e) hinter\ngitter!"

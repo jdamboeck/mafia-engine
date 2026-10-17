@@ -10,5 +10,5 @@ enemies:
   count: 1              # gz(0)=1 — :17587
   weapon: 7             # w=7, maschinenpistole (:17586 prints wa$(7)) — :17587
   vitality: 30          # e=30 — :17587
-  name: ladenbesitzer   # bn$(0)="ladenbesitzer" — :17587
+  name: Ladenbesitzer   # bn$(0)="ladenbesitzer" — :17587
 grid: ksgl              # kf$="ksgl" — :17587

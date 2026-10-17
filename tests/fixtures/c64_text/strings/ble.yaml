@@ -1,0 +1,16 @@
+# The C64 text of data/game_configs/mafia_1920s/themes/classic/strings/ble.yaml,
+# frozen before the string normalization (tests/text_fold.py). Never
+# regenerated: it is what the new text folds back to.
+"locations.ble.title": "BLUETEN-EDDIE"
+"locations.ble.entry_prompt": "'NA, MEIN JUNGE, WO DRUECKT DER SCHUH?  KANN ICH DIR HELFEN?'"
+"locations.ble.menu.passport": "'YEAH, KANNST DU MIR EINEN NEUEN PASS   MACHEN? ER MUSS GUT SEIN, KLAR?'"
+"locations.ble.menu.counterfeit": "'DRUCKST DU NOCH BLUETEN? WIE WAERS,    WENN DU MIR EIN PAAR VERKAUFST?'"
+"locations.ble.menu.leave": "'DANKE, EDDIE, VIELLEICHT BEIM NAECHS-  TEN MAL. BYE!'"
+"locations.ble.passport_for_one": "gut, mein sohn. fuer einen pass"
+"locations.ble.passport_for_many": "gut, mein sohn. fuer{count}paesse"
+"locations.ble.passport_price": "macht das{price}$."
+"locations.ble.passport_done": "hier, noch druckfrisch, he, he!"
+"locations.ble.confirm": "ok (j/n)?"
+"locations.ble.counterfeit_reluctant": "nng...hoechst ungern! wieviel dollar"
+"locations.ble.counterfeit_prompt": "willst du anlegen (0-5000)"
+"locations.ble.counterfeit_offer": "ich gebe dir{amount}$ blueten dafuer."

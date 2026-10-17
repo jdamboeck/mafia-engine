@@ -79,7 +79,13 @@ commit + branch conventions, and how to pick up the next unit. Then:
    checkpoints with typed keys, save-time schema check and schema 3, `InputExhausted`,
    the intent arm's exact score, the protocol in `engine/protocol.py`, the vendored
    research copy so CI runs every port test, the per-line citation audit, captured-key
-   shell tests, VICE divide/val captures; closed #189–#203).
+   shell tests, VICE divide/val captures; closed #189–#203),
+   and the String Normalization plan (`2026-10-16-002-…`, U1–U8 — every text the game
+   shows in today's German spelling: Groß-/Kleinschreibung, ä/ö/ü/ß, no 40-column wrap
+   padding, in-text row breaks as spaces, clear author typos fixed; the C64 text frozen
+   in `tests/fixtures/c64_text/` and held to the new text by the fold check, its
+   respellings on named lists; each unit's side-by-side approved by the user; closed
+   #207–#214).
    *(This is an append-only ledger of closed work — safe to grow, never goes stale.
    The **active** plan is derived per point 1, never listed here.)*
 3. **Work lands on** the feature branch the active plan names in its `branch:`
@@ -166,7 +172,7 @@ Other cross-cutting invariants:
   **no NOT** (restructure to avoid). Verified sufficient for every real guard.
 - **Strings:** zero hardcoded *display* text in the engine. The engine emits
   `(key, params)`; themes resolve them as parameterized templates
-  (`"kostet das {price}$ miete"`). Handler *branching logic* stays in Python — only text
+  (`"Pro Monat kostet das{price}$ Miete."`). Handler *branching logic* stays in Python — only text
   is externalized.
 - **RNG:** one seedable, loggable RNG from the start (`rng.hit(a,b)`, `rng.range(n)`);
   every call recordable so event-sourced replay is additive later.

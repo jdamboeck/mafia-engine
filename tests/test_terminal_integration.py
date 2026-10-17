@@ -125,8 +125,9 @@ class TestSmokeAsciiArt:
         assert "_____" in combined or "M" in combined
 
     def test_title_screen_has_prompt(self):
-        screen = title_screen(Colors(load_palette(), ColorSupport.TRUECOLOR))
-        assert "Druecke ENTER" in screen
+        prompt = Resolver.from_config(_CONFIG_DIR, theme="classic").resolve("client.title.prompt")
+        screen = title_screen(Colors(load_palette(), ColorSupport.TRUECOLOR), prompt)
+        assert "Drücke ENTER" in screen
         assert len(screen.split("\n")) > 5
 
     def test_location_art_slw(self):
@@ -202,8 +203,8 @@ class TestSmokeAsciiArt:
         acked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["", "1", "1"])
         unacked = run_play(monkeypatch, seed=42, stdin_keys=walk + ["1", "1"])
 
-        assert art_line in acked and "ENTER druecken..." in acked
-        assert acked.index(art_line) < acked.index("ENTER druecken...")
+        assert art_line in acked and "ENTER drücken..." in acked
+        assert acked.index(art_line) < acked.index("ENTER drücken...")
         assert "dein einsatz" in acked.lower(), "the acked script never reached the wager"
         assert "dein einsatz" not in unacked.lower(), "the splash did not wait for a key"
 
@@ -358,9 +359,9 @@ class TestQuitVocabulary:
         )
         # "" passes sph's picture splash; the menu then reads the quit (or EOF).
         output, _ret = run_play_returning(monkeypatch, seed=42, stdin_keys=walk + [""] + quit_keys)
-        assert "MAU-MAU" in output, "the walk never reached sph's location menu"
+        assert "Mau-Mau" in output, "the walk never reached sph's location menu"
         # Nothing between the menu and the quit: no option was picked.
-        assert "waehle, mein freund" not in output
+        assert "Wähle, mein Freund" not in output
         assert output.endswith("bye.\n" + CURSOR_SHOW)
         assert output.count("bye.") == 1
 
@@ -410,14 +411,14 @@ class TestTurnOverQuit:
     def test_q_at_turn_over_exits_without_advancing(self, monkeypatch):
         output, state = self._run(monkeypatch, ["q"])
         assert (state.clock.year, state.clock.month) == (1925, 0)
-        assert "spielstand" not in output
+        assert "Spielstand" not in output
         assert output.endswith("bye.\n" + CURSOR_SHOW)
 
     def test_eof_at_turn_over_exits_without_advancing(self, monkeypatch):
         # No turn-over key supplied: stdin exhausts, which quits like q.
         output, state = self._run(monkeypatch, [])
         assert (state.clock.year, state.clock.month) == (1925, 0)
-        assert "spielstand" not in output
+        assert "Spielstand" not in output
         assert output.endswith("bye.\n" + CURSOR_SHOW)
 
     def test_other_key_at_turn_over_advances(self, monkeypatch):
@@ -425,4 +426,4 @@ class TestTurnOverQuit:
         # so the standings of the month just played show, and their read hits EOF.
         output, state = self._run(monkeypatch, ["x"])
         assert (state.clock.year, state.clock.month) == (1925, 1)
-        assert output.index("turn_over") < output.index("spielstand 1925-1\n")
+        assert output.index("turn_over") < output.index("Spielstand 1925-1\n")

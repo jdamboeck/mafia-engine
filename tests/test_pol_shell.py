@@ -3,7 +3,7 @@
 The checks every location shell gets (``tests/test_kdh_shell.py``): the handlers
 resolve, the menu strings exist, the keys the handlers emit in their behavioural runs
 (``tests/test_pol.py``) resolve in the classic theme and reach every pol string,
-and the text is verbatim from the research (the SEQ menu src/pol, via
+and the C64-text fixture is verbatim from the research (the SEQ menu src/pol, via
 location-dialogue.yaml; the handler lines from the listing).
 """
 
@@ -19,6 +19,7 @@ from engine.locations import load_location
 from engine.strings import Resolver
 from tests.helpers import assert_captured_keys_resolve, location_strings
 from tests.test_pol import _EXITS, _run, _state
+from tests.text_fold import fixture_value
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "data" / "game_configs" / "mafia_1920s"
 
@@ -88,48 +89,64 @@ def test_the_pol_runs_reach_every_pol_string():
 def test_the_classic_theme_prints_each_pol_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.pol.chief_offer": ({}, "aha! fuer einen monat untaetigkeit"),
-        "locations.pol.chief_prompt": ({}, "nehme ich 1000 $. wieviele monate:"),
-        "locations.pol.chief_broke": ({}, "sie sind leider nich fluessig!"),
-        "locations.pol.chief_done": ({}, "danke sehr! nehmen sie den hinter-\nausgang!"),
-        "locations.pol.nobody_jailed": ({}, "es ist niemand inhaftiert."),
-        "locations.pol.free_prompt": ({}, "wen willst du befreien:"),
+        "locations.pol.chief_offer": ({}, "Aha! Für einen Monat Untätigkeit"),
+        "locations.pol.chief_prompt": ({}, "nehme ich 1000 $. Wie viele Monate:"),
+        "locations.pol.chief_broke": ({}, "Sie sind leider nich flüssig!"),
+        "locations.pol.chief_done": ({}, "Danke sehr! Nehmen Sie den Hinterausgang!"),
+        "locations.pol.nobody_jailed": ({}, "Es ist niemand inhaftiert."),
+        "locations.pol.free_prompt": ({}, "Wen willst du befreien:"),
         "locations.pol.free_entry": ({"index": 2, "name": "moran"}, "2 moran"),
         "locations.pol.free_entry_phantom": ({"index": 1}, "1 irgendjemanden"),
         "locations.pol.free_price": (
             {"price": 3500},
-            "du brauchst 3500 $, um die waerter zu\nbestechen.",
+            "Du brauchst 3500 $, um die Wärter zu bestechen.",
         ),
-        "locations.pol.confirm": ({}, "ok (j/n)?"),
-        "locations.pol.freed": ({}, "du konntest den gefangenen befreien!"),
-        "locations.pol.phantom_leaves": ({}, "er bedankt sich und verschwindet..."),
+        "locations.pol.confirm": ({}, "OK (j/n)?"),
+        "locations.pol.freed": ({}, "Du konntest den Gefangenen befreien!"),
+        "locations.pol.phantom_leaves": ({}, "Er bedankt sich und verschwindet..."),
         "locations.pol.thank_you": (
             {"name": "moran", "rescuer": "alcapone", "cash": 800},
-            "moran!\ndu bist von alcapone aus dem\nknast befreit worden. wieviel zahlst du\n"
-            "ihm zum dank (0 - 800):",
+            "moran! Du bist von alcapone aus dem Knast befreit worden. Wie viel zahlst du ihm"
+            " zum Dank (0 - 800):",
         ),
         "locations.pol.thank_you_prompt": ({}, "?"),
-        "system.not_enough_money": ({}, "du hast zu wenig kies!"),
+        "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
     }
     for key, (params, text) in cases.items():
         assert resolver.resolve(key, params) == text, key
 
 
 def test_pol_strings_verbatim():
-    """The menu byte for byte from the SEQ file src/pol (location-dialogue.yaml, pol),
-    the 40-column wrap padding included, "@" read as ","."""
-    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
-    assert _get(data, "locations.pol.entry_prompt") == (
+    """The C64-text fixture's menu, byte for byte from the SEQ file src/pol
+    (location-dialogue.yaml, pol), the 40-column wrap padding included, "@" read as ","."""
+    assert fixture_value("locations.pol.entry_prompt") == (
         "'WAS HABEN SIE HIER ZU SUCHEN? MACHEN   SIE, DASS SIE RAUS KOMMEN!'"
     )
-    assert _get(data, "locations.pol.menu.surrender") == (
+    assert fixture_value("locations.pol.menu.surrender") == (
         "'ICH BIN EIN GESUCHTER GANGSTER! ICH    MOECHTE MICH STELLEN.'"
     )
-    assert _get(data, "locations.pol.menu.bribe") == "POLIZEICHEF BESTECHEN"
-    assert _get(data, "locations.pol.menu.free") == (
+    assert fixture_value("locations.pol.menu.bribe") == "POLIZEICHEF BESTECHEN"
+    assert fixture_value("locations.pol.menu.free") == (
         "VERSUCHEN, INHAFTIERTEN GANGSTER ZU     BEFREIEN"
     )
-    assert _get(data, "locations.pol.menu.leave") == "LIEBER GAR NICHTS TUN"
+    assert fixture_value("locations.pol.menu.leave") == "LIEBER GAR NICHTS TUN"
+
+
+def test_pol_screen_text_in_today_s_spelling():
+    """The live classic theme's pol title, entry and menu text: the disk file's
+    words in today's spelling, the wrap padding one space (the fold check ties
+    them to the C64-text fixture above)."""
+    data = yaml.safe_load(_STRINGS.read_text(encoding="utf-8"))
+    assert _get(data, "locations.pol.title") == "Polizei-Präsidium"
+    assert _get(data, "locations.pol.entry_prompt") == (
+        "'Was haben Sie hier zu suchen? Machen Sie, dass Sie raus kommen!'"
+    )
+    assert _get(data, "locations.pol.menu.surrender") == (
+        "'Ich bin ein gesuchter Gangster! Ich möchte mich stellen.'"
+    )
+    assert _get(data, "locations.pol.menu.bribe") == "Polizeichef bestechen"
+    assert _get(data, "locations.pol.menu.free") == "Versuchen, inhaftierten Gangster zu befreien"
+    assert _get(data, "locations.pol.menu.leave") == "Lieber gar nichts tun"
 
 
 def test_the_pol_door_opens_the_pol_shell_and_is_the_configured_door_cell():

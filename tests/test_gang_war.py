@@ -200,9 +200,9 @@ def test_the_gate_opens_on_the_round_shown_as_1925_5(year, month):
 
 def test_the_refusal_texts_are_the_sources():
     resolver = _resolver()
-    assert resolver.resolve("gang_war.solo") == "bei solo-spiel nicht moeglich!"
-    assert resolver.resolve("gang_war.too_early") == "erst ab 4/1925 moeglich!"
-    assert resolver.resolve("turn.menu.option.gang_war") == "3 - bandenkrieg"
+    assert resolver.resolve("gang_war.solo") == "Bei Solo-Spiel nicht möglich!"
+    assert resolver.resolve("gang_war.too_early") == "Erst ab 4/1925 möglich!"
+    assert resolver.resolve("turn.menu.option.gang_war") == "3 - Bandenkrieg"
 
 
 def _resolver():
@@ -457,16 +457,16 @@ def test_the_defenders_board_is_announced_and_the_line_survives_the_render(monke
     output = out.getvalue()
     boards = [s for s in output.split(CLEAR) if _is_board(s)]
     assert len(boards) == 2, "not one board per activation"
-    assert "spieler moran\nist an der reihe..." in boards[0], "moran's board was not announced"
-    assert "ist an der reihe" not in boards[1], "alcapone, the active player, was announced"
+    assert "Spieler moran\nist an der Reihe..." in boards[0], "moran's board was not announced"
+    assert "ist an der Reihe" not in boards[1], "alcapone, the active player, was announced"
     # KTD-6: the outcome screen's wait (:30520) stays alcapone's, unannounced.
-    (outcome,) = [s for s in output.split(CLEAR) if "sieger: " in s]
-    outcome = outcome[outcome.index("sieger: ") :]
-    assert "verluste der spieler" in outcome
-    assert "ist an der reihe" not in outcome, "the duel's outcome wait was announced"
+    (outcome,) = [s for s in output.split(CLEAR) if "Sieger: " in s]
+    outcome = outcome[outcome.index("Sieger: ") :]
+    assert "Verluste der Spieler" in outcome
+    assert "ist an der Reihe" not in outcome, "the duel's outcome wait was announced"
     # moran won: his plunder screen clears too, and is announced under its clear.
-    (plunder,) = [s for s in output.split(CLEAR) if "du findest beim pluendern" in s]
-    assert plunder.index("spieler moran\nist an der reihe...") < plunder.index("moran, du")
+    (plunder,) = [s for s in output.split(CLEAR) if "du findest beim Plündern" in s]
+    assert plunder.index("Spieler moran\nist an der Reihe...") < plunder.index("moran, du")
     # :27025 from 6000 $: int(6000/4)=1500 plus 0..999.
     assert 6000 + 1500 <= after.players[_DEFENDER].ka <= 6000 + 2499
 
@@ -599,13 +599,13 @@ def test_the_jailed_players_board_is_announced(monkeypatch, tmp_path):
     output = out.getvalue()
     boards = [s for s in output.split(CLEAR) if _is_board(s)]
     assert len(boards) == 1, "not one board for moran's one activation"
-    assert "spieler moran\nist an der reihe..." in boards[0], "moran's board was not announced"
+    assert "Spieler moran\nist an der Reihe..." in boards[0], "moran's board was not announced"
     # KTD-6: the outcome screen's wait (:30520) and the lost brawl's (:27150) are
     # moran's, each announced once, under the outcome lines.
-    (outcome,) = [s for s in output.split(CLEAR) if "sieger: mr.bonebreaker" in s]
-    outcome = outcome[outcome.index("sieger: mr.bonebreaker") :]
-    assert outcome.count("spieler moran\nist an der reihe...") == 2
-    assert outcome.index("spieler moran") > outcome.index("mr.bonebreaker: 0")
+    (outcome,) = [s for s in output.split(CLEAR) if "Sieger: Mr.Bonebreaker" in s]
+    outcome = outcome[outcome.index("Sieger: Mr.Bonebreaker") :]
+    assert outcome.count("Spieler moran\nist an der Reihe...") == 2
+    assert outcome.index("Spieler moran") > outcome.index("Mr.Bonebreaker: 0")
     assert after.players[_ATTACKER].ka == 6000 - 3000
 
 

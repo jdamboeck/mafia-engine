@@ -226,10 +226,10 @@ def test_multiplayer_ok():
 def test_vehicles_data():
     vs = load_vehicles(VEHICLES_PATH)
     assert len(vs) == 6
-    assert vs[0]["name"] == "fuesse"
+    assert vs[0]["name"] == "Füße"
     assert vs[0]["tank"] == 50
     assert vs[0]["tr"] == 25
-    assert vs[4]["name"] == "auburn mod.120"
+    assert vs[4]["name"] == "Auburn Mod.120"
     assert vs[4]["tr"] == 60
     assert vs[3]["tank"] == 200
 
@@ -237,8 +237,8 @@ def test_vehicles_data():
 def test_ranks_data():
     rs = load_ranks(RANKS_PATH)
     assert len(rs) == 10
-    assert rs[0] == "anfaenger"  # index 1 in the game, first entry here
-    assert rs[9] == "chef der unterwelt"
+    assert rs[0] == "Anfänger"  # index 1 in the game, first entry here
+    assert rs[9] == "Chef der Unterwelt"
 
 
 # --- start year (U4, R3/KTD-3) --------------------------------------------

@@ -1,20 +1,22 @@
-# Vehicle table — verbatim from the original game (mf-prg.bas:50300-50305).
+# Vehicle table — from the original game (mf-prg.bas:50300-50305); the names in today's
+# German spelling, each folding back to the C64 text in tests/fixtures/c64_text/
+# (tests/test_text_fold.py).
 #
 # Each entry is ENTITY-NAME/stat data owned by the game config, not
 # engine display text: the German names are the vehicle identities in the
 # 1920s Mafia world.
 #
 # Fields per entry:
-#   name  — vehicle name (German, verbatim)
+#   name  — vehicle name (German, in today's spelling)
 #   tank  — alcohol/fuel capacity
 #   tr    — travel range == a fresh player's movement points (ms) for that
 #           vehicle. On foot (index 0) tr=25, so a new on-foot player has ms=25.
 #
 # Order is significant: list index == in-game vehicle index (0..5).
 vehicles:
-  - {name: "fuesse",         tank: 50,  tr: 25}   # 0 — on foot
-  - {name: "talbot 90",      tank: 100, tr: 35}   # 1
-  - {name: "chevy roadster", tank: 120, tr: 40}   # 2
-  - {name: "buick century",  tank: 200, tr: 40}   # 3
-  - {name: "auburn mod.120", tank: 150, tr: 60}   # 4
-  - {name: "citroen t.a.",   tank: 100, tr: 35}   # 5
+  - {name: "Füße",           tank: 50,  tr: 25}   # 0 — on foot
+  - {name: "Talbot 90",      tank: 100, tr: 35}   # 1
+  - {name: "Chevy Roadster", tank: 120, tr: 40}   # 2
+  - {name: "Buick Century",  tank: 200, tr: 40}   # 3
+  - {name: "Auburn Mod.120", tank: 150, tr: 60}   # 4
+  - {name: "Citroen T.A.",   tank: 100, tr: 35}   # 5

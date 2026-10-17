@@ -1,0 +1,68 @@
+# The key groups that land on one screen line together (KTD-9): a fragment is cased by
+# its place on screen, so tools/text_side_by_side.py renders each group's keys
+# together whenever one of them changes, for the user to judge their casing in place.
+# `keys` are fixture keys or fnmatch globs over them (every one must match a key,
+# tests/test_text_fold.py); `where` says what joins them. Hand-kept: a group found
+# later is added here.
+joined_keys:
+  - where: >-
+      clients/terminal/renderers.py _label_row: the CPU fighter's label and the active
+      fighter's, written over each other on the board's row 18 (:30400, :30115)
+    keys: [combat.cpu_label, combat.player_label_side1, combat.player_label_side2]
+  - where: >-
+      clients/terminal/renderers.py render_combat_labels: the two sides' names on one
+      line (:30015 printbn$(ks(i))), a side's name being its fighters' name
+    keys: [combat.side_names, "encounters.*.name", "scenarios.*.name"]
+  - where: >-
+      clients/terminal/fightlab.py: the replayed prefix in front of the activation's
+      debug header
+    keys: [fightlab.debug.replayed, fightlab.debug.header, fightlab.debug.header_aimed]
+  - where: >-
+      a rank's name as the {rank} / {rank_name} value inside the sentence (ban.py,
+      pub.py, turn.py, upkeep.py: ranks[rank - 1])
+    keys:
+      - locations.ban.rank_too_low
+      - locations.pub.rank_too_low
+      - locations.pub.job_rank_too_high
+      - turn.overview.rank
+      - upkeep.rank_promotion
+      - "entities.ranks.*"
+  - where: >-
+      pub.py :12131-12136: a candidate's name and description as the {name} and
+      {description} values of the recruit offer
+    keys:
+      - locations.pub.recruit_offer
+      - "entities.gangsters.*.name"
+      - "entities.gangsters.*.description"
+  - where: >-
+      a hired gangster's name as the {name} value (turn.py and setup.py gangster_line,
+      waf.py camp_enter)
+    keys:
+      - turn.overview.gangster
+      - turn.picker.gangster
+      - locations.waf.camp_enter
+      - "entities.gangsters.*.name"
+  - where: >-
+      a vehicle's name as the {name} / {vehicle} value (aut.py showroom, gang_war.py
+      vehicle offer, turn.py overview)
+    keys:
+      - locations.aut.model
+      - gang_war.vehicle_offer
+      - turn.overview.vehicle
+      - "entities.vehicles.*.name"
+  - where: >-
+      a weapon's name as the {name} / {weapon} value (waf.py sheet and rows, sgl.py
+      owner_arms, the combat panel, turn.py and setup.py gangster_line)
+    keys:
+      - locations.waf.spec_sheet
+      - locations.waf.weapon_row
+      - locations.sgl.owner_arms
+      - combat.panel_weapon
+      - turn.overview.gangster
+      - turn.picker.gangster
+      - "entities.weapons.*.name"
+  - where: >-
+      gang_war.py :27030-27031: the vehicle offer's sentence runs on into its confirm
+      prompt on the next row ("Willst du auch noch den {vehicle}" / "mitnehmen (j/n) ?"),
+      so the prompt opens in lower case
+    keys: [gang_war.vehicle_offer, gang_war.vehicle_confirm]
