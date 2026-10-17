@@ -191,7 +191,7 @@ def test_a_sentences_score_loss_shows_the_demotion_screen_at_the_jailed_turn():
     seen, runner, _ = _drive(result.state, entry=TURN_OVER, stop=lambda s: bool(_jail_screens(s)))
 
     promotion = next(i for p, m, i in seen if getattr(i, "key", None) == "upkeep.rank_promotion")
-    assert (promotion.player, promotion.params["rank_name"]) == (0, "schlaeger")
+    assert (promotion.player, promotion.params["rank_name"]) == (0, "Schläger")
     assert _jail_screens(seen) == [(0, 1, 2)]
     jailed = runner.state.players[0]
     assert jailed.rank == 2

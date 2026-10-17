@@ -180,7 +180,7 @@ def test_below_rank_3_the_bank_names_the_rank_even_on_a_revisit(key, rank):
     assert result.effects == []
     assert result.state == st
     (msg,) = source.messages()
-    assert (msg.key, msg.params) == ("locations.ban.rank_too_low", {"rank": "kleiner fisch"})
+    assert (msg.key, msg.params) == ("locations.ban.rank_too_low", {"rank": "Kleiner Fisch"})
 
 
 @pytest.mark.parametrize("key", ["holdup", "safe"])
@@ -275,7 +275,7 @@ def test_the_guards_are_wachmaenner_with_gewehre_on_kb(ln, men):
     scenario = start.scenario
     assert scenario is not None and scenario.sides is not None
     assert [(f.name, f.weapon, f.vitality) for f in scenario.sides[1]] == [
-        ("wachmaenner", 6, 30)
+        ("Wachmänner", 6, 30)
     ] * men
     assert scenario.grid == load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / "kb.yaml")
 

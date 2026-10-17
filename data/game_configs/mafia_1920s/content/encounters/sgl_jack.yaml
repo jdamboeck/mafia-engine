@@ -13,8 +13,8 @@ variants:
   - count: 3            # gz(0)=3-2*(gz(sp)>5), gang of 5 or fewer — :17210
     weapon: 7           # w=7, maschinenpistole — :17210
     vitality: 30        # e=30 — :17210
-    name: jack's gang   # bn$(0)="jack's gang" — :17210
+    name: Jack's Gang   # bn$(0)="jack's gang" — :17210
   - count: 5            # gz(0)=3-2*(gz(sp)>5), gang of more than 5 — :17210
     weapon: 7
     vitality: 30
-    name: jack's gang
+    name: Jack's Gang

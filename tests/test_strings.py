@@ -357,8 +357,8 @@ _SOURCE_TEXTS = [
     # --- pub recruit, :12101-12170 ---
     (
         "locations.pub.rank_too_low",
-        {"rank": "ganove"},
-        "Als ganove kannst du noch keine eigenen Leute haben!",
+        {"rank": "Ganove"},
+        "Als Ganove kannst du noch keine eigenen Leute haben!",
     ),
     ("locations.pub.recruit_no_housing", {}, "Du brauchst eine Unterkunft für die Gangster!"),
     ("locations.pub.recruit_gang_full", {}, "Maximal 10 Gangster!"),

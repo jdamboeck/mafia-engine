@@ -10,5 +10,5 @@ enemies:
   count: 10           # gz(0)=10 — :23025
   weapon: 7           # w=7, maschinenpistole — :23025
   vitality: 50        # e=50 — :23025
-  name: eskorte       # bn$(0)="eskorte" — :23025
+  name: Eskorte       # bn$(0)="eskorte" — :23025
 grid: kgtp            # kf$="kgtp" — :23025

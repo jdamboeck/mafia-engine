@@ -8,5 +8,5 @@ enemies:
   count: 1
   weapon: 1           # messer — :25135
   vitality: 10        # e=10 — :25135
-  name: spieler
+  name: Spieler
 grid: kp

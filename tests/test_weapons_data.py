@@ -29,6 +29,7 @@ import yaml
 from data.game_configs.mafia_1920s.setup import load_weapons, weapon_stats_by_id
 from engine.types import ConfigValidationError, WeaponInstance, validate_weapon
 from tests.helpers import load_source
+from tests.text_fold import fold
 
 _WEAPONS_YAML = (
     Path(__file__).resolve().parents[1]
@@ -47,16 +48,16 @@ def weapons():
 
 def test_loader_returns_nine_weapons_indexed_0_to_8(weapons):
     assert len(weapons) == 9
-    assert weapons[0]["name"] == "haende"
+    assert weapons[0]["name"] == "Hände"
     assert weapons[0]["price"] == 0
-    assert weapons[8]["name"] == "handgranaten"
+    assert weapons[8]["name"] == "Handgranaten"
     assert weapons[8]["price"] == 10000
 
 
 def test_field_values_match_source_table(weapons):
     # Ports mf-prg.bas:50100-50115 verbatim. Spot-check the accuracy/damage columns.
     revolver = weapons[5]
-    assert revolver["name"] == "revolver"
+    assert revolver["name"] == "Revolver"
     assert revolver["price"] == 4000
     assert revolver["ts"] == 5  # accuracy
     assert revolver["tg"] == 10  # damage
@@ -70,7 +71,7 @@ def test_field_values_match_source_table(weapons):
     # A full-row check on messer (index 1): name/price/ts/tg/ws = messer/50/3/5/0.
     messer = weapons[1]
     assert (messer["name"], messer["price"], messer["ts"], messer["tg"], messer["ws"]) == (
-        "messer",
+        "Messer",
         50,
         3,
         5,
@@ -160,7 +161,7 @@ def test_range_attribute_reproduces_the_source_ladder(weapons, weapon_id):
 
 def test_grenades_carry_the_ranged_reach_not_the_heavy_one(weapons):
     # Named guard for the widening edge: id 8 is >3 (so 15) but is neither 6 nor 7.
-    assert weapons[8]["name"] == "handgranaten"
+    assert weapons[8]["name"] == "Handgranaten"
     assert weapons[8]["range"] == 15
 
 
@@ -257,10 +258,12 @@ def test_weapon_read_quotes_are_verbatim(line: int, text: str) -> None:
 
 
 def test_weapon_index_is_the_order_121_reads_the_data(weapons):
-    """Every weapons.yaml row, by index, is the record :121 reads into that index."""
-    table = [(w["name"], w["price"], w["ts"], w["tg"], w["ws"]) for w in weapons]
-    assert table == _read_weapon_records()
-    assert table[0][0] == "haende" and table[8][0] == "handgranaten"
+    """Every weapons.yaml row, by index, is the record :121 reads into that index: its
+    name is the DATA name in today's spelling (the two fold alike, tests/text_fold.py),
+    its price and stats are the DATA numbers exactly."""
+    table = [(fold(w["name"]), w["price"], w["ts"], w["tg"], w["ws"]) for w in weapons]
+    assert table == [(fold(name), *stats) for name, *stats in _read_weapon_records()]
+    assert weapons[0]["name"] == "Hände" and weapons[8]["name"] == "Handgranaten"
 
 
 def test_weapon_prices_strictly_ascend_with_the_index(weapons):

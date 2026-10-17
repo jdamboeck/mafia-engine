@@ -8,5 +8,5 @@ enemies:
   count: 1
   weapon: 0           # haende (unarmed) — :25210
   vitality: 20        # e=20 — :25210
-  name: opfer
+  name: Opfer
 grid: km

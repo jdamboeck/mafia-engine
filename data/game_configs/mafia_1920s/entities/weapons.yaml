@@ -37,12 +37,12 @@
 # Order is significant: list index == in-game weapon index (0..8).
 weapons:
   # idx  name                price   ts  tg   range ws  requires
-  - {name: "haende",           price: 0,     ts: 2, tg: 2,  range:  2, ws: 1,  requires: {}}                                   # 0 — bare hands, unarmed
-  - {name: "messer",           price: 50,    ts: 3, tg: 5,  range:  2, ws: 0,  requires: {}}                                   # 1
-  - {name: "knueppel",         price: 100,   ts: 4, tg: 3,  range:  2, ws: 1,  requires: {kraft: 20}}                          # 2 — x in {2,3}: kraft
-  - {name: "schlagkette",      price: 500,   ts: 4, tg: 4,  range:  2, ws: 4,  requires: {kraft: 20, brutalitaet: 40}}         # 3 — x=3: kraft + brut
-  - {name: "wurfsterne",       price: 3000,  ts: 2, tg: 7,  range: 15, ws: 0,  requires: {}}                                   # 4
-  - {name: "revolver",         price: 4000,  ts: 5, tg: 10, range: 15, ws: 2,  requires: {}}                                   # 5
-  - {name: "gewehr",           price: 4500,  ts: 5, tg: 12, range: 20, ws: 2,  requires: {intelligenz: 40}}                    # 6 — x>5: int
-  - {name: "maschinenpistole", price: 8000,  ts: 6, tg: 15, range: 20, ws: 10, requires: {intelligenz: 40}}                    # 7 — x>5: int
-  - {name: "handgranaten",     price: 10000, ts: 7, tg: 18, range: 15, ws: 3,  requires: {intelligenz: 40, brutalitaet: 40}}  # 8 — x>5 & x>6: int + brut
+  - {name: "Hände",            price: 0,     ts: 2, tg: 2,  range:  2, ws: 1,  requires: {}}                                   # 0 — bare hands, unarmed
+  - {name: "Messer",           price: 50,    ts: 3, tg: 5,  range:  2, ws: 0,  requires: {}}                                   # 1
+  - {name: "Knüppel",          price: 100,   ts: 4, tg: 3,  range:  2, ws: 1,  requires: {kraft: 20}}                          # 2 — x in {2,3}: kraft
+  - {name: "Schlagkette",      price: 500,   ts: 4, tg: 4,  range:  2, ws: 4,  requires: {kraft: 20, brutalitaet: 40}}         # 3 — x=3: kraft + brut
+  - {name: "Wurfsterne",       price: 3000,  ts: 2, tg: 7,  range: 15, ws: 0,  requires: {}}                                   # 4
+  - {name: "Revolver",         price: 4000,  ts: 5, tg: 10, range: 15, ws: 2,  requires: {}}                                   # 5
+  - {name: "Gewehr",           price: 4500,  ts: 5, tg: 12, range: 20, ws: 2,  requires: {intelligenz: 40}}                    # 6 — x>5: int
+  - {name: "Maschinenpistole", price: 8000,  ts: 6, tg: 15, range: 20, ws: 10, requires: {intelligenz: 40}}                    # 7 — x>5: int
+  - {name: "Handgranaten",     price: 10000, ts: 7, tg: 18, range: 15, ws: 3,  requires: {intelligenz: 40, brutalitaet: 40}}  # 8 — x>5 & x>6: int + brut

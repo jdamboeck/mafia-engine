@@ -394,7 +394,7 @@ def test_female_candidate_hires_identically_to_male():
     rng = _StubRng(1, 3)
     result = run_pure(HANDLERS["pub.recruit"], _scripted(True), state=st, rng=rng)
     assert result.state.players[0].roster[1] == _gangster(3)
-    assert result.state.players[0].roster[1].name == "bloody mary"
+    assert result.state.players[0].roster[1].name == "Bloody Mary"
 
 
 @pytest.mark.parametrize(
@@ -414,6 +414,19 @@ def test_the_offer_s_pronoun_is_cased_by_its_place_in_the_sentence(candidate_id,
     assert text.startswith(f"{start} wird ")
     assert f". {start} verlangt " in text
     assert text.endswith(f", wenn {mid} sich dir anschließen soll.")
+
+
+def test_the_offer_shows_the_candidate_s_name_and_description_in_today_s_spelling():
+    """:12131 prints the candidate's ``gn$`` inside the sentence and his ``x$`` as the
+    next sentence: Killer-Jack's name and description read in today's spelling, the
+    description opening its sentence with a capital."""
+    source = _scripted(False)
+    run_pure(HANDLERS["pub.recruit"], source, state=_state(), rng=_StubRng(1, 0))
+    (offer,) = [m for m in source.messages() if m.key == "locations.pub.recruit_offer"]
+    text = classic_resolver().resolve(offer.key, offer.params)
+    assert text.startswith(
+        "Er wird Killer-Jack genannt. Ein verschlagener Typ in schäbigen Klamotten. "
+    )
 
 
 # --------------------------------------------------------------------------- #

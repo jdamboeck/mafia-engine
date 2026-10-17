@@ -602,10 +602,10 @@ def test_the_jailed_players_board_is_announced(monkeypatch, tmp_path):
     assert "Spieler moran\nist an der Reihe..." in boards[0], "moran's board was not announced"
     # KTD-6: the outcome screen's wait (:30520) and the lost brawl's (:27150) are
     # moran's, each announced once, under the outcome lines.
-    (outcome,) = [s for s in output.split(CLEAR) if "Sieger: mr.bonebreaker" in s]
-    outcome = outcome[outcome.index("Sieger: mr.bonebreaker") :]
+    (outcome,) = [s for s in output.split(CLEAR) if "Sieger: Mr.Bonebreaker" in s]
+    outcome = outcome[outcome.index("Sieger: Mr.Bonebreaker") :]
     assert outcome.count("Spieler moran\nist an der Reihe...") == 2
-    assert outcome.index("Spieler moran") > outcome.index("mr.bonebreaker: 0")
+    assert outcome.index("Spieler moran") > outcome.index("Mr.Bonebreaker: 0")
     assert after.players[_ATTACKER].ka == 6000 - 3000
 
 

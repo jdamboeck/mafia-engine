@@ -159,8 +159,8 @@ def test_the_classic_theme_prints_each_sgl_line_as_the_source():
             "Du hast Kleinholz aus dem Laden gemacht. In der Kasse waren 342 $!",
         ),
         "locations.sgl.owner_arms": (
-            {"weapon": "maschinenpistole"},
-            "Er verspricht dir einen schönen Grabstein und lädt seine maschinenpistole!",
+            {"weapon": "Maschinenpistole"},
+            "Er verspricht dir einen schönen Grabstein und lädt seine Maschinenpistole!",
         ),
         "locations.sgl.owner_dead": (
             {"p": 250},

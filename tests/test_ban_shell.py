@@ -98,7 +98,7 @@ def test_the_ban_runs_reach_every_ban_string_and_the_borrowed_screen():
 def test_the_classic_theme_prints_each_ban_line_as_the_source():
     resolver = Resolver.from_config(_CONFIG_DIR, theme="classic")
     cases = {
-        "locations.ban.rank_too_low": ({"rank": "kleiner fisch"}, "Werde erst 'kleiner fisch'!"),
+        "locations.ban.rank_too_low": ({"rank": "Kleiner Fisch"}, "Werde erst 'Kleiner Fisch'!"),
         "locations.ban.alone": ({}, "Du brauchst einen Begleiter!"),
         "locations.ban.guards": ({}, "Leider hast du die drei Wachmänner am Eingang übersehen..."),
         "locations.ban.loot": ({"p": 5234}, "Du hast es geschafft! Deine Beute beträgt 5234 $!"),

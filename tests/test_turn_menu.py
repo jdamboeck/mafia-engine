@@ -38,7 +38,7 @@ from engine.interactions import (
 from engine.persistence import load_game, save_game
 from engine.rng import Rng
 from engine.turns import MENU, QUIT, TURN_OVER_SCREEN, TURN_START, WALKING, TurnRunner
-from tests.helpers import NEW_GAME_ACKS, SOLO, deadline
+from tests.helpers import NEW_GAME_ACKS, SOLO, classic_resolver, deadline
 
 _CONFIG = load_game_config(CONFIG_DIR)
 _VEHICLES = _CONFIG.module.load_vehicles(CONFIG_DIR / _CONFIG.config["entities"]["vehicles"])
@@ -316,8 +316,8 @@ def test_the_overview_shows_the_players_state_and_both_marks(monkeypatch, tmp_pa
     # :1200-1225
     assert "Übersicht für alcapone:" in summary
     assert "Punkte:  12.5 " in summary  # :1209 "punkte: "gf(sp): its space and PRINT's
-    assert "Rang: schlaeger" in summary
-    assert "Transportmittel: fuesse  17 s" in summary  # :1215 " "ms"s"
+    assert "Rang: Schläger" in summary
+    assert "Transportmittel: Füße  17 s" in summary  # :1215 " "ms"s"
     assert "Alkohol: 3 Fässer" in summary
     assert "Gegenstände: Papiere,Falschgeld" in summary  # :1221-1222, ag$ at :50600
     assert "Schmiergelder: 2 Mon." in summary
@@ -326,7 +326,7 @@ def test_the_overview_shows_the_players_state_and_both_marks(monkeypatch, tmp_pa
     assert "Gangster:" in gang
     assert boss.name in gang and "bugs" in gang
     assert "e05 k41 i07 b12" in gang
-    assert "w:revolver" in gang
+    assert "w:Revolver" in gang
     # :1045 back to the menu, nothing spent.
     assert "Was willst du tun:" in screens[5]
 
@@ -341,6 +341,18 @@ def test_the_overview_shows_no_items_line_without_marks():
     assert not any("items" in key for key in keys), keys  # :1220 ifag(sp)=0goto1225
     assert isinstance(seen[-1], TurnMenu)
     assert runner.state.players[0] == state.players[0]
+
+
+def test_a_new_game_s_overview_names_the_starting_rank_and_vehicle():
+    """:1210 ``ra$(ra(sp))`` and :1215 ``tm$(tm(sp))`` of a fresh player: rank 1 and
+    vehicle 0 (``config.yaml`` ``start_rank``/``start_vehicle``), in today's spelling."""
+    state = replace(_new_game(), clock=replace(_new_game().clock, turn_phase=MENU))
+    seen, _ = _script(_runner(state).run(), ["1"])
+    (summary, *_) = [i for i in seen if isinstance(i, Acknowledge)]
+    resolver = classic_resolver()
+    lines = [resolver.resolve(key, params) for key, params in summary.params["lines"]]
+    assert "Rang: Anfänger" in lines
+    assert "Transportmittel: Füße  25 s" in lines
 
 
 def test_the_gang_page_waits_after_each_gangster_then_once_more():

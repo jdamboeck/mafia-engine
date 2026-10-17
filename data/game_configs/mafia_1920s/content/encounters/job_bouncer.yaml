@@ -13,12 +13,12 @@ variants:
   - count: 1
     weapon: 0         # haende (fists) — :25040
     vitality: 30
-    name: wurstfinger-fred
+    name: Wurstfinger-Fred
   - count: 1
     weapon: 1         # messer — :25041
     vitality: 20
-    name: affenface-alf
+    name: Affenface-Alf
   - count: 1
     weapon: 3         # schlagkette — :25042
     vitality: 20
-    name: der schlachter
+    name: Der Schlachter

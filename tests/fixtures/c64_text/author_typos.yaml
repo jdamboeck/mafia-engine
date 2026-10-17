@@ -36,3 +36,7 @@ author_typos:
     new: "dich, du"
     keys: [police.flight_failed]
     reason: "the comma between the two clauses the C64 printed on separate rows"
+  - source: "geheinisvoller"
+    new: "geheimnisvoller"
+    keys: [entities.gangsters.25.description]
+    reason: "the m of Geheimnis dropped"

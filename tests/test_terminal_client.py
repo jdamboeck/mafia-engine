@@ -930,7 +930,7 @@ class TestWatchAi:
         assert "Der Kampf beginnt..." in boards[0]
         assert all("Der Kampf beginnt..." not in board for board in boards[1:])
         # :25035-25042: seed 5's bouncer shift draws one of the three brawlers.
-        brawlers = ("wurstfinger-fred", "affenface-alf", "der schlachter")
+        brawlers = ("Wurstfinger-Fred", "Affenface-Alf", "Der Schlachter")
         rows = {f"{SOLO[0][1]:<20}{name}" for name in brawlers}
         for board in boards:
             assert rows & set(_plain(board).split("\n")), board

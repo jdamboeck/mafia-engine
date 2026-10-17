@@ -723,7 +723,7 @@ class TestPubRecruitThroughClient:
         assert result.status == "completed"
         assert result.state.players[0].ka == 97000  # 100000 - 3000$ price
         assert len(result.state.players[0].roster) == 2  # boss + killer-jack
-        assert result.state.players[0].roster[1].name == "killer-jack"
+        assert result.state.players[0].roster[1].name == "Killer-Jack"
         assert result.state.players[0].roster[1].vitality == 5
         assert game.hired_ids(result.state) == (0,)
         # The Confirm prompt genuinely reached the real TerminalInput wire.
@@ -2885,7 +2885,7 @@ class TestOneKeyNumberMenus:
     def test_the_car_dealer_takes_the_model_on_one_key(self, monkeypatch):
         """``:14020 getx$``: ``21`` is the key 2, the chevy roadster for 4000 $."""
         output = self._showroom(monkeypatch, "21", "q")
-        assert output.count("2 chevy roadster") == 1, "the models were shown again"
+        assert output.count("2 Chevy Roadster") == 1, "the models were shown again"
         assert "cash 1500$" in output.lower(), "the chevy (4000 $) was not bought from 5500 $"
 
     def test_the_showroom_prints_its_key_line_once(self, monkeypatch):
@@ -2897,7 +2897,7 @@ class TestOneKeyNumberMenus:
     def test_return_leaves_the_showroom(self, monkeypatch):
         """``:14025 y=val(x$):ify=0thenpokev+21,0:return``: RETURN is val 0 and leaves."""
         output = self._showroom(monkeypatch, "", "q")
-        after = output.split("3 buick century")[1]
+        after = output.split("3 Buick Century")[1]
         assert after.count("Nummerntaste (0=Ende) drücken!") <= 1, "RETURN was asked again"
         assert "move: W/A/S/D" in after, "RETURN did not leave for the map"
         assert "cash 5500$" in after.lower(), "RETURN bought a car"

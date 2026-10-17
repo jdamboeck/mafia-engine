@@ -9,5 +9,5 @@ enemies:
   count: 3              # gz(0)=3 — :19030
   weapon: 7             # w=7, maschinenpistole — :19030
   vitality: 30          # e=30 — :19030
-  name: wachen          # bn$(0)="wachen" — :19030
+  name: Wachen          # bn$(0)="wachen" — :19030
 grid: kpzug             # kf$="kpzug" — :19030

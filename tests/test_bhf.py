@@ -190,7 +190,7 @@ def test_the_guards_are_three_wachen_with_maschinenpistolen_on_kpzug():
     assert start is not None
     scenario = start.scenario
     assert scenario is not None and scenario.sides is not None
-    assert [(f.name, f.weapon, f.vitality) for f in scenario.sides[1]] == [("wachen", 7, 30)] * 3
+    assert [(f.name, f.weapon, f.vitality) for f in scenario.sides[1]] == [("Wachen", 7, 30)] * 3
     assert scenario.grid == load_combat_backdrop(_CONFIG_DIR / "content" / "combat" / "kpzug.yaml")
 
 

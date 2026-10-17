@@ -205,7 +205,7 @@ def test_the_fourth_model_shows_only_on_tile_2(ln, models):
     (:14030)."""
     result, source = _run("aut.buy", _state(last_location=ln), answers=(0,))
     shown = [m.params for m in source.messages() if m.key == "locations.aut.model"]
-    names = ["talbot 90", "chevy roadster", "buick century", "auburn mod.120"]
+    names = ["Talbot 90", "Chevy Roadster", "Buick Century", "Auburn Mod.120"]
     assert shown == [
         {"number": n, "name": names[n - 1], "price": 3000 + 1000 * (n - 1)}
         for n in range(1, models + 1)
@@ -438,7 +438,7 @@ def test_the_picker_lists_each_gangster_numbered_from_1():
             "kraft": 30,
             "intelligenz": 40,
             "brutalitaet": 30,
-            "weapon": "haende",
+            "weapon": "Hände",
         },
         {
             "index": 2,
@@ -447,7 +447,7 @@ def test_the_picker_lists_each_gangster_numbered_from_1():
             "kraft": 12,
             "intelligenz": 3,
             "brutalitaet": 0,
-            "weapon": "revolver",
+            "weapon": "Revolver",
         },
     ]
 

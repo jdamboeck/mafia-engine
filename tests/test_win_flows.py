@@ -290,7 +290,7 @@ def test_the_escort_is_the_source_fight():
     """``:23025 bn$(0)="eskorte":gz(0)=10:e=50:w=7:kf$="kgtp"``."""
     escort = load_encounter(CONFIG_DIR / "content" / "encounters" / "win_escort.yaml")
     (spec,) = escort.variants
-    assert (spec.name, spec.count, spec.vitality, spec.weapon) == ("eskorte", 10, 50, 7)
+    assert (spec.name, spec.count, spec.vitality, spec.weapon) == ("Eskorte", 10, 50, 7)
     assert escort.grid == "kgtp"
 
 

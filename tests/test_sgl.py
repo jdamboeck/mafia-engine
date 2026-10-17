@@ -383,7 +383,7 @@ def test_a_won_owner_fight_pays_his_pockets():
         "sob_story", st, answers=(_KILL, ("shoot", STEP_RIGHT)), draws=(0, 0, 1, 10, 0, 50)
     )
     (arms,) = [m for m in source.messages() if m.key == "locations.sgl.owner_arms"]
-    assert arms.params == {"weapon": "maschinenpistole"}
+    assert arms.params == {"weapon": "Maschinenpistole"}
     assert result.effects == [_score(2), MoneyChange(100), _score(1), MoneyChange(250), _score(1)]
 
 
@@ -411,7 +411,7 @@ def test_jacks_gang_is_3_or_5_against_a_gang_of_more_than_5(gang, men):
     scenario = interaction.scenario
     assert scenario is not None and scenario.sides is not None
     assert [(f.name, f.weapon, f.vitality) for f in scenario.sides[1]] == [
-        ("jack's gang", 7, 30)
+        ("Jack's Gang", 7, 30)
     ] * men
 
 

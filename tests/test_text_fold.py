@@ -311,7 +311,7 @@ def test_the_tool_flags_a_changed_word_and_the_fold_check_fails(scratch: Path):
 
 def test_the_tool_renders_a_joined_group_together(scratch: Path):
     """A changed rank name brings every template it is a value of into one section."""
-    _edit(scratch / "data/game_configs/mafia_1920s/entities/ranks.yaml", '"ganove"', '"Ganove"')
+    _edit(scratch / "data/game_configs/mafia_1920s/entities/ranks.yaml", '"Ganove"', '"ganove"')
     report = side_by_side(scratch)
     joined = report.split("## Joined on screen", 1)[1]
     assert "- `entities.ranks.4`" in joined

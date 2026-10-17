@@ -10,5 +10,5 @@ enemies:
   count: 1              # gz(0)=1 — :24010
   weapon: 1             # w=1, messer — :24010
   vitality: 30          # e=30 — :24010
-  name: buergermeister  # bn$(0)="buergermeister" — :24010
+  name: Bürgermeister   # bn$(0)="buergermeister" — :24010
 grid: ks                # kf$="ks" — :24010

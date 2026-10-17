@@ -29,7 +29,7 @@ house_rules:
   c64_float_score: faithful
 
 player:
-  - name: hero
+  - name: Hero
     weapon: 5           # revolver (ts=5, tg=10, range=15)
     energie: 20
     kraft: 34

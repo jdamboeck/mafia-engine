@@ -195,25 +195,25 @@ def test_the_weapon_list_shows_each_offered_weapon_with_its_price():
     assert _list_screen(_state(ln=2), _StubRng()) == [
         "OK, wir haben Folgendes:",
         "",
-        "1 - messer 50 $",
-        "2 - knueppel 100 $",
-        "3 - schlagkette 500 $",
-        "4 - wurfsterne 3000 $",
-        "5 - revolver 4000 $",
+        "1 - Messer 50 $",
+        "2 - Knüppel 100 $",
+        "3 - Schlagkette 500 $",
+        "4 - Wurfsterne 3000 $",
+        "5 - Revolver 4000 $",
     ]
-    assert _list_screen(_state(ln=3), _StubRng())[-1] == "4 - wurfsterne 3000 $"
+    assert _list_screen(_state(ln=3), _StubRng())[-1] == "4 - Wurfsterne 3000 $"
     # :13011 a=3:b=7 on tile 1; the grenade news (:13090) prints after :13010's
     # heading and before the list, which then runs to b=8.
     rows = _list_screen(_state(ln=1, rank=6), _StubRng(0))
     assert rows[:2] == ["OK, wir haben Folgendes:", ""]
     assert rows[2].startswith("...brandheiß!")
     assert rows[-6:] == [
-        "3 - schlagkette 500 $",
-        "4 - wurfsterne 3000 $",
-        "5 - revolver 4000 $",
-        "6 - gewehr 4500 $",
-        "7 - maschinenpistole 8000 $",
-        "8 - handgranaten 10000 $",
+        "3 - Schlagkette 500 $",
+        "4 - Wurfsterne 3000 $",
+        "5 - Revolver 4000 $",
+        "6 - Gewehr 4500 $",
+        "7 - Maschinenpistole 8000 $",
+        "8 - Handgranaten 10000 $",
     ]
 
 
@@ -674,15 +674,15 @@ def test_cancel_at_gangster_pick_commits_nothing():
 #: ``"brutal","erschreckend!"``. Worked by hand from the (ts, tg) pairs of :50100-50115
 #: (no weapon has ts < 2, so none reaches the never-assigned ts$(0)).
 _SPEC_LABELS = {
-    "haende": ("mies", "lächerlich"),  # ts 2 -> 1, tg 2 -> 1
-    "messer": ("mies", "mäßig"),  # ts 3 -> 1, tg 5 -> 2
-    "knueppel": ("ganz gut", "lächerlich"),  # ts 4 -> 2, tg 3 -> 1
-    "schlagkette": ("ganz gut", "mäßig"),  # ts 4 -> 2, tg 4 -> 2
-    "wurfsterne": ("mies", "mäßig"),  # ts 2 -> 1, tg 7 -> 2
-    "revolver": ("ganz gut", "schlimm!"),  # ts 5 -> 2, tg 10 -> 3
-    "gewehr": ("ganz gut", "brutal"),  # ts 5 -> 2, tg 12 -> 4
-    "maschinenpistole": ("todsicher", "brutal"),  # ts 6 -> 3, tg 15 -> 4
-    "handgranaten": ("todsicher", "erschreckend!"),  # ts 7 -> 3, tg 18 -> 5
+    "Hände": ("mies", "lächerlich"),  # ts 2 -> 1, tg 2 -> 1
+    "Messer": ("mies", "mäßig"),  # ts 3 -> 1, tg 5 -> 2
+    "Knüppel": ("ganz gut", "lächerlich"),  # ts 4 -> 2, tg 3 -> 1
+    "Schlagkette": ("ganz gut", "mäßig"),  # ts 4 -> 2, tg 4 -> 2
+    "Wurfsterne": ("mies", "mäßig"),  # ts 2 -> 1, tg 7 -> 2
+    "Revolver": ("ganz gut", "schlimm!"),  # ts 5 -> 2, tg 10 -> 3
+    "Gewehr": ("ganz gut", "brutal"),  # ts 5 -> 2, tg 12 -> 4
+    "Maschinenpistole": ("todsicher", "brutal"),  # ts 6 -> 3, tg 15 -> 4
+    "Handgranaten": ("todsicher", "erschreckend!"),  # ts 7 -> 3, tg 18 -> 5
 }
 
 

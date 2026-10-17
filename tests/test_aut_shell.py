@@ -93,8 +93,8 @@ def test_the_classic_theme_prints_each_aut_line_as_the_source():
             " Nummerntaste (0=Ende) drücken!",
         ),
         "locations.aut.model": (
-            {"number": 4, "name": "auburn mod.120", "price": 6000},
-            "4 auburn mod.120\n 6000 $",
+            {"number": 4, "name": "Auburn Mod.120", "price": 6000},
+            "4 Auburn Mod.120\n 6000 $",
         ),
         "locations.aut.model_prompt": ({}, ""),
         "system.not_enough_money": ({}, "Du hast zu wenig Kies!"),
@@ -128,9 +128,9 @@ def test_the_classic_theme_prints_each_aut_line_as_the_source():
                 "kraft": 12,
                 "intelligenz": 30,
                 "brutalitaet": 5,
-                "weapon": "revolver",
+                "weapon": "Revolver",
             },
-            "2 luigi\ne09 k12 i30 b05\nw:revolver",
+            "2 luigi\ne09 k12 i30 b05\nw:Revolver",
         ),
         "turn.picker.prompt": ({}, "Nummer:"),
     }
